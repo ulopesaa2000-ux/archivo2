@@ -1,0 +1,462 @@
+// modules/catalogo/queries.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { PAGE_SIZE } from '@/lib/constants'
+import type {
+  FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros,
+  FKDescriptivas, TagResuelto, ComplementoResuelto,
+  AcabadoResuelto, VarianteResuelta, MedidaResuelta,
+  ConjuntoResuelto, CajaConDetalle, CajaContenidoMap,
+} from './types'
+import type {
+  ProductoRow, ProductoWebRow, ProductoImagenRow,
+} from '@/lib/types/tables'
+
+// ═══════════════════════════════════════════════════════════════
+// LISTADO
+// ═══════════════════════════════════════════════════════════════
+
+export async function fetchProductosCatalogo(
+  filtros: FiltrosCatalogo
+): Promise<ResultadoListado> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  // ── Catálogos en paralelo (para filtros y lookup) ─────────
+  const catalogos = await fetchCatalogosParaFiltros()
+
+  // ── Query principal ───────────────────────────────────────
+  let query = (supabase
+    .from('productos') as any)
+    .select(
+      'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, tela_ext_id',
+      { count: 'exact' }
+    )
+
+  // ── Filtro: búsqueda texto (SKU o descripción) ────────────
+  if (filtros.q) {
+    const term = `%${filtros.q}%`
+    query = query.or(`sku_base.ilike.${term},descripcion.ilike.${term}`)
+  }
+
+  // ── Filtro: estado ────────────────────────────────────────
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado)
+  }
+
+  // ── Filtro: marca ─────────────────────────────────────────
+  if (filtros.marca_id) {
+    query = query.eq('marca_id', filtros.marca_id)
+  }
+
+  // ── Filtro: género ────────────────────────────────────────
+  if (filtros.genero_id) {
+    query = query.eq('genero_id', filtros.genero_id)
+  }
+
+  // ── Filtro: destacados ────────────────────────────────────
+  // Checkbox OFF (default): sin filtro, muestra todos
+  // Checkbox ON: solo productos con destacado = true
+  if (filtros.destacados === true) {
+    query = query.eq('destacado', true)
+  }
+
+  // ── Filtro: activos / incluir no activos ──────────────────
+  // Checkbox OFF (default): solo activo = true
+  // Checkbox ON: sin filtro de activo (muestra todos)
+  if (filtros.incluir_inactivos !== true) {
+    query = query.eq('activo', true)
+  }
+
+  // ── Ordenamiento y paginación ─────────────────────────────
+  query = query
+    .order('id', { ascending: false })
+    .range(from, to)
+
+  const { data, count, error } = await query
+
+  if (error) {
+    console.error('Error fetchProductosCatalogo:', error)
+    return { productos: [], total: 0, catalogos }
+  }
+
+  return {
+    productos: data ?? [],
+    total: count ?? 0,
+    catalogos,
+  }
+}
+
+export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros> {
+  const supabase = await createClient()
+
+  const [marcasRes, generosRes, telasRes] = await Promise.all([
+    (supabase
+      .from('cat_marcas') as any)
+      .select('id, nombre')
+      .eq('activo', true)
+      .order('nombre'),
+    (supabase
+      .from('cat_generos') as any)
+      .select('id, nombre')
+      .eq('activo', true)
+      .order('nombre'),
+    (supabase
+      .from('cat_telas') as any)
+      .select('id, nombre')
+      .order('nombre'),
+  ])
+
+  return {
+    marcas: marcasRes.data ?? [],
+    generos: generosRes.data ?? [],
+    telas: telasRes.data ?? [],
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DETALLE
+// ═══════════════════════════════════════════════════════════════
+
+export async function fetchProductoPorId(
+  id: number
+): Promise<ProductoRow | null> {
+  const supabase = await createClient()
+  const { data, error } = await (supabase
+    .from('productos') as any)
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error || !data) return null
+  return data
+}
+
+export async function fetchFKDescriptivas(
+  producto: ProductoRow
+): Promise<FKDescriptivas> {
+  const supabase = await createClient()
+
+  const [marca, genero, edad, tipo_prenda, tela_forro, tela_ext, persona] =
+    await Promise.all([
+      producto.marca_id
+        ? (supabase.from('cat_marcas') as any).select('nombre').eq('id', producto.marca_id).single()
+        : { data: null },
+      producto.genero_id
+        ? (supabase.from('cat_generos') as any).select('nombre').eq('id', producto.genero_id).single()
+        : { data: null },
+      producto.edad_id
+        ? (supabase.from('cat_edades') as any).select('rango').eq('id', producto.edad_id).single()
+        : { data: null },
+      producto.tipo_prenda_id
+        ? (supabase.from('cat_tipo_prenda') as any).select('nombre').eq('id', producto.tipo_prenda_id).single()
+        : { data: null },
+      producto.tela_forro_id
+        ? (supabase.from('cat_telas') as any).select('nombre').eq('id', producto.tela_forro_id).single()
+        : { data: null },
+      producto.tela_ext_id
+        ? (supabase.from('cat_telas') as any).select('nombre').eq('id', producto.tela_ext_id).single()
+        : { data: null },
+      producto.persona_id
+        ? (supabase.from('personas') as any).select('nombre_completo').eq('id', producto.persona_id).single()
+        : { data: null },
+    ])
+
+  return {
+    marca: marca.data?.nombre ?? null,
+    genero: genero.data?.nombre ?? null,
+    edad: edad.data?.rango ?? null,
+    tipo_prenda: tipo_prenda.data?.nombre ?? null,
+    tela_forro: tela_forro.data?.nombre ?? null,
+    tela_exterior: tela_ext.data?.nombre ?? null,
+    persona: persona.data?.nombre_completo ?? null,
+  }
+}
+
+export async function fetchProductoWeb(
+  productoId: number
+): Promise<ProductoWebRow | null> {
+  const supabase = await createClient()
+  const { data } = await (supabase
+    .from('productos_web') as any)
+    .select('*')
+    .eq('producto_id', productoId)
+    .single()
+  return data
+}
+
+export async function fetchImagenesProducto(
+  productoId: number
+): Promise<ProductoImagenRow[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase
+    .from('producto_imagenes') as any)
+    .select('*')
+    .eq('producto_id', productoId)
+    .order('es_principal', { ascending: false })
+    .order('orden')
+  return data ?? []
+}
+
+export async function fetchCajasProducto(
+  productoId: number
+): Promise<CajaConDetalle[]> {
+  const supabase = await createClient()
+
+  const { data: cajas } = await (supabase
+    .from('cajas_producto') as any)
+    .select('*')
+    .eq('producto_id', productoId)
+    .or('activo.is.null,activo.eq.true')
+    .order('codigo_caja')
+
+  if (!cajas || cajas.length === 0) return []
+
+  const cajasConDetalle: CajaConDetalle[] = []
+
+  for (const caja of cajas) {
+    const { data: detalles } = await (supabase
+      .from('caja_detalles') as any)
+      .select(`
+        *,
+        talla:cat_tallas!caja_detalles_talla_id_fkey ( codigo, nombre ),
+        color:cat_colores!caja_detalles_color_id_fkey ( nombre, hex_code )
+      `)
+      .eq('caja_id', caja.id)
+
+    const detallesResueltos = (detalles ?? []).map((d: any) => ({
+      ...d,
+      talla_codigo: d.talla?.codigo ?? null,
+      talla_nombre: d.talla?.nombre ?? null,
+      color_nombre: d.color?.nombre ?? null,
+      color_hex: d.color?.hex_code ?? null,
+    }))
+
+    const contenidoMap = buildCajaContenidoMap(detallesResueltos)
+
+    cajasConDetalle.push({
+      ...caja,
+      detalles: detallesResueltos,
+      contenidoMap,
+    })
+  }
+
+  return cajasConDetalle
+}
+
+function buildCajaContenidoMap(
+  detalles: CajaConDetalle['detalles']
+): CajaContenidoMap | null {
+  if (detalles.length === 0) return null
+
+  const tallasSet = new Set<string>()
+  const coloresSet = new Set<string>()
+  const matriz: Record<string, Record<string, number>> = {}
+  let totalPiezas = 0
+
+  for (const d of detalles) {
+    const talla = d.talla_codigo ?? '—'
+    const color = d.color_nombre ?? '—'
+    const cantidad = d.cantidad ?? 0
+
+    tallasSet.add(talla)
+    coloresSet.add(color)
+
+    if (!matriz[color]) matriz[color] = {}
+    matriz[color][talla] = (matriz[color][talla] ?? 0) + cantidad
+    totalPiezas += cantidad
+  }
+
+  return {
+    tallas: Array.from(tallasSet),
+    colores: Array.from(coloresSet),
+    matriz,
+    totalPiezas,
+  }
+}
+
+export async function fetchTagsProducto(
+  productoId: number
+): Promise<TagResuelto[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('producto_tags') as any).select(`
+      id,
+      valor_texto,
+      tipo_tag:tipo_tag!producto_tags_tipo_tag_id_fkey ( nombre, codigo ),
+      ref_tag:ref_tag!producto_tags_ref_tag_id_fkey ( nombre, codigo )
+    `)
+    .eq('producto_id', productoId)
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    tipo_tag_nombre: d.tipo_tag?.nombre ?? null,
+    tipo_tag_codigo: d.tipo_tag?.codigo ?? null,
+    ref_tag_nombre: d.ref_tag?.nombre ?? null,
+    ref_tag_codigo: d.ref_tag?.codigo ?? null,
+    valor_texto: d.valor_texto,
+  }))
+}
+
+export async function fetchComplementosProducto(
+  productoId: number
+): Promise<ComplementoResuelto[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('complemento_producto') as any).select(`
+      id, descripcion_adicional,
+      parte:parte_prenda_comp!complemento_producto_parte_prenda_id_fkey ( nombre ),
+      tipo:tipo_comp!complemento_producto_tipo_comp_id_fkey ( nombre ),
+      material:cat_telas!complemento_producto_material_id_fkey ( nombre ),
+      corte:corte_forma_comp!complemento_producto_corte_forma_id_fkey ( nombre )
+    `)
+    .eq('producto_id', productoId)
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    parte_prenda: d.parte?.nombre ?? null,
+    tipo_complemento: d.tipo?.nombre ?? null,
+    material: d.material?.nombre ?? null,
+    corte_forma: d.corte?.nombre ?? null,
+    descripcion_adicional: d.descripcion_adicional,
+  }))
+}
+
+export async function fetchAcabadosProducto(
+  productoId: number
+): Promise<AcabadoResuelto[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('acabado_producto') as any).select(`
+      id,
+      tipo:tipo_acabado!acabado_producto_tipo_acabado_id_fkey ( nombre ),
+      detalle:detalle_acabado!acabado_producto_detalle_acabado_id_fkey ( nombre ),
+      patron:patron_acabado!acabado_producto_patron_acabado_id_fkey ( estampado_patron ),
+      localizacion:localizacion_acabado!acabado_producto_localizacion_id_fkey ( nombre )
+    `)
+    .eq('producto_id', productoId)
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    tipo_acabado: d.tipo?.nombre ?? null,
+    detalle: d.detalle?.nombre ?? null,
+    patron: d.patron?.estampado_patron ?? null,
+    localizacion: d.localizacion?.nombre ?? null,
+  }))
+}
+
+export async function fetchVariantesProducto(
+  productoId: number
+): Promise<VarianteResuelta[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('variantes_producto') as any).select(`
+      id, sku_completo, costo_promedio, precio_venta, activo,
+      talla:cat_tallas!variantes_producto_talla_id_fkey ( codigo, nombre ),
+      color:cat_colores!variantes_producto_color_id_fkey ( nombre, hex_code )
+    `)
+    .eq('producto_id', productoId)
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    sku_completo: d.sku_completo,
+    talla_codigo: d.talla?.codigo ?? null,
+    talla_nombre: d.talla?.nombre ?? null,
+    color_nombre: d.color?.nombre ?? null,
+    color_hex: d.color?.hex_code ?? null,
+    costo_promedio: d.costo_promedio,
+    precio_venta: d.precio_venta,
+    activo: d.activo,
+  }))
+}
+
+export async function fetchMedidasProducto(
+  productoId: number
+): Promise<MedidaResuelta[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('medidas_producto') as any).select(`
+      id, medida_cm, medida_ft,
+      talla:cat_tallas!medidas_producto_talla_id_fkey ( codigo ),
+      punto:puntos_medida!medidas_producto_punto_medida_id_fkey ( punto_medida, clasificacion )
+    `)
+    .eq('producto_id', productoId)
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    talla_codigo: d.talla?.codigo ?? null,
+    punto_medida: d.punto?.punto_medida ?? null,
+    clasificacion: d.punto?.clasificacion ?? null,
+    medida_cm: d.medida_cm,
+    medida_ft: d.medida_ft,
+  }))
+}
+
+export async function fetchConjuntoProducto(
+  productoId: number
+): Promise<ConjuntoResuelto[]> {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('producto_conjunto') as any).select(`
+      id, producto_hijo_id, cantidad, es_requerido, orden,
+      hijo:productos!producto_conjunto_producto_hijo_id_fkey (
+        id, sku_base, nombre
+      )
+    `)
+    .eq('producto_padre_id', productoId)
+    .order('orden')
+
+  if (!data) return []
+
+  const resultados: ConjuntoResuelto[] = []
+
+  for (const d of data as any[]) {
+    const hijo = d.hijo
+    let imagen: string | null = null
+
+    if (hijo?.id) {
+      const { data: img } = await (supabase
+        .from('producto_imagenes') as any)
+        .select('url')
+        .eq('producto_id', hijo.id)
+        .eq('es_principal', true)
+        .limit(1)
+        .single()
+      imagen = img?.url ?? null
+    }
+
+    resultados.push({
+      id: d.id,
+      producto_hijo_id: d.producto_hijo_id,
+      hijo_sku: hijo?.sku_base ?? '—',
+      hijo_nombre: hijo?.nombre ?? null,
+      hijo_imagen: imagen,
+      cantidad: d.cantidad,
+      es_requerido: d.es_requerido,
+      orden: d.orden,
+    })
+  }
+
+  return resultados
+}
+
+export async function fetchNavegacionProducto(
+  productoId: number
+) {
+  const supabase = await createClient()
+  const { data } = await (supabase as any).rpc('fn_navegar_producto', {
+    p_producto_id: productoId,
+  })
+
+  if (!data || (Array.isArray(data) && data.length === 0)) return null
+  return Array.isArray(data) ? data[0] : data
+}
+
+export async function fetchProductoPorIdParaEdicion(
+  id: number
+): Promise<ProductoRow | null> {
+  const supabase = await createClient()
+  const { data } = await (supabase
+    .from('productos') as any)
+    .select('*')
+    .eq('id', id)
+    .single()
+  return data
+}

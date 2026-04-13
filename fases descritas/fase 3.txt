@@ -1,0 +1,1046 @@
+3.7 — Loading del Listado
+React
+
+// app/(admin)/catalogo/loading.tsx
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
+
+export default function CatalogoLoading() {
+  return <ListPageSkeleton />
+}
+3.8 — Página de Detalle con Streaming
+React
+
+// app/(admin)/catalogo/[id]/page.tsx
+import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
+import {
+  fetchProductoPorId,
+  fetchFKDescriptivas,
+  fetchNavegacionProducto,
+  fetchProductoWeb,
+  fetchImagenesProducto,
+  fetchCajasProducto,
+  fetchTagsProducto,
+  fetchComplementosProducto,
+  fetchAcabadosProducto,
+  fetchVariantesProducto,
+  fetchMedidasProducto,
+  fetchConjuntoProducto,
+} from '@/modules/catalogo/queries'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { TabSkeleton } from '@/components/admin/PageSkeleton'
+import { HeroProducto } from './components/HeroProducto'
+import { ProductoNavigation } from './components/ProductoNavigation'
+import { TabCatalogos } from './components/TabCatalogos'
+import { TabEcommerce } from './components/TabEcommerce'
+import { TabImagenes } from './components/TabImagenes'
+import { TabCajas } from './components/TabCajas'
+import { TabTags } from './components/TabTags'
+import { TabComplementos } from './components/TabComplementos'
+import { TabAcabados } from './components/TabAcabados'
+import { TabVariantes } from './components/TabVariantes'
+import { TabMedidas } from './components/TabMedidas'
+import { TabConjunto } from './components/TabConjunto'
+import { Fecha } from '@/components/shared/Fecha'
+import { Separator } from '@/components/ui/separator'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: { id: string }
+}): Promise<Metadata> {
+  const id = parseInt(params.id)
+  if (isNaN(id)) return { title: 'Producto no encontrado' }
+
+  const producto = await fetchProductoPorId(id)
+  if (!producto) return { title: 'Producto no encontrado' }
+
+  return {
+    title: `${producto.sku_base} — Catálogo`,
+  }
+}
+
+/**
+ * Detalle de producto con STREAMING.
+ * 
+ * FLUJO DE CARGA PROGRESIVA:
+ *   0ms:    loading.tsx → skeleton completo
+ *   ~50ms:  Hero se resuelve (1 query rápida) → aparece con datos
+ *   ~200ms: FK descriptivas y navegación se resuelven
+ *   ~300ms: Tabs empiezan a resolverse independientemente
+ *   ~500ms: Todos los tabs listos
+ * 
+ * Cada tab es un async Server Component en <Suspense>.
+ * Los tabs que no están activos cargan en background.
+ */
+export default async function CatalogoDetallePage({
+  params,
+}: {
+  params: { id: string }
+}) {
+  const id = parseInt(params.id)
+  if (isNaN(id)) notFound()
+
+  // ── Query rápida: producto base ───────────────────────────
+  const producto = await fetchProductoPorId(id)
+  if (!producto) notFound()
+
+  // ── Queries en paralelo para el hero ──────────────────────
+  const [fk, navegacion, imagenes] = await Promise.all([
+    fetchFKDescriptivas(producto),
+    fetchNavegacionProducto(producto.id),
+    fetchImagenesProducto(producto.id),
+  ])
+
+  const imagenPrincipal = imagenes.find((i) => i.es_principal)?.url
+    ?? imagenes[0]?.url
+    ?? null
+
+  return (
+    <div className="space-y-6">
+      {/* ── Breadcrumb + Navegación ──────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link
+            href="/catalogo"
+            className="hover:text-foreground transition-colors flex items-center gap-1"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Catálogo
+          </Link>
+          <span>/</span>
+          <span className="text-foreground font-medium font-mono">
+            {producto.sku_base}
+          </span>
+        </div>
+
+        {navegacion && (
+          <ProductoNavigation navegacion={navegacion} />
+        )}
+      </div>
+
+      {/* ── Hero del producto ────────────────────────────── */}
+      <HeroProducto
+        producto={producto}
+        fk={fk}
+        imagenPrincipal={imagenPrincipal}
+      />
+
+      {/* ── Bloque E-commerce/SEO (desplegable) ─────────── */}
+      <Suspense fallback={<TabSkeleton rows={3} />}>
+        <TabEcommerceAsync productoId={producto.id} />
+      </Suspense>
+
+      <Separator />
+
+      {/* ── Tabs de contenido ────────────────────────────── */}
+      <Tabs defaultValue="catalogos">
+        <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="catalogos">Catálogos</TabsTrigger>
+          <TabsTrigger value="imagenes">Imágenes</TabsTrigger>
+          <TabsTrigger value="cajas">Cajas</TabsTrigger>
+          <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="complementos">Complementos</TabsTrigger>
+          <TabsTrigger value="acabados">Acabados</TabsTrigger>
+          <TabsTrigger value="variantes">Variantes</TabsTrigger>
+          <TabsTrigger value="medidas">Medidas</TabsTrigger>
+          {producto.es_conjunto && (
+            <TabsTrigger value="conjunto">Conjunto</TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="catalogos">
+          <TabCatalogos fk={fk} />
+        </TabsContent>
+
+        <TabsContent value="imagenes">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabImagenesAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="cajas">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabCajasAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="tags">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabTagsAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="complementos">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabComplementosAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="acabados">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabAcabadosAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="variantes">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabVariantesAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="medidas">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabMedidasAsync productoId={producto.id} />
+          </Suspense>
+        </TabsContent>
+
+        {producto.es_conjunto && (
+          <TabsContent value="conjunto">
+            <Suspense fallback={<TabSkeleton />}>
+              <TabConjuntoAsync productoId={producto.id} />
+            </Suspense>
+          </TabsContent>
+        )}
+      </Tabs>
+
+      {/* ── Footer con fechas ────────────────────────────── */}
+      <Separator />
+      <div className="flex items-center gap-6 text-xs text-muted-foreground">
+        <span>Creado: <Fecha valor={producto.created_at} formato="fecha-hora" /></span>
+        <span>Actualizado: <Fecha valor={producto.updated_at} formato="relativo" /></span>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ASYNC WRAPPERS — Cada uno hace su propia query independiente
+// y se resuelve dentro de su propio <Suspense>
+// ═══════════════════════════════════════════════════════════════
+
+async function TabEcommerceAsync({ productoId }: { productoId: number }) {
+  const web = await fetchProductoWeb(productoId)
+  return <TabEcommerce web={web} />
+}
+
+async function TabImagenesAsync({ productoId }: { productoId: number }) {
+  const imagenes = await fetchImagenesProducto(productoId)
+  return <TabImagenes imagenes={imagenes} />
+}
+
+async function TabCajasAsync({ productoId }: { productoId: number }) {
+  const cajas = await fetchCajasProducto(productoId)
+  return <TabCajas cajas={cajas} />
+}
+
+async function TabTagsAsync({ productoId }: { productoId: number }) {
+  const tags = await fetchTagsProducto(productoId)
+  return <TabTags tags={tags} />
+}
+
+async function TabComplementosAsync({ productoId }: { productoId: number }) {
+  const complementos = await fetchComplementosProducto(productoId)
+  return <TabComplementos complementos={complementos} />
+}
+
+async function TabAcabadosAsync({ productoId }: { productoId: number }) {
+  const acabados = await fetchAcabadosProducto(productoId)
+  return <TabAcabados acabados={acabados} />
+}
+
+async function TabVariantesAsync({ productoId }: { productoId: number }) {
+  const variantes = await fetchVariantesProducto(productoId)
+  return <TabVariantes variantes={variantes} />
+}
+
+async function TabMedidasAsync({ productoId }: { productoId: number }) {
+  const medidas = await fetchMedidasProducto(productoId)
+  return <TabMedidas medidas={medidas} />
+}
+
+async function TabConjuntoAsync({ productoId }: { productoId: number }) {
+  const conjunto = await fetchConjuntoProducto(productoId)
+  return <TabConjunto conjunto={conjunto} />
+}
+3.9 — Loading del Detalle
+React
+
+// app/(admin)/catalogo/[id]/loading.tsx
+import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
+
+export default function CatalogoDetalleLoading() {
+  return <DetailPageSkeleton />
+}
+3.10 — Navegación entre Productos
+React
+
+// app/(admin)/catalogo/[id]/components/ProductoNavigation.tsx
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ADMIN_ROUTES } from '@/lib/constants'
+
+type Props = {
+  navegacion: {
+    posicion: number
+    total: number
+    id_anterior: number | null
+    sku_anterior: string | null
+    id_siguiente: number | null
+    sku_siguiente: string | null
+  }
+}
+
+/**
+ * Navegación prev/next entre productos.
+ * 
+ * fn_navegar_producto ordena alfabéticamente por sku_base.
+ * Los links usan ID para la URL (seguro con cualquier SKU).
+ * El texto muestra sku_base (legible para el usuario).
+ */
+export function ProductoNavigation({ navegacion }: Props) {
+  const { posicion, total, id_anterior, sku_anterior, id_siguiente, sku_siguiente } = navegacion
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Anterior */}
+      {id_anterior ? (
+        <Button variant="outline" size="sm" asChild>
+          <Link href={ADMIN_ROUTES.catalogo.detalle(id_anterior)}>
+            <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+            <span className="hidden sm:inline font-mono text-xs">
+              {sku_anterior}
+            </span>
+          </Link>
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" disabled>
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
+      {/* Posición */}
+      <span className="text-xs text-muted-foreground tabular-nums px-2">
+        {posicion} / {total}
+      </span>
+
+      {/* Siguiente */}
+      {id_siguiente ? (
+        <Button variant="outline" size="sm" asChild>
+          <Link href={ADMIN_ROUTES.catalogo.detalle(id_siguiente)}>
+            <span className="hidden sm:inline font-mono text-xs">
+              {sku_siguiente}
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 ml-1" />
+          </Link>
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" disabled>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  )
+}
+3.11 — Hero del Producto
+React
+
+// app/(admin)/catalogo/[id]/components/HeroProducto.tsx
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { formatCurrency } from '@/lib/utils'
+import { ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
+import { Star, Layers, Package } from 'lucide-react'
+import type { ProductoRow } from '@/lib/types/tables'
+import type { FKDescriptivas } from '@/modules/catalogo/types'
+
+type Props = {
+  producto: ProductoRow
+  fk: FKDescriptivas
+  imagenPrincipal: string | null
+}
+
+export function HeroProducto({ producto, fk, imagenPrincipal }: Props) {
+  const estadoColor = ESTADO_PRODUCTO_COLORS[producto.estado] ?? 'bg-gray-100 text-gray-800'
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* ── Imagen ─────────────────────────────────── */}
+          <div className="flex items-center justify-center bg-muted rounded-lg aspect-square overflow-hidden">
+            {imagenPrincipal ? (
+              <img
+                src={imagenPrincipal}
+                alt={producto.nombre ?? producto.sku_base}
+                className="object-contain w-full h-full"
+              />
+            ) : (
+              <Package className="h-16 w-16 text-muted-foreground/30" />
+            )}
+          </div>
+
+          {/* ── Info principal ──────────────────────────── */}
+          <div className="md:col-span-2 space-y-4">
+            {/* SKU + badges */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-xl font-bold font-mono">{producto.sku_base}</h2>
+              <Badge className={estadoColor}>{producto.estado}</Badge>
+              {!producto.activo && (
+                <Badge variant="destructive">Inactivo</Badge>
+              )}
+              {producto.destacado && (
+                <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+              )}
+              {producto.es_conjunto && (
+                <Badge variant="outline" className="gap-1">
+                  <Layers className="h-3 w-3" />
+                  Conjunto
+                </Badge>
+              )}
+            </div>
+
+            {/* Precio */}
+            <p className="text-2xl font-bold">
+              {producto.precio_ec ? formatCurrency(producto.precio_ec) : '—'}
+            </p>
+
+            {/* Descripción */}
+            <p className="text-sm text-muted-foreground">
+              {producto.descripcion ?? producto.nombre ?? 'Sin descripción'}
+            </p>
+
+            {/* Grid de atributos */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+              <AttrItem label="Marca" value={fk.marca} />
+              <AttrItem label="Género" value={fk.genero} />
+              <AttrItem label="Tipo" value={fk.tipo_prenda} />
+              <AttrItem label="Familia" value={producto.familia} />
+              <AttrItem label="Edad" value={fk.edad} />
+              <AttrItem label="Pz/Caja" value={producto.pz_en_caja?.toString()} />
+              <AttrItem label="Tela exterior" value={fk.tela_exterior} />
+              <AttrItem label="Tela forro" value={fk.tela_forro} />
+              <AttrItem label="Persona" value={fk.persona} />
+            </div>
+
+            {/* Composición */}
+            {producto.composicion && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Composición: </span>
+                <span>{producto.composicion}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AttrItem({
+  label,
+  value,
+}: {
+  label: string
+  value: string | null | undefined
+}) {
+  return (
+    <div>
+      <span className="text-muted-foreground">{label}</span>
+      <p className="font-medium">{value ?? '—'}</p>
+    </div>
+  )
+}
+3.12 — Tabs de Contenido (Todos los componentes)
+Cada tab sigue el mismo patrón: recibe datos ya resueltos y solo renderiza. Son componentes simples y rápidos. Los incluyo resumidos por espacio:
+
+React
+
+// app/(admin)/catalogo/[id]/components/TabCatalogos.tsx
+import type { FKDescriptivas } from '@/modules/catalogo/types'
+
+export function TabCatalogos({ fk }: { fk: FKDescriptivas }) {
+  const items = [
+    { label: 'Marca', value: fk.marca },
+    { label: 'Género', value: fk.genero },
+    { label: 'Edad', value: fk.edad },
+    { label: 'Tipo de Prenda', value: fk.tipo_prenda },
+    { label: 'Tela Forro', value: fk.tela_forro },
+    { label: 'Tela Exterior', value: fk.tela_exterior },
+    { label: 'Persona', value: fk.persona },
+  ]
+
+  return (
+    <div className="rounded-lg border divide-y">
+      {items.map((item) => (
+        <div key={item.label} className="flex justify-between px-4 py-3 text-sm">
+          <span className="text-muted-foreground">{item.label}</span>
+          <span className="font-medium">{item.value ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabEcommerce.tsx
+import type { ProductoWebRow } from '@/lib/types/tables'
+import { formatCurrency } from '@/lib/utils'
+import { Fecha } from '@/components/shared/Fecha'
+import { Badge } from '@/components/ui/badge'
+import { Globe } from 'lucide-react'
+
+export function TabEcommerce({ web }: { web: ProductoWebRow | null }) {
+  if (!web) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Globe className="h-4 w-4" />
+        Este producto no está publicado en la tienda web.
+      </div>
+    )
+  }
+
+  return (
+    <details className="group">
+      <summary className="flex items-center gap-2 cursor-pointer text-sm font-medium py-2 hover:text-primary">
+        <Globe className="h-4 w-4" />
+        E-commerce / SEO
+        <Badge variant="outline" className="ml-2 text-[10px]">
+          {web.activo ? 'Publicado' : 'No publicado'}
+        </Badge>
+      </summary>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-3 pb-2 text-sm">
+        <div>
+          <span className="text-muted-foreground">Slug</span>
+          <p className="font-mono text-xs">{web.slug}</p>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Precio público</span>
+          <p className="font-medium">{formatCurrency(web.precio_publico)}</p>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Precio oferta</span>
+          <p>{web.precio_oferta ? formatCurrency(web.precio_oferta) : '—'}</p>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Visitas</span>
+          <p>{web.visitas ?? 0}</p>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Publicado</span>
+          <Fecha valor={web.fecha_publicacion} formato="fecha" />
+        </div>
+        <div className="flex items-center gap-3">
+          {web.en_oferta && <Badge variant="secondary">Oferta</Badge>}
+          {web.destacado && <Badge variant="secondary">Destacado</Badge>}
+          {web.nuevo && <Badge variant="secondary">Nuevo</Badge>}
+        </div>
+        {web.titulo_seo && (
+          <div className="col-span-full">
+            <span className="text-muted-foreground">Título SEO</span>
+            <p>{web.titulo_seo}</p>
+          </div>
+        )}
+        {web.descripcion_seo && (
+          <div className="col-span-full">
+            <span className="text-muted-foreground">Descripción SEO</span>
+            <p className="text-xs">{web.descripcion_seo}</p>
+          </div>
+        )}
+        {web.keywords && (
+          <div className="col-span-full">
+            <span className="text-muted-foreground">Keywords</span>
+            <p className="text-xs">{web.keywords}</p>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabImagenes.tsx
+import type { ProductoImagenRow } from '@/lib/types/tables'
+import { Badge } from '@/components/ui/badge'
+import { ImageIcon } from 'lucide-react'
+
+export function TabImagenes({ imagenes }: { imagenes: ProductoImagenRow[] }) {
+  if (imagenes.length === 0) {
+    return <EmptyTab icon={<ImageIcon className="h-8 w-8" />} message="Sin imágenes registradas." />
+  }
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-4">
+      {imagenes.map((img) => (
+        <div key={img.id} className="rounded-lg border overflow-hidden">
+          <div className="aspect-square bg-muted flex items-center justify-center">
+            <img src={img.url} alt={img.alt_text ?? ''} className="object-contain w-full h-full" />
+          </div>
+          <div className="p-2 space-y-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              {img.es_principal && <Badge className="text-[10px]">Principal</Badge>}
+              <Badge variant="outline" className="text-[10px]">{img.uso_imagen}</Badge>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Orden: {img.orden}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyTab({ icon, message }: { icon: React.ReactNode; message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      {icon}
+      <p className="text-sm mt-2">{message}</p>
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabCajas.tsx
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { formatCurrency } from '@/lib/utils'
+import { Package } from 'lucide-react'
+import type { CajaConDetalle } from '@/modules/catalogo/types'
+
+export function TabCajas({ cajas }: { cajas: CajaConDetalle[] }) {
+  if (cajas.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Package className="h-8 w-8" />
+        <p className="text-sm mt-2">Sin cajas registradas.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 pt-4">
+      {cajas.map((caja) => (
+        <Card key={caja.id}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              📦 {caja.codigo_caja}
+              {caja.nombre_pack && (
+                <Badge variant="secondary">{caja.nombre_pack}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* KPIs */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Pz/caja</span>
+                <p className="font-medium">{caja.piezas_por_caja ?? '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Costo</span>
+                <p className="font-medium">{caja.costo_total_caja ? formatCurrency(caja.costo_total_caja) : '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Peso</span>
+                <p className="font-medium">{caja.peso_bruto_kg ? `${caja.peso_bruto_kg} kg` : '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">CBM</span>
+                <p className="font-medium">{caja.cbm ?? '—'}</p>
+              </div>
+            </div>
+
+            {/* Matriz talla × color */}
+            {caja.contenidoMap ? (
+              <div className="overflow-auto">
+                <table className="text-xs border-collapse w-full">
+                  <thead>
+                    <tr>
+                      <th className="border px-2 py-1 bg-muted text-left">Color / Talla</th>
+                      {caja.contenidoMap.tallas.map((t) => (
+                        <th key={t} className="border px-2 py-1 bg-muted text-center">{t}</th>
+                      ))}
+                      <th className="border px-2 py-1 bg-muted text-center font-bold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {caja.contenidoMap.colores.map((color) => {
+                      const fila = caja.contenidoMap!.matriz[color] ?? {}
+                      const totalFila = Object.values(fila).reduce((a, b) => a + b, 0)
+                      return (
+                        <tr key={color}>
+                          <td className="border px-2 py-1 font-medium">{color}</td>
+                          {caja.contenidoMap!.tallas.map((t) => (
+                            <td key={t} className="border px-2 py-1 text-center tabular-nums">
+                              {fila[t] ?? 0}
+                            </td>
+                          ))}
+                          <td className="border px-2 py-1 text-center font-bold tabular-nums">
+                            {totalFila}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="border px-2 py-1 font-bold">Total</td>
+                      {caja.contenidoMap.tallas.map((t) => {
+                        const totalCol = caja.contenidoMap!.colores.reduce(
+                          (sum, c) => sum + (caja.contenidoMap!.matriz[c]?.[t] ?? 0), 0
+                        )
+                        return (
+                          <td key={t} className="border px-2 py-1 text-center font-bold tabular-nums">
+                            {totalCol}
+                          </td>
+                        )
+                      })}
+                      <td className="border px-2 py-1 text-center font-bold tabular-nums">
+                        {caja.contenidoMap.totalPiezas}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              /* Fallback a texto */
+              <div className="text-sm space-y-1">
+                {caja.tallas && <p><span className="text-muted-foreground">Tallas:</span> {caja.tallas}</p>}
+                {caja.colores && <p><span className="text-muted-foreground">Colores:</span> {caja.colores}</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabTags.tsx
+import type { TagResuelto } from '@/modules/catalogo/types'
+import { Tag } from 'lucide-react'
+
+export function TabTags({ tags }: { tags: TagResuelto[] }) {
+  if (tags.length === 0) {
+    return <EmptyState message="Sin tags." />
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      <div className="grid grid-cols-4 gap-4 px-4 py-2 bg-muted/50 text-xs font-semibold text-muted-foreground">
+        <span>Tipo Tag</span><span>Código</span><span>Referencia</span><span>Valor</span>
+      </div>
+      {tags.map((t) => (
+        <div key={t.id} className="grid grid-cols-4 gap-4 px-4 py-2.5 text-sm">
+          <span>{t.tipo_tag_nombre ?? '—'}</span>
+          <span className="font-mono text-xs">{t.tipo_tag_codigo ?? '—'}</span>
+          <span>{t.ref_tag_nombre ?? '—'}</span>
+          <span className="text-muted-foreground">{t.valor_texto ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      <Tag className="h-8 w-8" />
+      <p className="text-sm mt-2">{message}</p>
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabComplementos.tsx
+import type { ComplementoResuelto } from '@/modules/catalogo/types'
+import { Puzzle } from 'lucide-react'
+
+export function TabComplementos({ complementos }: { complementos: ComplementoResuelto[] }) {
+  if (complementos.length === 0) {
+    return <div className="flex flex-col items-center py-12 text-muted-foreground"><Puzzle className="h-8 w-8" /><p className="text-sm mt-2">Sin complementos.</p></div>
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      <div className="grid grid-cols-5 gap-4 px-4 py-2 bg-muted/50 text-xs font-semibold text-muted-foreground">
+        <span>Parte Prenda</span><span>Tipo</span><span>Material</span><span>Corte/Forma</span><span>Descripción</span>
+      </div>
+      {complementos.map((c) => (
+        <div key={c.id} className="grid grid-cols-5 gap-4 px-4 py-2.5 text-sm">
+          <span>{c.parte_prenda ?? '—'}</span>
+          <span>{c.tipo_complemento ?? '—'}</span>
+          <span>{c.material ?? '—'}</span>
+          <span>{c.corte_forma ?? '—'}</span>
+          <span className="text-muted-foreground">{c.descripcion_adicional ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabAcabados.tsx
+import type { AcabadoResuelto } from '@/modules/catalogo/types'
+import { Paintbrush } from 'lucide-react'
+
+export function TabAcabados({ acabados }: { acabados: AcabadoResuelto[] }) {
+  if (acabados.length === 0) {
+    return <div className="flex flex-col items-center py-12 text-muted-foreground"><Paintbrush className="h-8 w-8" /><p className="text-sm mt-2">Sin acabados.</p></div>
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      <div className="grid grid-cols-4 gap-4 px-4 py-2 bg-muted/50 text-xs font-semibold text-muted-foreground">
+        <span>Tipo Acabado</span><span>Detalle</span><span>Patrón</span><span>Localización</span>
+      </div>
+      {acabados.map((a) => (
+        <div key={a.id} className="grid grid-cols-4 gap-4 px-4 py-2.5 text-sm">
+          <span>{a.tipo_acabado ?? '—'}</span>
+          <span>{a.detalle ?? '—'}</span>
+          <span>{a.patron ?? '—'}</span>
+          <span>{a.localizacion ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabVariantes.tsx
+import { Badge } from '@/components/ui/badge'
+import { formatCurrency } from '@/lib/utils'
+import type { VarianteResuelta } from '@/modules/catalogo/types'
+import { Shirt } from 'lucide-react'
+
+export function TabVariantes({ variantes }: { variantes: VarianteResuelta[] }) {
+  if (variantes.length === 0) {
+    return <div className="flex flex-col items-center py-12 text-muted-foreground"><Shirt className="h-8 w-8" /><p className="text-sm mt-2">Sin variantes.</p></div>
+  }
+
+  const activas = variantes.filter((v) => v.activo).length
+
+  return (
+    <div className="space-y-3 pt-4">
+      <p className="text-xs text-muted-foreground">
+        {activas} activa{activas !== 1 ? 's' : ''} de {variantes.length} variantes
+      </p>
+      <div className="rounded-lg border divide-y">
+        <div className="grid grid-cols-6 gap-4 px-4 py-2 bg-muted/50 text-xs font-semibold text-muted-foreground">
+          <span>SKU</span><span>Talla</span><span>Color</span><span className="text-right">Costo</span><span className="text-right">Precio</span><span className="text-center">Estado</span>
+        </div>
+        {variantes.map((v) => (
+          <div key={v.id} className="grid grid-cols-6 gap-4 px-4 py-2.5 text-sm items-center">
+            <span className="font-mono text-xs">{v.sku_completo ?? '—'}</span>
+            <span>{v.talla_codigo ?? '—'}</span>
+            <span className="flex items-center gap-2">
+              {v.color_hex && (
+                <span
+                  className="w-3.5 h-3.5 rounded-full border"
+                  style={{ backgroundColor: v.color_hex }}
+                />
+              )}
+              {v.color_nombre ?? '—'}
+            </span>
+            <span className="text-right tabular-nums">{v.costo_promedio ? formatCurrency(v.costo_promedio) : '—'}</span>
+            <span className="text-right tabular-nums font-medium">{v.precio_venta ? formatCurrency(v.precio_venta) : '—'}</span>
+            <span className="text-center">
+              {v.activo
+                ? <Badge variant="secondary" className="text-[10px] bg-green-50 text-green-700">Activo</Badge>
+                : <Badge variant="secondary" className="text-[10px] bg-red-50 text-red-700">Inactivo</Badge>
+              }
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabMedidas.tsx
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Ruler } from 'lucide-react'
+import type { MedidaResuelta } from '@/modules/catalogo/types'
+
+export function TabMedidas({ medidas }: { medidas: MedidaResuelta[] }) {
+  const [unit, setUnit] = useState<'cm' | 'ft'>('cm')
+
+  if (medidas.length === 0) {
+    return <div className="flex flex-col items-center py-12 text-muted-foreground"><Ruler className="h-8 w-8" /><p className="text-sm mt-2">Sin medidas.</p></div>
+  }
+
+  // Pivotar: filas = puntos_medida, columnas = tallas
+  const tallasSet = new Set<string>()
+  const puntosSet = new Set<string>()
+  const data: Record<string, Record<string, number | null>> = {}
+
+  for (const m of medidas) {
+    const talla = m.talla_codigo ?? '—'
+    const punto = m.punto_medida ?? '—'
+    tallasSet.add(talla)
+    puntosSet.add(punto)
+    if (!data[punto]) data[punto] = {}
+    data[punto][talla] = unit === 'cm' ? m.medida_cm : m.medida_ft
+  }
+
+  const tallas = Array.from(tallasSet)
+  const puntos = Array.from(puntosSet)
+
+  return (
+    <div className="space-y-3 pt-4">
+      <div className="flex items-center gap-2">
+        <Button variant={unit === 'cm' ? 'default' : 'outline'} size="sm" onClick={() => setUnit('cm')}>CM</Button>
+        <Button variant={unit === 'ft' ? 'default' : 'outline'} size="sm" onClick={() => setUnit('ft')}>Pulgadas</Button>
+      </div>
+      <div className="overflow-auto">
+        <table className="text-xs border-collapse w-full">
+          <thead>
+            <tr>
+              <th className="border px-2 py-1 bg-muted text-left">Punto de Medida</th>
+              {tallas.map((t) => (
+                <th key={t} className="border px-2 py-1 bg-muted text-center">{t}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {puntos.map((punto) => (
+              <tr key={punto}>
+                <td className="border px-2 py-1 font-medium">{punto}</td>
+                {tallas.map((t) => (
+                  <td key={t} className="border px-2 py-1 text-center tabular-nums">
+                    {data[punto]?.[t] ?? '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+React
+
+// app/(admin)/catalogo/[id]/components/TabConjunto.tsx
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
+import { ADMIN_ROUTES } from '@/lib/constants'
+import { Layers, Package } from 'lucide-react'
+import type { ConjuntoResuelto } from '@/modules/catalogo/types'
+
+export function TabConjunto({ conjunto }: { conjunto: ConjuntoResuelto[] }) {
+  if (conjunto.length === 0) {
+    return <div className="flex flex-col items-center py-12 text-muted-foreground"><Layers className="h-8 w-8" /><p className="text-sm mt-2">Sin productos asignados.</p></div>
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      {conjunto.map((c) => (
+        <div key={c.id} className="flex items-center gap-4 px-4 py-3">
+          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden shrink-0">
+            {c.hijo_imagen
+              ? <img src={c.hijo_imagen} alt="" className="object-contain w-full h-full" />
+              : <Package className="h-4 w-4 text-muted-foreground" />
+            }
+          </div>
+          <div className="flex-1 min-w-0">
+            <Link
+              href={ADMIN_ROUTES.catalogo.detalle(c.producto_hijo_id)}
+              className="font-mono text-sm font-medium text-primary hover:underline"
+            >
+              {c.hijo_sku}
+            </Link>
+            <p className="text-xs text-muted-foreground truncate">{c.hijo_nombre}</p>
+          </div>
+          <span className="text-sm tabular-nums">×{c.cantidad}</span>
+          {c.es_requerido && <Badge variant="secondary" className="text-[10px]">Requerido</Badge>}
+          <span className="text-xs text-muted-foreground">#{c.orden}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+✅ CHECKLIST FASE 3
+
+
+QUERIES (modules/catalogo/queries.ts):
+  □ fetchProductosCatalogo con 7 filtros: q, estado, marca, genero, destacados, inactivos, page
+  □ fetchCatalogosParaFiltros carga marcas + generos + telas en paralelo
+  □ fetchProductoPorId busca por ID numérico
+  □ fetchFKDescriptivas resuelve 7 FKs en paralelo
+  □ fetchProductoWeb, fetchImagenesProducto
+  □ fetchCajasProducto con buildCajaContenidoMap (matriz talla×color)
+  □ fetchTagsProducto, fetchComplementosProducto, fetchAcabadosProducto
+  □ fetchVariantesProducto, fetchMedidasProducto, fetchConjuntoProducto
+  □ fetchNavegacionProducto via RPC
+
+ACTIONS (modules/catalogo/actions.ts):
+  □ createProductAction con TODOS los campos del esquema
+  □ updateProductAction con TODOS los campos
+  □ deactivateProductAction (soft delete)
+  □ Helpers de saneo: toCleanText, toInteger, toNumeric, toBoolean
+
+FILTROS PERSISTENTES (/catalogo):
+  □ CatalogoFilters es Client Component, NO se desmonta al filtrar
+  □ Buscador con debounce 300ms busca en sku_base y descripcion
+  □ Select Estado con badge de color por tipo
+  □ Select Marca poblado desde cat_marcas activas
+  □ Select Género poblado desde cat_generos activos
+  □ Checkbox "Solo destacados": OFF=sin filtro, ON=destacado=true
+  □ Checkbox "Incluir no activos": OFF=solo activo=true, ON=sin filtro
+  □ Ambas casillas OFF por default
+  □ Botón "Limpiar" solo visible si hay filtros activos
+  □ useTransition para opacity visual sin bloquear UI
+  □ router.push con { scroll: false } en TODOS los filtros
+
+TABLA (/catalogo):
+  □ SKU clickeable → navega a /catalogo/[id]
+  □ Descripción truncada a 40 chars
+  □ Familia, Marca, Pz/Caja, Precio EC, Estado
+  □ Badges: estado con color, estrella si destacado, capas si conjunto
+  □ Badge "Inactivo" rojo si activo=false
+  □ Dropdown acciones: Ver detalle, Editar rápido, Desactivar
+  □ Paginación funcional que no recarga filtros
+
+DETALLE (/catalogo/[id]):
+  □ URL por ID numérico (seguro con cualquier SKU)
+  □ loading.tsx → skeleton instantáneo
+  □ Hero carga primero: imagen + SKU + estado + precio + atributos
+  □ Navegación prev/next con fn_navegar_producto (links por ID, texto con SKU)
+  □ Bloque E-commerce desplegable con datos de productos_web
+  □ 10 tabs con Suspense independiente cada uno
+  □ Tab Catálogos: 7 FKs incluyendo persona
+  □ Tab Imágenes: grid con tipo uso y badge principal
+  □ Tab Cajas: tarjetas con KPIs + matriz talla×color o fallback texto
+  □ Tab Tags: tabla tipo_tag + ref_tag + valor
+  □ Tab Complementos: 5 columnas resueltas
+  □ Tab Acabados: 4 columnas resueltas
+  □ Tab Variantes: SKU, talla, color (con hex), costos, precios, estado
+  □ Tab Medidas: matriz pivoteada con toggle CM/Pulgadas
+  □ Tab Conjunto: solo si es_conjunto=true, lista hijos con link
+  □ Footer: created_at + updated_at con timezone MX
+
+TESTS:
+  □ Buscar "chamarra" → tabla se filtra, filtros no parpadean
+  □ Filtrar por marca → tabla cambia, buscador conserva texto
+  □ Marcar "Solo destacados" → solo productos con estrella
+  □ Marcar "Incluir no activos" → aparecen productos con badge Inactivo
+  □ Ambas casillas juntas → destacados incluyendo inactivos
+  □ Limpiar filtros → todo vuelve a default
+  □ Paginar → filtros se mantienen
+  □ Click en SKU → llega a /catalogo/[id] con skeleton → datos progresivos
+  □ Prev/next funciona → navega entre productos por ID
+  □ Cada tab del detalle carga independientemente
+  □ Tab Cajas muestra matriz talla×color correcta
+  □ Tab Medidas alterna CM/Pulgadas
+  □ Tab Conjunto solo visible cuando es_conjunto=true
+  □ Sidebar y header NO parpadean en ningún momento

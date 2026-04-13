@@ -1,0 +1,2395 @@
+Archivo 7/26 — app/(admin)/inventario/notas/NotasFilters.tsx
+React
+
+// app/(admin)/inventario/notas/NotasFilters.tsx
+'use client'
+
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useCallback, useTransition } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Search, Loader2, X } from 'lucide-react'
+import {
+  ESTADO_NOTA_COLORS,
+  ESTADO_NOTA_LABELS,
+  TIPO_MOVIMIENTO_ICONS,
+} from '@/lib/constants'
+import type { CatalogosInventario } from '@/modules/inventario/types'
+
+export function NotasFilters({
+  catalogos,
+}: {
+  catalogos: CatalogosInventario
+}) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      startTransition(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        if (value === null || value === '' || value === '_all') {
+          params.delete(key)
+        } else {
+          params.set(key, value)
+        }
+        params.delete('page')
+        const qs = params.toString()
+        router.push(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false })
+      })
+    },
+    [searchParams, pathname, router]
+  )
+
+  const handleSearch = useDebouncedCallback((term: string) => {
+    updateParam('q', term || null)
+  }, 400)
+
+  const handleClearAll = () => {
+    startTransition(() => {
+      router.push(pathname, { scroll: false })
+    })
+    const input = document.getElementById('notas-search') as HTMLInputElement
+    if (input) input.value = ''
+  }
+
+  const currentQ = searchParams.get('q') ?? ''
+  const currentTipo = searchParams.get('tipo_movimiento_id') ?? '_all'
+  const currentEstado = searchParams.get('estado_codigo') ?? '_all'
+  const currentBodega = searchParams.get('bodega_origen_id') ?? '_all'
+  const currentDesde = searchParams.get('fecha_desde') ?? ''
+  const currentHasta = searchParams.get('fecha_hasta') ?? ''
+
+  const hasFilters = Array.from(searchParams.entries()).some(
+    ([key]) => key !== 'page'
+  )
+
+  return (
+    <div className={`space-y-3 ${isPending ? 'opacity-70' : ''}`}>
+      {/* Fila 1: Buscador */}
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          id="notas-search"
+          placeholder="Buscar por número de nota..."
+          defaultValue={currentQ}
+          onChange={(e) => handleSearch(e.target.value)}
+          className="pl-10 pr-10"
+        />
+        {isPending && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Fila 2: Selects + Fechas */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Tipo Movimiento */}
+        <Select
+          value={currentTipo}
+          onValueChange={(v) => updateParam('tipo_movimiento_id', v === '_all' ? null : v)}
+        >
+          <SelectTrigger className="w-[170px] h-9 text-sm">
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todos los tipos</SelectItem>
+            {catalogos.tiposMovimiento.map((t) => (
+              <SelectItem key={t.id} value={String(t.id)}>
+                <span className="mr-1">
+                  {TIPO_MOVIMIENTO_ICONS[t.codigo] ?? ''}
+                </span>
+                {t.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Estado */}
+        <Select
+          value={currentEstado}
+          onValueChange={(v) => updateParam('estado_codigo', v === '_all' ? null : v)}
+        >
+          <SelectTrigger className="w-[160px] h-9 text-sm">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todos los estados</SelectItem>
+            {catalogos.estadosNota.map((e) => (
+              <SelectItem key={e.id} value={e.codigo}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    ESTADO_NOTA_COLORS[e.codigo]?.split(' ')[0] ?? 'bg-gray-300'
+                  }`} />
+                  {e.nombre}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Bodega Origen */}
+        <Select
+          value={currentBodega}
+          onValueChange={(v) => updateParam('bodega_origen_id', v === '_all' ? null : v)}
+        >
+          <SelectTrigger className="w-[170px] h-9 text-sm">
+            <SelectValue placeholder="Bodega" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todas las bodegas</SelectItem>
+            {catalogos.bodegas.map((b) => (
+              <SelectItem key={b.id} value={String(b.id)}>
+                {b.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Separador */}
+        <div className="h-6 w-px bg-border hidden sm:block" />
+
+        {/* Fechas */}
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            className="h-9 w-[140px] text-sm"
+            value={currentDesde}
+            onChange={(e) => updateParam('fecha_desde', e.target.value || null)}
+            placeholder="Desde"
+          />
+          <span className="text-muted-foreground text-sm">—</span>
+          <Input
+            type="date"
+            className="h-9 w-[140px] text-sm"
+            value={currentHasta}
+            onChange={(e) => updateParam('fecha_hasta', e.target.value || null)}
+            placeholder="Hasta"
+          />
+        </div>
+
+        <div className="flex-1" />
+
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClearAll}
+            className="text-muted-foreground"
+          >
+            <X className="h-3 w-3 mr-1" />
+            Limpiar
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+✅ Archivo 7/26 completado — Filtros con debounce 400ms, selects con catálogos, rango de fechas, todo en URL.
+
+Archivo 8/26 — app/(admin)/inventario/notas/NotasTable.tsx
+React
+
+// app/(admin)/inventario/notas/NotasTable.tsx
+import Link from 'next/link'
+import { DataTable, type ColumnDef } from '@/components/admin/DataTable'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { MoreHorizontal, Eye, Check, XCircle, FileText } from 'lucide-react'
+import { Fecha } from '@/components/shared/Fecha'
+import {
+  ADMIN_ROUTES, ESTADO_NOTA_COLORS,
+  TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
+} from '@/lib/constants'
+import type { NotaListItem } from '@/modules/inventario/types'
+
+export function NotasTable({ notas }: { notas: NotaListItem[] }) {
+  const columns: ColumnDef<NotaListItem>[] = [
+    {
+      key: 'numero_nota',
+      header: 'N° Nota',
+      headerClassName: 'w-[160px]',
+      cell: (row) => (
+        <Link
+          href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
+          className="font-mono text-sm font-medium text-primary hover:underline"
+        >
+          {row.numero_nota}
+        </Link>
+      ),
+    },
+    {
+      key: 'tipo',
+      header: 'Tipo',
+      cell: (row) => {
+        const icon = TIPO_MOVIMIENTO_ICONS[row.tipo_codigo] ?? ''
+        const color = TIPO_MOVIMIENTO_COLORS[row.tipo_codigo] ?? 'bg-gray-100 text-gray-800'
+        return (
+          <Badge variant="secondary" className={`text-xs ${color}`}>
+            <span className="mr-1">{icon}</span>
+            {row.tipo_nombre}
+          </Badge>
+        )
+      },
+    },
+    {
+      key: 'origen',
+      header: 'Origen',
+      cell: (row) => (
+        <span className="text-sm">{row.bodega_origen_nombre}</span>
+      ),
+    },
+    {
+      key: 'destino',
+      header: 'Destino',
+      headerClassName: 'hidden lg:table-cell',
+      className: 'hidden lg:table-cell',
+      cell: (row) => (
+        <span className="text-sm text-muted-foreground">
+          {row.bodega_destino_nombre ?? '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'total_cajas',
+      header: 'Cajas',
+      headerClassName: 'text-center w-[70px]',
+      className: 'text-center',
+      cell: (row) => (
+        <span className="text-sm tabular-nums font-medium">
+          {row.total_cajas ?? 0}
+        </span>
+      ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      headerClassName: 'w-[120px]',
+      cell: (row) => {
+        const colorClasses = ESTADO_NOTA_COLORS[row.estado_codigo] ?? 'bg-gray-100 text-gray-800'
+        return (
+          <Badge variant="secondary" className={`text-xs ${colorClasses}`}>
+            {row.estado_nombre}
+          </Badge>
+        )
+      },
+    },
+    {
+      key: 'fecha_nota',
+      header: 'Fecha',
+      cell: (row) => <Fecha valor={row.fecha_nota} formato="fecha-hora" />,
+    },
+    {
+      key: 'usuario',
+      header: 'Usuario',
+      headerClassName: 'hidden xl:table-cell',
+      className: 'hidden xl:table-cell',
+      cell: (row) => (
+        <span className="text-sm text-muted-foreground">
+          {row.usuario_nombre}
+        </span>
+      ),
+    },
+    {
+      key: 'acciones',
+      header: '',
+      headerClassName: 'w-[50px]',
+      cell: (row) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}>
+                <Eye className="mr-2 h-3.5 w-3.5" />
+                Ver detalle
+              </Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
+
+  return (
+    <DataTable
+      columns={columns}
+      data={notas}
+      rowKey={(row) => row.id}
+      emptyMessage="No se encontraron notas con los filtros aplicados."
+      emptyIcon={<FileText className="h-12 w-12" />}
+    />
+  )
+}
+✅ Archivo 8/26 completado.
+
+Archivo 9/26 — app/(admin)/inventario/notas/nueva/page.tsx
+React
+
+// app/(admin)/inventario/notas/nueva/page.tsx
+import type { Metadata } from 'next'
+import { fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { redirect } from 'next/navigation'
+import { NoteDraftBuilder } from './NoteDraftBuilder'
+
+export const metadata: Metadata = {
+  title: 'Nueva Nota de Inventario',
+}
+
+/**
+ * Página de creación de nota.
+ * Server Component que carga catálogos y pasa todo al Client Component.
+ * El usuario arma la nota completamente en local (draft).
+ * Solo al presionar "Guardar como Borrador" o "Confirmar" se escribe a BD.
+ */
+export default async function NuevaNotaPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  const catalogos = await fetchCatalogosInventario()
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Nueva Nota de Inventario
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Configura y agrega productos. Nada se guarda hasta que presiones un botón.
+        </p>
+      </div>
+
+      <NoteDraftBuilder
+        catalogos={catalogos}
+        usuarioId={user.id}
+        mode="create"
+      />
+    </div>
+  )
+}
+✅ Archivo 9/26 completado.
+
+Archivo 10/26 — app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx
+Este es el componente central — maneja todo el draft local.
+
+React
+
+// app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx
+'use client'
+
+import { useState, useTransition, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { useDebouncedCallback } from 'use-debounce'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Loader2, Search, Plus, Trash2, Save, CheckCircle2, AlertCircle,
+  Package, ArrowLeft,
+} from 'lucide-react'
+import Link from 'next/link'
+import {
+  ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
+} from '@/lib/constants'
+import { guardarNotaAction, actualizarNotaAction } from '@/modules/inventario/actions'
+import type {
+  CatalogosInventario, DraftNota, DraftProducto,
+  ProductoBusqueda, CajaParaSelector, NotaCompleta,
+} from '@/modules/inventario/types'
+
+type Props = {
+  catalogos: CatalogosInventario
+  usuarioId: number
+  mode: 'create' | 'edit'
+  notaId?: number
+  initialData?: NotaCompleta
+}
+
+export function NoteDraftBuilder({
+  catalogos, usuarioId, mode, notaId, initialData,
+}: Props) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  // ── Draft state ─────────────────────────────────────────
+  const [draft, setDraft] = useState<DraftNota>(() => {
+    if (mode === 'edit' && initialData) {
+      return {
+        tipo_movimiento_id: catalogos.tiposMovimiento.find(
+          (t) => t.codigo === initialData.cabecera.tipo_codigo
+        )?.id ?? null,
+        bodega_origen_id: catalogos.bodegas.find(
+          (b) => b.codigo === initialData.cabecera.bodega_origen_codigo
+        )?.id ?? null,
+        bodega_destino_id: initialData.cabecera.bodega_destino_codigo
+          ? catalogos.bodegas.find(
+              (b) => b.codigo === initialData.cabecera.bodega_destino_codigo
+            )?.id ?? null
+          : null,
+        nota_referencia: initialData.cabecera.nota_referencia ?? '',
+        observaciones: initialData.cabecera.observaciones ?? '',
+        productos: initialData.detalles.map((d) => ({
+          tempId: crypto.randomUUID(),
+          producto_id: d.producto_id!,
+          producto_sku: d.producto_sku ?? '',
+          producto_nombre: d.producto_nombre,
+          producto_pz_en_caja: d.producto_pz_en_caja,
+          cajas: d.cajas,
+          piezas_sueltas: d.piezas_sueltas,
+          caja_id: d.caja_id,
+          caja_codigo: d.caja_codigo,
+          caja_nombre_pack: d.caja_nombre_pack,
+        })),
+      }
+    }
+    return {
+      tipo_movimiento_id: null,
+      bodega_origen_id: null,
+      bodega_destino_id: null,
+      nota_referencia: '',
+      observaciones: '',
+      productos: [],
+    }
+  })
+
+  // ── Búsqueda de productos ───────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState<ProductoBusqueda[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<ProductoBusqueda | null>(null)
+  const [cajasDisponibles, setCajasDisponibles] = useState<CajaParaSelector[]>([])
+
+  // Formulario de agregar producto
+  const [addCajas, setAddCajas] = useState<string>('1')
+  const [addPiezas, setAddPiezas] = useState<string>('0')
+  const [addCajaId, setAddCajaId] = useState<string>('')
+
+  // Confirmación
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+
+  // ── Tipo seleccionado ───────────────────────────────────
+  const tipoSeleccionado = catalogos.tiposMovimiento.find(
+    (t) => t.id === draft.tipo_movimiento_id
+  )
+
+  // ── Búsqueda con debounce ───────────────────────────────
+  const doSearch = useDebouncedCallback(async (term: string) => {
+    if (term.length < 2) {
+      setSearchResults([])
+      setIsSearching(false)
+      return
+    }
+    setIsSearching(true)
+    try {
+      const res = await fetch(
+        `/inventario/notas/nueva/search?q=${encodeURIComponent(term)}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setSearchResults(data)
+      }
+    } catch {
+      setSearchResults([])
+    }
+    setIsSearching(false)
+  }, 400)
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    doSearch(value)
+  }
+
+  // ── Seleccionar producto de resultados ──────────────────
+  const handleSelectProduct = async (product: ProductoBusqueda) => {
+    setSelectedProduct(product)
+    setSearchResults([])
+    setSearchTerm(product.sku_base)
+    setAddCajas('1')
+    setAddPiezas('0')
+    setAddCajaId('')
+
+    // Cargar cajas del producto
+    try {
+      const res = await fetch(
+        `/inventario/notas/nueva/packs?producto_id=${product.id}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setCajasDisponibles(data)
+      }
+    } catch {
+      setCajasDisponibles([])
+    }
+  }
+
+  // ── Agregar producto al draft ───────────────────────────
+  const handleAddProduct = () => {
+    if (!selectedProduct) return
+
+    const cajasNum = parseFloat(addCajas) || 0
+    const piezasNum = parseInt(addPiezas) || 0
+
+    if (cajasNum <= 0 && piezasNum <= 0) {
+      setError('Ingresa al menos una caja o pieza.')
+      return
+    }
+
+    const cajaSeleccionada = addCajaId
+      ? cajasDisponibles.find((c) => c.id === parseInt(addCajaId))
+      : null
+
+    const newProduct: DraftProducto = {
+      tempId: crypto.randomUUID(),
+      producto_id: selectedProduct.id,
+      producto_sku: selectedProduct.sku_base,
+      producto_nombre: selectedProduct.nombre,
+      producto_pz_en_caja: selectedProduct.pz_en_caja,
+      cajas: cajasNum,
+      piezas_sueltas: piezasNum,
+      caja_id: cajaSeleccionada?.id ?? null,
+      caja_codigo: cajaSeleccionada?.codigo_caja ?? null,
+      caja_nombre_pack: cajaSeleccionada?.nombre_pack ?? null,
+    }
+
+    setDraft((prev) => ({
+      ...prev,
+      productos: [...prev.productos, newProduct],
+    }))
+
+    // Limpiar
+    setSelectedProduct(null)
+    setSearchTerm('')
+    setCajasDisponibles([])
+    setAddCajas('1')
+    setAddPiezas('0')
+    setAddCajaId('')
+    setError(null)
+  }
+
+  // ── Eliminar producto del draft ─────────────────────────
+  const handleRemoveProduct = (tempId: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      productos: prev.productos.filter((p) => p.tempId !== tempId),
+    }))
+  }
+
+  // ── Guardar ─────────────────────────────────────────────
+  const handleSave = (confirmar: boolean) => {
+    if (confirmar) {
+      setShowConfirmDialog(true)
+      return
+    }
+    doSave(false)
+  }
+
+  const doSave = (confirmar: boolean) => {
+    setError(null)
+    setSuccess(null)
+    setShowConfirmDialog(false)
+
+    startTransition(async () => {
+      let result
+      if (mode === 'edit' && notaId) {
+        result = await actualizarNotaAction(notaId, draft, confirmar)
+      } else {
+        result = await guardarNotaAction(draft, confirmar)
+      }
+
+      if (!result.success) {
+        setError(result.error ?? 'Error desconocido.')
+        return
+      }
+
+      const destId = result.nota_id ?? notaId
+      setSuccess(
+        confirmar
+          ? 'Nota confirmada exitosamente.'
+          : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
+      )
+
+      // Navegar al detalle después de guardar
+      if (destId) {
+        setTimeout(() => {
+          router.push(ADMIN_ROUTES.inventario.notaDetalle(destId))
+          router.refresh()
+        }, 800)
+      }
+    })
+  }
+
+  // ── Total estimado de cajas ─────────────────────────────
+  const totalCajas = draft.productos.reduce((sum, p) => sum + p.cajas, 0)
+
+  return (
+    <div className="space-y-6">
+      {/* Mensajes */}
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-3 rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 animate-in fade-in slide-in-from-top-1 duration-200">
+          <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{success}</span>
+        </div>
+      )}
+
+      {/* ── Configuración de la nota ────────────────────── */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base">Configuración</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Tipo Movimiento */}
+            <div className="space-y-2">
+              <Label>Tipo de Movimiento *</Label>
+              <Select
+                value={draft.tipo_movimiento_id?.toString() ?? ''}
+                onValueChange={(v) => {
+                  const id = parseInt(v)
+                  setDraft((prev) => ({
+                    ...prev,
+                    tipo_movimiento_id: id,
+                    bodega_destino_id: null,
+                  }))
+                }}
+                disabled={mode === 'edit'}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {catalogos.tiposMovimiento.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      <span className="mr-1">
+                        {TIPO_MOVIMIENTO_ICONS[t.codigo] ?? ''}
+                      </span>
+                      {t.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bodega Origen */}
+            <div className="space-y-2">
+              <Label>Bodega Origen *</Label>
+              <Select
+                value={draft.bodega_origen_id?.toString() ?? ''}
+                onValueChange={(v) =>
+                  setDraft((prev) => ({ ...prev, bodega_origen_id: parseInt(v) }))
+                }
+                disabled={mode === 'edit'}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {catalogos.bodegas.map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.nombre}
+                      {b.es_virtual && (
+                        <Badge variant="secondary" className="ml-2 text-[10px]">Virtual</Badge>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bodega Destino (condicional) */}
+            {tipoSeleccionado?.requiere_destino && (
+              <div className="space-y-2">
+                <Label>Bodega Destino *</Label>
+                <Select
+                  value={draft.bodega_destino_id?.toString() ?? ''}
+                  onValueChange={(v) =>
+                    setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
+                  }
+                  disabled={mode === 'edit'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {catalogos.bodegas
+                      .filter((b) => b.id !== draft.bodega_origen_id)
+                      .map((b) => (
+                        <SelectItem key={b.id} value={String(b.id)}>
+                          {b.nombre}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Referencia */}
+            <div className="space-y-2">
+              <Label>Referencia (opcional)</Label>
+              <Input
+                value={draft.nota_referencia}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, nota_referencia: e.target.value }))
+                }
+                placeholder="Ej: OC-2026-043"
+                maxLength={50}
+              />
+            </div>
+          </div>
+
+          {/* Observaciones */}
+          <div className="space-y-2">
+            <Label>Observaciones (opcional)</Label>
+            <Textarea
+              value={draft.observaciones}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, observaciones: e.target.value }))
+              }
+              placeholder="Notas adicionales..."
+              rows={2}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Agregar productos ────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base">Productos</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Buscador */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por SKU o nombre del producto..."
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-10"
+            />
+            {isSearching && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+            )}
+          </div>
+
+          {/* Resultados de búsqueda (grid 2×5) */}
+          {searchResults.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-auto border rounded-lg p-2">
+              {searchResults.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelectProduct(p)}
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted text-left transition-colors"
+                >
+                  <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                    {p.imagen_url ? (
+                      <img src={p.imagen_url} alt="" className="object-contain w-full h-full" />
+                    ) : (
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-xs font-medium truncate">{p.sku_base}</p>
+                    <p className="text-xs text-muted-foreground truncate">{p.nombre}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {p.marca_nombre ?? ''} · {p.pz_en_caja ?? '?'} pz/caja
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Formulario para producto seleccionado */}
+          {selectedProduct && (
+            <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="font-mono text-xs">
+                  {selectedProduct.sku_base}
+                </Badge>
+                <span className="text-sm">{selectedProduct.nombre}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Cajas *</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={addCajas}
+                    onChange={(e) => setAddCajas(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Piezas sueltas</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={addPiezas}
+                    onChange={(e) => setAddPiezas(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Caja física (opcional)</Label>
+                  <Select
+                    value={addCajaId}
+                    onValueChange={setAddCajaId}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Sin caja" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Sin caja específica</SelectItem>
+                      {cajasDisponibles.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.codigo_caja} {c.nombre_pack ? `(${c.nombre_pack})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAddProduct}
+                    className="h-9 w-full"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Agregar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tabla de productos en el draft */}
+          {draft.productos.length > 0 ? (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
+                    <th className="px-4 py-2 text-left">SKU</th>
+                    <th className="px-4 py-2 text-left">Producto</th>
+                    <th className="px-4 py-2 text-left hidden sm:table-cell">Caja</th>
+                    <th className="px-4 py-2 text-center">Cajas</th>
+                    <th className="px-4 py-2 text-center">Piezas</th>
+                    <th className="px-4 py-2 text-right">Total est.</th>
+                    <th className="px-4 py-2 w-[50px]"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.productos.map((p) => {
+                    const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
+                    return (
+                      <tr key={p.tempId} className="border-t">
+                        <td className="px-4 py-2 font-mono text-xs">{p.producto_sku}</td>
+                        <td className="px-4 py-2 text-xs truncate max-w-[200px]">
+                          {p.producto_nombre ?? '—'}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground hidden sm:table-cell">
+                          {p.caja_codigo ?? '—'}
+                        </td>
+                        <td className="px-4 py-2 text-center tabular-nums">{p.cajas}</td>
+                        <td className="px-4 py-2 text-center tabular-nums">{p.piezas_sueltas}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-medium">
+                          {totalEst}
+                        </td>
+                        <td className="px-4 py-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleRemoveProduct(p.tempId)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t bg-muted/30">
+                    <td colSpan={3} className="px-4 py-2 text-xs font-semibold">
+                      {draft.productos.length} producto{draft.productos.length !== 1 ? 's' : ''}
+                    </td>
+                    <td className="px-4 py-2 text-center font-bold tabular-nums">
+                      {totalCajas}
+                    </td>
+                    <td colSpan={3}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Package className="h-8 w-8" />
+              <p className="text-sm mt-2">Busca y agrega productos a la nota.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Acciones ─────────────────────────────────────── */}
+      <div className="flex items-center justify-between pt-2">
+        <Link href={ADMIN_ROUTES.inventario.notas}>
+          <Button variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Volver
+          </Button>
+        </Link>
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            disabled={isPending || draft.productos.length === 0}
+            onClick={() => handleSave(false)}
+          >
+            {isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Guardar Borrador
+          </Button>
+
+          <Button
+            disabled={isPending || draft.productos.length === 0}
+            onClick={() => handleSave(true)}
+          >
+            {isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+            )}
+            Confirmar
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Diálogo de confirmación ──────────────────────── */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Confirmar nota?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción aplicará los movimientos de inventario.
+              {tipoSeleccionado?.afecta_inventario === -1 && (
+                <span className="block mt-2 text-amber-600 font-medium">
+                  ⚠️ Se descontará stock de la bodega origen.
+                </span>
+              )}
+              {tipoSeleccionado?.codigo === 'TRF' && (
+                <span className="block mt-2 text-blue-600 font-medium">
+                  ↔ Se transferirá stock de origen a destino.
+                </span>
+              )}
+              <span className="block mt-2">
+                {draft.productos.length} producto{draft.productos.length !== 1 ? 's' : ''} · {totalCajas} cajas
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => doSave(true)}>
+              Confirmar Nota
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+✅ Archivo 10/26 completado — Draft builder con búsqueda debounce 400ms, resultados en grid 2×5, todo local hasta guardar/confirmar.
+
+Archivo 11/26 — app/(admin)/inventario/notas/nueva/search/route.ts
+TypeScript
+
+// app/(admin)/inventario/notas/nueva/search/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { searchProductos } from '@/modules/inventario/queries'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET(request: NextRequest) {
+  // Verificar auth
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json([], { status: 401 })
+  }
+
+  const q = request.nextUrl.searchParams.get('q') ?? ''
+  if (q.length < 2) {
+    return NextResponse.json([])
+  }
+
+  const results = await searchProductos(q, 10)
+  return NextResponse.json(results)
+}
+✅ Archivo 11/26 completado.
+
+Archivo 12/26 — app/(admin)/inventario/notas/nueva/packs/route.ts
+TypeScript
+
+// app/(admin)/inventario/notas/nueva/packs/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { fetchCajasDeProducto } from '@/modules/inventario/queries'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json([], { status: 401 })
+  }
+
+  const productoId = request.nextUrl.searchParams.get('producto_id')
+  if (!productoId) {
+    return NextResponse.json([])
+  }
+
+  const cajas = await fetchCajasDeProducto(parseInt(productoId))
+  return NextResponse.json(cajas)
+}
+✅ Archivo 12/26 completado.
+
+Archivo 13/26 — app/(admin)/inventario/notas/[id]/page.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/page.tsx
+import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
+import { fetchNotaById, fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { redirect } from 'next/navigation'
+import { TabSkeleton } from '@/components/admin/PageSkeleton'
+import { NotaCabecera } from './components/NotaCabecera'
+import { NotaProductos } from './components/NotaProductos'
+import { NotaHistorial } from './components/NotaHistorial'
+import { NotaAcciones } from './components/NotaAcciones'
+import { NoteDraftBuilder } from '../nueva/NoteDraftBuilder'
+import { Separator } from '@/components/ui/separator'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: { id: string }
+}): Promise<Metadata> {
+  const id = parseInt(params.id)
+  if (isNaN(id)) return { title: 'Nota no encontrada' }
+  const nota = await fetchNotaById(id)
+  if (!nota) return { title: 'Nota no encontrada' }
+  return { title: `${nota.cabecera.numero_nota} — Inventario` }
+}
+
+/**
+ * Detalle de nota de inventario.
+ *
+ * Si la nota está en PEND/PROC → muestra el NoteDraftBuilder en modo edición
+ * Si la nota está en CONF/CANC → muestra vista solo lectura
+ *
+ * Todo se queda en /inventario/notas/[id] — NO navega a otra ruta.
+ */
+export default async function NotaDetallePage({
+  params,
+}: {
+  params: { id: string }
+}) {
+  const id = parseInt(params.id)
+  if (isNaN(id)) notFound()
+
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  const nota = await fetchNotaById(id)
+  if (!nota) notFound()
+
+  const esEditable = nota.cabecera.estado_codigo === 'PEND' || nota.cabecera.estado_codigo === 'PROC'
+
+  // Si es editable, cargar catálogos para el draft builder
+  if (esEditable) {
+    const catalogos = await fetchCatalogosInventario()
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Editar Nota {nota.cabecera.numero_nota}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Estado: {nota.cabecera.estado_nombre} — Los cambios se guardan al presionar un botón.
+          </p>
+        </div>
+
+        <NoteDraftBuilder
+          catalogos={catalogos}
+          usuarioId={user.id}
+          mode="edit"
+          notaId={id}
+          initialData={nota}
+        />
+
+        <Separator className="my-6" />
+
+        {/* Historial de estados (siempre visible) */}
+        <NotaHistorial historial={nota.historial} />
+      </div>
+    )
+  }
+
+  // Vista solo lectura (CONF o CANC)
+  return (
+    <div className="space-y-6">
+      {/* Cabecera */}
+      <NotaCabecera nota={nota.cabecera} />
+
+      {/* Acciones (cancelar si procede, duplicar, etc.) */}
+      <NotaAcciones nota={nota.cabecera} notaId={id} />
+
+      <Separator />
+
+      {/* Productos */}
+      <NotaProductos detalles={nota.detalles} />
+
+      <Separator />
+
+      {/* Historial */}
+      <NotaHistorial historial={nota.historial} />
+    </div>
+  )
+}
+✅ Archivo 13/26 completado — Nota editable muestra NoteDraftBuilder, nota confirmada/cancelada muestra vista de lectura. Todo dentro de /notas/[id].
+
+Archivo 14/26 — app/(admin)/inventario/notas/[id]/loading.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/loading.tsx
+import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
+
+export default function NotaDetalleLoading() {
+  return <DetailPageSkeleton />
+}
+✅ Archivo 14/26 completado.
+
+Archivo 15/26 — NotaCabecera.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/components/NotaCabecera.tsx
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Fecha } from '@/components/shared/Fecha'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
+import {
+  ADMIN_ROUTES, ESTADO_NOTA_COLORS,
+  TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
+} from '@/lib/constants'
+import type { NotaListItem } from '@/modules/inventario/types'
+
+export function NotaCabecera({ nota }: { nota: NotaListItem }) {
+  const estadoColor = ESTADO_NOTA_COLORS[nota.estado_codigo] ?? 'bg-gray-100 text-gray-800'
+  const tipoIcon = TIPO_MOVIMIENTO_ICONS[nota.tipo_codigo] ?? ''
+  const tipoColor = TIPO_MOVIMIENTO_COLORS[nota.tipo_codigo] ?? ''
+
+  return (
+    <div className="space-y-4">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Link
+          href={ADMIN_ROUTES.inventario.notas}
+          className="hover:text-foreground transition-colors flex items-center gap-1"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Notas
+        </Link>
+        <span>/</span>
+        <span className="text-foreground font-medium font-mono">
+          {nota.numero_nota}
+        </span>
+      </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="space-y-3">
+              {/* Número + Estado */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-xl font-bold font-mono">{nota.numero_nota}</h2>
+                <Badge className={estadoColor}>{nota.estado_nombre}</Badge>
+                <Badge variant="secondary" className={tipoColor}>
+                  <span className="mr-1">{tipoIcon}</span>
+                  {nota.tipo_nombre}
+                </Badge>
+              </div>
+
+              {/* Bodegas */}
+              <div className="text-sm space-y-1">
+                <p>
+                  <span className="text-muted-foreground">Origen: </span>
+                  <span className="font-medium">{nota.bodega_origen_nombre}</span>
+                  <span className="text-muted-foreground ml-1">({nota.bodega_origen_codigo})</span>
+                </p>
+                {nota.bodega_destino_nombre && (
+                  <p>
+                    <span className="text-muted-foreground">Destino: </span>
+                    <span className="font-medium">{nota.bodega_destino_nombre}</span>
+                    <span className="text-muted-foreground ml-1">({nota.bodega_destino_codigo})</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Info lateral */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Creada</span>
+                <p><Fecha valor={nota.fecha_nota} formato="fecha-hora" /></p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Confirmada</span>
+                <p><Fecha valor={nota.fecha_confirmacion} formato="fecha-hora" /></p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Usuario</span>
+                <p className="font-medium">{nota.usuario_nombre}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total cajas</span>
+                <p className="font-bold text-lg tabular-nums">{nota.total_cajas ?? 0}</p>
+              </div>
+              {nota.nota_referencia && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Referencia</span>
+                  <p>{nota.nota_referencia}</p>
+                </div>
+              )}
+              {nota.observaciones && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Observaciones</span>
+                  <p className="text-xs">{nota.observaciones}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+✅ Archivo 15/26 completado.
+
+Archivo 16/26 — NotaProductos.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/components/NotaProductos.tsx
+import { Badge } from '@/components/ui/badge'
+import { Package } from 'lucide-react'
+import type { NotaDetalleResuelto } from '@/modules/inventario/types'
+
+export function NotaProductos({
+  detalles,
+}: {
+  detalles: NotaDetalleResuelto[]
+}) {
+  if (detalles.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Package className="h-8 w-8" />
+        <p className="text-sm mt-2">Sin productos en esta nota.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold">
+        Productos ({detalles.length})
+      </h3>
+      <div className="rounded-lg border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
+              <th className="px-4 py-2 text-left">SKU</th>
+              <th className="px-4 py-2 text-left">Producto</th>
+              <th className="px-4 py-2 text-left hidden sm:table-cell">Caja</th>
+              <th className="px-4 py-2 text-center">Cajas</th>
+              <th className="px-4 py-2 text-center">Piezas</th>
+              <th className="px-4 py-2 text-right">Total est.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detalles.map((d) => {
+              const totalEst = (d.cajas * (d.producto_pz_en_caja ?? 0)) + d.piezas_sueltas
+              return (
+                <tr key={d.id} className="border-t">
+                  <td className="px-4 py-2 font-mono text-xs">
+                    {d.producto_sku ?? d.variante_sku ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 text-xs">
+                    {d.producto_nombre ?? '—'}
+                    {d.talla_codigo && (
+                      <Badge variant="outline" className="ml-1 text-[10px]">{d.talla_codigo}</Badge>
+                    )}
+                    {d.color_nombre && (
+                      <Badge variant="outline" className="ml-1 text-[10px]">{d.color_nombre}</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground hidden sm:table-cell">
+                    {d.caja_codigo ?? '—'}
+                    {d.caja_nombre_pack && (
+                      <span className="text-[10px] ml-1">({d.caja_nombre_pack})</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-center tabular-nums">{d.cajas}</td>
+                  <td className="px-4 py-2 text-center tabular-nums">{d.piezas_sueltas}</td>
+                  <td className="px-4 py-2 text-right tabular-nums font-medium">{totalEst}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+✅ Archivo 16/26 completado.
+
+Archivo 17/26 — NotaHistorial.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/components/NotaHistorial.tsx
+import { Badge } from '@/components/ui/badge'
+import { Fecha } from '@/components/shared/Fecha'
+import { Clock } from 'lucide-react'
+import { ESTADO_NOTA_COLORS } from '@/lib/constants'
+import type { HistorialEstadoResuelto } from '@/modules/inventario/types'
+
+export function NotaHistorial({
+  historial,
+}: {
+  historial: HistorialEstadoResuelto[]
+}) {
+  if (historial.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+        <Clock className="h-6 w-6" />
+        <p className="text-sm mt-2">Sin historial de cambios.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold">Historial de Estados</h3>
+      <div className="rounded-lg border divide-y">
+        {historial.map((h) => {
+          const colorNuevo = ESTADO_NOTA_COLORS[h.estado_nuevo_codigo] ?? ''
+          const colorAnterior = h.estado_anterior_codigo
+            ? ESTADO_NOTA_COLORS[h.estado_anterior_codigo] ?? ''
+            : ''
+
+          return (
+            <div key={h.id} className="flex items-center gap-4 px-4 py-3 text-sm">
+              <Fecha
+                valor={h.fecha_cambio}
+                formato="fecha-hora"
+                className="text-xs text-muted-foreground shrink-0 w-[140px]"
+              />
+              <div className="flex items-center gap-2 flex-1">
+                {h.estado_anterior_nombre ? (
+                  <>
+                    <Badge variant="secondary" className={`text-[10px] ${colorAnterior}`}>
+                      {h.estado_anterior_nombre}
+                    </Badge>
+                    <span className="text-muted-foreground">→</span>
+                  </>
+                ) : null}
+                <Badge variant="secondary" className={`text-[10px] ${colorNuevo}`}>
+                  {h.estado_nuevo_nombre}
+                </Badge>
+              </div>
+              <span className="text-xs text-muted-foreground hidden sm:block">
+                {h.usuario_nombre}
+              </span>
+              {h.comentario && (
+                <span className="text-xs text-muted-foreground italic hidden md:block max-w-[200px] truncate">
+                  {h.comentario}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+✅ Archivo 17/26 completado.
+
+Archivo 18/26 — NotaAcciones.tsx
+React
+
+// app/(admin)/inventario/notas/[id]/components/NotaAcciones.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { XCircle, Loader2, AlertCircle } from 'lucide-react'
+import { cancelarNotaAction } from '@/modules/inventario/actions'
+import type { NotaListItem } from '@/modules/inventario/types'
+
+export function NotaAcciones({
+  nota,
+  notaId,
+}: {
+  nota: NotaListItem
+  notaId: number
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [showCancel, setShowCancel] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  // Solo mostrar acciones si la nota no está ya cancelada
+  if (nota.estado_codigo === 'CANC') return null
+
+  const handleCancel = () => {
+    setError(null)
+    startTransition(async () => {
+      const result = await cancelarNotaAction(notaId, motivo || undefined)
+      if (!result.success) {
+        setError(result.error ?? 'Error al cancelar.')
+        return
+      }
+      setShowCancel(false)
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Solo notas confirmadas pueden cancelarse desde aquí */}
+      {nota.estado_codigo === 'CONF' && (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => setShowCancel(true)}
+          disabled={isPending}
+        >
+          <XCircle className="h-4 w-4 mr-2" />
+          Cancelar Nota
+        </Button>
+      )}
+
+      <AlertDialog open={showCancel} onOpenChange={setShowCancel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar nota {nota.numero_nota}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción marcará la nota como cancelada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="px-6 pb-2">
+            <Input
+              placeholder="Motivo de cancelación (opcional)"
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancel}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isPending}
+            >
+              {isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Confirmar Cancelación
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+✅ Archivo 18/26 completado.
+
+Archivo 19/26 — app/(admin)/inventario/stock/page.tsx
+React
+
+// app/(admin)/inventario/stock/page.tsx
+import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
+import { fetchStockByBodega, fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { getBodegaActivaFromCookies } from '@/hooks/useBodegaActiva'
+import { StockFilters } from './StockFilters'
+import { StockTable } from './StockTable'
+import { Pagination } from '@/components/admin/Pagination'
+import { Warehouse } from 'lucide-react'
+import type { FiltrosStock } from '@/modules/inventario/types'
+
+export const metadata: Metadata = {
+  title: 'Stock por Bodega',
+}
+
+export default async function StockPage({
+  searchParams,
+}: {
+  searchParams: {
+    q?: string
+    marca_id?: string
+    con_stock_cero?: string
+    page?: string
+  }
+}) {
+  const cookieStore = await cookies()
+  const bodegaActivaId = getBodegaActivaFromCookies(cookieStore)
+
+  if (!bodegaActivaId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <Warehouse className="h-12 w-12" />
+        <p className="text-sm mt-4">Selecciona una bodega en el header para ver el stock.</p>
+      </div>
+    )
+  }
+
+  const filtros: FiltrosStock = {
+    q: searchParams.q,
+    con_stock_cero: searchParams.con_stock_cero === 'true',
+    page: searchParams.page ? parseInt(searchParams.page) : 1,
+  }
+
+  const [{ items, total }, catalogos] = await Promise.all([
+    fetchStockByBodega(bodegaActivaId, filtros),
+    fetchCatalogosInventario(),
+  ])
+
+  const bodegaActiva = catalogos.bodegas.find((b) => b.id === bodegaActivaId)
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Stock por Bodega
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {bodegaActiva?.nombre ?? 'Bodega seleccionada'} — {total} producto{total !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      <StockFilters />
+
+      <StockTable items={items} bodegaId={bodegaActivaId} />
+
+      <Pagination total={total} />
+    </div>
+  )
+}
+✅ Archivo 19/26 completado.
+
+Archivo 20/26 — app/(admin)/inventario/stock/loading.tsx
+React
+
+// app/(admin)/inventario/stock/loading.tsx
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
+
+export default function StockLoading() {
+  return <ListPageSkeleton />
+}
+✅ Archivo 20/26 completado.
+
+Archivo 21/26 — app/(admin)/inventario/stock/StockFilters.tsx
+React
+
+// app/(admin)/inventario/stock/StockFilters.tsx
+'use client'
+
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useCallback, useTransition } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Search, Loader2, X, Eye } from 'lucide-react'
+
+export function StockFilters() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      startTransition(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        if (value === null || value === '') {
+          params.delete(key)
+        } else {
+          params.set(key, value)
+        }
+        params.delete('page')
+        const qs = params.toString()
+        router.push(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false })
+      })
+    },
+    [searchParams, pathname, router]
+  )
+
+  const handleSearch = useDebouncedCallback((term: string) => {
+    updateParam('q', term || null)
+  }, 400)
+
+  const currentQ = searchParams.get('q') ?? ''
+  const currentStockCero = searchParams.get('con_stock_cero') === 'true'
+
+  const hasFilters = Array.from(searchParams.entries()).some(
+    ([key]) => key !== 'page'
+  )
+
+  return (
+    <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
+      <div className="relative flex-1 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          id="stock-search"
+          placeholder="Buscar por SKU o nombre..."
+          defaultValue={currentQ}
+          onChange={(e) => handleSearch(e.target.value)}
+          className="pl-10"
+        />
+        {isPending && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="stock-cero"
+          checked={currentStockCero}
+          onCheckedChange={(checked) =>
+            updateParam('con_stock_cero', checked === true ? 'true' : null)
+          }
+        />
+        <Label htmlFor="stock-cero" className="text-sm font-normal cursor-pointer flex items-center gap-1">
+          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+          Incluir stock en cero
+        </Label>
+      </div>
+
+      {hasFilters && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            startTransition(() => router.push(pathname, { scroll: false }))
+            const input = document.getElementById('stock-search') as HTMLInputElement
+            if (input) input.value = ''
+          }}
+          className="text-muted-foreground"
+        >
+          <X className="h-3 w-3 mr-1" />
+          Limpiar
+        </Button>
+      )}
+    </div>
+  )
+}
+✅ Archivo 21/26 completado.
+
+Archivo 22/26 — app/(admin)/inventario/stock/StockTable.tsx
+React
+
+// app/(admin)/inventario/stock/StockTable.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ChevronDown, ChevronRight, Loader2, Package } from 'lucide-react'
+import { Fecha } from '@/components/shared/Fecha'
+import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types'
+
+export function StockTable({
+  items,
+  bodegaId,
+}: {
+  items: StockListItem[]
+  bodegaId: number
+}) {
+  const [expanded, setExpanded] = useState<Record<number, StockDetalleCaja[] | null>>({})
+  const [loading, setLoading] = useState<Record<number, boolean>>({})
+
+  const toggleExpand = async (productoId: number) => {
+    if (expanded[productoId] !== undefined) {
+      setExpanded((prev) => {
+        const next = { ...prev }
+        delete next[productoId]
+        return next
+      })
+      return
+    }
+
+    setLoading((prev) => ({ ...prev, [productoId]: true }))
+
+    try {
+      const res = await fetch(
+        `/api/inventario/stock-detalle?bodega_id=${bodegaId}&producto_id=${productoId}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setExpanded((prev) => ({ ...prev, [productoId]: data }))
+      }
+    } catch {
+      setExpanded((prev) => ({ ...prev, [productoId]: [] }))
+    }
+
+    setLoading((prev) => ({ ...prev, [productoId]: false }))
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground rounded-lg border">
+        <Package className="h-12 w-12" />
+        <p className="text-sm mt-4">No hay stock registrado en esta bodega.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
+            <th className="px-2 py-2 w-[40px]"></th>
+            <th className="px-4 py-2 text-left">SKU</th>
+            <th className="px-4 py-2 text-left hidden md:table-cell">Producto</th>
+            <th className="px-4 py-2 text-left hidden lg:table-cell">Marca</th>
+            <th className="px-4 py-2 text-center">Cajas</th>
+            <th className="px-4 py-2 text-center">Pz Sueltas</th>
+            <th className="px-4 py-2 text-right">Total Piezas</th>
+            <th className="px-4 py-2 text-left hidden xl:table-cell">Ubicación</th>
+            <th className="px-4 py-2 text-right hidden xl:table-cell">Actualizado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const totalPiezas = (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
+            const isExpanded = expanded[item.producto_id] !== undefined
+            const isLoading = loading[item.producto_id]
+            const detalles = expanded[item.producto_id]
+
+            return (
+              <>
+                <tr key={item.id} className="border-t hover:bg-muted/30">
+                  <td className="px-2 py-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => toggleExpand(item.producto_id)}
+                    >
+                      {isLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : isExpanded ? (
+                        <ChevronDown className="h-3 w-3" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs font-medium">
+                    {item.producto_sku}
+                  </td>
+                  <td className="px-4 py-2 text-xs hidden md:table-cell truncate max-w-[200px]">
+                    {item.producto_nombre ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground hidden lg:table-cell">
+                    {item.marca_nombre ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 text-center tabular-nums font-medium">
+                    {item.cajas}
+                  </td>
+                  <td className="px-4 py-2 text-center tabular-nums">
+                    {item.piezas_sueltas}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums font-bold">
+                    {totalPiezas}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground hidden xl:table-cell">
+                    {item.ubicacion_pasillo ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 text-right hidden xl:table-cell">
+                    <Fecha valor={item.updated_at} formato="relativo" className="text-xs text-muted-foreground" />
+                  </td>
+                </tr>
+
+                {/* Fila expandida: detalle por caja */}
+                {isExpanded && detalles && detalles.length > 0 && (
+                  <tr key={`${item.id}-detail`} className="bg-muted/20">
+                    <td></td>
+                    <td colSpan={8} className="px-4 py-3">
+                      <div className="rounded border overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-muted/50">
+                              <th className="px-3 py-1.5 text-left">Caja</th>
+                              <th className="px-3 py-1.5 text-left">Pack</th>
+                              <th className="px-3 py-1.5 text-center">Cajas</th>
+                              <th className="px-3 py-1.5 text-center">Piezas</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detalles.map((d) => (
+                              <tr key={d.id} className="border-t">
+                                <td className="px-3 py-1.5 font-mono">{d.caja_codigo ?? '—'}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{d.caja_nombre_pack ?? '—'}</td>
+                                <td className="px-3 py-1.5 text-center tabular-nums">{d.cajas}</td>
+                                <td className="px-3 py-1.5 text-center tabular-nums">{d.piezas_sueltas}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {isExpanded && detalles && detalles.length === 0 && (
+                  <tr key={`${item.id}-empty`} className="bg-muted/20">
+                    <td></td>
+                    <td colSpan={8} className="px-4 py-3 text-xs text-muted-foreground text-center">
+                      Sin desglose por caja para este producto.
+                    </td>
+                  </tr>
+                )}
+              </>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+✅ Archivo 22/26 completado — Tabla con filas expandibles que cargan detalle por caja vía fetch.
+
+Archivo 23/26 — API route para stock detalle (necesario para expandir)
+TypeScript
+
+// app/api/inventario/stock-detalle/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { fetchStockDetallePorCaja } from '@/modules/inventario/queries'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json([], { status: 401 })
+  }
+
+  const bodegaId = parseInt(request.nextUrl.searchParams.get('bodega_id') ?? '')
+  const productoId = parseInt(request.nextUrl.searchParams.get('producto_id') ?? '')
+
+  if (!bodegaId || !productoId) {
+    return NextResponse.json([])
+  }
+
+  const detalles = await fetchStockDetallePorCaja(bodegaId, productoId)
+  return NextResponse.json(detalles)
+}
+✅ Archivo 23/27 completado (archivo extra necesario).
+
+Archivo 24/26 — app/(admin)/inventario/bodegas/page.tsx
+React
+
+// app/(admin)/inventario/bodegas/page.tsx
+import type { Metadata } from 'next'
+import { fetchBodegas, fetchUsuariosBodega } from '@/modules/inventario/queries'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { redirect } from 'next/navigation'
+import { BodegaForm } from './BodegaForm'
+import { BodegaUsuarios } from './BodegaUsuarios'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Building2, Check, X } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'Bodegas',
+}
+
+export default async function BodegasPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  // Solo nivel ≤ 2 puede acceder
+  if ((user.rol?.nivel_acceso ?? 99) > 2) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <Building2 className="h-12 w-12" />
+        <p className="text-sm mt-4">No tienes permisos para gestionar bodegas.</p>
+      </div>
+    )
+  }
+
+  const bodegas = await fetchBodegas()
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bodegas</h1>
+          <p className="text-sm text-muted-foreground">
+            {bodegas.length} bodega{bodegas.length !== 1 ? 's' : ''} registrada{bodegas.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <BodegaForm mode="create" />
+      </div>
+
+      <div className="grid gap-4">
+        {bodegas.map((bodega) => (
+          <Card key={bodega.id}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="font-mono text-sm">{bodega.codigo}</span>
+                  <span>{bodega.nombre}</span>
+                  {bodega.es_virtual && (
+                    <Badge variant="secondary" className="text-[10px]">Virtual</Badge>
+                  )}
+                  {!bodega.activa && (
+                    <Badge variant="destructive" className="text-[10px]">Inactiva</Badge>
+                  )}
+                </CardTitle>
+                <BodegaForm mode="edit" bodega={bodega} />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Ciudad</span>
+                  <p>{bodega.ciudad ?? '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Dirección</span>
+                  <p className="text-xs">{bodega.direccion ?? '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Teléfono</span>
+                  <p>{bodega.telefono ?? '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Estado</span>
+                  <p className="flex items-center gap-1">
+                    {bodega.activa ? (
+                      <><Check className="h-3.5 w-3.5 text-green-600" /> Activa</>
+                    ) : (
+                      <><X className="h-3.5 w-3.5 text-red-600" /> Inactiva</>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Usuarios asignados */}
+              <BodegaUsuarios bodegaId={bodega.id} />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+✅ Archivo 24/26 completado.
+
+Archivo 25/26 — app/(admin)/inventario/bodegas/BodegaForm.tsx
+React
+
+// app/(admin)/inventario/bodegas/BodegaForm.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog'
+import { Plus, Pencil, Loader2, AlertCircle } from 'lucide-react'
+import { crearBodegaAction, actualizarBodegaAction } from '@/modules/inventario/actions'
+import type { BodegaRow } from '@/lib/types/tables'
+
+type Props = {
+  mode: 'create' | 'edit'
+  bodega?: BodegaRow
+}
+
+export function BodegaForm({ mode, bodega }: Props) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+
+    const formData = new FormData(e.currentTarget)
+
+    startTransition(async () => {
+      const result = mode === 'create'
+        ? await crearBodegaAction(formData)
+        : await actualizarBodegaAction(formData)
+
+      if (!result.success) {
+        setError(result.error ?? 'Error desconocido.')
+        return
+      }
+
+      setOpen(false)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {mode === 'create' ? (
+          <Button>
+            <Plus className="h-4 w-4 mr-2" />
+            Nueva Bodega
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm">
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {mode === 'create' ? 'Crear Bodega' : `Editar ${bodega?.nombre}`}
+          </DialogTitle>
+        </DialogHeader>
+
+        {error && (
+          <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'edit' && (
+            <input type="hidden" name="bodega_id" value={bodega?.id} />
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="codigo">Código *</Label>
+              <Input
+                id="codigo"
+                name="codigo"
+                defaultValue={bodega?.codigo ?? ''}
+                required
+                placeholder="SUC001"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nombre">Nombre *</Label>
+              <Input
+                id="nombre"
+                name="nombre"
+                defaultValue={bodega?.nombre ?? ''}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="direccion">Dirección</Label>
+            <Input
+              id="direccion"
+              name="direccion"
+              defaultValue={bodega?.direccion ?? ''}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="ciudad">Ciudad</Label>
+              <Input
+                id="ciudad"
+                name="ciudad"
+                defaultValue={bodega?.ciudad ?? ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="telefono">Teléfono</Label>
+              <Input
+                id="telefono"
+                name="telefono"
+                defaultValue={bodega?.telefono ?? ''}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="es_virtual"
+                name="es_virtual"
+                value="true"
+                defaultChecked={bodega?.es_virtual ?? false}
+              />
+              <Label htmlFor="es_virtual" className="text-sm font-normal">
+                Bodega virtual
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="activa"
+                name="activa"
+                value="true"
+                defaultChecked={bodega?.activa ?? true}
+              />
+              <Label htmlFor="activa" className="text-sm font-normal">
+                Activa
+              </Label>
+            </div>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : null}
+            {mode === 'create' ? 'Crear Bodega' : 'Guardar Cambios'}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+✅ Archivo 25/26 completado.
+
+Archivo 26/26 — app/(admin)/inventario/bodegas/BodegaUsuarios.tsx
+React
+
+// app/(admin)/inventario/bodegas/BodegaUsuarios.tsx
+'use client'
+
+import { useState, useEffect, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
+import { Plus, Trash2, Loader2, Users } from 'lucide-react'
+import {
+  asignarUsuarioBodegaAction,
+  eliminarUsuarioBodegaAction,
+} from '@/modules/inventario/actions'
+
+type UsuarioBodega = {
+  id: number
+  usuario_id: number
+  bodega_id: number
+  puede_consultar: boolean | null
+  puede_crear_notas: boolean | null
+  puede_confirmar_notas: boolean | null
+  puede_transferir: boolean | null
+  usuario_nombre: string
+}
+
+export function BodegaUsuarios({ bodegaId }: { bodegaId: number }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [usuarios, setUsuarios] = useState<UsuarioBodega[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/inventario/bodega-usuarios?bodega_id=${bodegaId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setUsuarios(data)
+        }
+      } catch { /* ignore */ }
+      setIsLoading(false)
+    }
+    load()
+  }, [bodegaId])
+
+  const handleDelete = (asignacionId: number) => {
+    startTransition(async () => {
+      await eliminarUsuarioBodegaAction(asignacionId)
+      setUsuarios((prev) => prev.filter((u) => u.id !== asignacionId))
+      router.refresh()
+    })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Cargando usuarios...
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+        <Users className="h-3 w-3" />
+        Usuarios asignados ({usuarios.length})
+      </h4>
+
+      {usuarios.length > 0 ? (
+        <div className="rounded border divide-y text-xs">
+          {usuarios.map((u) => (
+            <div key={u.id} className="flex items-center gap-3 px-3 py-2">
+              <span className="font-medium flex-1">{u.usuario_nombre}</span>
+              {u.puede_consultar && <Badge variant="outline" className="text-[10px]">Consultar</Badge>}
+              {u.puede_crear_notas && <Badge variant="outline" className="text-[10px]">Crear</Badge>}
+              {u.puede_confirmar_notas && <Badge variant="outline" className="text-[10px]">Confirmar</Badge>}
+              {u.puede_transferir && <Badge variant="outline" className="text-[10px]">Transferir</Badge>}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                onClick={() => handleDelete(u.id)}
+                disabled={isPending}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Sin usuarios asignados.</p>
+      )}
+    </div>
+  )
+}
+✅ Archivo 26/26 completado.
+
+Archivo extra — API route para bodega usuarios
+TypeScript
+
+// app/api/inventario/bodega-usuarios/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { fetchUsuariosBodega } from '@/modules/inventario/queries'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json([], { status: 401 })
+  }
+
+  const bodegaId = parseInt(request.nextUrl.searchParams.get('bodega_id') ?? '')
+  if (!bodegaId) {
+    return NextResponse.json([])
+  }
+
+  const usuarios = await fetchUsuariosBodega(bodegaId)
+  return NextResponse.json(usuarios)
+}
+Archivo extra — app/(admin)/inventario/bodegas/loading.tsx
+React
+
+// app/(admin)/inventario/bodegas/loading.tsx
+import { Skeleton } from '@/components/ui/skeleton'
+
+export default function BodegasLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-10 w-36" />
+      </div>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-[160px] w-full rounded-lg" />
+      ))}
+    </div>
+  )
+}
+✅ FASE 4 COMPLETADA — Resumen
+Archivo	Tipo	Función
+lib/constants.ts	Corrección	IDs reales ESTADO_NOTA + colores tipos
+modules/inventario/types.ts	Tipos	Draft, búsqueda, stock, historial
+modules/inventario/queries.ts	Server	10 queries con JOINs reales
+modules/inventario/actions.ts	Server Actions	7 mutaciones vía SPs
+notas/page.tsx	Server	Lista con filtros persistentes
+notas/NotasFilters.tsx	Client	Debounce 400ms, selects, fechas
+notas/NotasTable.tsx	Server	Tabla con badges tipo/estado
+notas/nueva/page.tsx	Server	Carga catálogos → draft builder
+notas/nueva/NoteDraftBuilder.tsx	Client	Draft local completo
+notas/nueva/search/route.ts	API	Búsqueda productos auth
+notas/nueva/packs/route.ts	API	Cajas de producto auth
+notas/[id]/page.tsx	Server	PEND→editor / CONF→lectura
+notas/[id]/NotaCabecera.tsx	Server	Cabecera completa
+notas/[id]/NotaProductos.tsx	Server	Tabla productos solo lectura
+notas/[id]/NotaHistorial.tsx	Server	Timeline de estados
+notas/[id]/NotaAcciones.tsx	Client	Cancelar con diálogo
+stock/page.tsx	Server	Stock por bodega activa
+stock/StockFilters.tsx	Client	Búsqueda + toggle cero
+stock/StockTable.tsx	Client	Filas expandibles por caja
+bodegas/page.tsx	Server	CRUD + usuarios
+bodegas/BodegaForm.tsx	Client	Diálogo crear/editar
+bodegas/BodegaUsuarios.tsx	Client	Asignación con badges
+api/inventario/stock-detalle	API	Detalle stock por caja
+api/inventario/bodega-usuarios	API	Usuarios de bodega

@@ -1,0 +1,10 @@
+node_modules/
+.next/
+coverage/
+.DS_Store
+*.log
+playwright-report/
+test-results/
+tests/e2e/.auth/
+.env*
+!.env.example

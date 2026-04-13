@@ -1,0 +1,16 @@
+﻿app/(admin)/inventario/bodegas/BodegaForm.tsx(51,22): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.
+  Property 'asChild' does not exist on type 'IntrinsicAttributes & Props<unknown>'.
+app/(admin)/inventario/notas/NotasTable.tsx(131,7): error TS2322: Type '{ columns: ColumnDef<NotaListItem>[]; data: NotaListItem[]; rowKey: (row: any) => any; emptyMessage: string; emptyIcon: Element; }' is not assignable to type 'IntrinsicAttributes & DataTableProps'.
+  Property 'columns' does not exist on type 'IntrinsicAttributes & DataTableProps'.
+app/(admin)/inventario/notas/NotasTable.tsx(133,16): error TS7006: Parameter 'row' implicitly has an 'any' type.
+app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx(289,39): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx(320,77): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx(347,80): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx(480,21): error TS2322: Type 'Dispatch<SetStateAction<string>>' is not assignable to type '(value: string | null, eventDetails: SelectRootChangeEventDetails) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'SetStateAction<string>'.
+      Type 'null' is not assignable to type 'SetStateAction<string>'.
+modules/inventario/queries.ts(560,13): error TS2304: Cannot find name 'UsuarioBodegaRow'.

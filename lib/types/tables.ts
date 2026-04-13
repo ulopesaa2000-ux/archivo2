@@ -1,0 +1,91 @@
+// lib/types/tables.ts
+import type { Database } from './database.types'
+
+type Schema = Database['inv-tienda']
+type Tables = Schema['Tables']
+
+// ── Productos ───────────────────────────────────────────────
+export type ProductoRow = Tables['productos']['Row']
+export type ProductoInsert = Tables['productos']['Insert']
+export type ProductoUpdate = Tables['productos']['Update']
+export type VarianteProductoRow = Tables['variantes_producto']['Row']
+export type ProductoImagenRow = Tables['producto_imagenes']['Row']
+export type ProductoTagRow = Tables['producto_tags']['Row']
+export type AcabadoProductoRow = Tables['acabado_producto']['Row']
+export type ComplementoProductoRow = Tables['complemento_producto']['Row']
+export type MedidaProductoRow = Tables['medidas_producto']['Row']
+export type ProductoConjuntoRow = Tables['producto_conjunto']['Row']
+
+// ── Catálogos ───────────────────────────────────────────────
+export type MarcaRow = Tables['cat_marcas']['Row']
+export type TallaRow = Tables['cat_tallas']['Row']
+export type ColorRow = Tables['cat_colores']['Row']
+export type TelaRow = Tables['cat_telas']['Row']
+export type GeneroRow = Tables['cat_generos']['Row']
+export type EdadRow = Tables['cat_edades']['Row']
+export type TipoPrendaRow = Tables['cat_tipo_prenda']['Row']
+export type TipoTagRow = Tables['tipo_tag']['Row']
+export type RefTagRow = Tables['ref_tag']['Row']
+export type PuntoMedidaRow = Tables['puntos_medida']['Row']
+export type TipoAcabadoRow = Tables['tipo_acabado']['Row']
+export type DetalleAcabadoRow = Tables['detalle_acabado']['Row']
+export type PatronAcabadoRow = Tables['patron_acabado']['Row']
+export type LocalizacionAcabadoRow = Tables['localizacion_acabado']['Row']
+export type PartePrendaCompRow = Tables['parte_prenda_comp']['Row']
+export type TipoCompRow = Tables['tipo_comp']['Row']
+export type CorteFormaCompRow = Tables['corte_forma_comp']['Row']
+
+// ── Inventario ──────────────────────────────────────────────
+export type NotaInventarioRow = Tables['notas_inventario']['Row']
+export type NotaDetalleProductoRow = Tables['nota_detalle_productos']['Row']
+export type InventarioStockRow = Tables['inventario_stock']['Row']
+export type AuditoriaInventarioRow = Tables['auditoria_inventario']['Row']
+export type HistorialEstadoNotaRow = Tables['historial_estados_nota']['Row']
+export type BodegaRow = Tables['bodegas']['Row']
+export type TipoMovimientoRow = Tables['cat_tipos_movimiento']['Row']
+export type EstadoNotaRow = Tables['cat_estados_nota']['Row']
+
+// ── Ecommerce ───────────────────────────────────────────────
+export type ProductoWebRow = Tables['productos_web']['Row']
+export type OrdenVentaRow = Tables['ordenes_venta']['Row']
+export type OrdenItemRow = Tables['orden_items']['Row']
+export type CarritoRow = Tables['carritos']['Row']
+export type CarritoItemRow = Tables['carrito_items']['Row']
+
+// ── B2B ─────────────────────────────────────────────────────
+export type OrdenB2BRow = Tables['ordenes_b2b']['Row']
+export type OrdenB2BDetalleRow = Tables['ordenes_b2b_detalles']['Row']
+export type OrdenCajaRow = Tables['orden_cajas']['Row']
+export type OrdenCompraRow = Tables['ordenes_compra']['Row']
+export type CajaProductoRow = Tables['cajas_producto']['Row']
+export type CajaDetalleRow = Tables['caja_detalles']['Row']
+export type ContenedorRow = Tables['contenedores']['Row']
+
+// ── Usuarios ────────────────────────────────────────────────
+export type UsuarioRow = Tables['usuarios']['Row']
+export type RolRow = Tables['roles']['Row']
+export type RolPermisoRow = Tables['rol_permisos']['Row']
+export type UsuarioPermisoRow = Tables['usuario_permisos']['Row']
+export type UsuarioBodegaRow = Tables['usuario_bodegas']['Row']
+export type PersonaRow = Tables['personas']['Row']
+
+// ── Compuestos ──────────────────────────────────────────────
+export type UsuarioConRol = UsuarioRow & {
+  rol: RolRow
+  permisos: UsuarioPermisoRow | null
+}
+
+// ── Enums ───────────────────────────────────────────────────
+export type EstadoNotaCodigo = 'PEND' | 'PROC' | 'CONF' | 'CANC'
+export type AfectaInventario = 1 | -1 | 0
+export type TipoEntidadPersona = 'Proveedor' | 'Cliente B2B' | 'Cliente Retail' | 'Empleado' | 'Administrador'
+export type EstadoProducto = 'borrador' | 'pendiente' | 'publicado' | 'pausado' | 'descontinuado'
+export type EstadoContenedor = 'borrador' | 'en_transito' | 'en_aduana' | 'en_bodega' | 'completo' | 'cerrado' | 'cancelado'
+export type UsoImagen = 'principal_ecommerce' | 'galeria_secundaria' | 'ficha_tecnica' | 'marketing_banner' | 'etiqueta_logistica' | 'color_variacion' | 'tallas_variacion'
+export type MonedaOrden = 'USD' | 'MXN' | 'CNY'
+export type CrearNotaResponse = { nota_id: number; numero_nota: string }
+export type NavegacionProducto = {
+  posicion: number; total: number
+  id_anterior: number | null; sku_anterior: string | null
+  id_siguiente: number | null; sku_siguiente: string | null
+}
