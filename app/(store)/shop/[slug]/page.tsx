@@ -1,22 +1,11 @@
-// app/(store)/catalogo/[slug]/page.tsx
+// app/(store)/shop/[slug]/page.tsx
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
-import dynamic from 'next/dynamic'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
-// Dynamic imports for better performance
-const ProductGallery = dynamic(
-  () => import('@/components/store/producto/ProductGallery'),
-  {
-    loading: () => (
-      <div className="aspect-square bg-[var(--surface)] border border-store-border animate-pulse rounded-md flex items-center justify-center">
-        <span className="text-store-ink3">Cargando galería...</span>
-      </div>
-    ),
-    ssr: false
-  }
-)
+import { ProductGalleryClient } from './components/ProductGalleryClient'
 
+// Dynamic imports for server-side components
 const ProductInfo = dynamic(
   () => import('@/components/store/producto/ProductInfo'),
   {
@@ -225,7 +214,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* Galería */}
           <Suspense fallback={<div className="aspect-square bg-[var(--surface)] border border-store-border animate-pulse rounded-md" />}>
-            <ProductGallery
+            <ProductGalleryClient
               imagenes={imagenes}
               nombre={producto.nombre}
             />
