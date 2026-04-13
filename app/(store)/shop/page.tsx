@@ -8,7 +8,14 @@ import { FilterSidebar } from '@/components/store/catalogo/FilterSidebar'
 import { CatalogSkeleton } from '@/components/store/catalogo/CatalogSkeleton'
 
 export const metadata: Metadata = {
-  title: 'Catálogo',
+  title: 'Catálogo de Productos | inv-tienda',
+  description: 'Explora nuestra completa colección de moda. Chamarras, pants, gorros y accesorios de calidad. Filtra por categorías, marcas y ofertas.',
+  keywords: 'catálogo productos, moda online, ropa, chamarras, pants, gorros, ofertas, descuentos',
+  openGraph: {
+    title: 'Catálogo de Productos | inv-tienda',
+    description: 'Explora nuestra completa colección de moda 2026',
+    url: 'https://inv-tienda.com/shop'
+  }
 }
 
 interface CatalogoPageProps {
@@ -26,7 +33,7 @@ interface CatalogoPageProps {
 export default async function CatalogoPage({ searchParams }: CatalogoPageProps) {
   const params = await searchParams
   const config = await fetchConfigEcommerce()
-  
+
   const filtros = {
     q: params.q,
     marca_id: params.marca ? parseInt(params.marca) : undefined,
@@ -39,11 +46,84 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
 
   const { productos, total } = await fetchProductosWebPublicos(filtros)
 
+  // Generate breadcrumb schema
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Inicio",
+        item: "https://inv-tienda.com/"
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Catálogo",
+        item: "https://inv-tienda.com/shop"
+      }
+    ]
+  }
+
+  // Generate product list schema
+  const productListSchema = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    numberOfItems: total,
+    itemListElement: productos.map((producto, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      url: `https://inv-tienda.com/shop/${producto.slug}`,
+      name: producto.nombre,
+      image: producto.imagen_principal,
+      offers: {
+        "@type": "Offer",
+        price: producto.precio_oferta || producto.precio_publico,
+        priceCurrency: "USD"
+      }
+    }))
+  }
+
   return (
-    <div className="flex flex-col min-h-screen">
-      <div className="py-4 px-8 bg-store-bg border-b border-store-border text-[12px] text-store-ink3">
-        Inicio &rarr; <strong className="text-store-ink font-medium">Catálogo</strong>
-      </div>
+    <>
+      {/* Schema.org JSON-LD */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(breadcrumbSchema)
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(productListSchema)
+        }}
+      />
+
+      <div className="flex flex-col min-h-screen">
+        {/* Breadcrumbs */}
+        <div className="py-4 px-4 md:px-8 bg-store-bg border-b border-store-border">
+          <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
+            <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
+              <li>
+                <a
+                  href="/"
+                  className="hover:text-store-ink transition-colors"
+                  aria-label="Ir al inicio"
+                >
+                  Inicio
+                </a>
+              </li>
+              <li className="flex items-center">
+                <span className="mx-2">/</span>
+                <span className="text-store-ink font-medium" aria-current="page">
+                  Catálogo
+                </span>
+              </li>
+            </ol>
+          </nav>
+        </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] flex-1">
         {/* Sidebar filtros */}
