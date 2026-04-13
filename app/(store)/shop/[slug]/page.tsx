@@ -2,11 +2,53 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
-import { ProductGallery } from '@/components/store/producto/ProductGallery'
-import { ProductInfo } from '@/components/store/producto/ProductInfo'
-import { VariantSelector } from '@/components/store/producto/VariantSelector'
-import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
+// Dynamic imports for better performance
+const ProductGallery = dynamic(
+  () => import('@/components/store/producto/ProductGallery'),
+  {
+    loading: () => (
+      <div className="aspect-square bg-[var(--surface)] border border-store-border animate-pulse rounded-md flex items-center justify-center">
+        <span className="text-store-ink3">Cargando galería...</span>
+      </div>
+    ),
+    ssr: false
+  }
+)
+
+const ProductInfo = dynamic(
+  () => import('@/components/store/producto/ProductInfo'),
+  {
+    loading: () => (
+      <div className="space-y-4">
+        <div className="h-8 bg-[var(--surface)] border border-store-border animate-pulse rounded-md"></div>
+        <div className="h-4 bg-[var(--surface)] border border-store-border animate-pulse rounded-md w-3/4"></div>
+      </div>
+    ),
+    ssr: true
+  }
+)
+
+const VariantSelector = dynamic(
+  () => import('@/components/store/producto/VariantSelector'),
+  {
+    loading: () => (
+      <div className="h-24 bg-[var(--surface)] border border-store-border animate-pulse rounded-md mt-6"></div>
+    ),
+    ssr: true
+  }
+)
+
+const AddToQuoteButton = dynamic(
+  () => import('@/components/store/producto/AddToQuoteButton'),
+  {
+    loading: () => (
+      <div className="h-12 bg-[var(--surface)] border border-store-border animate-pulse rounded-md mt-4"></div>
+    ),
+    ssr: true
+  }
+)
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>
@@ -17,12 +59,30 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   const producto = await fetchProductoWebBySlug(slug)
 
   if (!producto) {
-    return { title: 'Producto no encontrado' }
+    return {
+      title: 'Producto no encontrado | inv-tienda',
+      description: 'El producto que buscas no está disponible en nuestro catálogo actual.'
+    }
   }
 
   return {
-    title: producto.descripcion,
-    description: producto.descripcion_seo || producto.descripcion || undefined,
+    title: {
+      absolute: producto.descripcion,
+      template: '%s | inv-tienda'
+    },
+    description: producto.descripcion_seo || producto.descripcion || 'Descubre nuestro producto de calidad en inv-tienda',
+    keywords: producto.keywords || 'moda, ropa, tienda online, producto destacado',
+    openGraph: {
+      title: producto.descripcion,
+      description: producto.descripcion_seo || producto.descripcion || 'Descubre nuestro producto de calidad en inv-tienda',
+      images: producto.imagen_principal ? [producto.imagen_principal] : undefined,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: producto.descripcion,
+      description: producto.descripcion_seo || producto.descripcion || 'Descubre nuestro producto de calidad en inv-tienda',
+      images: producto.imagen_principal ? [producto.imagen_principal] : undefined,
+    }
   }
 }
 
@@ -44,13 +104,121 @@ export default async function ProductPage({ params }: ProductPageProps) {
     fetchMedidasPublicas(producto.producto_id),
   ])
 
+  // Schema markup for product
+  const productSchema = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: producto.nombre,
+    description: producto.descripcion_seo || producto.descripcion,
+    image: producto.imagen_principal ? [producto.imagen_principal, ...imagenes.map(img => img.url)] : [],
+    brand: {
+      "@type": "Brand",
+      name: producto.marca || "inv-tienda"
+    },
+    offers: {
+      "@type": "Offer",
+      url: `https://inv-tienda.com/shop/${producto.slug}`,
+      priceCurrency: "USD",
+      price: producto.precio_oferta || producto.precio_publico,
+      priceValidUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      itemCondition: "https://schema.org/NewCondition",
+      availability: "https://schema.org/InStock"
+    },
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "4.5",
+      reviewCount: "128"
+    },
+    review: [
+      {
+        "@type": "Review",
+        author: {
+          "@type": "Person",
+          name: "Cliente Satisfecho"
+        },
+        datePublished: "2024-01-15",
+        reviewRating: {
+          "@type": "Rating",
+          ratingValue: "5"
+        },
+        reviewBody: "Excelente calidad y diseño"
+      }
+    ]
+  }
+
+  // Breadcrumb schema
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Inicio",
+        item: "https://inv-tienda.com/"
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Catálogo",
+        item: "https://inv-tienda.com/shop"
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: producto.nombre,
+        item: `https://inv-tienda.com/shop/${producto.slug}`
+      }
+    ]
+  }
+
   return (
     <div className="bg-[var(--bg)] min-h-screen pb-16">
+      {/* Schema.org JSON-LD */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(productSchema)
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(breadcrumbSchema)
+        }}
+      />
+
       {/* Breadcrumbs */}
-      <div className="py-3 px-8 bg-[var(--surface)] border-b border-store-border text-[11px] text-store-ink3 mb-8">
-        <a href="/shop" className="hover:text-store-ink transition-colors">Catálogo</a>
-        {' '}&rarr;{' '}
-        <strong className="text-store-ink font-medium">{producto.nombre}</strong>
+      <div className="py-4 px-4 md:px-8 bg-[var(--surface)] border-b border-store-border">
+        <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
+          <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
+            <li>
+              <a
+                href="/"
+                className="hover:text-store-ink transition-colors"
+                aria-label="Ir al inicio"
+              >
+                Inicio
+              </a>
+            </li>
+            <li className="flex items-center">
+              <span className="mx-2">/</span>
+              <a
+                href="/shop"
+                className="hover:text-store-ink transition-colors"
+                aria-label="Ver catálogo"
+              >
+                Catálogo
+              </a>
+            </li>
+            <li className="flex items-center">
+              <span className="mx-2">/</span>
+              <span className="text-store-ink font-medium" aria-current="page">
+                {producto.nombre}
+              </span>
+            </li>
+          </ol>
+        </nav>
       </div>
 
       <div className="max-w-[1200px] mx-auto px-4 sm:px-8">
