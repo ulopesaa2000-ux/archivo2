@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Home, SearchArrowLeft } from 'lucide-react'
+import { Home, ArrowLeft } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Página no encontrada | inv-tienda',
@@ -33,7 +33,7 @@ export default function NotFound() {
             href="/shop"
             className="flex items-center justify-center gap-2 bg-store-bg border border-store-border text-store-ink py-3 px-6 rounded-lg hover:bg-store-surface transition-colors"
           >
-            <SearchArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5" />
             <span>Ver catálogo</span>
           </Link>
         </div>

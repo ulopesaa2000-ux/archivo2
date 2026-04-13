@@ -86,7 +86,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
   }
 
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       {/* Schema.org JSON-LD */}
       <script
         type="application/ld+json"
@@ -101,49 +101,48 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
         }}
       />
 
-      <div className="flex flex-col min-h-screen">
-        {/* Breadcrumbs */}
-        <div className="py-4 px-4 md:px-8 bg-store-bg border-b border-store-border">
-          <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
-            <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
-              <li>
-                <a
-                  href="/"
-                  className="hover:text-store-ink transition-colors"
-                  aria-label="Ir al inicio"
-                >
-                  Inicio
-                </a>
-              </li>
-              <li className="flex items-center">
-                <span className="mx-2">/</span>
-                <span className="text-store-ink font-medium" aria-current="page">
-                  Catálogo
-                </span>
-              </li>
-            </ol>
-          </nav>
-        </div>
-      
+      {/* Breadcrumbs */}
+      <div className="py-4 px-4 md:px-8 bg-[#F4F4F1] border-b border-[#2D5A3D]/10">
+        <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
+          <ol className="flex items-center space-x-2 text-[12px] text-[#8C8C8C]">
+            <li>
+              <a
+                href="/"
+                className="text-[#262626] hover:text-[#1A1C1A] transition-colors"
+                aria-label="Ir al inicio"
+              >
+                Inicio
+              </a>
+            </li>
+            <li className="flex items-center">
+              <span className="mx-2 text-[#8C8C8C]">/</span>
+              <span className="text-[#1A1C1A] font-medium" aria-current="page">
+                Catálogo
+              </span>
+            </li>
+          </ol>
+        </nav>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] flex-1">
         {/* Sidebar filtros */}
-        <aside className="border-r border-store-border bg-store-bg pt-6 px-6 pb-12">
-          <Suspense fallback={<div className="h-96 bg-store-surface animate-pulse rounded-lg border border-store-border" />}>
+        <aside className="border-r border-[#2D5A3D]/10 bg-[#F4F4F1] pt-6 px-6 pb-12">
+          <Suspense fallback={<div className="h-96 bg-[#FFFFFF] animate-pulse rounded-lg border border-[#2D5A3D]/10" />}>
             <FilterSidebar />
           </Suspense>
         </aside>
 
         {/* Grid productos */}
-        <main className="bg-store-surface pt-6 px-8 pb-12">
-          <div className="flex justify-between items-center bg-store-surface pb-4 mb-6 border-b border-store-border">
-            <div className="text-[14px] text-store-ink2">
-              <strong className="text-store-ink">{total}</strong> productos encontrados
+        <main className="bg-[#F4F4F1] pt-6 px-8 pb-12">
+          <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#2D5A3D]/10">
+            <div className="text-[14px] text-[#262626]">
+              <strong className="text-[#1A1C1A]">{total}</strong> productos encontrados
             </div>
           </div>
 
           <Suspense fallback={<CatalogSkeleton />}>
-            <ProductGrid 
-              productos={productos} 
+            <ProductGrid
+              productos={productos}
               config={config}
               total={total}
               currentPage={filtros.page || 1}

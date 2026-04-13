@@ -20,9 +20,9 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
 
   return (
     <div>
-      {/* Marca — pequeño, uppercase, tracking wide */}
+      {/* Marca — mediano, uppercase, tracking wide */}
       {producto.marca && (
-        <div className="text-[11px] tracking-[0.12em] uppercase text-store-ink3 font-semibold mb-3 font-sans">
+        <div className="text-[13px] tracking-[0.1em] uppercase text-store-ink3 font-medium mb-3 font-sans">
           {producto.marca}
         </div>
       )}

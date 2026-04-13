@@ -5,7 +5,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 
-interface ProductGalleryProps {
+export interface ProductGalleryProps {
   imagenes: { url: string; es_principal: boolean; orden: number }[]
   nombre: string
 }

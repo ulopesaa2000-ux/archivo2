@@ -16,7 +16,7 @@ interface ProductGridProps {
 export function ProductGrid({ productos, config, total, currentPage }: ProductGridProps) {
   if (productos.length === 0) {
     return (
-      <div className="text-center py-20 px-8 text-store-ink3 text-[14px]">
+      <div className="text-center py-20 px-8 text-[#8C8C8C] text-[14px]">
         No se encontraron productos con estos filtros.
       </div>
     )
@@ -56,14 +56,14 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
 
   return (
     <Link href={`/shop/${producto.slug}`} className="block group">
-      <div className="bg-store-bg rounded-lg h-[240px] flex items-center justify-center text-store-ink3 text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-4 border-transparent border group-hover:border-store-border transition-colors">
+      <div className="bg-[#FFFFFF] rounded-lg h-[240px] flex items-center justify-center text-[#8C8C8C] text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-4 border border-[#2D5A3D]/10 group-hover:border-[#2D5A3D]/30 transition-colors">
         <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,0,0,.015) 12px, rgba(0,0,0,.015) 13px)' }}></div>
         
         {producto.nuevo && (
-          <span className="absolute top-2 left-2 bg-store-accent text-white text-[10px] font-semibold py-[3px] px-[8px] rounded-[3px] tracking-[0.05em] z-10">Nuevo</span>
+          <span className="absolute top-2 left-2 bg-[#2D5A3D] text-white text-[10px] font-semibold py-[3px] px-[8px] rounded-[3px] tracking-[0.05em] z-10">Nuevo</span>
         )}
         {producto.en_oferta && !producto.nuevo && showPrice && (
-          <span className="absolute top-2 left-2 bg-[#cc4444] text-white text-[10px] font-semibold py-[3px] px-[8px] rounded-[3px] tracking-[0.05em] z-10">-Oferta</span>
+          <span className="absolute top-2 left-2 bg-[#B35A3E] text-white text-[10px] font-semibold py-[3px] px-[8px] rounded-[3px] tracking-[0.05em] z-10">-Oferta</span>
         )}
 
         {producto.imagen_principal ? (
@@ -81,30 +81,30 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
       </div>
 
       <div className="px-1">
-        <div className="text-[11px] text-store-ink3 tracking-[0.05em] uppercase mb-1.5 truncate">
+        <div className="text-[11px] text-[#8C8C8C] tracking-[0.05em] uppercase mb-1.5 truncate">
           {producto.marca || 'Marca'}
         </div>
-        <div className="text-[14px] text-store-ink font-medium mb-2 truncate group-hover:text-store-accent transition-colors">
+        <div className="text-[14px] text-[#1A1C1A] font-medium mb-2 truncate group-hover:text-[#2D5A3D] transition-colors">
           {producto.nombre}
         </div>
         
         <div className="flex items-center justify-between">
           {showPrice && precio ? (
-            <div className="text-[15px] text-store-ink font-semibold">
+            <div className="text-[15px] text-[#1A1C1A] font-semibold">
               {formatearPrecio(precio, config!)}
               {precioAnterior && (
-                <span className="text-[12px] text-store-ink3 line-through ml-2 font-normal">
+                <span className="text-[12px] text-[#8C8C8C] line-through ml-2 font-normal">
                   {formatearPrecio(precioAnterior, config!)}
                 </span>
               )}
             </div>
           ) : (
-            <div className="text-[14px] text-store-ink3 italic">
+            <div className="text-[14px] text-[#8C8C8C] italic">
               Consultar precio
             </div>
           )}
 
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-[12px] font-medium text-store-accent">
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-[12px] font-medium text-[#2D5A3D]">
             {config?.texto_boton_agregar || '+ Carrito'}
           </div>
         </div>
