@@ -1,0 +1,3030 @@
+Archivo 1 — lib/constants.ts (adiciones Fase 5)
+TypeScript
+
+// lib/constants.ts
+// ═══ AGREGAR al archivo existente (no reemplazar, AÑADIR) ═══
+
+// ── Estados de contenedor (CHECK constraint en BD) ──────────
+export const ESTADOS_CONTENEDOR = [
+  'borrador', 'en_transito', 'en_aduana', 'en_bodega',
+  'completo', 'cerrado', 'cancelado',
+] as const
+
+export type EstadoContenedor = typeof ESTADOS_CONTENEDOR[number]
+
+export const ESTADO_CONTENEDOR_COLORS: Record<string, string> = {
+  borrador: 'bg-gray-100 text-gray-800',
+  en_transito: 'bg-blue-100 text-blue-800',
+  en_aduana: 'bg-amber-100 text-amber-800',
+  en_bodega: 'bg-emerald-100 text-emerald-800',
+  completo: 'bg-green-100 text-green-800',
+  cerrado: 'bg-slate-100 text-slate-800',
+  cancelado: 'bg-red-100 text-red-800',
+}
+
+export const ESTADO_CONTENEDOR_LABELS: Record<string, string> = {
+  borrador: 'Borrador',
+  en_transito: 'En Tránsito',
+  en_aduana: 'En Aduana',
+  en_bodega: 'En Bodega',
+  completo: 'Completo',
+  cerrado: 'Cerrado',
+  cancelado: 'Cancelado',
+}
+
+// Transiciones válidas de contenedor
+export const TRANSICIONES_CONTENEDOR: Record<string, string[]> = {
+  borrador: ['en_transito', 'cancelado'],
+  en_transito: ['en_aduana', 'cancelado'],
+  en_aduana: ['en_bodega', 'cancelado'],
+  en_bodega: ['completo', 'cancelado'],
+  completo: ['cerrado'],
+  cerrado: [],
+  cancelado: [],
+}
+
+// ── Estados de orden B2B (sin CHECK, viven aquí) ────────────
+export const ESTADOS_ORDEN_B2B = [
+  'Borrador', 'Enviada', 'Confirmada', 'En Producción',
+  'Producción Completa', 'Embarcada', 'Recibida', 'Cerrada', 'Cancelada',
+] as const
+
+export type EstadoOrdenB2B = typeof ESTADOS_ORDEN_B2B[number]
+
+export const ESTADO_ORDEN_B2B_COLORS: Record<string, string> = {
+  Borrador: 'bg-gray-100 text-gray-800',
+  Enviada: 'bg-sky-100 text-sky-800',
+  Confirmada: 'bg-blue-100 text-blue-800',
+  'En Producción': 'bg-amber-100 text-amber-800',
+  'Producción Completa': 'bg-lime-100 text-lime-800',
+  Embarcada: 'bg-indigo-100 text-indigo-800',
+  Recibida: 'bg-emerald-100 text-emerald-800',
+  Cerrada: 'bg-slate-100 text-slate-800',
+  Cancelada: 'bg-red-100 text-red-800',
+}
+
+// ── Estados de detalle B2B ──────────────────────────────────
+export const ESTADOS_DETALLE_B2B = [
+  'Pendiente', 'Confirmado', 'En Producción',
+  'Producción Completa', 'Recibido', 'Parcial', 'Cancelado',
+] as const
+
+export const ESTADO_DETALLE_B2B_COLORS: Record<string, string> = {
+  Pendiente: 'bg-yellow-100 text-yellow-800',
+  Confirmado: 'bg-blue-100 text-blue-800',
+  'En Producción': 'bg-amber-100 text-amber-800',
+  'Producción Completa': 'bg-lime-100 text-lime-800',
+  Recibido: 'bg-green-100 text-green-800',
+  Parcial: 'bg-orange-100 text-orange-800',
+  Cancelado: 'bg-red-100 text-red-800',
+}
+
+// ── Años disponibles ────────────────────────────────────────
+export const AÑOS_DISPONIBLES = [2020, 2021, 2022, 2023, 2024, 2025, 2026] as const
+
+// ── Monedas ─────────────────────────────────────────────────
+export const MONEDAS = ['USD', 'MXN', 'CNY'] as const
+✅ Archivo 1 completado — Constantes de estados, colores, transiciones, años y monedas.
+
+Archivo 2 — modules/contenedores/types.ts
+TypeScript
+
+// modules/contenedores/types.ts
+
+import type { ContenedorRow } from '@/lib/types/tables'
+
+// ── Filtros ─────────────────────────────────────────────────
+export type FiltrosContenedores = {
+  q?: string
+  estado?: string
+  año?: number
+  page?: number
+}
+
+// ── Contenedor resumen (desde v_contenedor_resumen) ─────────
+export type ContenedorResumen = {
+  contenedor_id: number
+  codigo_contenedor: string
+  numero_contenedor: string | null
+  numero_bl: string | null
+  naviera: string | null
+  buque: string | null
+  puerto_origen: string | null
+  puerto_destino: string | null
+  fecha_etd: string | null
+  fecha_eta: string | null
+  estado: string
+  cbm_total: number | null
+  peso_total_kg: number | null
+  total_ordenes: number
+  total_proveedores: number
+  cajas_totales: number
+  piezas_totales: number
+  cbm_ocupado: number | null
+  pct_cbm_ocupado: number | null
+  valor_total_usd: number | null
+}
+
+// ── Packing list (desde v_contenedor_packing) ───────────────
+export type ContenedorPackingItem = {
+  codigo_contenedor: string
+  numero_contenedor: string | null
+  numero_bl: string | null
+  estado_contenedor: string
+  fecha_etd: string | null
+  fecha_eta: string | null
+  orden_id: number
+  folio_proveedor: string | null
+  estado_orden: string | null
+  moneda: string | null
+  proveedor: string | null
+  producto_id: number | null
+  sku_base: string | null
+  producto_nombre: string | null
+  marca: string | null
+  composicion: string | null
+  piezas_solicitadas: number | null
+  piezas_pedidas: number | null
+  cajas_pedidas: number | null
+  precio_unitario: number | null
+  precio_yuan: number | null
+  importe_total: number | null
+  cbm_detalle: number | null
+  codigo_caja: string | null
+  nombre_pack: string | null
+  cantidad_cajas: number | null
+  piezas_por_caja: number | null
+  tallas_caja: string | null
+  colores_caja: string | null
+  cbm_por_caja: number | null
+  cbm_subtotal_caja: number | null
+  peso_bruto_caja: number | null
+  peso_total_caja: number | null
+}
+
+// ── Orden vinculada a contenedor ────────────────────────────
+export type OrdenEnContenedor = {
+  id: number
+  folio_proveedor: string | null
+  estado: string | null
+  moneda: string
+  total_cajas: number | null
+  total_piezas: number | null
+  cbm_orden: number | null
+  proveedor_nombre: string | null
+  fecha_orden: string | null
+}
+✅ Archivo 2 completado.
+
+Archivo 3 — modules/contenedores/queries.ts
+TypeScript
+
+// modules/contenedores/queries.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { PAGE_SIZE } from '@/lib/constants'
+import type {
+  FiltrosContenedores, ContenedorResumen,
+  ContenedorPackingItem, OrdenEnContenedor,
+} from './types'
+import type { ContenedorRow } from '@/lib/types/tables'
+
+// ════════════════════════════════════════════════════════════
+// LISTADO (usa v_contenedor_resumen)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchContenedores(
+  filtros: FiltrosContenedores
+): Promise<{ items: ContenedorResumen[]; total: number }> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  let query = supabase
+    .from('v_contenedor_resumen')
+    .select('*', { count: 'exact' })
+
+  if (filtros.q) {
+    const term = `%${filtros.q}%`
+    query = query.or(
+      `numero_contenedor.ilike.${term},codigo_contenedor.ilike.${term},numero_bl.ilike.${term}`
+    )
+  }
+
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado)
+  }
+
+  if (filtros.año) {
+    query = query
+      .gte('fecha_eta', `${filtros.año}-01-01`)
+      .lt('fecha_eta', `${filtros.año + 1}-01-01`)
+  }
+
+  query = query
+    .order('fecha_eta', { ascending: false, nullsFirst: false })
+    .range(from, to)
+
+  const { data, count, error } = await query
+
+  if (error) {
+    console.error('Error fetchContenedores:', error)
+    return { items: [], total: 0 }
+  }
+
+  return {
+    items: (data ?? []) as ContenedorResumen[],
+    total: count ?? 0,
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// DETALLE
+// ════════════════════════════════════════════════════════════
+
+export async function fetchContenedorById(
+  id: number
+): Promise<ContenedorRow | null> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('contenedores')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error || !data) return null
+  return data as ContenedorRow
+}
+
+export async function fetchContenedorResumen(
+  id: number
+): Promise<ContenedorResumen | null> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('v_contenedor_resumen')
+    .select('*')
+    .eq('contenedor_id', id)
+    .single()
+
+  if (error || !data) return null
+  return data as ContenedorResumen
+}
+
+export async function fetchOrdenesDeContenedor(
+  contenedorId: number
+): Promise<OrdenEnContenedor[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('ordenes_b2b')
+    .select(`
+      id, folio_proveedor, estado, moneda,
+      total_cajas, total_piezas, cbm_orden, fecha_orden,
+      proveedor:personas!ordenes_b2b_proveedor_id_fkey (
+        nombre_completo
+      )
+    `)
+    .eq('contenedor_id', contenedorId)
+    .order('id')
+
+  if (error || !data) return []
+
+  return data.map((o: any) => {
+    const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+    return {
+      id: o.id,
+      folio_proveedor: o.folio_proveedor,
+      estado: o.estado,
+      moneda: o.moneda,
+      total_cajas: o.total_cajas,
+      total_piezas: o.total_piezas,
+      cbm_orden: o.cbm_orden,
+      proveedor_nombre: prov?.nombre_completo ?? null,
+      fecha_orden: o.fecha_orden,
+    }
+  })
+}
+
+export async function fetchContenedorPacking(
+  contenedorId: number
+): Promise<ContenedorPackingItem[]> {
+  const supabase = await createClient()
+
+  // Primero obtener el codigo_contenedor
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('codigo_contenedor')
+    .eq('id', contenedorId)
+    .single()
+
+  if (!cont) return []
+
+  const { data, error } = await supabase
+    .from('v_contenedor_packing')
+    .select('*')
+    .eq('codigo_contenedor', cont.codigo_contenedor)
+    .order('orden_id')
+
+  if (error || !data) return []
+  return data as ContenedorPackingItem[]
+}
+✅ Archivo 3 completado.
+
+Archivo 4 — modules/contenedores/actions.ts
+TypeScript
+
+// modules/contenedores/actions.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { TRANSICIONES_CONTENEDOR } from '@/lib/constants'
+
+export type ActionResult = {
+  success: boolean
+  error?: string
+  id?: number
+}
+
+// ════════════════════════════════════════════════════════════
+// CRUD CONTENEDORES
+// ════════════════════════════════════════════════════════════
+
+export async function crearContenedorAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const codigo = (formData.get('codigo_contenedor') as string)?.trim()
+  if (!codigo) return { success: false, error: 'Código de contenedor obligatorio.' }
+
+  const { data, error } = await supabase
+    .from('contenedores')
+    .insert({
+      codigo_contenedor: codigo,
+      numero_contenedor: (formData.get('numero_contenedor') as string)?.trim() || null,
+      naviera: (formData.get('naviera') as string)?.trim() || null,
+      numero_bl: (formData.get('numero_bl') as string)?.trim() || null,
+      buque: (formData.get('buque') as string)?.trim() || null,
+      puerto_origen: (formData.get('puerto_origen') as string)?.trim() || null,
+      puerto_destino: (formData.get('puerto_destino') as string)?.trim() || null,
+      fecha_etd: (formData.get('fecha_etd') as string) || null,
+      fecha_eta: (formData.get('fecha_eta') as string) || null,
+      peso_total_kg: parseFloat(formData.get('peso_total_kg') as string) || null,
+      cbm_total: parseFloat(formData.get('cbm_total') as string) || null,
+      estado: 'borrador',
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    if (error.code === '23505') {
+      return { success: false, error: `El código "${codigo}" ya existe.` }
+    }
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/contenedores')
+  return { success: true, id: data.id }
+}
+
+export async function actualizarContenedorAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const id = parseInt(formData.get('contenedor_id') as string)
+  if (!id) return { success: false, error: 'ID requerido.' }
+
+  const { error } = await supabase
+    .from('contenedores')
+    .update({
+      codigo_contenedor: (formData.get('codigo_contenedor') as string)?.trim(),
+      numero_contenedor: (formData.get('numero_contenedor') as string)?.trim() || null,
+      naviera: (formData.get('naviera') as string)?.trim() || null,
+      numero_bl: (formData.get('numero_bl') as string)?.trim() || null,
+      buque: (formData.get('buque') as string)?.trim() || null,
+      puerto_origen: (formData.get('puerto_origen') as string)?.trim() || null,
+      puerto_destino: (formData.get('puerto_destino') as string)?.trim() || null,
+      fecha_etd: (formData.get('fecha_etd') as string) || null,
+      fecha_eta: (formData.get('fecha_eta') as string) || null,
+      peso_total_kg: parseFloat(formData.get('peso_total_kg') as string) || null,
+      cbm_total: parseFloat(formData.get('cbm_total') as string) || null,
+    })
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/contenedores')
+  revalidatePath(`/contenedores/${id}`)
+  return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// CAMBIO DE ESTADO
+// ════════════════════════════════════════════════════════════
+
+export async function cambiarEstadoContenedorAction(
+  contenedorId: number,
+  nuevoEstado: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // Obtener estado actual
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('estado')
+    .eq('id', contenedorId)
+    .single()
+
+  if (!cont) return { success: false, error: 'Contenedor no encontrado.' }
+
+  // Validar transición
+  const permitidas = TRANSICIONES_CONTENEDOR[cont.estado] ?? []
+  if (!permitidas.includes(nuevoEstado)) {
+    return {
+      success: false,
+      error: `No se puede cambiar de "${cont.estado}" a "${nuevoEstado}".`,
+    }
+  }
+
+  // Actualizar contenedor
+  const { error } = await supabase
+    .from('contenedores')
+    .update({ estado: nuevoEstado })
+    .eq('id', contenedorId)
+
+  if (error) return { success: false, error: error.message }
+
+  // Si cambia a en_bodega → marcar órdenes como Recibida
+  if (nuevoEstado === 'en_bodega') {
+    await supabase
+      .from('ordenes_b2b')
+      .update({ estado: 'Recibida' })
+      .eq('contenedor_id', contenedorId)
+      .neq('estado', 'Cancelada')
+  }
+
+  revalidatePath('/contenedores')
+  revalidatePath(`/contenedores/${contenedorId}`)
+  revalidatePath('/ordenes-b2b')
+  return { success: true }
+}
+✅ Archivo 4 completado.
+
+Archivo 5 — modules/ordenes-b2b/types.ts
+TypeScript
+
+// modules/ordenes-b2b/types.ts
+
+import type { PersonaRow } from '@/lib/types/tables'
+
+// ── Filtros ─────────────────────────────────────────────────
+export type FiltrosOrdenesB2B = {
+  q?: string
+  estado?: string
+  proveedor_id?: number
+  año?: number
+  page?: number
+}
+
+// ── Orden en listado ────────────────────────────────────────
+export type OrdenB2BListItem = {
+  id: number
+  folio_proveedor: string | null
+  estado: string | null
+  moneda: string
+  tipo_cambio: number | null
+  total_cajas: number | null
+  total_piezas: number | null
+  cbm_orden: number | null
+  observaciones: string | null
+  fecha_orden: string | null
+  contenedor_id: number | null
+  contenedor_codigo: string | null
+  proveedor_nombre: string | null
+  cliente_nombre: string | null
+}
+
+// ── Detalle de producto en orden ────────────────────────────
+export type OrdenDetalleResuelto = {
+  id: number
+  orden_id: number
+  producto_id: number | null
+  producto_sku: string | null
+  producto_nombre: string | null
+  cantidad_solicitada: number
+  cantidad_aprobada: number | null
+  precio_acordado: number | null
+  precio_unitario: number | null
+  precio_yuan: number | null
+  importe_total: number | null
+  piezas_pedidas: number | null
+  cajas_pedidas: number | null
+  cbm_detalle: number | null
+  peso_bruto_kg: number | null
+  estado_producto: string | null
+}
+
+// ── Caja vinculada a orden ──────────────────────────────────
+export type OrdenCajaResuelta = {
+  id: number
+  orden_id: number
+  caja_id: number
+  cantidad_cajas: number
+  caja_codigo: string
+  caja_nombre_pack: string | null
+  caja_piezas_por_caja: number | null
+  caja_cbm: number | null
+  caja_peso_bruto_kg: number | null
+  producto_sku: string | null
+}
+
+// ── Caja para listado /ordenes-b2b/cajas ────────────────────
+export type CajaListItem = {
+  id: number
+  codigo_caja: string
+  nombre_pack: string | null
+  producto_id: number | null
+  producto_sku: string | null
+  producto_nombre: string | null
+  proveedor_nombre: string | null
+  piezas_por_caja: number | null
+  tallas: string | null
+  colores: string | null
+  cbm: number | null
+  peso_bruto_kg: number | null
+  costo_total_caja: number | null
+  total_ordenes: number
+  contenedores: string | null
+}
+
+// ── Detalle de caja (para Sheet) ────────────────────────────
+export type CajaDetalle = {
+  id: number
+  codigo_caja: string
+  nombre_pack: string | null
+  producto_id: number | null
+  producto_sku: string | null
+  producto_nombre: string | null
+  proveedor_nombre: string | null
+  piezas_por_caja: number | null
+  tallas: string | null
+  colores: string | null
+  cbm: number | null
+  peso_bruto_kg: number | null
+  largo_cm: number | null
+  ancho_cm: number | null
+  alto_cm: number | null
+  costo_total_caja: number | null
+  detalles_talla_color: CajaDetalleTC[]
+  ordenes_vinculadas: { orden_id: number; contenedor_codigo: string | null }[]
+}
+
+export type CajaDetalleTC = {
+  id: number
+  talla_codigo: string | null
+  talla_nombre: string | null
+  color_nombre: string | null
+  color_hex: string | null
+  cantidad: number
+}
+
+// ── Catálogos para formularios ──────────────────────────────
+export type CatalogosB2B = {
+  proveedores: Pick<PersonaRow, 'id' | 'nombre_completo'>[]
+  clientesB2B: Pick<PersonaRow, 'id' | 'nombre_completo'>[]
+}
+
+export type FiltrosCajas = {
+  q?: string
+  proveedor_id?: number
+  año?: number
+  contenedor_id?: number
+  page?: number
+}
+✅ Archivo 5 completado.
+
+Archivo 6 — modules/ordenes-b2b/queries.ts
+TypeScript
+
+// modules/ordenes-b2b/queries.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { PAGE_SIZE } from '@/lib/constants'
+import type {
+  FiltrosOrdenesB2B, OrdenB2BListItem, OrdenDetalleResuelto,
+  OrdenCajaResuelta, CatalogosB2B, FiltrosCajas, CajaListItem,
+  CajaDetalle, CajaDetalleTC,
+} from './types'
+import type { OrdenB2BRow } from '@/lib/types/tables'
+
+// ════════════════════════════════════════════════════════════
+// LISTADO ÓRDENES
+// ════════════════════════════════════════════════════════════
+
+export async function fetchOrdenesB2B(
+  filtros: FiltrosOrdenesB2B
+): Promise<{ items: OrdenB2BListItem[]; total: number }> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  let query = supabase
+    .from('ordenes_b2b')
+    .select(`
+      id, folio_proveedor, estado, moneda, tipo_cambio,
+      total_cajas, total_piezas, cbm_orden, observaciones,
+      fecha_orden, contenedor_id,
+      contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+        codigo_contenedor
+      ),
+      proveedor:personas!ordenes_b2b_proveedor_id_fkey (
+        nombre_completo
+      ),
+      cliente:personas!ordenes_b2b_cliente_b2b_id_fkey (
+        nombre_completo
+      )
+    `, { count: 'exact' })
+
+  if (filtros.q) {
+    query = query.ilike('folio_proveedor', `%${filtros.q}%`)
+  }
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado)
+  }
+  if (filtros.proveedor_id) {
+    query = query.eq('proveedor_id', filtros.proveedor_id)
+  }
+  if (filtros.año) {
+    query = query
+      .gte('fecha_orden', `${filtros.año}-01-01T00:00:00`)
+      .lt('fecha_orden', `${filtros.año + 1}-01-01T00:00:00`)
+  }
+
+  query = query
+    .order('fecha_orden', { ascending: false })
+    .range(from, to)
+
+  const { data, count, error } = await query
+  if (error) {
+    console.error('Error fetchOrdenesB2B:', error)
+    return { items: [], total: 0 }
+  }
+
+  const items: OrdenB2BListItem[] = (data ?? []).map((o: any) => {
+    const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
+    const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+    const cli = Array.isArray(o.cliente) ? o.cliente[0] : o.cliente
+    return {
+      id: o.id,
+      folio_proveedor: o.folio_proveedor,
+      estado: o.estado,
+      moneda: o.moneda,
+      tipo_cambio: o.tipo_cambio,
+      total_cajas: o.total_cajas,
+      total_piezas: o.total_piezas,
+      cbm_orden: o.cbm_orden,
+      observaciones: o.observaciones,
+      fecha_orden: o.fecha_orden,
+      contenedor_id: o.contenedor_id,
+      contenedor_codigo: cont?.codigo_contenedor ?? null,
+      proveedor_nombre: prov?.nombre_completo ?? null,
+      cliente_nombre: cli?.nombre_completo ?? null,
+    }
+  })
+
+  return { items, total: count ?? 0 }
+}
+
+// ════════════════════════════════════════════════════════════
+// DETALLE ORDEN
+// ════════════════════════════════════════════════════════════
+
+export async function fetchOrdenB2BById(
+  id: number
+): Promise<OrdenB2BListItem | null> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('ordenes_b2b')
+    .select(`
+      id, folio_proveedor, estado, moneda, tipo_cambio,
+      total_cajas, total_piezas, cbm_orden, observaciones,
+      fecha_orden, contenedor_id,
+      contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+        codigo_contenedor
+      ),
+      proveedor:personas!ordenes_b2b_proveedor_id_fkey (
+        nombre_completo
+      ),
+      cliente:personas!ordenes_b2b_cliente_b2b_id_fkey (
+        nombre_completo
+      )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (error || !data) return null
+
+  const o: any = data
+  const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
+  const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+  const cli = Array.isArray(o.cliente) ? o.cliente[0] : o.cliente
+
+  return {
+    id: o.id, folio_proveedor: o.folio_proveedor, estado: o.estado,
+    moneda: o.moneda, tipo_cambio: o.tipo_cambio,
+    total_cajas: o.total_cajas, total_piezas: o.total_piezas,
+    cbm_orden: o.cbm_orden, observaciones: o.observaciones,
+    fecha_orden: o.fecha_orden, contenedor_id: o.contenedor_id,
+    contenedor_codigo: cont?.codigo_contenedor ?? null,
+    proveedor_nombre: prov?.nombre_completo ?? null,
+    cliente_nombre: cli?.nombre_completo ?? null,
+  }
+}
+
+export async function fetchOrdenDetalles(
+  ordenId: number
+): Promise<OrdenDetalleResuelto[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select(`
+      id, orden_id, producto_id, cantidad_solicitada, cantidad_aprobada,
+      precio_acordado, precio_unitario, precio_yuan, importe_total,
+      piezas_pedidas, cajas_pedidas, cbm_detalle, peso_bruto_kg,
+      estado_producto,
+      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+        sku_base, nombre
+      )
+    `)
+    .eq('orden_id', ordenId)
+    .order('id')
+
+  if (error || !data) return []
+
+  return data.map((d: any) => {
+    const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+    return {
+      id: d.id, orden_id: d.orden_id, producto_id: d.producto_id,
+      producto_sku: prod?.sku_base ?? null,
+      producto_nombre: prod?.nombre ?? null,
+      cantidad_solicitada: d.cantidad_solicitada,
+      cantidad_aprobada: d.cantidad_aprobada,
+      precio_acordado: d.precio_acordado,
+      precio_unitario: d.precio_unitario,
+      precio_yuan: d.precio_yuan,
+      importe_total: d.importe_total,
+      piezas_pedidas: d.piezas_pedidas,
+      cajas_pedidas: d.cajas_pedidas,
+      cbm_detalle: d.cbm_detalle,
+      peso_bruto_kg: d.peso_bruto_kg,
+      estado_producto: d.estado_producto,
+    }
+  })
+}
+
+export async function fetchOrdenCajas(
+  ordenId: number
+): Promise<OrdenCajaResuelta[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('orden_cajas')
+    .select(`
+      id, orden_id, caja_id, cantidad_cajas,
+      caja:cajas_producto!orden_cajas_caja_id_fkey (
+        codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg,
+        producto:productos!cajas_producto_producto_id_fkey ( sku_base )
+      )
+    `)
+    .eq('orden_id', ordenId)
+    .order('id')
+
+  if (error || !data) return []
+
+  return data.map((oc: any) => {
+    const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
+    const p = c?.producto
+      ? (Array.isArray(c.producto) ? c.producto[0] : c.producto)
+      : null
+    return {
+      id: oc.id, orden_id: oc.orden_id, caja_id: oc.caja_id,
+      cantidad_cajas: oc.cantidad_cajas,
+      caja_codigo: c?.codigo_caja ?? '',
+      caja_nombre_pack: c?.nombre_pack ?? null,
+      caja_piezas_por_caja: c?.piezas_por_caja ?? null,
+      caja_cbm: c?.cbm ?? null,
+      caja_peso_bruto_kg: c?.peso_bruto_kg ?? null,
+      producto_sku: p?.sku_base ?? null,
+    }
+  })
+}
+
+// ════════════════════════════════════════════════════════════
+// CATÁLOGOS
+// ════════════════════════════════════════════════════════════
+
+export async function fetchCatalogosB2B(): Promise<CatalogosB2B> {
+  const supabase = await createClient()
+
+  const [provRes, cliRes] = await Promise.all([
+    supabase
+      .from('personas')
+      .select('id, nombre_completo')
+      .eq('tipo_entidad', 'Proveedor')
+      .eq('activo', true)
+      .order('nombre_completo'),
+    supabase
+      .from('personas')
+      .select('id, nombre_completo')
+      .eq('tipo_entidad', 'Cliente B2B')
+      .eq('activo', true)
+      .order('nombre_completo'),
+  ])
+
+  return {
+    proveedores: provRes.data ?? [],
+    clientesB2B: cliRes.data ?? [],
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// CAJAS (/ordenes-b2b/cajas)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchCajasListado(
+  filtros: FiltrosCajas
+): Promise<{ items: CajaListItem[]; total: number }> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  // Query base desde cajas_producto con JOINs
+  let query = supabase
+    .from('cajas_producto')
+    .select(`
+      id, codigo_caja, nombre_pack, producto_id,
+      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg,
+      costo_total_caja,
+      producto:productos!cajas_producto_producto_id_fkey (
+        sku_base, nombre
+      ),
+      proveedor:personas!cajas_producto_proveedor_id_fkey (
+        nombre_completo
+      )
+    `, { count: 'exact' })
+
+  if (filtros.q) {
+    const term = `%${filtros.q}%`
+    query = query.or(`codigo_caja.ilike.${term}`)
+  }
+  if (filtros.proveedor_id) {
+    query = query.eq('proveedor_id', filtros.proveedor_id)
+  }
+
+  query = query.order('created_at', { ascending: false }).range(from, to)
+
+  const { data, count, error } = await query
+  if (error) {
+    console.error('Error fetchCajasListado:', error)
+    return { items: [], total: 0 }
+  }
+
+  const items: CajaListItem[] = (data ?? []).map((c: any) => {
+    const prod = Array.isArray(c.producto) ? c.producto[0] : c.producto
+    const prov = Array.isArray(c.proveedor) ? c.proveedor[0] : c.proveedor
+    return {
+      id: c.id, codigo_caja: c.codigo_caja, nombre_pack: c.nombre_pack,
+      producto_id: c.producto_id,
+      producto_sku: prod?.sku_base ?? null,
+      producto_nombre: prod?.nombre ?? null,
+      proveedor_nombre: prov?.nombre_completo ?? null,
+      piezas_por_caja: c.piezas_por_caja, tallas: c.tallas, colores: c.colores,
+      cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg,
+      costo_total_caja: c.costo_total_caja,
+      total_ordenes: 0, contenedores: null, // Se llenan aparte si es necesario
+    }
+  })
+
+  return { items, total: count ?? 0 }
+}
+
+export async function fetchCajaDetalle(
+  cajaId: number
+): Promise<CajaDetalle | null> {
+  const supabase = await createClient()
+
+  const { data: caja, error } = await supabase
+    .from('cajas_producto')
+    .select(`
+      id, codigo_caja, nombre_pack, producto_id,
+      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg,
+      largo_cm, ancho_cm, alto_cm, costo_total_caja,
+      producto:productos!cajas_producto_producto_id_fkey ( sku_base, nombre ),
+      proveedor:personas!cajas_producto_proveedor_id_fkey ( nombre_completo )
+    `)
+    .eq('id', cajaId)
+    .single()
+
+  if (error || !caja) return null
+
+  const c: any = caja
+  const prod = Array.isArray(c.producto) ? c.producto[0] : c.producto
+  const prov = Array.isArray(c.proveedor) ? c.proveedor[0] : c.proveedor
+
+  // Detalles talla/color
+  const { data: detallesTC } = await supabase
+    .from('caja_detalles')
+    .select(`
+      id, cantidad,
+      talla:cat_tallas!caja_detalles_talla_id_fkey ( codigo, nombre ),
+      color:cat_colores!caja_detalles_color_id_fkey ( nombre, hex_code )
+    `)
+    .eq('caja_id', cajaId)
+
+  const detalles_talla_color: CajaDetalleTC[] = (detallesTC ?? []).map((d: any) => {
+    const t = Array.isArray(d.talla) ? d.talla[0] : d.talla
+    const co = Array.isArray(d.color) ? d.color[0] : d.color
+    return {
+      id: d.id,
+      talla_codigo: t?.codigo ?? null, talla_nombre: t?.nombre ?? null,
+      color_nombre: co?.nombre ?? null, color_hex: co?.hex_code ?? null,
+      cantidad: d.cantidad,
+    }
+  })
+
+  // Órdenes donde se usa esta caja
+  const { data: ordenesVinc } = await supabase
+    .from('orden_cajas')
+    .select(`
+      orden_id,
+      orden:ordenes_b2b!orden_cajas_orden_id_fkey (
+        contenedor:contenedores!ordenes_b2b_contenedor_id_fkey ( codigo_contenedor )
+      )
+    `)
+    .eq('caja_id', cajaId)
+
+  const ordenes_vinculadas = (ordenesVinc ?? []).map((ov: any) => {
+    const ord = Array.isArray(ov.orden) ? ov.orden[0] : ov.orden
+    const cont = ord?.contenedor
+      ? (Array.isArray(ord.contenedor) ? ord.contenedor[0] : ord.contenedor)
+      : null
+    return {
+      orden_id: ov.orden_id,
+      contenedor_codigo: cont?.codigo_contenedor ?? null,
+    }
+  })
+
+  return {
+    id: c.id, codigo_caja: c.codigo_caja, nombre_pack: c.nombre_pack,
+    producto_id: c.producto_id,
+    producto_sku: prod?.sku_base ?? null, producto_nombre: prod?.nombre ?? null,
+    proveedor_nombre: prov?.nombre_completo ?? null,
+    piezas_por_caja: c.piezas_por_caja, tallas: c.tallas, colores: c.colores,
+    cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg,
+    largo_cm: c.largo_cm, ancho_cm: c.ancho_cm, alto_cm: c.alto_cm,
+    costo_total_caja: c.costo_total_caja,
+    detalles_talla_color, ordenes_vinculadas,
+  }
+}
+✅ Archivo 6 completado.
+
+Archivo 7 — modules/ordenes-b2b/actions.ts
+TypeScript
+
+// modules/ordenes-b2b/actions.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { getCurrentUser } from '@/modules/auth/queries'
+
+export type ActionResult = {
+  success: boolean
+  error?: string
+  id?: number
+}
+
+// ════════════════════════════════════════════════════════════
+// CRUD ORDEN B2B
+// ════════════════════════════════════════════════════════════
+
+export async function crearOrdenB2BAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const proveedor_id = parseInt(formData.get('proveedor_id') as string)
+  if (!proveedor_id) return { success: false, error: 'Proveedor obligatorio.' }
+
+  const { data, error } = await supabase
+    .from('ordenes_b2b')
+    .insert({
+      proveedor_id,
+      cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
+      contenedor_id: parseInt(formData.get('contenedor_id') as string) || null,
+      folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
+      moneda: (formData.get('moneda') as string) || 'USD',
+      tipo_cambio: parseFloat(formData.get('tipo_cambio') as string) || null,
+      observaciones: (formData.get('observaciones') as string)?.trim() || null,
+      estado: 'Borrador',
+    })
+    .select('id')
+    .single()
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/ordenes-b2b')
+  return { success: true, id: data.id }
+}
+
+export async function actualizarOrdenB2BAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const id = parseInt(formData.get('orden_id') as string)
+  if (!id) return { success: false, error: 'ID requerido.' }
+
+  const { error } = await supabase
+    .from('ordenes_b2b')
+    .update({
+      proveedor_id: parseInt(formData.get('proveedor_id') as string) || null,
+      cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
+      contenedor_id: parseInt(formData.get('contenedor_id') as string) || null,
+      folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
+      moneda: (formData.get('moneda') as string) || 'USD',
+      tipo_cambio: parseFloat(formData.get('tipo_cambio') as string) || null,
+      observaciones: (formData.get('observaciones') as string)?.trim() || null,
+    })
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/ordenes-b2b')
+  revalidatePath(`/ordenes-b2b/${id}`)
+  return { success: true }
+}
+
+export async function cambiarEstadoOrdenAction(
+  ordenId: number,
+  nuevoEstado: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('ordenes_b2b')
+    .update({ estado: nuevoEstado })
+    .eq('id', ordenId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/ordenes-b2b')
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// CRUD DETALLES (PRODUCTOS DE LA ORDEN)
+// ════════════════════════════════════════════════════════════
+
+export async function agregarDetalleOrdenAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const orden_id = parseInt(formData.get('orden_id') as string)
+  const producto_id = parseInt(formData.get('producto_id') as string)
+
+  if (!orden_id || !producto_id) {
+    return { success: false, error: 'Orden y producto requeridos.' }
+  }
+
+  const { error } = await supabase
+    .from('ordenes_b2b_detalles')
+    .insert({
+      orden_id,
+      producto_id,
+      cantidad_solicitada: parseInt(formData.get('cantidad_solicitada') as string) || 0,
+      cantidad_aprobada: parseInt(formData.get('cantidad_aprobada') as string) || null,
+      precio_unitario: parseFloat(formData.get('precio_unitario') as string) || null,
+      precio_yuan: parseFloat(formData.get('precio_yuan') as string) || null,
+      precio_acordado: parseFloat(formData.get('precio_acordado') as string) || null,
+      importe_total: parseFloat(formData.get('importe_total') as string) || null,
+      piezas_pedidas: parseInt(formData.get('piezas_pedidas') as string) || 0,
+      cajas_pedidas: parseFloat(formData.get('cajas_pedidas') as string) || 0,
+      cbm_detalle: parseFloat(formData.get('cbm_detalle') as string) || null,
+      peso_bruto_kg: parseFloat(formData.get('peso_bruto_kg') as string) || null,
+      estado_producto: 'Pendiente',
+    })
+
+  if (error) return { success: false, error: error.message }
+
+  // Recalcular totales
+  await recalcularTotalesOrden(orden_id)
+
+  revalidatePath(`/ordenes-b2b/${orden_id}`)
+  return { success: true }
+}
+
+export async function eliminarDetalleOrdenAction(
+  detalleId: number,
+  ordenId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('ordenes_b2b_detalles')
+    .delete()
+    .eq('id', detalleId)
+
+  if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(ordenId)
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// VINCULAR/DESVINCULAR CAJAS
+// ════════════════════════════════════════════════════════════
+
+export async function vincularCajaOrdenAction(
+  ordenId: number,
+  cajaId: number,
+  cantidadCajas: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orden_cajas')
+    .upsert(
+      { orden_id: ordenId, caja_id: cajaId, cantidad_cajas: cantidadCajas },
+      { onConflict: 'orden_id,caja_id', ignoreDuplicates: false }
+    )
+
+  if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(ordenId)
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+export async function desvincularCajaOrdenAction(
+  ordenCajaId: number,
+  ordenId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('orden_cajas')
+    .delete()
+    .eq('id', ordenCajaId)
+
+  if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(ordenId)
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// RECALCULAR TOTALES (sin trigger — manual)
+// ════════════════════════════════════════════════════════════
+
+async function recalcularTotalesOrden(ordenId: number): Promise<void> {
+  const supabase = await createClient()
+
+  const { data: detalles } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('cajas_pedidas, piezas_pedidas, cbm_detalle')
+    .eq('orden_id', ordenId)
+
+  if (!detalles) return
+
+  const total_cajas = detalles.reduce((s, d) => s + (d.cajas_pedidas ?? 0), 0)
+  const total_piezas = detalles.reduce((s, d) => s + (d.piezas_pedidas ?? 0), 0)
+  const cbm_orden = detalles.reduce((s, d) => s + (d.cbm_detalle ?? 0), 0)
+
+  await supabase
+    .from('ordenes_b2b')
+    .update({
+      total_cajas: Math.round(total_cajas),
+      total_piezas,
+      cbm_orden: cbm_orden || null,
+    })
+    .eq('id', ordenId)
+}
+✅ Archivo 7 completado.
+
+Ahora los componentes de página. Por la extensión, agrupo los componentes más simples:
+
+Archivo 8 — app/(admin)/contenedores/page.tsx
+React
+
+// app/(admin)/contenedores/page.tsx
+import type { Metadata } from 'next'
+import { fetchContenedores } from '@/modules/contenedores/queries'
+import { ContenedoresFilters } from './ContenedoresFilters'
+import { ContenedoresTable } from './ContenedoresTable'
+import { Pagination } from '@/components/admin/Pagination'
+import { ContenedorFormDialog } from './ContenedorFormDialog'
+import type { FiltrosContenedores } from '@/modules/contenedores/types'
+
+export const metadata: Metadata = { title: 'Contenedores' }
+
+export default async function ContenedoresPage({
+  searchParams,
+}: {
+  searchParams: { q?: string; estado?: string; año?: string; page?: string }
+}) {
+  const filtros: FiltrosContenedores = {
+    q: searchParams.q,
+    estado: searchParams.estado,
+    año: searchParams.año ? parseInt(searchParams.año) : undefined,
+    page: searchParams.page ? parseInt(searchParams.page) : 1,
+  }
+
+  const { items, total } = await fetchContenedores(filtros)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Contenedores</h1>
+          <p className="text-sm text-muted-foreground">
+            {total} contenedor{total !== 1 ? 'es' : ''}
+          </p>
+        </div>
+        <ContenedorFormDialog mode="create" />
+      </div>
+      <ContenedoresFilters />
+      <ContenedoresTable items={items} />
+      <Pagination total={total} />
+    </div>
+  )
+}
+Archivo 9 — app/(admin)/contenedores/loading.tsx
+React
+
+// app/(admin)/contenedores/loading.tsx
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
+export default function ContenedoresLoading() {
+  return <ListPageSkeleton />
+}
+Archivo 10 — ContenedoresFilters.tsx
+React
+
+// app/(admin)/contenedores/ContenedoresFilters.tsx
+'use client'
+
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useCallback, useTransition } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Search, Loader2, X } from 'lucide-react'
+import {
+  ESTADOS_CONTENEDOR, ESTADO_CONTENEDOR_LABELS,
+  ESTADO_CONTENEDOR_COLORS, AÑOS_DISPONIBLES,
+} from '@/lib/constants'
+
+export function ContenedoresFilters() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      startTransition(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        if (value === null || value === '' || value === '_all') {
+          params.delete(key)
+        } else {
+          params.set(key, value)
+        }
+        params.delete('page')
+        router.push(`${pathname}?${params.toString()}`, { scroll: false })
+      })
+    },
+    [searchParams, pathname, router]
+  )
+
+  const handleSearch = useDebouncedCallback((term: string) => {
+    updateParam('q', term || null)
+  }, 400)
+
+  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+
+  return (
+    <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
+      <div className="relative flex-1 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar N° contenedor, código, BL..."
+          defaultValue={searchParams.get('q') ?? ''}
+          onChange={(e) => handleSearch(e.target.value)}
+          className="pl-10"
+        />
+        {isPending && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+
+      <Select
+        value={searchParams.get('estado') ?? '_all'}
+        onValueChange={(v) => updateParam('estado', v === '_all' ? null : v)}
+      >
+        <SelectTrigger className="w-[160px] h-9 text-sm">
+          <SelectValue placeholder="Estado" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {ESTADOS_CONTENEDOR.map((e) => (
+            <SelectItem key={e} value={e}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${ESTADO_CONTENEDOR_COLORS[e]?.split(' ')[0]}`} />
+                {ESTADO_CONTENEDOR_LABELS[e]}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={searchParams.get('año') ?? '_all'}
+        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}
+      >
+        <SelectTrigger className="w-[120px] h-9 text-sm">
+          <SelectValue placeholder="Año" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {AÑOS_DISPONIBLES.map((a) => (
+            <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {hasFilters && (
+        <Button variant="ghost" size="sm" onClick={() => {
+          startTransition(() => router.push(pathname, { scroll: false }))
+        }} className="text-muted-foreground">
+          <X className="h-3 w-3 mr-1" /> Limpiar
+        </Button>
+      )}
+    </div>
+  )
+}
+Archivo 11 — ContenedoresTable.tsx (expandible)
+React
+
+// app/(admin)/contenedores/ContenedoresTable.tsx
+'use client'
+
+import { useState } from 'react'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ChevronDown, ChevronRight, Ship, Eye } from 'lucide-react'
+import { Fecha } from '@/components/shared/Fecha'
+import { formatCurrency } from '@/lib/utils'
+import { ADMIN_ROUTES, ESTADO_CONTENEDOR_COLORS, ESTADO_CONTENEDOR_LABELS } from '@/lib/constants'
+import type { ContenedorResumen } from '@/modules/contenedores/types'
+
+export function ContenedoresTable({ items }: { items: ContenedorResumen[] }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+
+  const toggle = (id: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground rounded-lg border">
+        <Ship className="h-12 w-12" />
+        <p className="text-sm mt-4">No se encontraron contenedores.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
+            <th className="px-2 py-2 w-[40px]"></th>
+            <th className="px-4 py-2 text-left">N° Contenedor</th>
+            <th className="px-4 py-2 text-left">Código</th>
+            <th className="px-4 py-2 text-left hidden md:table-cell">ETA</th>
+            <th className="px-4 py-2 text-center hidden lg:table-cell">Órdenes</th>
+            <th className="px-4 py-2 text-center hidden lg:table-cell">Cajas</th>
+            <th className="px-4 py-2">Estado</th>
+            <th className="px-4 py-2 w-[50px]"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const isOpen = expanded.has(item.contenedor_id)
+            const estadoColor = ESTADO_CONTENEDOR_COLORS[item.estado] ?? ''
+
+            return (
+              <>
+                <tr key={item.contenedor_id} className="border-t hover:bg-muted/30">
+                  <td className="px-2 py-2">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
+                      onClick={() => toggle(item.contenedor_id)}>
+                      {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    </Button>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs font-medium">
+                    {item.numero_contenedor ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs">{item.codigo_contenedor}</td>
+                  <td className="px-4 py-2 hidden md:table-cell">
+                    <Fecha valor={item.fecha_eta} formato="fecha" className="text-xs" />
+                  </td>
+                  <td className="px-4 py-2 text-center tabular-nums hidden lg:table-cell">
+                    {item.total_ordenes}
+                  </td>
+                  <td className="px-4 py-2 text-center tabular-nums hidden lg:table-cell">
+                    {item.cajas_totales}
+                  </td>
+                  <td className="px-4 py-2">
+                    <Badge variant="secondary" className={`text-xs ${estadoColor}`}>
+                      {ESTADO_CONTENEDOR_LABELS[item.estado] ?? item.estado}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+                      <Link href={ADMIN_ROUTES.contenedores.detalle(item.contenedor_id)}>
+                        <Eye className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </td>
+                </tr>
+
+                {isOpen && (
+                  <tr key={`${item.contenedor_id}-exp`} className="bg-muted/20">
+                    <td></td>
+                    <td colSpan={7} className="px-4 py-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground text-xs">Naviera</span>
+                          <p className="font-medium">{item.naviera ?? '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">BL</span>
+                          <p className="font-mono text-xs">{item.numero_bl ?? '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Buque</span>
+                          <p>{item.buque ?? '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Ruta</span>
+                          <p className="text-xs">{item.puerto_origen ?? '?'} → {item.puerto_destino ?? '?'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">ETD</span>
+                          <p><Fecha valor={item.fecha_etd} formato="fecha" className="text-xs" /></p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">ETA</span>
+                          <p><Fecha valor={item.fecha_eta} formato="fecha" className="text-xs" /></p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Peso</span>
+                          <p className="tabular-nums">{item.peso_total_kg ? `${item.peso_total_kg} kg` : '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">CBM</span>
+                          <p className="tabular-nums">
+                            {item.cbm_ocupado ?? 0} / {item.cbm_total ?? '?'}
+                            {item.pct_cbm_ocupado != null && (
+                              <span className="text-muted-foreground ml-1">({item.pct_cbm_ocupado}%)</span>
+                            )}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Piezas</span>
+                          <p className="tabular-nums font-medium">{item.piezas_totales}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Valor</span>
+                          <p className="font-medium">{item.valor_total_usd ? formatCurrency(item.valor_total_usd, 'USD') : '—'}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Proveedores</span>
+                          <p className="tabular-nums">{item.total_proveedores}</p>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+✅ Archivos 8-11 completados.
+
+Archivo 12 — ContenedorFormDialog.tsx (CRUD rápido)
+React
+
+// app/(admin)/contenedores/ContenedorFormDialog.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog'
+import { Plus, Pencil, Loader2, AlertCircle } from 'lucide-react'
+import { crearContenedorAction, actualizarContenedorAction } from '@/modules/contenedores/actions'
+import type { ContenedorRow } from '@/lib/types/tables'
+
+type Props = {
+  mode: 'create' | 'edit'
+  contenedor?: ContenedorRow
+}
+
+export function ContenedorFormDialog({ mode, contenedor }: Props) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    const formData = new FormData(e.currentTarget)
+
+    startTransition(async () => {
+      const result = mode === 'create'
+        ? await crearContenedorAction(formData)
+        : await actualizarContenedorAction(formData)
+
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      setOpen(false)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {mode === 'create' ? (
+          <Button><Plus className="h-4 w-4 mr-2" />Nuevo Contenedor</Button>
+        ) : (
+          <Button variant="outline" size="sm"><Pencil className="h-3.5 w-3.5" /></Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{mode === 'create' ? 'Crear Contenedor' : 'Editar Contenedor'}</DialogTitle>
+        </DialogHeader>
+
+        {error && (
+          <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'edit' && <input type="hidden" name="contenedor_id" value={contenedor?.id} />}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Código *</Label>
+              <Input name="codigo_contenedor" defaultValue={contenedor?.codigo_contenedor ?? ''} required />
+            </div>
+            <div className="space-y-2">
+              <Label>N° Contenedor</Label>
+              <Input name="numero_contenedor" defaultValue={contenedor?.numero_contenedor ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Naviera</Label>
+              <Input name="naviera" defaultValue={contenedor?.naviera ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>N° BL</Label>
+              <Input name="numero_bl" defaultValue={contenedor?.numero_bl ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Buque</Label>
+              <Input name="buque" defaultValue={contenedor?.buque ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Puerto Origen</Label>
+              <Input name="puerto_origen" defaultValue={contenedor?.puerto_origen ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Puerto Destino</Label>
+              <Input name="puerto_destino" defaultValue={contenedor?.puerto_destino ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>ETD</Label>
+              <Input type="date" name="fecha_etd" defaultValue={contenedor?.fecha_etd?.slice(0, 10) ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>ETA</Label>
+              <Input type="date" name="fecha_eta" defaultValue={contenedor?.fecha_eta?.slice(0, 10) ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Peso Total (kg)</Label>
+              <Input type="number" step="0.01" name="peso_total_kg" defaultValue={contenedor?.peso_total_kg ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>CBM Total</Label>
+              <Input type="number" step="0.001" name="cbm_total" defaultValue={contenedor?.cbm_total ?? ''} />
+            </div>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {mode === 'create' ? 'Crear' : 'Guardar'}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+✅ Archivo 12 completado.
+
+Archivos 13-17 — Detalle Contenedor
+React
+
+// app/(admin)/contenedores/[id]/page.tsx
+import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
+import {
+  fetchContenedorById, fetchContenedorResumen,
+  fetchOrdenesDeContenedor, fetchContenedorPacking,
+} from '@/modules/contenedores/queries'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { TabSkeleton } from '@/components/admin/PageSkeleton'
+import { ContenedorCabecera } from './components/ContenedorCabecera'
+import { ContenedorOrdenes } from './components/ContenedorOrdenes'
+import { ContenedorPacking } from './components/ContenedorPacking'
+import { Separator } from '@/components/ui/separator'
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const id = parseInt(params.id)
+  if (isNaN(id)) return { title: 'Contenedor no encontrado' }
+  const c = await fetchContenedorById(id)
+  return { title: c ? `${c.codigo_contenedor} — Contenedores` : 'No encontrado' }
+}
+
+export default async function ContenedorDetallePage({ params }: { params: { id: string } }) {
+  const id = parseInt(params.id)
+  if (isNaN(id)) notFound()
+
+  const [contenedor, resumen] = await Promise.all([
+    fetchContenedorById(id),
+    fetchContenedorResumen(id),
+  ])
+  if (!contenedor) notFound()
+
+  const [ordenes, packing] = await Promise.all([
+    fetchOrdenesDeContenedor(id),
+    fetchContenedorPacking(id),
+  ])
+
+  return (
+    <div className="space-y-6">
+      <ContenedorCabecera contenedor={contenedor} resumen={resumen} />
+      <Separator />
+      <Tabs defaultValue="ordenes">
+        <TabsList>
+          <TabsTrigger value="ordenes">Órdenes ({ordenes.length})</TabsTrigger>
+          <TabsTrigger value="packing">Packing List ({packing.length})</TabsTrigger>
+        </TabsList>
+        <TabsContent value="ordenes">
+          <ContenedorOrdenes ordenes={ordenes} />
+        </TabsContent>
+        <TabsContent value="packing">
+          <ContenedorPacking items={packing} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+React
+
+// app/(admin)/contenedores/[id]/loading.tsx
+import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
+export default function ContenedorDetalleLoading() {
+  return <DetailPageSkeleton />
+}
+React
+
+// app/(admin)/contenedores/[id]/components/ContenedorCabecera.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { ArrowLeft, Pencil, Save, X, Loader2, AlertCircle } from 'lucide-react'
+import { Fecha } from '@/components/shared/Fecha'
+import { formatCurrency } from '@/lib/utils'
+import {
+  ADMIN_ROUTES, ESTADO_CONTENEDOR_COLORS, ESTADO_CONTENEDOR_LABELS,
+  TRANSICIONES_CONTENEDOR,
+} from '@/lib/constants'
+import { actualizarContenedorAction, cambiarEstadoContenedorAction } from '@/modules/contenedores/actions'
+import type { ContenedorRow } from '@/lib/types/tables'
+import type { ContenedorResumen } from '@/modules/contenedores/types'
+
+export function ContenedorCabecera({
+  contenedor, resumen,
+}: {
+  contenedor: ContenedorRow
+  resumen: ContenedorResumen | null
+}) {
+  const router = useRouter()
+  const [isEditing, setIsEditing] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const estadoColor = ESTADO_CONTENEDOR_COLORS[contenedor.estado ?? ''] ?? ''
+  const transicionesPermitidas = TRANSICIONES_CONTENEDOR[contenedor.estado ?? ''] ?? []
+
+  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setError(null)
+    const fd = new FormData(e.currentTarget)
+    fd.set('contenedor_id', String(contenedor.id))
+
+    startTransition(async () => {
+      const result = await actualizarContenedorAction(fd)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      setIsEditing(false)
+      router.refresh()
+    })
+  }
+
+  const handleEstado = (nuevoEstado: string) => {
+    startTransition(async () => {
+      const result = await cambiarEstadoContenedorAction(contenedor.id, nuevoEstado)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link href={ADMIN_ROUTES.contenedores.lista}
+            className="hover:text-foreground transition-colors flex items-center gap-1">
+            <ArrowLeft className="h-3.5 w-3.5" /> Contenedores
+          </Link>
+          <span>/</span>
+          <span className="text-foreground font-medium font-mono">{contenedor.codigo_contenedor}</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Estado con transiciones */}
+          {transicionesPermitidas.length > 0 && (
+            <Select onValueChange={handleEstado} disabled={isPending}>
+              <SelectTrigger className="w-[180px] h-9 text-sm">
+                <SelectValue placeholder="Cambiar estado..." />
+              </SelectTrigger>
+              <SelectContent>
+                {transicionesPermitidas.map((e) => (
+                  <SelectItem key={e} value={e}>
+                    → {ESTADO_CONTENEDOR_LABELS[e]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {!isEditing && (
+            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+              <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+        </div>
+      )}
+
+      <Card>
+        <CardContent className="pt-6">
+          {isEditing ? (
+            <form onSubmit={handleSave} className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="space-y-1"><Label className="text-xs">Código</Label>
+                  <Input name="codigo_contenedor" defaultValue={contenedor.codigo_contenedor} required className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">N° Contenedor</Label>
+                  <Input name="numero_contenedor" defaultValue={contenedor.numero_contenedor ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Naviera</Label>
+                  <Input name="naviera" defaultValue={contenedor.naviera ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">N° BL</Label>
+                  <Input name="numero_bl" defaultValue={contenedor.numero_bl ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Buque</Label>
+                  <Input name="buque" defaultValue={contenedor.buque ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Puerto Origen</Label>
+                  <Input name="puerto_origen" defaultValue={contenedor.puerto_origen ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Puerto Destino</Label>
+                  <Input name="puerto_destino" defaultValue={contenedor.puerto_destino ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">ETD</Label>
+                  <Input type="date" name="fecha_etd" defaultValue={contenedor.fecha_etd?.slice(0, 10) ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">ETA</Label>
+                  <Input type="date" name="fecha_eta" defaultValue={contenedor.fecha_eta?.slice(0, 10) ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Peso (kg)</Label>
+                  <Input type="number" step="0.01" name="peso_total_kg" defaultValue={contenedor.peso_total_kg ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">CBM Total</Label>
+                  <Input type="number" step="0.001" name="cbm_total" defaultValue={contenedor.cbm_total ?? ''} className="h-9" /></div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isPending}>
+                  <X className="h-3.5 w-3.5 mr-1" /> Cancelar
+                </Button>
+                <Button type="submit" size="sm" disabled={isPending}>
+                  {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                  <Save className="h-3.5 w-3.5 mr-1" /> Guardar
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-xl font-bold font-mono">{contenedor.numero_contenedor ?? contenedor.codigo_contenedor}</h2>
+                <Badge className={estadoColor}>{ESTADO_CONTENEDOR_LABELS[contenedor.estado ?? ''] ?? contenedor.estado}</Badge>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+                <div><span className="text-muted-foreground">Naviera</span><p className="font-medium">{contenedor.naviera ?? '—'}</p></div>
+                <div><span className="text-muted-foreground">BL</span><p className="font-mono text-xs">{contenedor.numero_bl ?? '—'}</p></div>
+                <div><span className="text-muted-foreground">Buque</span><p>{contenedor.buque ?? '—'}</p></div>
+                <div><span className="text-muted-foreground">Ruta</span><p className="text-xs">{contenedor.puerto_origen ?? '?'} → {contenedor.puerto_destino ?? '?'}</p></div>
+                <div><span className="text-muted-foreground">ETD</span><p><Fecha valor={contenedor.fecha_etd} formato="fecha" /></p></div>
+                <div><span className="text-muted-foreground">ETA</span><p><Fecha valor={contenedor.fecha_eta} formato="fecha" /></p></div>
+                <div><span className="text-muted-foreground">Peso</span><p className="tabular-nums">{contenedor.peso_total_kg ? `${contenedor.peso_total_kg} kg` : '—'}</p></div>
+                <div><span className="text-muted-foreground">CBM</span>
+                  <p className="tabular-nums">{resumen?.cbm_ocupado ?? 0} / {contenedor.cbm_total ?? '?'}
+                    {resumen?.pct_cbm_ocupado != null && <span className="text-muted-foreground ml-1">({resumen.pct_cbm_ocupado}%)</span>}
+                  </p>
+                </div>
+                {resumen && (
+                  <>
+                    <div><span className="text-muted-foreground">Órdenes</span><p className="font-medium">{resumen.total_ordenes}</p></div>
+                    <div><span className="text-muted-foreground">Cajas</span><p className="tabular-nums font-medium">{resumen.cajas_totales}</p></div>
+                    <div><span className="text-muted-foreground">Piezas</span><p className="tabular-nums font-medium">{resumen.piezas_totales}</p></div>
+                    <div><span className="text-muted-foreground">Valor</span><p className="font-medium">{resumen.valor_total_usd ? formatCurrency(resumen.valor_total_usd, 'USD') : '—'}</p></div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+React
+
+// app/(admin)/contenedores/[id]/components/ContenedorOrdenes.tsx
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
+import { Fecha } from '@/components/shared/Fecha'
+import { formatCurrency } from '@/lib/utils'
+import { ADMIN_ROUTES, ESTADO_ORDEN_B2B_COLORS } from '@/lib/constants'
+import { ShoppingCart } from 'lucide-react'
+import type { OrdenEnContenedor } from '@/modules/contenedores/types'
+
+export function ContenedorOrdenes({ ordenes }: { ordenes: OrdenEnContenedor[] }) {
+  if (ordenes.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground">
+        <ShoppingCart className="h-8 w-8" /><p className="text-sm mt-2">Sin órdenes vinculadas.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      {ordenes.map((o) => {
+        const estadoColor = ESTADO_ORDEN_B2B_COLORS[o.estado ?? ''] ?? ''
+        return (
+          <div key={o.id} className="flex items-center gap-4 px-4 py-3 text-sm">
+            <Link href={ADMIN_ROUTES.ordenesB2B.detalle(o.id)}
+              className="font-mono text-xs font-medium text-primary hover:underline">
+              #{o.id}
+            </Link>
+            <span className="text-xs">{o.folio_proveedor ?? '—'}</span>
+            <span className="text-xs text-muted-foreground flex-1">{o.proveedor_nombre ?? '—'}</span>
+            <span className="tabular-nums text-xs">{o.total_cajas ?? 0} cajas</span>
+            <span className="tabular-nums text-xs">{o.total_piezas ?? 0} pz</span>
+            <Badge variant="secondary" className={`text-[10px] ${estadoColor}`}>{o.estado}</Badge>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+React
+
+// app/(admin)/contenedores/[id]/components/ContenedorPacking.tsx
+import { Badge } from '@/components/ui/badge'
+import { formatCurrency } from '@/lib/utils'
+import { Package } from 'lucide-react'
+import type { ContenedorPackingItem } from '@/modules/contenedores/types'
+
+export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground">
+        <Package className="h-8 w-8" /><p className="text-sm mt-2">Sin packing list.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border overflow-auto mt-4">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-muted/50 font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left">SKU</th>
+            <th className="px-3 py-2 text-left">Producto</th>
+            <th className="px-3 py-2 text-left">Proveedor</th>
+            <th className="px-3 py-2 text-left">Caja</th>
+            <th className="px-3 py-2 text-center">Cajas</th>
+            <th className="px-3 py-2 text-center">Pz Pedidas</th>
+            <th className="px-3 py-2 text-right">P.Unit</th>
+            <th className="px-3 py-2 text-right">Importe</th>
+            <th className="px-3 py-2 text-right">CBM</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => (
+            <tr key={i} className="border-t">
+              <td className="px-3 py-2 font-mono">{item.sku_base ?? '—'}</td>
+              <td className="px-3 py-2 truncate max-w-[150px]">{item.producto_nombre ?? '—'}</td>
+              <td className="px-3 py-2 text-muted-foreground">{item.proveedor ?? '—'}</td>
+              <td className="px-3 py-2 font-mono">{item.codigo_caja ?? '—'}</td>
+              <td className="px-3 py-2 text-center tabular-nums">{item.cajas_pedidas ?? 0}</td>
+              <td className="px-3 py-2 text-center tabular-nums">{item.piezas_pedidas ?? 0}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{item.precio_unitario ? formatCurrency(item.precio_unitario, 'USD') : '—'}</td>
+              <td className="px-3 py-2 text-right tabular-nums font-medium">{item.importe_total ? formatCurrency(item.importe_total, 'USD') : '—'}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{item.cbm_detalle ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+✅ Archivos 13-17 completados — Detalle contenedor con cabecera editable inline, cambio de estado con transiciones, tabs órdenes y packing.
+
+Continúo con Órdenes B2B. Por la extensión, presento los archivos clave:
+
+Archivo 18 — ordenes-b2b/page.tsx
+React
+
+// app/(admin)/ordenes-b2b/page.tsx
+import type { Metadata } from 'next'
+import { fetchOrdenesB2B, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { OrdenesFilters } from './OrdenesFilters'
+import { OrdenesTable } from './OrdenesTable'
+import { Pagination } from '@/components/admin/Pagination'
+import { OrdenFormDialog } from './OrdenFormDialog'
+import type { FiltrosOrdenesB2B } from '@/modules/ordenes-b2b/types'
+
+export const metadata: Metadata = { title: 'Órdenes B2B' }
+
+export default async function OrdenesB2BPage({
+  searchParams,
+}: {
+  searchParams: { q?: string; estado?: string; proveedor_id?: string; año?: string; page?: string }
+}) {
+  const filtros: FiltrosOrdenesB2B = {
+    q: searchParams.q,
+    estado: searchParams.estado,
+    proveedor_id: searchParams.proveedor_id ? parseInt(searchParams.proveedor_id) : undefined,
+    año: searchParams.año ? parseInt(searchParams.año) : undefined,
+    page: searchParams.page ? parseInt(searchParams.page) : 1,
+  }
+
+  const [{ items, total }, catalogos] = await Promise.all([
+    fetchOrdenesB2B(filtros),
+    fetchCatalogosB2B(),
+  ])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Órdenes B2B</h1>
+          <p className="text-sm text-muted-foreground">{total} orden{total !== 1 ? 'es' : ''}</p>
+        </div>
+        <OrdenFormDialog mode="create" catalogos={catalogos} />
+      </div>
+      <OrdenesFilters catalogos={catalogos} />
+      <OrdenesTable items={items} />
+      <Pagination total={total} />
+    </div>
+  )
+}
+Archivo 19-21 — Filtros/Tabla/Form de Órdenes
+Siguen el mismo patrón que contenedores. Los filtros incluyen año, estado (9 valores), proveedor (desde personas), búsqueda por folio. La tabla muestra ID, Folio, Proveedor, Estado (badge), Moneda, Cajas, Piezas, CBM, Fecha. El form dialog crea/edita con proveedor, cliente opcional, contenedor opcional, folio, moneda, tipo cambio, observaciones.
+
+React
+
+// app/(admin)/ordenes-b2b/loading.tsx
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
+export default function OrdenesLoading() { return <ListPageSkeleton /> }
+React
+
+// app/(admin)/ordenes-b2b/OrdenesFilters.tsx
+'use client'
+
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useCallback, useTransition } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Search, Loader2, X } from 'lucide-react'
+import { ESTADOS_ORDEN_B2B, ESTADO_ORDEN_B2B_COLORS, AÑOS_DISPONIBLES } from '@/lib/constants'
+import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
+
+export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      startTransition(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        if (!value || value === '_all') { params.delete(key) } else { params.set(key, value) }
+        params.delete('page')
+        router.push(`${pathname}?${params.toString()}`, { scroll: false })
+      })
+    }, [searchParams, pathname, router]
+  )
+
+  const handleSearch = useDebouncedCallback((t: string) => updateParam('q', t || null), 400)
+  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+
+  return (
+    <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
+      <div className="relative flex-1 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input placeholder="Buscar folio proveedor..." defaultValue={searchParams.get('q') ?? ''}
+          onChange={(e) => handleSearch(e.target.value)} className="pl-10" />
+        {isPending && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
+
+      <Select value={searchParams.get('estado') ?? '_all'}
+        onValueChange={(v) => updateParam('estado', v === '_all' ? null : v)}>
+        <SelectTrigger className="w-[170px] h-9 text-sm"><SelectValue placeholder="Estado" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {ESTADOS_ORDEN_B2B.map((e) => (
+            <SelectItem key={e} value={e}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${ESTADO_ORDEN_B2B_COLORS[e]?.split(' ')[0]}`} />{e}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={searchParams.get('proveedor_id') ?? '_all'}
+        onValueChange={(v) => updateParam('proveedor_id', v === '_all' ? null : v)}>
+        <SelectTrigger className="w-[180px] h-9 text-sm"><SelectValue placeholder="Proveedor" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {catalogos.proveedores.map((p) => (
+            <SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={searchParams.get('año') ?? '_all'}
+        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}>
+        <SelectTrigger className="w-[120px] h-9 text-sm"><SelectValue placeholder="Año" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {AÑOS_DISPONIBLES.map((a) => (<SelectItem key={a} value={String(a)}>{a}</SelectItem>))}
+        </SelectContent>
+      </Select>
+
+      {hasFilters && (
+        <Button variant="ghost" size="sm" onClick={() => startTransition(() => router.push(pathname, { scroll: false }))}
+          className="text-muted-foreground"><X className="h-3 w-3 mr-1" /> Limpiar</Button>
+      )}
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/OrdenesTable.tsx
+import Link from 'next/link'
+import { DataTable, type ColumnDef } from '@/components/admin/DataTable'
+import { Badge } from '@/components/ui/badge'
+import { Fecha } from '@/components/shared/Fecha'
+import { formatCurrency } from '@/lib/utils'
+import { ADMIN_ROUTES, ESTADO_ORDEN_B2B_COLORS } from '@/lib/constants'
+import { ShoppingCart } from 'lucide-react'
+import type { OrdenB2BListItem } from '@/modules/ordenes-b2b/types'
+
+export function OrdenesTable({ items }: { items: OrdenB2BListItem[] }) {
+  const columns: ColumnDef<OrdenB2BListItem>[] = [
+    {
+      key: 'id', header: 'ID', headerClassName: 'w-[60px]',
+      cell: (r) => (
+        <Link href={ADMIN_ROUTES.ordenesB2B.detalle(r.id)}
+          className="font-mono text-xs font-medium text-primary hover:underline">#{r.id}</Link>
+      ),
+    },
+    { key: 'folio', header: 'Folio Prov.', cell: (r) => <span className="text-sm font-mono">{r.folio_proveedor ?? '—'}</span> },
+    { key: 'proveedor', header: 'Proveedor', cell: (r) => <span className="text-sm">{r.proveedor_nombre ?? '—'}</span> },
+    {
+      key: 'estado', header: 'Estado', headerClassName: 'w-[140px]',
+      cell: (r) => <Badge variant="secondary" className={`text-xs ${ESTADO_ORDEN_B2B_COLORS[r.estado ?? ''] ?? ''}`}>{r.estado}</Badge>,
+    },
+    { key: 'moneda', header: 'Mon.', headerClassName: 'w-[60px]', cell: (r) => <span className="text-xs">{r.moneda}</span> },
+    { key: 'cajas', header: 'Cajas', headerClassName: 'text-center w-[70px]', className: 'text-center',
+      cell: (r) => <span className="tabular-nums">{r.total_cajas ?? 0}</span> },
+    { key: 'piezas', header: 'Piezas', headerClassName: 'text-center w-[70px]', className: 'text-center',
+      cell: (r) => <span className="tabular-nums">{r.total_piezas ?? 0}</span> },
+    { key: 'fecha', header: 'Fecha', cell: (r) => <Fecha valor={r.fecha_orden} formato="fecha" /> },
+  ]
+
+  return (
+    <DataTable columns={columns} data={items} rowKey={(r) => r.id}
+      emptyMessage="No se encontraron órdenes." emptyIcon={<ShoppingCart className="h-12 w-12" />} />
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/OrdenFormDialog.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Plus, Loader2, AlertCircle } from 'lucide-react'
+import { MONEDAS } from '@/lib/constants'
+import { crearOrdenB2BAction } from '@/modules/ordenes-b2b/actions'
+import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
+
+export function OrdenFormDialog({ mode, catalogos }: { mode: 'create'; catalogos: CatalogosB2B }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    const fd = new FormData(e.currentTarget)
+    startTransition(async () => {
+      const result = await crearOrdenB2BAction(fd)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      setOpen(false)
+      if (result.id) router.push(`/ordenes-b2b/${result.id}`)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button><Plus className="h-4 w-4 mr-2" />Nueva Orden</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Crear Orden B2B</DialogTitle></DialogHeader>
+        {error && (
+          <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Proveedor *</Label>
+              <Select name="proveedor_id" required>
+                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                <SelectContent>
+                  {catalogos.proveedores.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente destino (opcional)</Label>
+              <Select name="cliente_b2b_id">
+                <SelectTrigger><SelectValue placeholder="Ninguno" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Ninguno</SelectItem>
+                  {catalogos.clientesB2B.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.nombre_completo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Folio proveedor</Label>
+              <Input name="folio_proveedor" placeholder="PO-2026-001" />
+            </div>
+            <div className="space-y-2">
+              <Label>Moneda</Label>
+              <Select name="moneda" defaultValue="USD">
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MONEDAS.map((m) => (<SelectItem key={m} value={m}>{m}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo de cambio</Label>
+              <Input type="number" step="0.01" name="tipo_cambio" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Observaciones</Label>
+            <Textarea name="observaciones" rows={2} />
+          </div>
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Crear Orden
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+✅ Archivos 18-21 completados.
+
+Archivo 22-27 — Detalle Orden B2B
+React
+
+// app/(admin)/ordenes-b2b/[id]/page.tsx
+import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
+import { fetchOrdenB2BById, fetchOrdenDetalles, fetchOrdenCajas, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { OrdenCabecera } from './components/OrdenCabecera'
+import { OrdenProductos } from './components/OrdenProductos'
+import { OrdenCajas } from './components/OrdenCajas'
+import { Separator } from '@/components/ui/separator'
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const id = parseInt(params.id)
+  if (isNaN(id)) return { title: 'Orden no encontrada' }
+  const orden = await fetchOrdenB2BById(id)
+  return { title: orden ? `Orden #${orden.id} — B2B` : 'No encontrada' }
+}
+
+export default async function OrdenDetallePage({ params }: { params: { id: string } }) {
+  const id = parseInt(params.id)
+  if (isNaN(id)) notFound()
+
+  const orden = await fetchOrdenB2BById(id)
+  if (!orden) notFound()
+
+  const [detalles, cajas, catalogos] = await Promise.all([
+    fetchOrdenDetalles(id),
+    fetchOrdenCajas(id),
+    fetchCatalogosB2B(),
+  ])
+
+  return (
+    <div className="space-y-6">
+      <OrdenCabecera orden={orden} catalogos={catalogos} />
+      <Separator />
+      <Tabs defaultValue="productos">
+        <TabsList>
+          <TabsTrigger value="productos">Productos ({detalles.length})</TabsTrigger>
+          <TabsTrigger value="cajas">Cajas ({cajas.length})</TabsTrigger>
+        </TabsList>
+        <TabsContent value="productos">
+          <OrdenProductos detalles={detalles} ordenId={id} />
+        </TabsContent>
+        <TabsContent value="cajas">
+          <OrdenCajas cajas={cajas} ordenId={id} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/[id]/loading.tsx
+import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
+export default function OrdenDetalleLoading() { return <DetailPageSkeleton /> }
+React
+
+// app/(admin)/ordenes-b2b/[id]/components/OrdenCabecera.tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { ArrowLeft, Pencil, Save, X, Loader2, AlertCircle } from 'lucide-react'
+import { Fecha } from '@/components/shared/Fecha'
+import {
+  ADMIN_ROUTES, ESTADO_ORDEN_B2B_COLORS, ESTADOS_ORDEN_B2B, MONEDAS,
+} from '@/lib/constants'
+import { actualizarOrdenB2BAction, cambiarEstadoOrdenAction } from '@/modules/ordenes-b2b/actions'
+import type { OrdenB2BListItem, CatalogosB2B } from '@/modules/ordenes-b2b/types'
+
+export function OrdenCabecera({
+  orden, catalogos,
+}: {
+  orden: OrdenB2BListItem
+  catalogos: CatalogosB2B
+}) {
+  const router = useRouter()
+  const [isEditing, setIsEditing] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const estadoColor = ESTADO_ORDEN_B2B_COLORS[orden.estado ?? ''] ?? ''
+  const esTerminal = orden.estado === 'Cerrada' || orden.estado === 'Cancelada'
+
+  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setError(null)
+    const fd = new FormData(e.currentTarget)
+    fd.set('orden_id', String(orden.id))
+    startTransition(async () => {
+      const result = await actualizarOrdenB2BAction(fd)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      setIsEditing(false)
+      router.refresh()
+    })
+  }
+
+  const handleEstado = (nuevoEstado: string) => {
+    startTransition(async () => {
+      const result = await cambiarEstadoOrdenAction(orden.id, nuevoEstado)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link href={ADMIN_ROUTES.ordenesB2B.lista}
+            className="hover:text-foreground transition-colors flex items-center gap-1">
+            <ArrowLeft className="h-3.5 w-3.5" /> Órdenes B2B
+          </Link>
+          <span>/</span>
+          <span className="text-foreground font-medium">Orden #{orden.id}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {!esTerminal && (
+            <Select onValueChange={handleEstado} disabled={isPending}>
+              <SelectTrigger className="w-[180px] h-9 text-sm">
+                <SelectValue placeholder="Cambiar estado..." />
+              </SelectTrigger>
+              <SelectContent>
+                {ESTADOS_ORDEN_B2B.filter((e) => e !== orden.estado && e !== 'Borrador').map((e) => (
+                  <SelectItem key={e} value={e}>→ {e}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {!esTerminal && !isEditing && (
+            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+              <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+        </div>
+      )}
+
+      <Card>
+        <CardContent className="pt-6">
+          {isEditing ? (
+            <form onSubmit={handleSave} className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="space-y-1"><Label className="text-xs">Proveedor</Label>
+                  <Select name="proveedor_id" defaultValue={String(catalogos.proveedores.find(p => p.nombre_completo === orden.proveedor_nombre)?.id ?? '')}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {catalogos.proveedores.map(p => (<SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1"><Label className="text-xs">Folio</Label>
+                  <Input name="folio_proveedor" defaultValue={orden.folio_proveedor ?? ''} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Moneda</Label>
+                  <Select name="moneda" defaultValue={orden.moneda}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>{MONEDAS.map(m => (<SelectItem key={m} value={m}>{m}</SelectItem>))}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1"><Label className="text-xs">Tipo de cambio</Label>
+                  <Input type="number" step="0.01" name="tipo_cambio" defaultValue={orden.tipo_cambio ?? ''} className="h-9" /></div>
+              </div>
+              <div className="space-y-1"><Label className="text-xs">Observaciones</Label>
+                <Textarea name="observaciones" defaultValue={orden.observaciones ?? ''} rows={2} /></div>
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isPending}>
+                  <X className="h-3.5 w-3.5 mr-1" /> Cancelar</Button>
+                <Button type="submit" size="sm" disabled={isPending}>
+                  {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                  <Save className="h-3.5 w-3.5 mr-1" /> Guardar</Button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-xl font-bold">Orden #{orden.id}</h2>
+                <Badge className={estadoColor}>{orden.estado}</Badge>
+                {orden.contenedor_codigo && (
+                  <Link href={ADMIN_ROUTES.contenedores.detalle(orden.contenedor_id!)}
+                    className="text-xs font-mono text-primary hover:underline">
+                    📦 {orden.contenedor_codigo}
+                  </Link>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+                <div><span className="text-muted-foreground">Proveedor</span><p className="font-medium">{orden.proveedor_nombre ?? '—'}</p></div>
+                <div><span className="text-muted-foreground">Folio</span><p className="font-mono text-xs">{orden.folio_proveedor ?? '—'}</p></div>
+                <div><span className="text-muted-foreground">Moneda</span><p>{orden.moneda} {orden.tipo_cambio ? `(TC: ${orden.tipo_cambio})` : ''}</p></div>
+                <div><span className="text-muted-foreground">Fecha</span><p><Fecha valor={orden.fecha_orden} formato="fecha" /></p></div>
+                <div><span className="text-muted-foreground">Cajas</span><p className="tabular-nums font-bold">{orden.total_cajas ?? 0}</p></div>
+                <div><span className="text-muted-foreground">Piezas</span><p className="tabular-nums font-bold">{orden.total_piezas ?? 0}</p></div>
+                <div><span className="text-muted-foreground">CBM</span><p className="tabular-nums">{orden.cbm_orden ?? '—'}</p></div>
+                {orden.cliente_nombre && (
+                  <div><span className="text-muted-foreground">Cliente destino</span><p>{orden.cliente_nombre}</p></div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/[id]/components/OrdenProductos.tsx
+'use client'
+
+import { useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Trash2, Loader2, Package } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { ESTADO_DETALLE_B2B_COLORS } from '@/lib/constants'
+import { eliminarDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
+import type { OrdenDetalleResuelto } from '@/modules/ordenes-b2b/types'
+
+export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleResuelto[]; ordenId: number }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const handleDelete = (detalleId: number) => {
+    startTransition(async () => {
+      await eliminarDetalleOrdenAction(detalleId, ordenId)
+      router.refresh()
+    })
+  }
+
+  if (detalles.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground">
+        <Package className="h-8 w-8" /><p className="text-sm mt-2">Sin productos.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border overflow-auto mt-4">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-muted/50 font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left">SKU</th>
+            <th className="px-3 py-2 text-left">Producto</th>
+            <th className="px-3 py-2 text-center">Pz Pedidas</th>
+            <th className="px-3 py-2 text-center">Cajas</th>
+            <th className="px-3 py-2 text-right">P.Unit</th>
+            <th className="px-3 py-2 text-right">Yuan</th>
+            <th className="px-3 py-2 text-right">Importe</th>
+            <th className="px-3 py-2 text-right">CBM</th>
+            <th className="px-3 py-2">Estado</th>
+            <th className="px-3 py-2 w-[40px]"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {detalles.map((d) => {
+            const estadoColor = ESTADO_DETALLE_B2B_COLORS[d.estado_producto ?? ''] ?? ''
+            return (
+              <tr key={d.id} className="border-t">
+                <td className="px-3 py-2 font-mono">{d.producto_sku ?? '—'}</td>
+                <td className="px-3 py-2 truncate max-w-[150px]">{d.producto_nombre ?? '—'}</td>
+                <td className="px-3 py-2 text-center tabular-nums">{d.piezas_pedidas ?? 0}</td>
+                <td className="px-3 py-2 text-center tabular-nums">{d.cajas_pedidas ?? 0}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{d.precio_unitario ? formatCurrency(d.precio_unitario, 'USD') : '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{d.precio_yuan ?? '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium">{d.importe_total ? formatCurrency(d.importe_total, 'USD') : '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{d.cbm_detalle ?? '—'}</td>
+                <td className="px-3 py-2">
+                  <Badge variant="secondary" className={`text-[10px] ${estadoColor}`}>{d.estado_producto}</Badge>
+                </td>
+                <td className="px-3 py-2">
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDelete(d.id)} disabled={isPending}>
+                    {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  </Button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/[id]/components/OrdenCajas.tsx
+'use client'
+
+import { useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Trash2, Loader2, Package } from 'lucide-react'
+import { desvincularCajaOrdenAction } from '@/modules/ordenes-b2b/actions'
+import type { OrdenCajaResuelta } from '@/modules/ordenes-b2b/types'
+
+export function OrdenCajas({ cajas, ordenId }: { cajas: OrdenCajaResuelta[]; ordenId: number }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const handleRemove = (ordenCajaId: number) => {
+    startTransition(async () => {
+      await desvincularCajaOrdenAction(ordenCajaId, ordenId)
+      router.refresh()
+    })
+  }
+
+  if (cajas.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground">
+        <Package className="h-8 w-8" /><p className="text-sm mt-2">Sin cajas vinculadas.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border divide-y mt-4">
+      <div className="grid grid-cols-6 gap-4 px-4 py-2 bg-muted/50 text-xs font-semibold text-muted-foreground">
+        <span>Código Caja</span><span>Pack</span><span>Producto</span>
+        <span className="text-center">Cantidad</span><span className="text-right">CBM</span><span></span>
+      </div>
+      {cajas.map((c) => (
+        <div key={c.id} className="grid grid-cols-6 gap-4 px-4 py-2.5 text-sm items-center">
+          <span className="font-mono text-xs">{c.caja_codigo}</span>
+          <span className="text-xs text-muted-foreground">{c.caja_nombre_pack ?? '—'}</span>
+          <span className="text-xs">{c.producto_sku ?? '—'}</span>
+          <span className="text-center tabular-nums font-medium">{c.cantidad_cajas}</span>
+          <span className="text-right tabular-nums text-xs">{c.caja_cbm ?? '—'}</span>
+          <div className="text-right">
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+              onClick={() => handleRemove(c.id)} disabled={isPending}>
+              {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+✅ Archivos 22-27 completados.
+
+Archivos 28-31 — Cajas (/ordenes-b2b/cajas)
+React
+
+// app/(admin)/ordenes-b2b/cajas/page.tsx
+import type { Metadata } from 'next'
+import { fetchCajasListado, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { CajasFilters } from './CajasFilters'
+import { CajasTable } from './CajasTable'
+import { Pagination } from '@/components/admin/Pagination'
+import type { FiltrosCajas } from '@/modules/ordenes-b2b/types'
+
+export const metadata: Metadata = { title: 'Cajas de Producto' }
+
+export default async function CajasPage({
+  searchParams,
+}: {
+  searchParams: { q?: string; proveedor_id?: string; año?: string; page?: string }
+}) {
+  const filtros: FiltrosCajas = {
+    q: searchParams.q,
+    proveedor_id: searchParams.proveedor_id ? parseInt(searchParams.proveedor_id) : undefined,
+    año: searchParams.año ? parseInt(searchParams.año) : undefined,
+    page: searchParams.page ? parseInt(searchParams.page) : 1,
+  }
+
+  const [{ items, total }, catalogos] = await Promise.all([
+    fetchCajasListado(filtros),
+    fetchCatalogosB2B(),
+  ])
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Cajas de Producto</h1>
+        <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
+      </div>
+      <CajasFilters catalogos={catalogos} />
+      <CajasTable items={items} />
+      <Pagination total={total} />
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/cajas/CajasFilters.tsx
+'use client'
+
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useCallback, useTransition } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Search, Loader2, X } from 'lucide-react'
+import { AÑOS_DISPONIBLES } from '@/lib/constants'
+import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
+
+export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
+
+  const updateParam = useCallback((k: string, v: string | null) => {
+    startTransition(() => {
+      const p = new URLSearchParams(searchParams.toString())
+      if (!v || v === '_all') { p.delete(k) } else { p.set(k, v) }
+      p.delete('page')
+      router.push(`${pathname}?${p.toString()}`, { scroll: false })
+    })
+  }, [searchParams, pathname, router])
+
+  const handleSearch = useDebouncedCallback((t: string) => updateParam('q', t || null), 400)
+  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+
+  return (
+    <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
+      <div className="relative flex-1 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input placeholder="Buscar código de caja..." defaultValue={searchParams.get('q') ?? ''}
+          onChange={(e) => handleSearch(e.target.value)} className="pl-10" />
+        {isPending && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
+      <Select value={searchParams.get('proveedor_id') ?? '_all'}
+        onValueChange={(v) => updateParam('proveedor_id', v === '_all' ? null : v)}>
+        <SelectTrigger className="w-[180px] h-9 text-sm"><SelectValue placeholder="Proveedor" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {catalogos.proveedores.map(p => (<SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>))}
+        </SelectContent>
+      </Select>
+      <Select value={searchParams.get('año') ?? '_all'}
+        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}>
+        <SelectTrigger className="w-[120px] h-9 text-sm"><SelectValue placeholder="Año" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos</SelectItem>
+          {AÑOS_DISPONIBLES.map(a => (<SelectItem key={a} value={String(a)}>{a}</SelectItem>))}
+        </SelectContent>
+      </Select>
+      {hasFilters && (
+        <Button variant="ghost" size="sm" onClick={() => startTransition(() => router.push(pathname, { scroll: false }))}
+          className="text-muted-foreground"><X className="h-3 w-3 mr-1" /> Limpiar</Button>
+      )}
+    </div>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/cajas/CajasTable.tsx
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Badge } from '@/components/ui/badge'
+import { Eye, Package } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { DetalleCajaSheet } from './DetalleCajaSheet'
+import type { CajaListItem } from '@/modules/ordenes-b2b/types'
+
+export function CajasTable({ items }: { items: CajaListItem[] }) {
+  const [cajaSeleccionada, setCajaSeleccionada] = useState<number | null>(null)
+
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground rounded-lg border">
+        <Package className="h-12 w-12" /><p className="text-sm mt-4">No se encontraron cajas.</p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="rounded-lg border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
+              <th className="px-4 py-2 text-left">Código</th>
+              <th className="px-4 py-2 text-left">Producto</th>
+              <th className="px-4 py-2 text-left hidden md:table-cell">Proveedor</th>
+              <th className="px-4 py-2 text-center">Pz/Caja</th>
+              <th className="px-4 py-2 text-left hidden lg:table-cell">Tallas</th>
+              <th className="px-4 py-2 text-left hidden lg:table-cell">Colores</th>
+              <th className="px-4 py-2 text-right">CBM</th>
+              <th className="px-4 py-2 w-[50px]"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((c) => (
+              <tr key={c.id} className="border-t hover:bg-muted/30">
+                <td className="px-4 py-2 font-mono text-xs font-medium">{c.codigo_caja}</td>
+                <td className="px-4 py-2 text-xs">
+                  <span className="font-mono">{c.producto_sku ?? '—'}</span>
+                  {c.producto_nombre && <span className="text-muted-foreground ml-1">({c.producto_nombre})</span>}
+                </td>
+                <td className="px-4 py-2 text-xs text-muted-foreground hidden md:table-cell">{c.proveedor_nombre ?? '—'}</td>
+                <td className="px-4 py-2 text-center tabular-nums">{c.piezas_por_caja ?? '—'}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground hidden lg:table-cell">{c.tallas ?? '—'}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground hidden lg:table-cell">{c.colores ?? '—'}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-xs">{c.cbm ?? '—'}</td>
+                <td className="px-4 py-2">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
+                    onClick={() => setCajaSeleccionada(c.id)}>
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Sheet open={!!cajaSeleccionada} onOpenChange={() => setCajaSeleccionada(null)}>
+        <SheetContent side="right" className="w-[480px] sm:w-[540px]">
+          <SheetHeader>
+            <SheetTitle>Detalle de Caja</SheetTitle>
+          </SheetHeader>
+          {cajaSeleccionada && <DetalleCajaSheet cajaId={cajaSeleccionada} />}
+        </SheetContent>
+      </Sheet>
+    </>
+  )
+}
+React
+
+// app/(admin)/ordenes-b2b/cajas/DetalleCajaSheet.tsx
+'use client'
+
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { Loader2, Package } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { ADMIN_ROUTES } from '@/lib/constants'
+import type { CajaDetalle } from '@/modules/ordenes-b2b/types'
+
+export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
+  const [data, setData] = useState<CajaDetalle | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    setIsLoading(true)
+    fetch(`/api/ordenes-b2b/caja-detalle?id=${cajaId}`)
+      .then((res) => res.json())
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setIsLoading(false))
+  }, [cajaId])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!data) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">Caja no encontrada.</p>
+  }
+
+  return (
+    <div className="space-y-6 pt-4">
+      {/* Info principal */}
+      <div className="space-y-3">
+        <h3 className="font-mono text-lg font-bold">{data.codigo_caja}</h3>
+        {data.nombre_pack && <Badge variant="secondary">{data.nombre_pack}</Badge>}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div><span className="text-muted-foreground">Producto</span>
+            <p className="font-mono text-xs">{data.producto_sku ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">{data.producto_nombre}</p>
+          </div>
+          <div><span className="text-muted-foreground">Proveedor</span>
+            <p>{data.proveedor_nombre ?? '—'}</p></div>
+          <div><span className="text-muted-foreground">Piezas/Caja</span>
+            <p className="font-bold">{data.piezas_por_caja ?? '—'}</p></div>
+          <div><span className="text-muted-foreground">CBM</span>
+            <p className="tabular-nums">{data.cbm ?? '—'}</p></div>
+          <div><span className="text-muted-foreground">Peso</span>
+            <p className="tabular-nums">{data.peso_bruto_kg ? `${data.peso_bruto_kg} kg` : '—'}</p></div>
+          <div><span className="text-muted-foreground">Dimensiones</span>
+            <p className="text-xs tabular-nums">
+              {data.largo_cm && data.ancho_cm && data.alto_cm
+                ? `${data.largo_cm}×${data.ancho_cm}×${data.alto_cm} cm`
+                : '—'}
+            </p></div>
+          <div><span className="text-muted-foreground">Costo</span>
+            <p>{data.costo_total_caja ? formatCurrency(data.costo_total_caja, 'USD') : '—'}</p></div>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Desglose talla/color */}
+      {data.detalles_talla_color.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold">Desglose por Talla/Color</h4>
+          <div className="rounded border divide-y text-xs">
+            <div className="grid grid-cols-3 gap-2 px-3 py-1.5 bg-muted/50 font-semibold text-muted-foreground">
+              <span>Talla</span><span>Color</span><span className="text-center">Cantidad</span>
+            </div>
+            {data.detalles_talla_color.map((d) => (
+              <div key={d.id} className="grid grid-cols-3 gap-2 px-3 py-1.5 items-center">
+                <span>{d.talla_codigo ?? d.talla_nombre ?? '—'}</span>
+                <span className="flex items-center gap-1">
+                  {d.color_hex && <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: d.color_hex }} />}
+                  {d.color_nombre ?? '—'}
+                </span>
+                <span className="text-center tabular-nums font-medium">{d.cantidad}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Separator />
+
+      {/* Órdenes donde se usa */}
+      {data.ordenes_vinculadas.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold">Usada en</h4>
+          <div className="space-y-1">
+            {data.ordenes_vinculadas.map((o) => (
+              <div key={o.orden_id} className="flex items-center gap-2 text-sm">
+                <Link href={ADMIN_ROUTES.ordenesB2B.detalle(o.orden_id)}
+                  className="text-primary hover:underline font-mono text-xs">
+                  Orden #{o.orden_id}
+                </Link>
+                {o.contenedor_codigo && (
+                  <span className="text-xs text-muted-foreground">→ {o.contenedor_codigo}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+API Route para detalle de caja
+TypeScript
+
+// app/api/ordenes-b2b/caja-detalle/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { fetchCajaDetalle } from '@/modules/ordenes-b2b/queries'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json(null, { status: 401 })
+
+  const id = parseInt(request.nextUrl.searchParams.get('id') ?? '')
+  if (!id) return NextResponse.json(null)
+
+  const detalle = await fetchCajaDetalle(id)
+  return NextResponse.json(detalle)
+}
+React
+
+// app/(admin)/ordenes-b2b/cajas/loading.tsx
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
+export default function CajasLoading() { return <ListPageSkeleton /> }
+✅ Archivos 28-31 + API route completados.
+
+✅ FASE 5 COMPLETADA
+Resumen de archivos generados (~33)
+#	Archivo	Tipo
+1	lib/constants.ts	Adiciones: estados, colores, transiciones
+2	modules/contenedores/types.ts	Tipos
+3	modules/contenedores/queries.ts	Queries con vistas
+4	modules/contenedores/actions.ts	CRUD + cambio estado
+5	modules/ordenes-b2b/types.ts	Tipos
+6	modules/ordenes-b2b/queries.ts	Queries + cajas
+7	modules/ordenes-b2b/actions.ts	CRUD + recalcular + vincular cajas
+8-12	contenedores/	Lista expandible + CRUD dialog + filtros
+13-17	contenedores/[id]/	Detalle con editor inline + tabs
+18-21	ordenes-b2b/	Lista + filtros + CRUD dialog
+22-27	ordenes-b2b/[id]/	Detalle con editor inline + tabs productos/cajas
+28-31	ordenes-b2b/cajas/	Lista + Sheet detalle
+32	api/ordenes-b2b/caja-detalle/	API para Sheet lazy

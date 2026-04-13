@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>inv-tienda · Fase 6 Ecommerce — ERD + Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f2ec;
+    --ink: #1a1814;
+    --ink2: #5a5650;
+    --ink3: #9a9590;
+    --accent: #2d5a3d;
+    --accent2: #c8864a;
+    --surface: #ffffff;
+    --border: rgba(26,24,20,0.1);
+    --serif: 'DM Serif Display', Georgia, serif;
+    --sans: 'DM Sans', system-ui, sans-serif;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  /* ── NAV ── */
+  .main-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 3rem;
+    height: 60px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .nav-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: none;
+  }
+  .tab-btn {
+    padding: 8px 20px;
+    border: none;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+    letter-spacing: .02em;
+  }
+  .tab-btn.active {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+  }
+  .nav-logo {
+    font-family: var(--serif);
+    font-size: 18px;
+    color: var(--ink);
+  }
+  .nav-hint {
+    font-size: 11px;
+    color: var(--ink3);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  /* ── PANELS ── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── ERD ── */
+  .erd-container {
+    padding: 2rem 3rem;
+  }
+  .erd-title {
+    font-family: var(--serif);
+    font-size: 26px;
+    margin-bottom: 6px;
+  }
+  .erd-sub {
+    font-size: 13px;
+    color: var(--ink3);
+    margin-bottom: 2rem;
+  }
+  .erd-svg-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    overflow-x: auto;
+  }
+  .legend {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* ── STORE MOCKUPS ── */
+  .mockup-frame {
+    padding: 2rem 3rem;
+  }
+  .mockup-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 6px;
+  }
+  .mockup-title {
+    font-family: var(--serif);
+    font-size: 26px;
+    margin-bottom: 4px;
+  }
+  .mockup-note {
+    font-size: 13px;
+    color: var(--ink3);
+    margin-bottom: 1.5rem;
+  }
+  .device-frame {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 960px;
+    box-shadow: 0 4px 40px rgba(0,0,0,.06);
+  }
+  .device-bar {
+    height: 36px;
+    background: #f0ede8;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+  }
+  .device-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .url-bar {
+    margin-left: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: var(--ink3);
+    flex: 1;
+    max-width: 360px;
+  }
+
+  /* ── STORE UI ── */
+  .store-nav {
+    height: 56px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+    background: var(--surface);
+  }
+  .store-logo {
+    font-family: var(--serif);
+    font-size: 20px;
+    color: var(--ink);
+  }
+  .store-nav-links {
+    display: flex;
+    gap: 1.5rem;
+  }
+  .store-nav-links a {
+    font-size: 13px;
+    color: var(--ink2);
+    text-decoration: none;
+  }
+  .store-nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .cart-icon {
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--bg);
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+  }
+
+  /* HOME */
+  .hero-section {
+    padding: 4rem 2rem 3rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: center;
+    background: linear-gradient(135deg, #f5f2ec 0%, #ede8e0 100%);
+  }
+  .hero-eyebrow {
+    font-size: 11px;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+  .hero-h1 {
+    font-family: var(--serif);
+    font-size: 42px;
+    line-height: 1.15;
+    color: var(--ink);
+    margin-bottom: 1rem;
+  }
+  .hero-p {
+    font-size: 14px;
+    color: var(--ink2);
+    line-height: 1.7;
+    margin-bottom: 1.5rem;
+    max-width: 340px;
+  }
+  .hero-ctas {
+    display: flex;
+    gap: 12px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    letter-spacing: .02em;
+  }
+  .btn-outline {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--border);
+    padding: 10px 24px;
+    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .hero-image-placeholder {
+    background: #e8e2d8;
+    border-radius: 8px;
+    height: 280px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink3);
+    font-size: 12px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-image-placeholder::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(0,0,0,.02) 20px, rgba(0,0,0,.02) 21px);
+  }
+  .hero-badge {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: var(--accent2);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 2px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  /* Featured products strip */
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 2rem 2rem 1rem;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-size: 22px;
+  }
+  .section-link {
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    letter-spacing: .03em;
+  }
+  .products-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    margin: 0 2rem 2rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .prod-card {
+    background: var(--surface);
+    padding: 1rem;
+    cursor: pointer;
+  }
+  .prod-img {
+    background: var(--bg);
+    border-radius: 6px;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink3);
+    font-size: 10px;
+    letter-spacing: .05em;
+    margin-bottom: .75rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .prod-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,0,0,.015) 12px, rgba(0,0,0,.015) 13px);
+  }
+  .prod-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 3px 7px;
+    border-radius: 2px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    z-index: 1;
+  }
+  .badge-new { background: var(--accent); color: white; }
+  .badge-sale { background: #c44; color: white; }
+  .prod-brand {
+    font-size: 10px;
+    color: var(--ink3);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .prod-name {
+    font-size: 13px;
+    color: var(--ink);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .prod-price {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .prod-price-old {
+    font-size: 12px;
+    color: var(--ink3);
+    text-decoration: line-through;
+    margin-left: 6px;
+    font-weight: 400;
+  }
+
+  /* Categories */
+  .cats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    padding: 0 2rem 2.5rem;
+  }
+  .cat-tile {
+    background: var(--accent);
+    border-radius: 8px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .cat-tile:nth-child(2) { background: #3a4a5e; }
+  .cat-tile:nth-child(3) { background: #5e3a2e; }
+  .cat-tile-label {
+    font-family: var(--serif);
+    font-size: 18px;
+    color: white;
+    letter-spacing: .02em;
+    z-index: 1;
+  }
+
+  /* ── SHOP /shop ── */
+  .shop-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 500px;
+  }
+  .shop-sidebar {
+    border-right: 1px solid var(--border);
+    padding: 1.5rem;
+    background: var(--surface);
+  }
+  .filter-group {
+    margin-bottom: 1.5rem;
+  }
+  .filter-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+  .filter-chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    margin: 3px 3px 3px 0;
+    cursor: pointer;
+    color: var(--ink2);
+    background: var(--bg);
+  }
+  .filter-chip.on {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .filter-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink2);
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .check-box {
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .check-box.checked {
+    background: var(--accent);
+    border-color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 9px;
+  }
+  .shop-main {
+    padding: 1.5rem;
+    background: var(--bg);
+  }
+  .shop-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .shop-count {
+    font-size: 13px;
+    color: var(--ink3);
+  }
+  .sort-select {
+    font-size: 12px;
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--sans);
+  }
+  .shop-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .shop-card {
+    background: var(--surface);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .shop-card-img {
+    height: 160px;
+    background: var(--bg);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink3);
+    font-size: 10px;
+    letter-spacing: .05em;
+    overflow: hidden;
+  }
+  .shop-card-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, transparent, transparent 14px, rgba(0,0,0,.015) 14px, rgba(0,0,0,.015) 15px);
+  }
+  .shop-card-body {
+    padding: 12px;
+  }
+  .shop-card-brand {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 3px;
+  }
+  .shop-card-name {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .shop-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .shop-card-price { font-size: 14px; font-weight: 600; }
+  .shop-card-add {
+    font-size: 11px;
+    background: var(--ink);
+    color: white;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .pagination {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 1.5rem;
+  }
+  .page-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--sans);
+    color: var(--ink2);
+  }
+  .page-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  /* ── PRODUCTO /shop/[slug] ── */
+  .pdp-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    padding: 2rem;
+  }
+  .gallery-main {
+    background: var(--bg);
+    border-radius: 10px;
+    height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink3);
+    font-size: 11px;
+    letter-spacing: .05em;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .gallery-main::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(0,0,0,.015) 20px, rgba(0,0,0,.015) 21px);
+  }
+  .gallery-thumbs {
+    display: flex;
+    gap: 8px;
+  }
+  .thumb {
+    width: 60px;
+    height: 60px;
+    background: var(--bg);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  .thumb.active { border-color: var(--accent); }
+  .pdp-info {
+    padding: 0.5rem 0;
+  }
+  .pdp-brand {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .pdp-name {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1.2;
+    margin-bottom: 12px;
+  }
+  .pdp-prices {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .pdp-price { font-size: 24px; font-weight: 600; }
+  .pdp-price-old { font-size: 16px; color: var(--ink3); text-decoration: line-through; }
+  .pdp-badge-sale {
+    font-size: 10px;
+    background: #c44;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+  .option-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .size-grid {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .size-btn {
+    width: 40px;
+    height: 40px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: var(--sans);
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .size-btn.active { border-color: var(--ink); background: var(--ink); color: white; }
+  .size-btn.disabled { opacity: .3; text-decoration: line-through; cursor: not-allowed; }
+  .color-grid {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .color-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+  .color-swatch.active { outline-color: var(--ink); }
+  .add-btn {
+    width: 100%;
+    background: var(--ink);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 6px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-bottom: 10px;
+    letter-spacing: .02em;
+  }
+  .wishlist-btn {
+    width: 100%;
+    background: transparent;
+    color: var(--ink);
+    border: 1.5px solid var(--border);
+    padding: 12px;
+    border-radius: 6px;
+    font-family: var(--sans);
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  .pdp-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 16px 0;
+  }
+  .pdp-desc {
+    font-size: 13px;
+    color: var(--ink2);
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+  .pdp-attrs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .attr {
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .attr-label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+  .attr-value { font-size: 13px; font-weight: 500; }
+
+  /* DB chip labels */
+  .db-ref {
+    display: inline-block;
+    font-size: 10px;
+    background: #e8f4ef;
+    color: var(--accent);
+    border: 1px solid #b8d8c6;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-family: 'Courier New', monospace;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  .annotation {
+    position: absolute;
+    right: 0;
+    top: 0;
+    transform: translateX(calc(100% + 12px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--accent);
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .notes-panel {
+    background: #f0faf4;
+    border: 1px solid #c0dfc8;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin: 1.5rem 2rem;
+    font-size: 13px;
+    color: var(--accent);
+    line-height: 1.8;
+  }
+  .notes-panel strong { color: var(--ink); }
+
+  /* ERD SVG inline */
+  .erd-node rect { stroke-width: 1; }
+  .erd-node text { font-family: 'DM Sans', system-ui; }
+</style>
+</head>
+<body>
+
+<nav class="main-nav">
+  <span class="nav-logo">inv-tienda</span>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="showPanel('erd')">📊 ERD Fase 6</button>
+    <button class="tab-btn" onclick="showPanel('home')">/ Home</button>
+    <button class="tab-btn" onclick="showPanel('shop')"> /shop</button>
+    <button class="tab-btn" onclick="showPanel('pdp')">/shop/[slug]</button>
+  </div>
+  <span class="nav-hint">Mockups · Ecommerce</span>
+</nav>
+
+<!-- ───────────── ERD ───────────── -->
+<div id="panel-erd" class="panel active">
+  <div class="erd-container">
+    <div class="erd-title">Tablas involucradas — Fase 6 Ecommerce</div>
+    <div class="erd-sub">Esquema <code>inv-tienda</code> · Relaciones del storefront y panel admin de ecommerce</div>
+    <div class="erd-svg-wrap">
+      <svg width="100%" viewBox="0 0 900 680" style="font-family:'DM Sans',system-ui;font-size:12px;">
+        <!-- productos -->
+        <g>
+          <rect x="10" y="240" width="200" height="180" rx="8" fill="#f0faf4" stroke="#2d5a3d" stroke-width="1"/>
+          <rect x="10" y="240" width="200" height="28" rx="8" fill="#2d5a3d"/>
+          <rect x="10" y="254" width="200" height="14" rx="0" fill="#2d5a3d"/>
+          <text x="110" y="258" text-anchor="middle" fill="white" font-weight="600" font-size="12">productos</text>
+          <text x="20" y="284" fill="#1a1814" font-size="11">🔑 id · sku_base (unique)</text>
+          <text x="20" y="300" fill="#5a5650" font-size="11">nombre, descripcion</text>
+          <text x="20" y="316" fill="#5a5650" font-size="11">composicion, precio_ec</text>
+          <text x="20" y="332" fill="#5a5650" font-size="11">estado, activo, destacado</text>
+          <text x="20" y="348" fill="#5a5650" font-size="11">es_conjunto, pz_en_caja</text>
+          <text x="20" y="364" fill="#9a9590" font-size="11">↳ marca_id, genero_id FK</text>
+          <text x="20" y="380" fill="#9a9590" font-size="11">↳ tipo_prenda_id FK</text>
+          <text x="20" y="396" fill="#9a9590" font-size="11">↳ tela_ext_id, edad_id FK</text>
+          <text x="20" y="412" fill="#9a9590" font-size="11">created_at, updated_at</text>
+        </g>
+
+        <!-- productos_web -->
+        <g>
+          <rect x="270" y="100" width="210" height="220" rx="8" fill="#f0f4fa" stroke="#3a4a5e" stroke-width="1"/>
+          <rect x="270" y="100" width="210" height="28" rx="8" fill="#3a4a5e"/>
+          <rect x="270" y="114" width="210" height="14" rx="0" fill="#3a4a5e"/>
+          <text x="375" y="118" text-anchor="middle" fill="white" font-weight="600" font-size="12">productos_web</text>
+          <text x="280" y="144" fill="#1a1814" font-size="11">🔑 id · 🔗 producto_id FK</text>
+          <text x="280" y="160" fill="#5a5650" font-size="11">slug (unique)</text>
+          <text x="280" y="176" fill="#5a5650" font-size="11">precio_publico · precio_oferta</text>
+          <text x="280" y="192" fill="#5a5650" font-size="11">en_oferta · destacado · nuevo</text>
+          <text x="280" y="208" fill="#5a5650" font-size="11">activo · orden_display</text>
+          <text x="280" y="224" fill="#5a5650" font-size="11">visitas · fecha_publicacion</text>
+          <text x="280" y="240" fill="#9a9590" font-size="11">titulo_seo · descripcion_seo</text>
+          <text x="280" y="256" fill="#9a9590" font-size="11">keywords</text>
+          <text x="280" y="272" fill="#9a9590" font-size="11">created_at · updated_at</text>
+          <text x="280" y="288" fill="#9a9590" font-size="11">updated_by</text>
+          <text x="280" y="310" fill="#9a9590" font-size="10">→ para SEO metadata en Next.js</text>
+        </g>
+
+        <!-- producto_imagenes -->
+        <g>
+          <rect x="270" y="360" width="210" height="160" rx="8" fill="#f4f0fa" stroke="#534AB7" stroke-width="1"/>
+          <rect x="270" y="360" width="210" height="28" rx="8" fill="#534AB7"/>
+          <rect x="270" y="374" width="210" height="14" rx="0" fill="#534AB7"/>
+          <text x="375" y="378" text-anchor="middle" fill="white" font-weight="600" font-size="12">producto_imagenes</text>
+          <text x="280" y="404" fill="#1a1814" font-size="11">🔑 id · 🔗 producto_id FK</text>
+          <text x="280" y="420" fill="#5a5650" font-size="11">url · alt_text</text>
+          <text x="280" y="436" fill="#5a5650" font-size="11">es_principal · orden</text>
+          <text x="280" y="452" fill="#5a5650" font-size="11">uso_imagen (7 tipos CHECK)</text>
+          <text x="280" y="468" fill="#9a9590" font-size="11">origen_imagen · created_at</text>
+          <text x="280" y="492" fill="#9a9590" font-size="10">→ galería PDP, imagen hero hero</text>
+        </g>
+
+        <!-- variantes_producto -->
+        <g>
+          <rect x="540" y="200" width="200" height="170" rx="8" fill="#faf4f0" stroke="#c8864a" stroke-width="1"/>
+          <rect x="540" y="200" width="200" height="28" rx="8" fill="#c8864a"/>
+          <rect x="540" y="214" width="200" height="14" rx="0" fill="#c8864a"/>
+          <text x="640" y="218" text-anchor="middle" fill="white" font-weight="600" font-size="12">variantes_producto</text>
+          <text x="550" y="244" fill="#1a1814" font-size="11">🔑 id · 🔗 producto_id FK</text>
+          <text x="550" y="260" fill="#5a5650" font-size="11">🔗 talla_id FK · 🔗 color_id FK</text>
+          <text x="550" y="276" fill="#5a5650" font-size="11">sku_completo (unique)</text>
+          <text x="550" y="292" fill="#5a5650" font-size="11">precio_venta · costo_promedio</text>
+          <text x="550" y="308" fill="#5a5650" font-size="11">activo</text>
+          <text x="550" y="324" fill="#9a9590" font-size="11">created_at · updated_at</text>
+          <text x="550" y="352" fill="#9a9590" font-size="10">→ selector talla/color en PDP</text>
+        </g>
+
+        <!-- cat_tallas -->
+        <g>
+          <rect x="750" y="100" width="140" height="110" rx="8" fill="#f5f5f3" stroke="#888780" stroke-width="1"/>
+          <rect x="750" y="100" width="140" height="28" rx="8" fill="#888780"/>
+          <rect x="750" y="114" width="140" height="14" rx="0" fill="#888780"/>
+          <text x="820" y="118" text-anchor="middle" fill="white" font-weight="600" font-size="12">cat_tallas</text>
+          <text x="760" y="144" fill="#1a1814" font-size="11">🔑 id</text>
+          <text x="760" y="160" fill="#5a5650" font-size="11">codigo · nombre</text>
+          <text x="760" y="176" fill="#5a5650" font-size="11">categoria · orden</text>
+          <text x="760" y="192" fill="#9a9590" font-size="11">activo</text>
+        </g>
+
+        <!-- cat_colores -->
+        <g>
+          <rect x="750" y="240" width="140" height="120" rx="8" fill="#f5f5f3" stroke="#888780" stroke-width="1"/>
+          <rect x="750" y="240" width="140" height="28" rx="8" fill="#888780"/>
+          <rect x="750" y="254" width="140" height="14" rx="0" fill="#888780"/>
+          <text x="820" y="258" text-anchor="middle" fill="white" font-weight="600" font-size="12">cat_colores</text>
+          <text x="760" y="284" fill="#1a1814" font-size="11">🔑 id</text>
+          <text x="760" y="300" fill="#5a5650" font-size="11">codigo · nombre</text>
+          <text x="760" y="316" fill="#5a5650" font-size="11">hex_code</text>
+          <text x="760" y="332" fill="#9a9590" font-size="11">activo · orden_display</text>
+        </g>
+
+        <!-- carritos -->
+        <g>
+          <rect x="10" y="490" width="200" height="100" rx="8" fill="#fff8f0" stroke="#BA7517" stroke-width="1"/>
+          <rect x="10" y="490" width="200" height="28" rx="8" fill="#BA7517"/>
+          <rect x="10" y="504" width="200" height="14" rx="0" fill="#BA7517"/>
+          <text x="110" y="508" text-anchor="middle" fill="white" font-weight="600" font-size="12">carritos</text>
+          <text x="20" y="534" fill="#1a1814" font-size="11">🔑 id</text>
+          <text x="20" y="550" fill="#5a5650" font-size="11">session_id (anon guest)</text>
+          <text x="20" y="566" fill="#5a5650" font-size="11">usuario_id FK (auth)</text>
+          <text x="20" y="582" fill="#9a9590" font-size="11">created_at · updated_at</text>
+        </g>
+
+        <!-- carrito_items -->
+        <g>
+          <rect x="270" y="560" width="210" height="110" rx="8" fill="#fff8f0" stroke="#BA7517" stroke-width="1"/>
+          <rect x="270" y="560" width="210" height="28" rx="8" fill="#BA7517"/>
+          <rect x="270" y="574" width="210" height="14" rx="0" fill="#BA7517"/>
+          <text x="375" y="578" text-anchor="middle" fill="white" font-weight="600" font-size="12">carrito_items</text>
+          <text x="280" y="604" fill="#1a1814" font-size="11">🔑 id · 🔗 carrito_id FK</text>
+          <text x="280" y="620" fill="#5a5650" font-size="11">🔗 variante_id FK</text>
+          <text x="280" y="636" fill="#5a5650" font-size="11">cantidad · precio_unitario</text>
+          <text x="280" y="652" fill="#9a9590" font-size="11">created_at</text>
+        </g>
+
+        <!-- ordenes_venta -->
+        <g>
+          <rect x="540" y="420" width="200" height="200" rx="8" fill="#f0faf4" stroke="#2d5a3d" stroke-width="1"/>
+          <rect x="540" y="420" width="200" height="28" rx="8" fill="#2d5a3d"/>
+          <rect x="540" y="434" width="200" height="14" rx="0" fill="#2d5a3d"/>
+          <text x="640" y="438" text-anchor="middle" fill="white" font-weight="600" font-size="12">ordenes_venta</text>
+          <text x="550" y="464" fill="#1a1814" font-size="11">🔑 id · numero_orden (unique)</text>
+          <text x="550" y="480" fill="#5a5650" font-size="11">usuario_id FK (nullable)</text>
+          <text x="550" y="496" fill="#5a5650" font-size="11">email_cliente · nombre_cliente</text>
+          <text x="550" y="512" fill="#5a5650" font-size="11">direccion_envio JSONB</text>
+          <text x="550" y="528" fill="#5a5650" font-size="11">subtotal · envio · total</text>
+          <text x="550" y="544" fill="#5a5650" font-size="11">estado · metodo_pago</text>
+          <text x="550" y="560" fill="#9a9590" font-size="11">numero_rastreo</text>
+          <text x="550" y="576" fill="#9a9590" font-size="11">fecha_orden · fecha_envio</text>
+          <text x="550" y="592" fill="#9a9590" font-size="11">fecha_entrega</text>
+          <text x="550" y="610" fill="#9a9590" font-size="10">→ gestionado desde panel admin</text>
+        </g>
+
+        <!-- orden_items -->
+        <g>
+          <rect x="750" y="420" width="140" height="130" rx="8" fill="#f0faf4" stroke="#2d5a3d" stroke-width="1"/>
+          <rect x="750" y="420" width="140" height="28" rx="8" fill="#2d5a3d"/>
+          <rect x="750" y="434" width="140" height="14" rx="0" fill="#2d5a3d"/>
+          <text x="820" y="438" text-anchor="middle" fill="white" font-weight="600" font-size="12">orden_items</text>
+          <text x="760" y="464" fill="#1a1814" font-size="11">🔑 id</text>
+          <text x="760" y="480" fill="#5a5650" font-size="11">🔗 orden_id FK</text>
+          <text x="760" y="496" fill="#5a5650" font-size="11">🔗 variante_id FK</text>
+          <text x="760" y="512" fill="#5a5650" font-size="11">cantidad</text>
+          <text x="760" y="528" fill="#5a5650" font-size="11">precio_unitario</text>
+          <text x="760" y="544" fill="#9a9590" font-size="11">subtotal</text>
+        </g>
+
+        <!-- CONECTORES -->
+        <!-- productos → productos_web -->
+        <line x1="210" y1="300" x2="270" y2="200" stroke="#3a4a5e" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#a1)"/>
+        <!-- productos → producto_imagenes -->
+        <line x1="210" y1="340" x2="270" y2="420" stroke="#534AB7" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#a1)"/>
+        <!-- productos → variantes_producto -->
+        <line x1="210" y1="280" x2="540" y2="280" stroke="#c8864a" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#a1)"/>
+        <!-- variantes → cat_tallas -->
+        <line x1="640" y1="200" x2="750" y2="155" stroke="#888780" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#a1)"/>
+        <!-- variantes → cat_colores -->
+        <line x1="740" y1="280" x2="750" y2="295" stroke="#888780" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#a1)"/>
+        <!-- carritos → carrito_items -->
+        <line x1="210" y1="540" x2="270" y2="605" stroke="#BA7517" stroke-width="1.5" marker-end="url(#a1)"/>
+        <!-- carrito_items → variantes -->
+        <path d="M375 560 Q375 380 540 310" fill="none" stroke="#c8864a" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a1)"/>
+        <!-- ordenes_venta → orden_items -->
+        <line x1="740" y1="490" x2="750" y2="490" stroke="#2d5a3d" stroke-width="1.5" marker-end="url(#a1)"/>
+        <!-- orden_items → variantes -->
+        <path d="M820 420 Q820 380 640 370" fill="none" stroke="#c8864a" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a1)"/>
+
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#2d5a3d"></div>Catálogo base / Órdenes</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3a4a5e"></div>Ecommerce publicado</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div>Imágenes</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#c8864a"></div>Variantes (talla+color)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#BA7517"></div>Carrito</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#888780"></div>Catálogos auxiliares</div>
+    </div>
+    <div class="notes-panel">
+      <strong>Queries clave para Fase 6:</strong><br>
+      · <code>productos_web JOIN productos JOIN cat_marcas LEFT JOIN cat_tipo_prenda</code> — listado público<br>
+      · <code>productos_web WHERE slug = ?</code> → fetch PDP con variantes, imágenes, medidas<br>
+      · <code>carritos</code> por <code>session_id</code> (guest) o <code>usuario_id</code> (auth) → merge en login<br>
+      · <code>UPDATE ordenes_venta SET estado = 'enviado'</code> desde panel admin → dispara nota de salida vía <code>sp_crear_nota</code>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── HOME ───────────── -->
+<div id="panel-home" class="panel">
+  <div class="mockup-frame">
+    <div class="mockup-label">Vista pública</div>
+    <div class="mockup-title">/ — Home de la tienda</div>
+    <div class="mockup-note">Datos: <code>productos_web WHERE destacado=true</code> · <code>cat_tipo_prenda WHERE vista_web IS NOT NULL</code></div>
+    <div class="device-frame">
+      <div class="device-bar">
+        <div class="device-dot" style="background:#ff5f57"></div>
+        <div class="device-dot" style="background:#febc2e"></div>
+        <div class="device-dot" style="background:#28c840"></div>
+        <div class="url-bar">inv-tienda.com</div>
+      </div>
+      <!-- Tienda -->
+      <div class="store-nav">
+        <span class="store-logo">inv-tienda</span>
+        <div class="store-nav-links">
+          <a href="#">Mujeres <span class="db-ref">cat_tipo_prenda.vista_web</span></a>
+          <a href="#">Hombres</a>
+          <a href="#">Accesorios</a>
+          <a href="#">Ofertas</a>
+        </div>
+        <div class="store-nav-right">
+          <span style="font-size:13px;color:var(--ink3)">Iniciar sesión</span>
+          <span class="cart-icon">🛒 2</span>
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="hero-section">
+        <div>
+          <div class="hero-eyebrow">Nueva colección 2026</div>
+          <div class="hero-h1">Moda que<br><em>te define</em></div>
+          <div class="hero-p">Descubre prendas diseñadas con materiales de calidad. Variantes por talla y color disponibles en toda la colección.</div>
+          <div class="hero-ctas">
+            <button class="btn-primary">Ver catálogo</button>
+            <button class="btn-outline">Novedades</button>
+          </div>
+        </div>
+        <div class="hero-image-placeholder">
+          <span class="hero-badge">Nuevo</span>
+          imagen destacada
+        </div>
+      </div>
+
+      <!-- Categorías -->
+      <div class="section-header">
+        <span class="section-title">Categorías</span>
+        <a href="#" class="section-link">Ver todas →</a>
+      </div>
+      <div class="cats-grid">
+        <div class="cat-tile"><span class="cat-tile-label">Chamarras</span></div>
+        <div class="cat-tile"><span class="cat-tile-label">Pants</span></div>
+        <div class="cat-tile"><span class="cat-tile-label">Gorros</span></div>
+      </div>
+      <!-- fn: cat_tipo_prenda WHERE activo AND vista_web IS NOT NULL -->
+
+      <!-- Destacados -->
+      <div class="section-header">
+        <span class="section-title">Destacados <span class="db-ref">productos_web.destacado=true</span></span>
+        <a href="#" class="section-link">Ver más →</a>
+      </div>
+      <div class="products-row">
+        <div class="prod-card">
+          <div class="prod-img">
+            <span class="prod-badge badge-new">Nuevo</span>
+            imagen
+          </div>
+          <div class="prod-brand">Marca X</div>
+          <div class="prod-name">Chamarra Deportiva</div>
+          <div class="prod-price">$899.00</div>
+        </div>
+        <div class="prod-card">
+          <div class="prod-img">
+            <span class="prod-badge badge-sale">-20%</span>
+            imagen
+          </div>
+          <div class="prod-brand">Marca Y</div>
+          <div class="prod-name">Pantalón Jogger</div>
+          <div class="prod-price">$599.00 <span class="prod-price-old">$749.00</span></div>
+        </div>
+        <div class="prod-card">
+          <div class="prod-img">imagen</div>
+          <div class="prod-brand">Marca X</div>
+          <div class="prod-name">Gorro Beanie</div>
+          <div class="prod-price">$249.00</div>
+        </div>
+        <div class="prod-card">
+          <div class="prod-img">
+            <span class="prod-badge badge-new">Nuevo</span>
+            imagen
+          </div>
+          <div class="prod-brand">Marca Z</div>
+          <div class="prod-name">Sudadera Oversize</div>
+          <div class="prod-price">$749.00</div>
+        </div>
+      </div>
+
+      <!-- Footer mínimo -->
+      <div style="padding:1.5rem 2rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface)">
+        <span style="font-family:var(--serif);font-size:16px;">inv-tienda</span>
+        <span style="font-size:12px;color:var(--ink3);">© 2026 · Todos los derechos reservados</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── SHOP ───────────── -->
+<div id="panel-shop" class="panel">
+  <div class="mockup-frame">
+    <div class="mockup-label">Vista pública</div>
+    <div class="mockup-title">/shop — Catálogo de productos</div>
+    <div class="mockup-note">Query: <code>productos_web JOIN productos WHERE activo=true ORDER BY orden_display</code> · Filtros = searchParams</div>
+    <div class="device-frame">
+      <div class="device-bar">
+        <div class="device-dot" style="background:#ff5f57"></div>
+        <div class="device-dot" style="background:#febc2e"></div>
+        <div class="device-dot" style="background:#28c840"></div>
+        <div class="url-bar">inv-tienda.com/shop?marca=1&genero=2</div>
+      </div>
+      <div class="store-nav">
+        <span class="store-logo">inv-tienda</span>
+        <div class="store-nav-links">
+          <a href="#">Mujeres</a><a href="#">Hombres</a><a href="#">Accesorios</a><a href="#">Ofertas</a>
+        </div>
+        <div class="store-nav-right">
+          <span style="font-size:13px;color:var(--ink3)">Iniciar sesión</span>
+          <span class="cart-icon">🛒 2</span>
+        </div>
+      </div>
+      <div style="padding:1rem 1.5rem;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px;color:var(--ink3)">
+        Inicio → <strong style="color:var(--ink)">Catálogo</strong>
+      </div>
+      <div class="shop-layout">
+        <!-- Sidebar filtros -->
+        <div class="shop-sidebar">
+          <div class="filter-group">
+            <div class="filter-label">Categoría <span class="db-ref">cat_tipo_prenda</span></div>
+            <div class="filter-chip on">Todas</div>
+            <div class="filter-chip">Chamarras</div>
+            <div class="filter-chip">Pants</div>
+            <div class="filter-chip">Gorros</div>
+            <div class="filter-chip">Sudaderas</div>
+          </div>
+          <div class="filter-group">
+            <div class="filter-label">Marca <span class="db-ref">cat_marcas</span></div>
+            <div class="filter-check"><div class="check-box checked">✓</div>Marca X</div>
+            <div class="filter-check"><div class="check-box checked">✓</div>Marca Y</div>
+            <div class="filter-check"><div class="check-box"></div>Marca Z</div>
+            <div class="filter-check"><div class="check-box"></div>Marca W</div>
+          </div>
+          <div class="filter-group">
+            <div class="filter-label">Género <span class="db-ref">cat_generos</span></div>
+            <div class="filter-chip">Mujer</div>
+            <div class="filter-chip on">Hombre</div>
+            <div class="filter-chip">Niño</div>
+            <div class="filter-chip">Unisex</div>
+          </div>
+          <div class="filter-group">
+            <div class="filter-label">Precio</div>
+            <input type="range" min="0" max="2000" value="1200" style="width:100%;margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink3)"><span>$0</span><span>$1,200</span></div>
+          </div>
+          <div class="filter-group">
+            <div class="filter-label">Solo</div>
+            <div class="filter-check"><div class="check-box"></div>En oferta</div>
+            <div class="filter-check"><div class="check-box"></div>Novedades</div>
+          </div>
+        </div>
+        <!-- Grid -->
+        <div class="shop-main">
+          <div class="shop-toolbar">
+            <div class="shop-count">48 productos encontrados</div>
+            <select class="sort-select">
+              <option>Más recientes</option>
+              <option>Precio: menor a mayor</option>
+              <option>Precio: mayor a menor</option>
+              <option>Más populares</option>
+            </select>
+          </div>
+          <div class="shop-grid">
+            <div class="shop-card">
+              <div class="shop-card-img"><span class="prod-badge badge-new" style="z-index:2">Nuevo</span>imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca X</div>
+                <div class="shop-card-name">Chamarra Deportiva</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$899.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+            <div class="shop-card">
+              <div class="shop-card-img"><span class="prod-badge badge-sale" style="z-index:2">-20%</span>imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca Y</div>
+                <div class="shop-card-name">Pantalón Jogger</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$599.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+            <div class="shop-card">
+              <div class="shop-card-img">imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca X</div>
+                <div class="shop-card-name">Sudadera Oversize</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$749.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+            <div class="shop-card">
+              <div class="shop-card-img">imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca Z</div>
+                <div class="shop-card-name">Gorro Beanie</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$249.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+            <div class="shop-card">
+              <div class="shop-card-img">imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca Y</div>
+                <div class="shop-card-name">Chamarra Acolchada</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$1,199.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+            <div class="shop-card">
+              <div class="shop-card-img"><span class="prod-badge badge-new" style="z-index:2">Nuevo</span>imagen</div>
+              <div class="shop-card-body">
+                <div class="shop-card-brand">Marca X</div>
+                <div class="shop-card-name">Pants Térmico</div>
+                <div class="shop-card-footer">
+                  <span class="shop-card-price">$649.00</span>
+                  <button class="shop-card-add">+ Carrito</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pagination">
+            <button class="page-btn">‹</button>
+            <button class="page-btn active">1</button>
+            <button class="page-btn">2</button>
+            <button class="page-btn">3</button>
+            <button class="page-btn">4</button>
+            <button class="page-btn">›</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── PDP ───────────── -->
+<div id="panel-pdp" class="panel">
+  <div class="mockup-frame">
+    <div class="mockup-label">Vista pública</div>
+    <div class="mockup-title">/shop/[slug] — Detalle de producto</div>
+    <div class="mockup-note">Query: <code>productos_web WHERE slug = ? JOIN productos + variantes + imagenes + medidas</code></div>
+    <div class="device-frame">
+      <div class="device-bar">
+        <div class="device-dot" style="background:#ff5f57"></div>
+        <div class="device-dot" style="background:#febc2e"></div>
+        <div class="device-dot" style="background:#28c840"></div>
+        <div class="url-bar">inv-tienda.com/shop/chamarra-deportiva-abc001</div>
+      </div>
+      <div class="store-nav">
+        <span class="store-logo">inv-tienda</span>
+        <div class="store-nav-links">
+          <a href="#">Mujeres</a><a href="#">Hombres</a><a href="#">Accesorios</a><a href="#">Ofertas</a>
+        </div>
+        <div class="store-nav-right">
+          <span style="font-size:13px;color:var(--ink3)">Iniciar sesión</span>
+          <span class="cart-icon">🛒 2</span>
+        </div>
+      </div>
+      <div style="padding:.75rem 1.5rem;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px;color:var(--ink3)">
+        Inicio → Catálogo → <strong style="color:var(--ink)">Chamarra Deportiva</strong>
+      </div>
+
+      <div class="pdp-layout">
+        <!-- Galería -->
+        <div>
+          <div class="gallery-main">
+            <span style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;z-index:1">producto_imagenes<br>es_principal = true</span>
+          </div>
+          <div class="gallery-thumbs">
+            <div class="thumb active"></div>
+            <div class="thumb"></div>
+            <div class="thumb"></div>
+            <div class="thumb"></div>
+          </div>
+        </div>
+
+        <!-- Info -->
+        <div class="pdp-info">
+          <div class="pdp-brand">Marca X <span class="db-ref">cat_marcas.nombre</span></div>
+          <div class="pdp-name">Chamarra Deportiva<br>con Forro</div>
+          <div class="pdp-prices">
+            <span class="pdp-price">$719.20</span>
+            <span class="pdp-price-old">$899.00</span>
+            <span class="pdp-badge-sale">-20%</span>
+          </div>
+          <!-- precio desde productos_web.precio_publico / precio_oferta -->
+
+          <div class="option-label">Talla <span class="db-ref">variantes_producto → cat_tallas</span></div>
+          <div class="size-grid">
+            <button class="size-btn">XS</button>
+            <button class="size-btn active">S</button>
+            <button class="size-btn">M</button>
+            <button class="size-btn">L</button>
+            <button class="size-btn disabled">XL</button>
+            <button class="size-btn">XXL</button>
+          </div>
+
+          <div class="option-label">Color <span class="db-ref">variantes_producto → cat_colores.hex_code</span></div>
+          <div class="color-grid">
+            <div class="color-swatch active" style="background:#1a1814" title="Negro"></div>
+            <div class="color-swatch" style="background:#2d5a3d" title="Verde militar"></div>
+            <div class="color-swatch" style="background:#3a4a5e" title="Azul marino"></div>
+            <div class="color-swatch" style="background:#8B4513" title="Café"></div>
+          </div>
+
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:16px;">
+            SKU: <code>ABC001-S-NEG</code> · Stock disponible
+          </div>
+
+          <button class="add-btn">Agregar al carrito</button>
+          <button class="wishlist-btn">♡ Guardar en favoritos</button>
+
+          <hr class="pdp-divider">
+
+          <div class="pdp-desc">
+            Chamarra deportiva con forro térmico, ideal para clima frío. Confeccionada en poliéster exterior e interior de algodón. Cierre frontal con doble entrada, bolsillos laterales y capucha ajustable.
+            <br><br>
+            <span class="db-ref">productos.composicion</span> · <span class="db-ref">productos_web.descripcion_seo</span>
+          </div>
+
+          <div class="pdp-attrs">
+            <div class="attr">
+              <div class="attr-label">Tipo</div>
+              <div class="attr-value">Chamarra <span class="db-ref">cat_tipo_prenda</span></div>
+            </div>
+            <div class="attr">
+              <div class="attr-label">Género</div>
+              <div class="attr-value">Hombre <span class="db-ref">cat_generos</span></div>
+            </div>
+            <div class="attr">
+              <div class="attr-label">Tela exterior</div>
+              <div class="attr-value">Poliéster <span class="db-ref">cat_telas</span></div>
+            </div>
+            <div class="attr">
+              <div class="attr-label">Tela forro</div>
+              <div class="attr-value">Algodón <span class="db-ref">cat_telas</span></div>
+            </div>
+          </div>
+
+          <!-- Tabla de medidas -->
+          <div class="option-label" style="margin-bottom:10px;">Tabla de medidas <span class="db-ref">medidas_producto</span></div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <thead>
+              <tr style="background:var(--bg)">
+                <th style="padding:8px 10px;text-align:left;font-weight:500;color:var(--ink3);font-size:11px;border-bottom:1px solid var(--border)">Medida</th>
+                <th style="padding:8px;text-align:center;font-weight:500;color:var(--ink3);font-size:11px;border-bottom:1px solid var(--border)">S</th>
+                <th style="padding:8px;text-align:center;font-weight:500;color:var(--ink3);font-size:11px;border-bottom:1px solid var(--border)">M</th>
+                <th style="padding:8px;text-align:center;font-weight:500;color:var(--ink3);font-size:11px;border-bottom:1px solid var(--border)">L</th>
+                <th style="padding:8px;text-align:center;font-weight:500;color:var(--ink3);font-size:11px;border-bottom:1px solid var(--border)">XL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td style="padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--ink2)">Largo total (cm)</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">68</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">70</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">72</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">74</td></tr>
+              <tr><td style="padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--ink2)">Ancho pecho (cm)</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">50</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">53</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">56</td><td style="text-align:center;padding:7px;border-bottom:1px solid var(--border);font-size:12px">59</td></tr>
+              <tr><td style="padding:7px 10px;font-size:12px;color:var(--ink2)">Largo manga (cm)</td><td style="text-align:center;padding:7px;font-size:12px">62</td><td style="text-align:center;padding:7px;font-size:12px">63.5</td><td style="text-align:center;padding:7px;font-size:12px">65</td><td style="text-align:center;padding:7px;font-size:12px">66.5</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Relacionados -->
+      <div style="border-top:1px solid var(--border);padding:1.5rem 2rem;">
+        <div class="section-header" style="padding:0 0 1rem;">
+          <span class="section-title">También te puede gustar <span class="db-ref">misma marca o tipo</span></span>
+        </div>
+        <div class="products-row">
+          <div class="prod-card"><div class="prod-img">imagen</div><div class="prod-brand">Marca X</div><div class="prod-name">Sudadera Oversize</div><div class="prod-price">$749.00</div></div>
+          <div class="prod-card"><div class="prod-img">imagen</div><div class="prod-brand">Marca Y</div><div class="prod-name">Chamarra Acolchada</div><div class="prod-price">$1,199.00</div></div>
+          <div class="prod-card"><div class="prod-img">imagen</div><div class="prod-brand">Marca X</div><div class="prod-name">Pants Térmico</div><div class="prod-price">$649.00</div></div>
+          <div class="prod-card"><div class="prod-img">imagen</div><div class="prod-brand">Marca Z</div><div class="prod-name">Hoodie Clásico</div><div class="prod-price">$549.00</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPanel(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  const btns = document.querySelectorAll('.tab-btn');
+  const map = { erd: 0, home: 1, shop: 2, pdp: 3 };
+  btns[map[name]].classList.add('active');
+}
+</script>
+</body>
+</html>

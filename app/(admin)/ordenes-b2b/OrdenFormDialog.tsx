@@ -1,0 +1,150 @@
+// app/(admin)/ordenes-b2b/OrdenFormDialog.tsx
+'use client'
+
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Loader2, AlertCircle, Plus } from 'lucide-react'
+import { MONEDAS } from '@/lib/constants'
+import { crearOrdenB2BAction, actualizarOrdenB2BAction } from '@/modules/ordenes-b2b/actions'
+import type { CatalogosB2B, OrdenB2BListItem } from '@/modules/ordenes-b2b/types'
+import { Button } from '@/components/ui/button'
+
+type Props =
+  | { mode: 'create'; catalogos: CatalogosB2B; orden?: never; open?: never; onOpenChange?: never }
+  | { mode: 'edit'; catalogos: CatalogosB2B; orden: OrdenB2BListItem; open: boolean; onOpenChange: (v: boolean) => void }
+
+export function OrdenFormDialog(props: Props) {
+  const { mode, catalogos } = props
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  // Modo create: estado interno. Modo edit: controlado desde afuera
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = mode === 'create' ? internalOpen : props.open
+  const setOpen = (v: boolean) => {
+    if (mode === 'create') setInternalOpen(v)
+    else props.onOpenChange(v)
+  }
+
+  useEffect(() => { if (!open) setError(null) }, [open])
+
+  const orden = mode === 'edit' ? props.orden : undefined
+
+  const proveedorDefaultId = orden
+    ? String(catalogos.proveedores.find(p => p.nombre_completo === orden.proveedor_nombre)?.id ?? '')
+    : ''
+  const clienteDefaultId = orden
+    ? String(catalogos.clientesB2B.find(c => c.nombre_completo === orden.cliente_nombre)?.id ?? '')
+    : ''
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    const fd = new FormData(e.currentTarget)
+    if (mode === 'edit') fd.set('orden_id', String(orden!.id))
+
+    startTransition(async () => {
+      const result = mode === 'create'
+        ? await crearOrdenB2BAction(fd)
+        : await actualizarOrdenB2BAction(fd)
+      if (!result.success) { setError(result.error ?? 'Error.'); return }
+      setOpen(false)
+      if (mode === 'create' && result.id) router.push(`/ordenes-b2b/${result.id}`)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {/* Trigger solo en modo create — usa button nativo para evitar warning de Base UI */}
+      {mode === 'create' && (
+        <DialogTrigger
+          render={
+            <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 h-8 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+              <Plus className="h-4 w-4" />
+              Nueva Orden
+            </button>
+          }
+        />
+      )}
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {mode === 'create' ? 'Crear Orden B2B' : `Editar Orden #${orden?.id}`}
+          </DialogTitle>
+        </DialogHeader>
+
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200"
+          >
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+          </div>
+        )}
+
+        <form key={mode === 'edit' ? orden?.id ?? 'edit' : 'create'} onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Proveedor *</Label>
+              <Select name="proveedor_id" defaultValue={proveedorDefaultId} required>
+                <SelectTrigger data-testid="orden-proveedor-trigger"><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                <SelectContent>
+                  {catalogos.proveedores.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Cliente destino (opcional)</Label>
+              <Select name="cliente_b2b_id" defaultValue={clienteDefaultId || ''}>
+                <SelectTrigger data-testid="orden-cliente-trigger"><SelectValue placeholder="Ninguno" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Ninguno</SelectItem>
+                  {catalogos.clientesB2B.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.nombre_completo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Folio proveedor</Label>
+              <Input name="folio_proveedor" placeholder="PO-2026-001" defaultValue={orden?.folio_proveedor ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Moneda</Label>
+              <Select name="moneda" defaultValue={orden?.moneda ?? 'USD'}>
+                <SelectTrigger data-testid="orden-moneda-trigger"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MONEDAS.map((m) => (<SelectItem key={m} value={m}>{m}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo de cambio</Label>
+              <Input type="number" step="0.01" name="tipo_cambio" defaultValue={orden?.tipo_cambio ?? ''} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Observaciones</Label>
+            <Textarea name="observaciones" rows={2} defaultValue={orden?.observaciones ?? ''} />
+          </div>
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {mode === 'create' ? 'Crear Orden' : 'Guardar cambios'}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
