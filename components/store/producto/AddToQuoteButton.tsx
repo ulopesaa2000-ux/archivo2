@@ -85,7 +85,7 @@ export function AddToQuoteButton({ producto, config }: AddToQuoteButtonProps) {
         <button
           onClick={handleAdd}
           disabled={isAdding}
-          className="flex-1 bg-store-accent text-white h-[52px] rounded-[4px] text-[13px] uppercase tracking-[0.05em] font-medium hover:bg-store-accent/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-center"
+          className="flex-1 bg-green-600 text-white h-[52px] rounded-[4px] text-[13px] uppercase tracking-[0.05em] font-medium hover:bg-green-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-center"
         >
           {isAdding ? 'Agregando...' : buttonText}
         </button>
