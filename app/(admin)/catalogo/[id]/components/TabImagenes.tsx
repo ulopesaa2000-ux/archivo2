@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabImagenes.tsx
+'use client'
+
 import type { ProductoImagenRow } from '@/lib/types/tables'
 import { Badge } from '@/components/ui/badge'
 import { ImageIcon } from 'lucide-react'

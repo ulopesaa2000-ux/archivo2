@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabTags.tsx
+'use client'
+
 import type { TagResuelto } from '@/modules/catalogo/types'
 import { Tag } from 'lucide-react'
 

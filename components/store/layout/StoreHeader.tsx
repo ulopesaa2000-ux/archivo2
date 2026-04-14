@@ -2,13 +2,27 @@
 'use client'
 
 import Link from 'next/link'
-import { ShoppingCart, Menu, X } from 'lucide-react'
-import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ShoppingCart, Menu, X, LogOut, LayoutDashboard, User } from 'lucide-react'
+import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
+import { signOut } from '@/modules/auth/actions'
+import type { UsuarioConRol } from '@/lib/types/tables'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+} from '@/components/ui/dropdown-menu'
 
-export function StoreHeader() {
+export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
   const { count } = useQuoteCart()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const router = useRouter()
 
   const menuItems = [
     { name: 'Mujeres', href: '/shop?cat=mujeres' },
@@ -16,6 +30,14 @@ export function StoreHeader() {
     { name: 'Accesorios', href: '/shop?cat=accesorios' },
     { name: 'Ofertas', href: '/shop?ofertas=true' },
   ]
+
+  function handleLogout() {
+    startTransition(async () => {
+      await signOut()
+      router.push('/login')
+      router.refresh()
+    })
+  }
 
   return (
     <>
@@ -53,12 +75,59 @@ export function StoreHeader() {
 
         {/* Desktop actions */}
         <div className="hidden md:flex items-center gap-3 md:gap-4">
-          <Link
-            href="/login"
-            className="text-[12px] md:text-[13px] text-store-ink3 hover:text-store-ink transition-colors duration-200"
-          >
-            Iniciar sesión
-          </Link>
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-store-accent rounded-lg p-1 transition-colors hover:bg-store-bg">
+                <div className="w-8 h-8 rounded-full bg-store-accent/10 border border-store-border flex items-center justify-center">
+                  <span className="text-[12px] font-semibold text-store-accent">
+                    {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
+                  </span>
+                </div>
+                <div className="text-left">
+                  <p className="text-[12px] md:text-[13px] font-medium text-store-ink leading-tight truncate max-w-[120px]">
+                    {user.nombre_completo}
+                  </p>
+                  <p className="text-[10px] md:text-[11px] text-store-ink3 leading-tight truncate max-w-[120px]">
+                    {user.rol?.nombre ?? 'Sin rol'}
+                  </p>
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium">{user.nombre_completo}</p>
+                      <p className="text-xs text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
+                    <LayoutDashboard className="h-4 w-4" />
+                    Panel admin
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="flex items-center gap-2 cursor-pointer"
+                  onSelect={handleLogout}
+                  disabled={isPending}
+                >
+                  <LogOut className="h-4 w-4" />
+                  {isPending ? 'Cerrando...' : 'Cerrar sesión'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link
+              href="/login"
+              className="text-[12px] md:text-[13px] text-store-ink3 hover:text-store-ink transition-colors duration-200"
+            >
+              Iniciar sesión
+            </Link>
+          )}
           <Link
             href="/cotizacion"
             className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink bg-store-bg px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
@@ -98,6 +167,27 @@ export function StoreHeader() {
               </div>
             </div>
 
+            {/* Mobile user info */}
+            {user && (
+              <div className="p-4 border-b border-store-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-store-accent/10 border border-store-border flex items-center justify-center">
+                    <span className="text-sm font-semibold text-store-accent">
+                      {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-store-ink truncate">
+                      {user.nombre_completo}
+                    </p>
+                    <p className="text-[11px] text-store-ink3 truncate">
+                      {user.rol?.nombre ?? 'Sin rol'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <nav className="p-4">
               <ul className="space-y-2">
                 {menuItems.map((item) => (
@@ -111,15 +201,41 @@ export function StoreHeader() {
                     </Link>
                   </li>
                 ))}
-                <li className="pt-4 border-t border-store-border mt-4">
-                  <Link
-                    href="/login"
-                    onClick={() => setIsMenuOpen(false)}
-                    className="block px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
-                  >
-                    Iniciar sesión
-                  </Link>
-                </li>
+                {user ? (
+                  <>
+                    <li className="pt-4 border-t border-store-border mt-4">
+                      <Link
+                        href="/dashboard"
+                        onClick={() => setIsMenuOpen(false)}
+                        className="flex items-center gap-2 px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
+                      >
+                        <LayoutDashboard className="h-4 w-4" />
+                        Panel admin
+                      </Link>
+                    </li>
+                    <li>
+                      <button
+                        onClick={() => { setIsMenuOpen(false); handleLogout() }}
+                        disabled={isPending}
+                        className="flex items-center gap-2 w-full px-4 py-3 text-[14px] text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        {isPending ? 'Cerrando...' : 'Cerrar sesión'}
+                      </button>
+                    </li>
+                  </>
+                ) : (
+                  <li className="pt-4 border-t border-store-border mt-4">
+                    <Link
+                      href="/login"
+                      onClick={() => setIsMenuOpen(false)}
+                      className="flex items-center gap-2 px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
+                    >
+                      <User className="h-4 w-4" />
+                      Iniciar sesión
+                    </Link>
+                  </li>
+                )}
                 <li>
                   <Link
                     href="/cotizacion"

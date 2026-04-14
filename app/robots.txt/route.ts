@@ -1,14 +1,17 @@
-import { type MetadataRoute } from 'next'
-
-export default function robots(): MetadataRoute.Robots {
+export async function GET() {
   const baseUrl = 'https://inv-tienda.com'
 
-  return {
-    rules: {
-      userAgent: '*',
-      allow: '/',
-      disallow: '/admin/',
+  const content = `
+User-agent: *
+Allow: /
+Disallow: /admin/
+
+Sitemap: ${baseUrl}/sitemap.xml
+  `.trim()
+
+  return new Response(content, {
+    headers: {
+      'Content-Type': 'text/plain',
     },
-    sitemap: `${baseUrl}/sitemap.xml`,
-  }
+  })
 }

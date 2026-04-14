@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabConjunto.tsx
+'use client'
+
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { ADMIN_ROUTES } from '@/lib/constants'

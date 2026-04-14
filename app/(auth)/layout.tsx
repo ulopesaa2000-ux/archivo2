@@ -13,7 +13,7 @@ export default function AuthLayout({
 
       {/* Footer mínimo */}
       <p className="mt-8 text-xs text-muted-foreground">
-        inv-tienda © {new Date().getFullYear()}
+        inv-tienda © 2026
       </p>
     </div>
   )

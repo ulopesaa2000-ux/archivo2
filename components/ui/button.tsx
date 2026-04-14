@@ -58,6 +58,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonPrimitive.Props & Varia
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
+      nativeButton={!asChild}
     >
       {asChild ? undefined : children}
     </ButtonPrimitive>

@@ -2,7 +2,6 @@
 'use client'
 
 import Image from 'next/image'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -94,15 +93,19 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/ecommerce/productos-web/${producto.id}`}>
-                        Editar
-                      </Link>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => router.push(`/ecommerce/productos-web/${producto.id}`)}
+                    >
+                      Editar
                     </Button>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/shop/${producto.slug}`} target="_blank">
-                        Ver
-                      </Link>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => window.open(`/shop/${producto.slug}`, '_blank')}
+                    >
+                      Ver
                     </Button>
                   </div>
                 </TableCell>

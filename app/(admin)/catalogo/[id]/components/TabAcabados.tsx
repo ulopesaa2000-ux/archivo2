@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabAcabados.tsx
+'use client'
+
 import type { AcabadoResuelto } from '@/modules/catalogo/types'
 import { Paintbrush } from 'lucide-react'
 

@@ -1,4 +1,12 @@
 {
-  "spinnerTipsEnabled": true,
-  "prefersReducedMotion": true
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "WebFetch(domain:supabase.com)"
+    ]
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

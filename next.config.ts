@@ -2,9 +2,6 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: false,
   },
@@ -12,6 +9,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   generateEtags: false,
   compress: true,
+  // Using webpack instead of Turbopack to avoid ChunkLoadError issues
   // Allow access to remote image placeholder.
   images: {
     formats: ['image/webp', 'image/avif'],

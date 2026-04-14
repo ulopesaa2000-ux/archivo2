@@ -133,7 +133,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Modo de Operación</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Selecciona un modo" />
@@ -189,7 +189,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo de Precio Visible</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue />
@@ -224,7 +224,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Unidad de Venta</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue />
@@ -369,7 +369,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Tipo de Orden Generada</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue />

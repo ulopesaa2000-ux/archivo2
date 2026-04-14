@@ -135,18 +135,28 @@ export async function fetchProductosWebAdmin(
 // ═══════════════════════════════════════════════════════════════
 
 export async function fetchProductosNoPublicados(): Promise<
-  { id: number; sku_base: string; nombre: string; marca: string | null }[]
+  { id: number; sku_base: string; nombre: string; marca: string | null; imagen_principal: string | null }[]
 > {
   const supabase = await createClient()
 
+  // First get all published product IDs
+  const { data: publishedIds, error: publishedError } = await supabase
+    .from('productos_web')
+    .select('producto_id')
+
+  if (publishedError) {
+    console.error('Error fetching published IDs:', publishedError)
+    return []
+  }
+
+  const excludeIds = publishedIds?.map(p => p.producto_id) || []
+
+  // Get all active published products
   const { data, error } = await supabase
     .from('productos')
-    .select('id, sku_base, nombre, cat_marcas(nombre)')
+    .select('id, sku_base, nombre, marca_id')
     .eq('activo', true)
     .eq('estado', 'publicado')
-    .not('id', 'in', (
-      supabase.from('productos_web').select('producto_id')
-    ))
     .order('sku_base')
 
   if (error) {
@@ -154,11 +164,41 @@ export async function fetchProductosNoPublicados(): Promise<
     return []
   }
 
-  return (data || []).map((p: any) => ({
+  // Get marcas and images separately
+  const productoIds = data?.map(p => p.id) || []
+  
+  let marcas: { id: number; nombre: string }[] = []
+  let imagenes: { producto_id: number; url: string; es_principal: boolean | null }[] = []
+  
+  if (productoIds.length > 0) {
+    // Get marcas
+    const { data: marcasData } = await supabase
+      .from('cat_marcas')
+      .select('id, nombre')
+    
+    marcas = marcasData || []
+    
+    // Get principal images for these products
+    const { data: imagenesData } = await supabase
+      .from('producto_imagenes')
+      .select('producto_id, url, es_principal')
+      .eq('es_principal', true)
+      .in('producto_id', productoIds)
+    
+    imagenes = imagenesData || []
+  }
+
+  // Filter out already published products and map data
+  const filteredData = excludeIds.length > 0 
+    ? (data || []).filter(p => !excludeIds.includes(p.id))
+    : (data || [])
+
+  return filteredData.map((p: any) => ({
     id: p.id,
     sku_base: p.sku_base,
     nombre: p.nombre,
-    marca: p.cat_marcas?.nombre,
+    marca: marcas.find(m => m.id === p.marca_id)?.nombre || null,
+    imagen_principal: imagenes.find(img => img.producto_id === p.id)?.url || null,
   }))
 }
 

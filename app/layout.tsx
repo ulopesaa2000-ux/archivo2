@@ -51,9 +51,13 @@ export const metadata: Metadata = {
     images: ['/og-image.jpg'],
     creator: '@inv-tienda'
   },
-  viewport: 'width=device-width, initial-scale=1',
-  themeColor: '#2D5A3D'
+  // metadataBase es necesario para resolver URLs absolutas en Open Graph y Twitter
+  metadataBase: new URL('https://inv-tienda.com')
 };
+
+export const viewport = 'width=device-width, initial-scale=1';
+
+export const themeColor = '#2D5A3D';
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
