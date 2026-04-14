@@ -1,8 +1,9 @@
 // app/test/page.tsx
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 
-export default async function TestPage() {
+async function TestContent() {
   const supabase = await createClient()
 
   const [bodegas, roles, estados, productos] = await Promise.all([
@@ -72,5 +73,31 @@ export default async function TestPage() {
         }
       </div>
     </div>
+  )
+}
+
+function TestSkeleton() {
+  return (
+    <div className="p-8 space-y-8 max-w-4xl mx-auto">
+      <div className="h-10 w-64 bg-muted animate-pulse rounded" />
+      <div className="space-y-4">
+        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-32 bg-muted animate-pulse rounded" />
+        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-32 bg-muted animate-pulse rounded" />
+        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-32 bg-muted animate-pulse rounded" />
+        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-48 bg-muted animate-pulse rounded" />
+      </div>
+    </div>
+  )
+}
+
+export default function TestPage() {
+  return (
+    <Suspense fallback={<TestSkeleton />}>
+      <TestContent />
+    </Suspense>
   )
 }

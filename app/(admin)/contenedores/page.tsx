@@ -9,17 +9,17 @@ import type { FiltrosContenedores } from '@/modules/contenedores/types'
 
 export const metadata: Metadata = { title: 'Contenedores' }
 
-export default async function ContenedoresPage(
-  props: {
-    searchParams: Promise<{ q?: string; estado?: string; año?: string; page?: string }>
-  }
-) {
-  const searchParams = await props.searchParams;
+export default async function ContenedoresPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; estado?: string; año?: string; page?: string }>
+}) {
+  const params = await searchParams;
   const filtros: FiltrosContenedores = {
-    q: searchParams.q,
-    estado: searchParams.estado,
-    año: searchParams.año ? parseInt(searchParams.año) : undefined,
-    page: searchParams.page ? parseInt(searchParams.page) : 1,
+    q: params.q,
+    estado: params.estado,
+    año: params.año ? parseInt(params.año) : undefined,
+    page: params.page ? parseInt(params.page) : 1,
   }
 
   const { items, total } = await fetchContenedores(filtros)

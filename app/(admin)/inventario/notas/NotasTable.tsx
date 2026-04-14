@@ -1,4 +1,6 @@
 // app/(admin)/inventario/notas/NotasTable.tsx
+'use client'
+
 import { Fragment } from 'react'
 import Link from 'next/link'
 import { DataTable, type ColumnDef } from '@/components/admin/DataTable'

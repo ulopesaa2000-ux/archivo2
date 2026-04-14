@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/CatalogoTable.tsx
+'use client'
+
 import Link from 'next/link'
 import { DataTable } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +18,7 @@ import type { ProductoListItem, CatalogosParaFiltros } from '@/modules/catalogo/
 /**
  * Tabla de productos del catálogo.
  * 
- * Este es un SERVER COMPONENT.
+ * Este es un CLIENT COMPONENT.
  * Recibe los datos ya filtrados y renderiza las filas completas.
  */
 export function CatalogoTable({
@@ -87,7 +89,9 @@ export function CatalogoTable({
     <DropdownMenu key="acciones">
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
-          <MoreHorizontal className="h-4 w-4" />
+          <span suppressHydrationWarning>
+            <MoreHorizontal className="h-4 w-4" />
+          </span>
           <span className="sr-only">Acciones</span>
         </Button>
       </DropdownMenuTrigger>

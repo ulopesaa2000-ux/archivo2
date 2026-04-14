@@ -1,6 +1,4 @@
-import { type MetadataRoute } from 'next'
-
-export default function sitemap(): MetadataRoute.Sitemap {
+export async function GET() {
   const baseUrl = 'https://inv-tienda.com'
 
   // Static pages
@@ -27,10 +25,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   // For dynamic product pages, you would typically fetch from database
   // This is a simplified example
-  const productPages = [
+  const productPages: Array<{
+    url: string;
+    lastModified: Date;
+    changeFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    priority: number;
+  }> = [
     // Add your dynamic product URLs here
     // For example: /shop/product-1, /shop/product-2, etc.
   ]
 
-  return [...staticPages, ...productPages]
+  return Response.json([...staticPages, ...productPages])
 }

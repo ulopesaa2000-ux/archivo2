@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabComplementos.tsx
+'use client'
+
 import type { ComplementoResuelto } from '@/modules/catalogo/types'
 import { Puzzle } from 'lucide-react'
 

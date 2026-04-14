@@ -8,17 +8,17 @@ import type { FiltrosCajas } from '@/modules/ordenes-b2b/types'
 
 export const metadata: Metadata = { title: 'Cajas de Producto' }
 
-export default async function CajasPage(
-  props: {
-    searchParams: Promise<{ q?: string; proveedor_id?: string; año?: string; page?: string }>
-  }
-) {
-  const searchParams = await props.searchParams;
+export default async function CajasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; proveedor_id?: string; año?: string; page?: string }>
+}) {
+  const params = await searchParams;
   const filtros: FiltrosCajas = {
-    q: searchParams.q,
-    proveedor_id: searchParams.proveedor_id ? parseInt(searchParams.proveedor_id) : undefined,
-    año: searchParams.año ? parseInt(searchParams.año) : undefined,
-    page: searchParams.page ? parseInt(searchParams.page) : 1,
+    q: params.q,
+    proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id) : undefined,
+    año: params.año ? parseInt(params.año) : undefined,
+    page: params.page ? parseInt(params.page) : 1,
   }
 
   const [{ items, total }, catalogos] = await Promise.all([

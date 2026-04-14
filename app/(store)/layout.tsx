@@ -1,8 +1,9 @@
 // app/(store)/layout.tsx
 import type { Metadata } from 'next'
-import { ReactNode } from 'react'
+import { ReactNode, Suspense } from 'react'
 import { StoreHeader } from '@/components/store/layout/StoreHeader'
 import { StoreFooter } from '@/components/store/layout/StoreFooter'
+import { verifySessionOptional } from '@/lib/dal'
 
 export const metadata: Metadata = {
   title: {
@@ -48,18 +49,32 @@ export const metadata: Metadata = {
     images: ['/og-image.jpg'],
     creator: '@inv-tienda'
   },
-  viewport: 'width=device-width, initial-scale=1',
-  themeColor: '#2D5A3D'
+  // metadataBase is not needed here as it inherits from root layout
+};
+
+export const viewport = 'width=device-width, initial-scale=1';
+
+export const themeColor = '#2D5A3D';
+
+// Usa verifySessionOptional del DAL que no redirige si no hay sesión
+// y usa React.cache() para optimizar rendimiento
+async function StoreHeaderWithUser() {
+  const session = await verifySessionOptional()
+  return <StoreHeader user={session.user} />
 }
 
 export default function StoreLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-store-bg text-store-ink font-sans antialiased">
-      <StoreHeader />
+      <Suspense fallback={<header className="h-[64px] bg-store-surface border-b border-store-border" />}>
+        <StoreHeaderWithUser />
+      </Suspense>
       <main className="flex-1">
         {children}
       </main>
-      <StoreFooter />
+      <Suspense fallback={<footer className="bg-store-surface border-t border-store-border h-32" />}>
+        <StoreFooter />
+      </Suspense>
     </div>
   )
 }

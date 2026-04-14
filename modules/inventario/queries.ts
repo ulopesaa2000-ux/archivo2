@@ -3,6 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
+import { cacheLife, cacheTag } from 'next/cache'
 import type {
   FiltrosNotas,
   ResultadoListadoNotas,
@@ -527,6 +528,10 @@ export async function fetchStockMatrix(
 // ════════════════════════════════════════════════════════════
 
 export async function fetchCatalogosInventario(): Promise<CatalogosInventario> {
+  'use cache'
+  cacheLife('hours') // Cache por 1 hora ya que estos datos cambian poco
+  cacheTag('inventario-catalogos')
+
   const supabase = await createClient()
 
   const [tiposRes, estadosRes, bodegasRes] = await Promise.all([
@@ -562,6 +567,10 @@ export async function fetchBodegas(): Promise<BodegaRow[]> {
 }
 
 export async function fetchTiposMovimiento(): Promise<TipoMovimientoRow[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('tipos-movimiento')
+
   const supabase = await createClient()
   const { data } = await supabase
     .from('cat_tipos_movimiento')

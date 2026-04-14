@@ -9,18 +9,18 @@ import type { FiltrosOrdenesB2B } from '@/modules/ordenes-b2b/types'
 
 export const metadata: Metadata = { title: 'Órdenes B2B' }
 
-export default async function OrdenesB2BPage(
-  props: {
-    searchParams: Promise<{ q?: string; estado?: string; proveedor_id?: string; año?: string; page?: string }>
-  }
-) {
-  const searchParams = await props.searchParams;
+export default async function OrdenesB2BPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; estado?: string; proveedor_id?: string; año?: string; page?: string }>
+}) {
+  const params = await searchParams;
   const filtros: FiltrosOrdenesB2B = {
-    q: searchParams.q,
-    estado: searchParams.estado,
-    proveedor_id: searchParams.proveedor_id ? parseInt(searchParams.proveedor_id) : undefined,
-    año: searchParams.año ? parseInt(searchParams.año) : undefined,
-    page: searchParams.page ? parseInt(searchParams.page) : 1,
+    q: params.q,
+    estado: params.estado,
+    proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id) : undefined,
+    año: params.año ? parseInt(params.año) : undefined,
+    page: params.page ? parseInt(params.page) : 1,
   }
 
   const [{ items, total }, catalogos] = await Promise.all([

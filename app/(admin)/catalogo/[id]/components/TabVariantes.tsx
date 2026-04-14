@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabVariantes.tsx
+'use client'
+
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/utils'
 import type { VarianteResuelta } from '@/modules/catalogo/types'

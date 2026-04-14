@@ -1,4 +1,6 @@
 // app/(admin)/catalogo/[id]/components/TabEcommerce.tsx
+'use client'
+
 import type { ProductoWebRow } from '@/lib/types/tables'
 import { formatCurrency } from '@/lib/utils'
 import { Fecha } from '@/components/shared/Fecha'

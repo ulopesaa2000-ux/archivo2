@@ -1,5 +1,6 @@
 // app/(store)/cotizacion/solicitud/page.tsx
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { QuoteContactForm } from '@/components/store/cotizacion/QuoteContactForm'
 
@@ -7,7 +8,7 @@ export const metadata: Metadata = {
   title: 'Solicitar Cotización',
 }
 
-export default async function SolicitudPage() {
+async function SolicitudContent() {
   const config = await fetchConfigEcommerce()
 
   return (
@@ -21,5 +22,23 @@ export default async function SolicitudPage() {
 
       <QuoteContactForm config={config} />
     </div>
+  )
+}
+
+function SolicitudSkeleton() {
+  return (
+    <div className="container mx-auto px-4 py-8 max-w-2xl">
+      <div className="h-10 w-64 bg-muted animate-pulse rounded mb-2" />
+      <div className="h-5 w-80 bg-muted animate-pulse rounded mb-8" />
+      <div className="h-96 bg-muted animate-pulse rounded" />
+    </div>
+  )
+}
+
+export default function SolicitudPage() {
+  return (
+    <Suspense fallback={<SolicitudSkeleton />}>
+      <SolicitudContent />
+    </Suspense>
   )
 }

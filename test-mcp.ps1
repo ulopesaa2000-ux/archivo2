@@ -1,0 +1,11 @@
+# Script simple para verificar que el túnel MCP está funcionando
+Write-Host "Verificando conexión al servidor MCP de Supabase..."
+Write-Host "URL: http://localhost:8080/mcp"
+Write-Host ""
+Write-Host "Para probar manualmente, puedes intentar:"
+Write-Host "curl http://localhost:8080/mcp"
+Write-Host ""
+Write-Host "O si tienes instalado httpie:"
+Write-Host "http http://localhost:8080/mcp"
+Write-Host ""
+Write-Host "El servidor debería responder con información sobre las capacidades MCP disponibles."

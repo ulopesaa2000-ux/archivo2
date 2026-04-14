@@ -1,23 +1,19 @@
-// lib/supabase/middleware.ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { Database } from '@/lib/types/database.types'
+
+const PROTECTED_ROUTES = [
+  '/dashboard',
+  '/(admin)',
+  '/api/admin'
+]
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return supabaseResponse
-  }
-
-  const supabase = createServerClient<Database, 'inv-tienda'>(
-    supabaseUrl,
-    supabaseAnonKey,
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      db: { schema: 'inv-tienda' },
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -28,73 +24,35 @@ export async function updateSession(request: NextRequest) {
           )
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, {
-              ...options,
-              sameSite: 'none',
-              secure: true,
-            })
+            supabaseResponse.cookies.set(name, value, options)
           )
         },
       },
     }
   )
 
-  // IMPORTANTE: getUser() verifica con el servidor de Supabase.
-  // getSession() solo lee el JWT local (menos seguro).
-  let user = null;
-  try {
-    const { data } = await supabase.auth.getUser()
-    user = data.user;
-  } catch (error) {
-    // Silently handle auth errors in middleware
-  }
+  const { pathname } = request.nextUrl
 
-  const pathname = request.nextUrl.pathname
+  // Obtener estado de Auth desde Supabase (solo valida JWT, no si está en la DB relacional)
+  const { data: { user } } = await supabase.auth.getUser()
 
-  // ── Definir rutas protegidas del admin ────────────────────
-  // Los route groups (admin) NO aparecen en la URL.
-  // Estas son las rutas reales que ve el browser:
-  const adminPrefixes = [
-    '/dashboard',
-    '/catalogo',
-    '/inventario',
-    '/ordenes-b2b',
-    '/contenedores',
-    '/ecommerce',
-    '/configuracion',
-  ]
-
-  const isAdminRoute = adminPrefixes.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  const isProtectedRoute = PROTECTED_ROUTES.some(route =>
+    pathname.startsWith(route)
   )
 
-  // ── Sin sesión intentando acceder a admin ─────────────────
-  if (isAdminRoute && !user) {
+  // 1. Si no hay sesión válida y trata de acceder a lugar protegido -> a login
+  if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-
-    // Guardar la ruta a la que intentaba acceder
-    if (pathname !== '/dashboard') {
-      url.searchParams.set('redirect', pathname)
-    }
-
+    url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
   }
 
-  // ── Con sesión intentando acceder a login ─────────────────
-  if (pathname === '/login' && user) {
-    // Evitar loop infinito si el usuario no tiene perfil o permisos en la BD
-    if (request.nextUrl.searchParams.get('error') === 'no_profile') {
-      return supabaseResponse
-    }
-
-    const redirectTo = request.nextUrl.searchParams.get('redirect') || '/dashboard'
-    const url = request.nextUrl.clone()
-    url.pathname = redirectTo
-    url.searchParams.delete('redirect')
-    url.searchParams.delete('expired')
-    return NextResponse.redirect(url)
-  }
+  // IMPORTANTE: Ya NO redirigimos automáticamente de /login a /dashboard basados solo en el JWT.
+  // ¿Por qué? Porque si el usuario fue eliminado o está inactivo en la base de datos "usuarios",
+  // el JWT local seguiría diciendo "activo", causando un loop infinito entre proxy y layout.
+  // La redirección de usuarios logueados se manejará en la página principal (login/page.tsx) 
+  // usando una validación a nivel de base de datos total.
 
   return supabaseResponse
 }

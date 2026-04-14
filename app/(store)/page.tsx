@@ -1,12 +1,138 @@
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
 import { ArrowRight } from 'lucide-react'
 
-export default async function HomePage() {
-  // Fetch destacados
+async function DestacadosSection() {
   const { productos: destacados } = await fetchProductosWebPublicos({ destacado: true, page: 1 })
   const top4 = destacados.slice(0, 4)
 
+  return (
+    <div className="px-4 md:px-8 py-8 md:py-12">
+      <div className="flex flex-col sm:flex-row items-baseline justify-between mb-8">
+        <span className="font-serif text-[24px] md:text-[28px] text-[#1A1C1A] mb-4 sm:mb-0">Destacados</span>
+        <Link
+          href="/shop?destacado=true"
+          className="text-[12px] md:text-[14px] text-[#2D5A3D] tracking-[0.03em] hover:underline flex items-center gap-1 transition-all duration-300 group"
+        >
+          Ver más
+          <ArrowRight className="inline h-3 w-3 transition-transform group-hover:translate-x-1" />
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {top4.map((prod) => (
+          <Link
+            href={`/shop/${prod.slug}`}
+            key={prod.id}
+            className="bg-[#FFFFFF] rounded-xl overflow-hidden block group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-[#2D5A3D]/10"
+          >
+            {/* Product image container */}
+            <div className="relative aspect-square bg-[#F4F4F1] overflow-hidden">
+              {/* Background pattern */}
+              <div className="absolute inset-0" style={{
+                background: `repeating-linear-gradient(
+                  45deg,
+                  transparent,
+                  transparent 12px,
+                  rgba(0,0,0,0.015) 12px,
+                  rgba(0,0,0,0.015) 13px
+                )`
+              }}></div>
+
+              {/* Image */}
+              {prod.imagen_principal ? (
+                <img
+                  src={prod.imagen_principal}
+                  alt={prod.nombre}
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[#8C8C8C] text-sm">Imagen</span>
+                </div>
+              )}
+
+              {/* Badges */}
+              <div className="absolute top-3 right-3 flex flex-col gap-2 z-10">
+                {prod.nuevo && (
+                  <span className="bg-[#2D5A3D] text-white text-[9px] font-semibold py-1.5 px-3 rounded-full shadow-lg animate-pulse">
+                    Nuevo
+                  </span>
+                )}
+                {prod.en_oferta && !prod.nuevo && (
+                  <span className="bg-[#B35A3E] text-white text-[9px] font-semibold py-1.5 px-3 rounded-full shadow-lg">
+                    -Oferta
+                  </span>
+                )}
+              </div>
+
+              {/* Quick view overlay */}
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
+                <span className="text-white text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  Ver producto
+                </span>
+              </div>
+            </div>
+
+            {/* Product info */}
+            <div className="p-4 bg-[#FFFFFF]">
+              <div className="text-[11px] text-[#8C8C8C] tracking-[0.05em] uppercase mb-2 font-medium">
+                {prod.marca || 'Marca'}
+              </div>
+              <h3 className="text-[14px] md:text-[15px] text-[#1A1C1A] font-medium mb-3 line-clamp-2 group-hover:text-[#2D5A3D] transition-colors">
+                {prod.nombre}
+              </h3>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-2">
+                {prod.precio_oferta || prod.precio_publico ? (
+                  <>
+                    <span className="text-[16px] text-[#1A1C1A] font-bold">
+                      ${(prod.precio_oferta || prod.precio_publico)?.toFixed(2)}
+                    </span>
+                    {prod.precio_oferta && prod.precio_publico && (
+                      <span className="text-[13px] text-[#8C8C8C] line-through font-normal">
+                        ${prod.precio_publico.toFixed(2)}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[14px] italic font-normal text-[#8C8C8C]">
+                    Consultar precio
+                  </span>
+                )}
+              </div>
+
+              {/* Add to cart button */}
+              <button className="mt-4 w-full bg-[#2D5A3D] border border-[#2D5A3D] text-white py-2 rounded-lg text-[12px] font-medium hover:bg-[#1e3a2f] transition-all duration-300 group-hover:shadow-md">
+                Agregar
+              </button>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DestacadosSkeleton() {
+  return (
+    <div className="px-4 md:px-8 py-8 md:py-12">
+      <div className="flex flex-col sm:flex-row items-baseline justify-between mb-8">
+        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-4 w-16 bg-muted animate-pulse rounded" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-[#FFFFFF] rounded-xl overflow-hidden h-72 animate-pulse" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function HomePage() {
   return (
     <div className="bg-[#F4F4F1] pb-12">
       {/* Hero Section */}
@@ -151,113 +277,10 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* Destacados */}
-      {/* Destacados */}
-      <div className="px-4 md:px-8 py-8 md:py-12">
-        <div className="flex flex-col sm:flex-row items-baseline justify-between mb-8">
-          <span className="font-serif text-[24px] md:text-[28px] text-[#1A1C1A] mb-4 sm:mb-0">Destacados</span>
-          <Link
-            href="/shop?destacado=true"
-            className="text-[12px] md:text-[14px] text-[#2D5A3D] tracking-[0.03em] hover:underline flex items-center gap-1 transition-all duration-300 group"
-          >
-            Ver más
-            <ArrowRight className="inline h-3 w-3 transition-transform group-hover:translate-x-1" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          {top4.map((prod) => (
-            <Link
-              href={`/shop/${prod.slug}`}
-              key={prod.id}
-              className="bg-[#FFFFFF] rounded-xl overflow-hidden block group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-[#2D5A3D]/10"
-            >
-              {/* Product image container */}
-              <div className="relative aspect-square bg-[#F4F4F1] overflow-hidden">
-                {/* Background pattern */}
-                <div className="absolute inset-0" style={{
-                  background: `repeating-linear-gradient(
-                    45deg,
-                    transparent,
-                    transparent 12px,
-                    rgba(0,0,0,0.015) 12px,
-                    rgba(0,0,0,0.015) 13px
-                  )`
-                }}></div>
-
-                {/* Image */}
-                {prod.imagen_principal ? (
-                  <img
-                    src={prod.imagen_principal}
-                    alt={prod.nombre}
-                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-[#8C8C8C] text-sm">Imagen</span>
-                  </div>
-                )}
-
-                {/* Badges */}
-                <div className="absolute top-3 right-3 flex flex-col gap-2 z-10">
-                  {prod.nuevo && (
-                    <span className="bg-[#2D5A3D] text-white text-[9px] font-semibold py-1.5 px-3 rounded-full shadow-lg animate-pulse">
-                      Nuevo
-                    </span>
-                  )}
-                  {prod.en_oferta && !prod.nuevo && (
-                    <span className="bg-[#B35A3E] text-white text-[9px] font-semibold py-1.5 px-3 rounded-full shadow-lg">
-                      -Oferta
-                    </span>
-                  )}
-                </div>
-
-                {/* Quick view overlay */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
-                  <span className="text-white text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    Ver producto
-                  </span>
-                </div>
-              </div>
-
-              {/* Product info */}
-              <div className="p-4 bg-[#FFFFFF]">
-                <div className="text-[11px] text-[#8C8C8C] tracking-[0.05em] uppercase mb-2 font-medium">
-                  {prod.marca || 'Marca'}
-                </div>
-                <h3 className="text-[14px] md:text-[15px] text-[#1A1C1A] font-medium mb-3 line-clamp-2 group-hover:text-[#2D5A3D] transition-colors">
-                  {prod.nombre}
-                </h3>
-
-                {/* Price */}
-                <div className="flex items-baseline gap-2">
-                  {prod.precio_oferta || prod.precio_publico ? (
-                    <>
-                      <span className="text-[16px] text-[#1A1C1A] font-bold">
-                        ${(prod.precio_oferta || prod.precio_publico)?.toFixed(2)}
-                      </span>
-                      {prod.precio_oferta && prod.precio_publico && (
-                        <span className="text-[13px] text-[#8C8C8C] line-through font-normal">
-                          ${prod.precio_publico.toFixed(2)}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-[14px] italic font-normal text-[#8C8C8C]">
-                      Consultar precio
-                    </span>
-                  )}
-                </div>
-
-                {/* Add to cart button */}
-                <button className="mt-4 w-full bg-[#2D5A3D] border border-[#2D5A3D] text-white py-2 rounded-lg text-[12px] font-medium hover:bg-[#1e3a2f] transition-all duration-300 group-hover:shadow-md">
-                  Agregar
-                </button>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
+      {/* Destacados - Suspense boundary for async data */}
+      <Suspense fallback={<DestacadosSkeleton />}>
+        <DestacadosSection />
+      </Suspense>
     </div>
   )
 }
