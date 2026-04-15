@@ -304,7 +304,7 @@ export async function createProductoWebAction(
 
   const payload = {
     producto_id: productoId,
-    // El trigger de BD genera el slug automáticamente al INSERT
+    slug: toCleanText(formData, 'slug'),
     precio_publico: toNumeric(formData, 'precio_publico') ?? 0,
     precio_oferta:  toNumeric(formData, 'precio_oferta'),
     activo:               toBoolean(formData, 'activo'),

@@ -2,8 +2,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import type { ComplementoResuelto, CatalogosEdicion } from '@/modules/catalogo/types'
-import { Puzzle, Plus, Pencil, Trash2, MoreVertical, Loader2 } from 'lucide-react'
+import type { ComplementoResuelto, CatalogosEdicion, CatalogoItem } from '@/modules/catalogo/types'
+import { Puzzle, Plus, Pencil, Trash2, MoreVertical, Loader2, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -46,16 +46,51 @@ export function TabComplementos({
   const [editingComp, setEditingComp] = useState<ComplementoResuelto | null>(null)
   const [deletingComp, setDeletingComp] = useState<ComplementoResuelto | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Estado para trackear la parte de prenda seleccionada (filtra tipos y cortes)
+  const [selectedParteId, setSelectedParteId] = useState<string>('')
+  // Estado para trackear el tipo de componente seleccionado (filtra cortes)
+  const [selectedTipoCompId, setSelectedTipoCompId] = useState<string>('')
 
   const handleOpenAdd = () => {
     setEditingComp(null)
+    setSelectedParteId('')
+    setSelectedTipoCompId('')
     setIsDialogOpen(true)
   }
 
   const handleOpenEdit = (comp: ComplementoResuelto) => {
     setEditingComp(comp)
+    setSelectedParteId(comp.parte_prenda_id?.toString() || '')
+    setSelectedTipoCompId(comp.tipo_comp_id?.toString() || '')
     setIsDialogOpen(true)
   }
+
+  // Obtener nombre de la parte seleccionada para filtrar
+  const selectedParteNombre = selectedParteId
+    ? catalogos.partes.find((p) => p.id === parseInt(selectedParteId))?.nombre
+    : undefined
+
+  // Obtener nombre del tipo de componente seleccionado para filtrar cortes
+  const selectedTipoCompNombre = selectedTipoCompId
+    ? catalogos.componente_tipos.find((tc) => tc.id === parseInt(selectedTipoCompId))?.nombre
+    : undefined
+
+  // Filtrar tipo_comp: complemento_en = nombre_parte O "TODO"
+  const tiposFiltrados = selectedParteNombre
+    ? catalogos.componente_tipos.filter(
+        (tc) => tc.complemento_en === selectedParteNombre || tc.complemento_en === 'TODO'
+      )
+    : []
+
+  // Filtrar corte_forma: corte_forma_en = nombre_parte O "TODO" O nombre_tipo_comp
+  const cortesFiltrados = selectedParteNombre
+    ? catalogos.corte_formas.filter(
+        (cf) =>
+          cf.corte_forma_en === selectedParteNombre ||
+          cf.corte_forma_en === 'TODO' ||
+          (selectedTipoCompNombre && cf.corte_forma_en === selectedTipoCompNombre)
+      )
+    : []
 
   const handleDelete = async () => {
     if (!deletingComp) return
@@ -151,8 +186,16 @@ export function TabComplementos({
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="parte_prenda_id">Parte de la Prenda</Label>
-                <Select name="parte_prenda_id" defaultValue={editingComp?.parte_prenda_id?.toString() || ''} required>
+                <Label htmlFor="parte_prenda_id">Parte de la Prenda *</Label>
+                <Select
+                  name="parte_prenda_id"
+                  value={selectedParteId}
+                  onValueChange={(val) => {
+                    setSelectedParteId(val || '')
+                    setSelectedTipoCompId('') // Reset tipo cuando cambia la parte
+                  }}
+                  required
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona parte..." />
                   </SelectTrigger>
@@ -167,19 +210,77 @@ export function TabComplementos({
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="tipo_comp_id">Tipo de Componente</Label>
-                <Select name="tipo_comp_id" defaultValue={editingComp?.tipo_comp_id?.toString() || ''} required>
+                <Label htmlFor="tipo_comp_id">Tipo de Componente *</Label>
+                <Select
+                  name="tipo_comp_id"
+                  value={selectedTipoCompId}
+                  onValueChange={(val) => setSelectedTipoCompId(val || '')}
+                  disabled={!selectedParteId || tiposFiltrados.length === 0}
+                  required
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona tipo..." />
+                    <SelectValue placeholder={
+                      !selectedParteId
+                        ? "Primero selecciona una parte..."
+                        : tiposFiltrados.length === 0
+                          ? "Sin tipos para esta parte"
+                          : "Selecciona tipo..."
+                    } />
                   </SelectTrigger>
                   <SelectContent>
-                    {catalogos.componente_tipos.map((cat) => (
+                    {tiposFiltrados.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
+                        {cat.complemento_en === 'TODO' && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedParteId && tiposFiltrados.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    No hay tipos de componente configurados para "{selectedParteNombre}".
+                  </p>
+                )}
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="corte_forma_id">Corte / Forma</Label>
+                <Select
+                  name="corte_forma_id"
+                  defaultValue={editingComp?.corte_forma_id?.toString() || ''}
+                  disabled={!selectedParteId || cortesFiltrados.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={
+                      !selectedParteId
+                        ? "Primero selecciona una parte..."
+                        : cortesFiltrados.length === 0
+                          ? "Sin cortes para esta parte/tipo"
+                          : "Selecciona corte/forma..."
+                    } />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_null">Ninguno</SelectItem>
+                    {cortesFiltrados.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                        {cat.nombre}
+                        {cat.corte_forma_en === 'TODO' && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
+                        )}
+                        {selectedTipoCompNombre && cat.corte_forma_en === selectedTipoCompNombre && (
+                          <span className="ml-2 text-[10px] text-blue-500">→ {selectedTipoCompNombre}</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedParteId && cortesFiltrados.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    No hay cortes/formas configurados para "{selectedParteNombre}" o tipo seleccionado.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-2">
@@ -190,7 +291,7 @@ export function TabComplementos({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_null">Ninguno</SelectItem>
-                    {catalogos.telas.map((cat) => (
+                    {catalogos.materiales.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>

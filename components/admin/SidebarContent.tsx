@@ -22,6 +22,7 @@ import {
   Shield,
   ChevronDown,
   LayoutGrid,
+  History,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -150,6 +151,11 @@ export function SidebarContent({
           label: 'Roles',
           href: ADMIN_ROUTES.configuracion.roles,
           icon: Shield,
+        },
+        {
+          label: 'Auditoría Productos',
+          href: ADMIN_ROUTES.configuracion.auditoriaProductos,
+          icon: History,
         },
       ],
     },
