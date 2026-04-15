@@ -2,17 +2,18 @@
 import type { Metadata } from 'next'
 import { Pagination } from '@/components/admin/Pagination'
 import { fetchProductosCatalogo } from '@/modules/catalogo/queries'
-import type { FiltrosCatalogo } from '@/modules/catalogo/types'
+import type { FiltrosCatalogo, CatalogoSortBy } from '@/modules/catalogo/types'
 import { CatalogoCreateDialog } from './CatalogoCreateDialog'
 import { CatalogoFilters } from './CatalogoFilters'
 import { CatalogoTable } from './CatalogoTable'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Catálogo de Productos',
 }
+
+const VALID_SORT_BY: CatalogoSortBy[] = ['id', 'sku_base', 'familia', 'marca_id', 'pz_en_caja', 'precio_ec', 'estado']
 
 type CatalogoSearchParams = {
   q?: string
@@ -22,6 +23,8 @@ type CatalogoSearchParams = {
   destacados?: string
   incluir_inactivos?: string
   page?: string
+  sort_by?: string
+  order?: string
   modal?: string
   edit_id?: string
   delete_id?: string
@@ -49,6 +52,11 @@ export default async function CatalogoPage({
 }) {
   const params = await searchParams
 
+  const sortBy = (VALID_SORT_BY.includes(params.sort_by as CatalogoSortBy)
+    ? params.sort_by
+    : 'id') as CatalogoSortBy
+  const order = params.order === 'asc' ? 'asc' : 'desc'
+
   const filtros: FiltrosCatalogo = {
     q: params.q,
     estado: params.estado,
@@ -57,6 +65,8 @@ export default async function CatalogoPage({
     destacados: params.destacados === 'true',
     incluir_inactivos: params.incluir_inactivos === 'true',
     page: parseOptionalInt(params.page) ?? 1,
+    sort_by: sortBy,
+    order,
   }
 
   const { productos, total, catalogos } = await fetchProductosCatalogo(filtros)
@@ -85,8 +95,8 @@ export default async function CatalogoPage({
 
       <CatalogoCreateDialog catalogos={catalogos} />
 
-      <CatalogoFilters catalogos={catalogos} />
-      <CatalogoTable productos={productos} catalogos={catalogos} />
+      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+      <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} />
       <Pagination total={total} />
     </div>
   )
