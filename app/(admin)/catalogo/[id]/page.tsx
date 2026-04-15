@@ -121,7 +121,14 @@ export default async function CatalogoDetallePage(props: {
 
       {/* ── Bloque E-commerce/SEO (desplegable) ───────────────── */}
       <Suspense fallback={<TabSkeleton rows={3} />}>
-        <TabEcommerceAsync productoId={producto.id} estado={producto.estado ?? 'borrador'} />
+        <TabEcommerceAsync
+          productoId={producto.id}
+          estado={producto.estado ?? 'borrador'}
+          skuBase={producto.sku_base}
+          tipoPrenda={fk.tipo_prenda}
+          genero={fk.genero}
+          marca={fk.marca}
+        />
       </Suspense>
 
       <Separator />
@@ -154,7 +161,7 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="cajas">
           <Suspense fallback={<TabSkeleton />}>
-            <TabCajasAsync productoId={producto.id} />
+            <TabCajasAsync productoId={producto.id} catalogos={catalogos} />
           </Suspense>
         </TabsContent>
 
@@ -219,12 +226,30 @@ export default async function CatalogoDetallePage(props: {
 async function TabEcommerceAsync({
   productoId,
   estado,
+  skuBase,
+  tipoPrenda,
+  genero,
+  marca,
 }: {
   productoId: number
   estado: string
+  skuBase: string
+  tipoPrenda: string | null
+  genero: string | null
+  marca: string | null
 }) {
   const web = await fetchProductoWeb(productoId)
-  return <TabEcommerce web={web} productoId={productoId} estado={estado} />
+  return (
+    <TabEcommerce
+      web={web}
+      productoId={productoId}
+      estado={estado}
+      skuBase={skuBase}
+      tipoPrenda={tipoPrenda}
+      genero={genero}
+      marca={marca}
+    />
+  )
 }
 
 async function TabImagenesAsync({ productoId }: { productoId: number }) {
@@ -232,9 +257,22 @@ async function TabImagenesAsync({ productoId }: { productoId: number }) {
   return <TabImagenes imagenes={imagenes} />
 }
 
-async function TabCajasAsync({ productoId }: { productoId: number }) {
+async function TabCajasAsync({
+  productoId,
+  catalogos,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+}) {
   const cajas = await fetchCajasProducto(productoId)
-  return <TabCajas cajas={cajas} />
+  return (
+    <TabCajas
+      cajas={cajas}
+      productoId={productoId}
+      tallasDisponibles={catalogos.tallas}
+      coloresDisponibles={catalogos.colores}
+    />
+  )
 }
 
 async function TabTagsAsync({

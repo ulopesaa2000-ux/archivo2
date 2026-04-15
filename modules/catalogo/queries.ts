@@ -129,7 +129,7 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
 
   const [
     marcasRes, generosRes, telasRes, tiposRes, edadesRes, personasRes,
-    tiposTagRes, refTagsRes, partesRes, compTiposRes, acaTiposRes, acaDetRes, acaPatRes, locaRes,
+    tiposTagRes, refTagsRes, partesRes, compTiposRes, corteFormasRes, acaTiposRes, acaDetRes, acaPatRes, locaRes,
     tallasRes, coloresRes
   ] = await Promise.all([
     (supabase.from('cat_marcas') as any).select('id, nombre').eq('activo', true).order('nombre'),
@@ -140,10 +140,11 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
     (supabase.from('personas') as any).select('id, nombre_completo').order('nombre_completo'),
 
     // Para Tabs
-    (supabase.from('tipo_tag') as any).select('id, nombre').order('nombre'),
-    (supabase.from('ref_tag') as any).select('id, nombre').order('nombre'),
+    (supabase.from('tipo_tag') as any).select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
+    (supabase.from('ref_tag') as any).select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
     (supabase.from('parte_prenda_comp') as any).select('id, nombre').order('nombre'),
-    (supabase.from('tipo_comp') as any).select('id, nombre').order('nombre'),
+    (supabase.from('tipo_comp') as any).select('id, nombre, complemento_en').order('nombre'),
+    (supabase.from('corte_forma_comp') as any).select('id, nombre, corte_forma_en').order('nombre'),
     (supabase.from('tipo_acabado') as any).select('id, nombre').order('nombre'),
     (supabase.from('detalle_acabado') as any).select('id, nombre').order('nombre'),
     (supabase.from('patron_acabado') as any).select('id, estampado_patron').order('estampado_patron'),
@@ -168,10 +169,11 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
       nombre: p.nombre_completo,
     })),
 
-    tipos_tag:    mapToCatalogo(tiposTagRes.data),
-    ref_tags:     mapToCatalogo(refTagsRes.data),
+    tipos_tag:    (tiposTagRes.data ?? []) as { id: number; nombre: string; es_multiple: boolean | null }[],
+    ref_tags:     (refTagsRes.data ?? []) as { id: number; nombre: string; tipo_tag_id: number }[],
     partes:       mapToCatalogo(partesRes.data),
-    componente_tipos: mapToCatalogo(compTiposRes.data),
+    componente_tipos: (compTiposRes.data ?? []) as { id: number; nombre: string; complemento_en: string | null }[],
+    corte_formas: (corteFormasRes.data ?? []) as { id: number; nombre: string; corte_forma_en: string | null }[],
     materiales:   mapToCatalogo(telasRes.data),
     acabado_tipos:    mapToCatalogo(acaTiposRes.data),
     acabado_detalles: mapToCatalogo(acaDetRes.data),
@@ -540,4 +542,70 @@ export async function fetchProductoPorIdParaEdicion(
     .eq('id', id)
     .single()
   return data
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDITORÍA
+// ═══════════════════════════════════════════════════════════════
+
+export interface AuditoriaProductoRow {
+  id: number
+  productoid: number
+  accion: 'INSERT' | 'UPDATE' | 'DELETE'
+  campos_modificados: string[]
+  datos_anteriores: Record<string, any> | null
+  datos_nuevos: Record<string, any> | null
+  fechaauditoria: string
+  usuarios: { nombrecompleto: string } | null
+}
+
+export async function fetchAuditoriaProducto(
+  productoId: number
+): Promise<AuditoriaProductoRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await (supabase
+    .schema('inv-tienda') as any)
+    .from('auditoria_productos')
+    .select(`
+      id,
+      productoid,
+      accion,
+      campos_modificados,
+      datos_anteriores,
+      datos_nuevos,
+      fechaauditoria,
+      usuarios ( nombrecompleto )
+    `)
+    .eq('productoid', productoId)
+    .order('fechaauditoria', { ascending: false })
+
+  if (error) throw error
+  return data ?? []
+}
+
+export interface AuditoriaGeneralRow {
+  id: number
+  productoid: number
+  sku_base: string
+  productonombre: string
+  accion: 'INSERT' | 'UPDATE' | 'DELETE'
+  campos_modificados: string[]
+  datos_anteriores: Record<string, any> | null
+  datos_nuevos: Record<string, any> | null
+  fechaauditoria: string
+  usuarionombre: string | null
+}
+
+export async function fetchAuditoriaGeneral(
+  limit: number = 100
+): Promise<AuditoriaGeneralRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await (supabase
+    .schema('inv-tienda') as any)
+    .from('v_auditoria_productos')
+    .select('*')
+    .limit(limit)
+
+  if (error) throw error
+  return data ?? []
 }

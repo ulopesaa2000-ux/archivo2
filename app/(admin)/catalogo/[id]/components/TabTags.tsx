@@ -2,8 +2,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import type { TagResuelto, CatalogosEdicion } from '@/modules/catalogo/types'
-import { Tag, Plus, Pencil, Trash2, MoreVertical, Loader2 } from 'lucide-react'
+import type { TagResuelto, CatalogosEdicion, TipoTagCatalogo, RefTagCatalogo } from '@/modules/catalogo/types'
+import { Tag, Plus, Pencil, Trash2, MoreVertical, Loader2, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -45,16 +45,30 @@ export function TabTags({
   const [editingTag, setEditingTag] = useState<TagResuelto | null>(null)
   const [deletingTag, setDeletingTag] = useState<TagResuelto | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Estado para trackear el tipo de tag seleccionado (para filtrar ref_tags)
+  const [selectedTipoTagId, setSelectedTipoTagId] = useState<string>('')
 
   const handleOpenAdd = () => {
     setEditingTag(null)
+    setSelectedTipoTagId('')
     setIsDialogOpen(true)
   }
 
   const handleOpenEdit = (tag: TagResuelto) => {
     setEditingTag(tag)
+    setSelectedTipoTagId(tag.tipo_tag_id?.toString() || '')
     setIsDialogOpen(true)
   }
+
+  // Filtrar ref_tags según el tipo_tag seleccionado
+  const refTagsFiltrados = selectedTipoTagId
+    ? catalogos.ref_tags.filter((rt) => rt.tipo_tag_id === parseInt(selectedTipoTagId))
+    : []
+
+  // Obtener info del tipo_tag seleccionado para mostrar si permite múltiples
+  const tipoTagSeleccionado: TipoTagCatalogo | undefined = selectedTipoTagId
+    ? catalogos.tipos_tag.find((tt) => tt.id === parseInt(selectedTipoTagId))
+    : undefined
 
   const handleDelete = async () => {
     if (!deletingTag) return
@@ -145,8 +159,20 @@ export function TabTags({
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="tipo_tag_id">Tipo de Tag</Label>
-                <Select name="tipo_tag_id" defaultValue={editingTag?.tipo_tag_id?.toString() || ''} required>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="tipo_tag_id">Tipo de Tag</Label>
+                  {tipoTagSeleccionado?.es_multiple && (
+                    <span className="text-[10px] flex items-center gap-1 text-muted-foreground">
+                      <Layers className="h-3 w-3" /> Permite múltiples
+                    </span>
+                  )}
+                </div>
+                <Select
+                  name="tipo_tag_id"
+                  value={selectedTipoTagId}
+                  onValueChange={(val) => setSelectedTipoTagId(val || '')}
+                  required
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona un tipo..." />
                   </SelectTrigger>
@@ -162,19 +188,34 @@ export function TabTags({
 
               <div className="grid gap-2">
                 <Label htmlFor="ref_tag_id">Referencia / Categoría</Label>
-                <Select name="ref_tag_id" defaultValue={editingTag?.ref_tag_id?.toString() || ''}>
+                <Select
+                  name="ref_tag_id"
+                  defaultValue={editingTag?.ref_tag_id?.toString() || ''}
+                  disabled={!selectedTipoTagId || refTagsFiltrados.length === 0}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona una referencia..." />
+                    <SelectValue placeholder={
+                      !selectedTipoTagId
+                        ? "Primero selecciona un tipo..."
+                        : refTagsFiltrados.length === 0
+                          ? "Sin referencias para este tipo"
+                          : "Selecciona una referencia..."
+                    } />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_null">Ninguno</SelectItem>
-                    {catalogos.ref_tags.map((cat) => (
+                    {refTagsFiltrados.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedTipoTagId && refTagsFiltrados.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Este tipo de tag no tiene referencias disponibles.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-2">

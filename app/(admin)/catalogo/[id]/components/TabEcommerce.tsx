@@ -1,10 +1,11 @@
 // app/(admin)/catalogo/[id]/components/TabEcommerce.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ProductoWebRow } from '@/lib/types/tables'
 import { formatCurrency } from '@/lib/utils'
+import { generarSlugProducto } from '@/lib/utils/slug'
 import { Fecha } from '@/components/shared/Fecha'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,10 @@ type Props = {
   web: ProductoWebRow | null
   productoId: number
   estado: string
+  skuBase: string
+  tipoPrenda: string | null
+  genero: string | null
+  marca: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +161,7 @@ function WebFormFields({ web }: { web?: ProductoWebRow | null }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Componente principal
 // ─────────────────────────────────────────────────────────────────────────────
-export function TabEcommerce({ web, productoId, estado }: Props) {
+export function TabEcommerce({ web, productoId, estado, skuBase, tipoPrenda, genero, marca }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -170,6 +175,12 @@ export function TabEcommerce({ web, productoId, estado }: Props) {
 
   const puedePublicar = ESTADOS_PUBLICABLES.includes(estado)
   const esPublicado = estado === 'publicado'
+
+  // Slug generado automáticamente a partir de los datos del producto
+  const slugGenerado = useMemo(
+    () => generarSlugProducto({ sku_base: skuBase, tipo_prenda: tipoPrenda, genero, marca }),
+    [skuBase, tipoPrenda, genero, marca]
+  )
 
   // ── Cambiar estado rápido (switch) ───────────────────────────
   const handlePublishToggle = (checked: boolean) => {
@@ -189,6 +200,7 @@ export function TabEcommerce({ web, productoId, estado }: Props) {
     setError(null)
     const fd = new FormData(e.currentTarget)
     fd.set('producto_id', String(productoId))
+    fd.set('slug', slugGenerado)
     ;(['activo', 'destacado', 'nuevo', 'en_oferta', 'precio_negociable', 'disponible_mayorista'] as const).forEach((k) => {
       if (!fd.has(k)) fd.set(k, 'false')
     })
@@ -315,8 +327,21 @@ export function TabEcommerce({ web, productoId, estado }: Props) {
       {isCreating && !web && (
         <form key="create" onSubmit={handleCreate} className="space-y-4 pt-3 pb-2">
           <p className="text-xs text-muted-foreground italic">
-            Nuevo registro de tienda web — el slug se generará automáticamente.
+            Nuevo registro de tienda web
           </p>
+          {/* Slug autogenerado (solo lectura) */}
+          <div className="space-y-1">
+            <Label className="text-xs">Slug (auto)</Label>
+            <Input
+              name="slug"
+              value={slugGenerado}
+              readOnly
+              className="h-9 font-mono text-xs bg-muted/50 cursor-not-allowed"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Generado a partir de SKU + tipo de prenda + género{marca ? ' + marca' : ''}
+            </p>
+          </div>
           <WebFormFields web={null} />
           <div className="flex gap-2 justify-end pt-2 border-t">
             <Button

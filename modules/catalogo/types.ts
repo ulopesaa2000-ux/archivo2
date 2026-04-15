@@ -58,6 +58,13 @@ export type CatalogosParaFiltros = {
 // Incluye todos los FK que aparecen en el formulario del Hero
 export type CatalogoItem = { id: number; nombre: string }
 
+export type TipoTagCatalogo = { id: number; nombre: string; es_multiple: boolean | null }
+export type RefTagCatalogo = { id: number; nombre: string; tipo_tag_id: number }
+
+// Tipos de catálogo con campos de filtrado jerárquico
+export type TipoCompCatalogo = { id: number; nombre: string; complemento_en: string | null }
+export type CorteFormaCatalogo = { id: number; nombre: string; corte_forma_en: string | null }
+
 export type CatalogosEdicion = {
   marcas:       CatalogoItem[]
   generos:      CatalogoItem[]
@@ -67,14 +74,15 @@ export type CatalogosEdicion = {
   personas:     CatalogoItem[]   // label viene de nombre_completo en BD
 
   // Para Tabs
-  tipos_tag:    CatalogoItem[]
-  ref_tags:     CatalogoItem[]
+  tipos_tag:    TipoTagCatalogo[]
+  ref_tags:     RefTagCatalogo[]
   partes:       CatalogoItem[]
-  componente_tipos: CatalogoItem[]
+  componente_tipos: TipoCompCatalogo[]
   materiales:   CatalogoItem[]
   acabado_tipos:    CatalogoItem[]
   acabado_detalles: CatalogoItem[]
   acabado_patrones: CatalogoItem[]
+  corte_formas: CorteFormaCatalogo[]
   localizaciones:   CatalogoItem[]
   tallas:           CatalogoItem[]
   colores:          CatalogoItem[]

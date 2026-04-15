@@ -84,6 +84,7 @@ export const ADMIN_ROUTES = {
   configuracion: {
     usuarios: '/configuracion/usuarios',
     roles: '/configuracion/roles',
+    auditoriaProductos: '/configuracion/auditoria_producto',
   },
 } as const
 

@@ -13,7 +13,7 @@
  * por lo que son compatibles con Server Components y sin re-mount del shell.
  */
 
-import { useTransition } from 'react'
+import React, { useTransition } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import {
   Table,
@@ -204,9 +204,8 @@ export function DataTable<T>({
             const isExpanded = expandedRows?.has(key) ?? false
 
             return (
-              <>
+              <React.Fragment key={key}>
                 <TableRow
-                  key={key}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
                     onRowClick && 'cursor-pointer',
@@ -247,14 +246,14 @@ export function DataTable<T>({
 
                 {/* Fila expandida */}
                 {hasExpandable && isExpanded && renderExpanded && (
-                  <TableRow key={`${key}-expanded`} className="bg-muted/20 hover:bg-muted/20">
+                  <TableRow className="bg-muted/20 hover:bg-muted/20">
                     <TableCell /> {/* celda vacía del toggle */}
                     <TableCell colSpan={columns.length} className="py-3 px-4">
                       {renderExpanded(row)}
                     </TableCell>
                   </TableRow>
                 )}
-              </>
+              </React.Fragment>
             )
           })}
         </TableBody>
