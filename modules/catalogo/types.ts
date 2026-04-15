@@ -3,7 +3,18 @@ import type {
   ProductoRow, MarcaRow, GeneroRow, TelaRow,
   ProductoWebRow, ProductoImagenRow, CajaProductoRow,
   CajaDetalleRow, TallaRow, ColorRow,
+  TipoPrendaRow, EdadRow, PersonaRow,
 } from '@/lib/types/tables'
+
+// ── Columnas ordenables del listado ─────────────────────────
+export type CatalogoSortBy =
+  | 'sku_base'
+  | 'familia'
+  | 'marca_id'
+  | 'pz_en_caja'
+  | 'precio_ec'
+  | 'estado'
+  | 'id' // por defecto: más recientes
 
 // ── Filtros del listado ─────────────────────────────────────
 export type FiltrosCatalogo = {
@@ -14,6 +25,8 @@ export type FiltrosCatalogo = {
   destacados?: boolean    // true = solo destacado=true, false/undefined = sin filtro
   incluir_inactivos?: boolean // true = sin filtro activo, false/undefined = solo activo=true
   page?: number
+  sort_by?: CatalogoSortBy // columna de ordenamiento
+  order?: 'asc' | 'desc'  // dirección
 }
 
 // ── Producto en el listado ──────────────────────────────────
@@ -34,11 +47,37 @@ export type ProductoListItem = {
   tela_ext_id: number | null
 }
 
-// ── Catálogos para filtros ──────────────────────────────────
+// ── Catálogos para filtros (listado) ───────────────────────
 export type CatalogosParaFiltros = {
   marcas: Pick<MarcaRow, 'id' | 'nombre'>[]
   generos: Pick<GeneroRow, 'id' | 'nombre'>[]
   telas: Pick<TelaRow, 'id' | 'nombre'>[]
+}
+
+// ── Catálogos para edición de producto (detalle) ────────────
+// Incluye todos los FK que aparecen en el formulario del Hero
+export type CatalogoItem = { id: number; nombre: string }
+
+export type CatalogosEdicion = {
+  marcas:       CatalogoItem[]
+  generos:      CatalogoItem[]
+  telas:        CatalogoItem[]   // tela_ext y tela_forro
+  tipos_prenda: CatalogoItem[]
+  edades:       CatalogoItem[]   // label viene de edad_talla en BD
+  personas:     CatalogoItem[]   // label viene de nombre_completo en BD
+
+  // Para Tabs
+  tipos_tag:    CatalogoItem[]
+  ref_tags:     CatalogoItem[]
+  partes:       CatalogoItem[]
+  componente_tipos: CatalogoItem[]
+  materiales:   CatalogoItem[]
+  acabado_tipos:    CatalogoItem[]
+  acabado_detalles: CatalogoItem[]
+  acabado_patrones: CatalogoItem[]
+  localizaciones:   CatalogoItem[]
+  tallas:           CatalogoItem[]
+  colores:          CatalogoItem[]
 }
 
 // ── Resultado del listado ───────────────────────────────────
@@ -80,8 +119,10 @@ export type CajaConDetalle = CajaProductoRow & {
 // ── Tag resuelto ────────────────────────────────────────────
 export type TagResuelto = {
   id: number
+  tipo_tag_id: number | null
   tipo_tag_nombre: string | null
   tipo_tag_codigo: string | null
+  ref_tag_id: number | null
   ref_tag_nombre: string | null
   ref_tag_codigo: string | null
   valor_texto: string | null
@@ -90,9 +131,13 @@ export type TagResuelto = {
 // ── Complemento resuelto ────────────────────────────────────
 export type ComplementoResuelto = {
   id: number
+  parte_prenda_id: number | null
   parte_prenda: string | null
+  tipo_comp_id: number | null
   tipo_complemento: string | null
+  material_id: number | null
   material: string | null
+  corte_forma_id: number | null
   corte_forma: string | null
   descripcion_adicional: string | null
 }
@@ -100,9 +145,13 @@ export type ComplementoResuelto = {
 // ── Acabado resuelto ────────────────────────────────────────
 export type AcabadoResuelto = {
   id: number
+  tipo_acabado_id: number | null
   tipo_acabado: string | null
+  detalle_acabado_id: number | null
   detalle: string | null
+  patron_acabado_id: number | null
   patron: string | null
+  localizacion_id: number | null
   localizacion: string | null
 }
 
@@ -110,8 +159,10 @@ export type AcabadoResuelto = {
 export type VarianteResuelta = {
   id: number
   sku_completo: string | null
+  talla_id: number | null
   talla_codigo: string | null
   talla_nombre: string | null
+  color_id: number | null
   color_nombre: string | null
   color_hex: string | null
   costo_promedio: number | null

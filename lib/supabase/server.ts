@@ -1,5 +1,6 @@
 // lib/supabase/server.ts
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { Database } from '../types/database.types'
 
@@ -37,6 +38,30 @@ export async function createClient() {
           }
         },
       },
+      db: {
+        schema: 'inv-tienda'
+      }
+    }
+  )
+}
+
+/**
+ * Cliente estático para usar dentro de "use cache"
+ * No utiliza cookies() ni @supabase/ssr para evitar dependencias dinámicas,
+ * permitiendo cachear datos globales que no dependan del usuario.
+ */
+export function createStaticClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('Supabase URL and Anon Key are required.')
+  }
+
+  return createSupabaseClient<Database, 'inv-tienda'>(
+    supabaseUrl || 'https://placeholder.supabase.co',
+    supabaseAnonKey || 'placeholder',
+    {
       db: {
         schema: 'inv-tienda'
       }

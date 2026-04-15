@@ -1,7 +1,7 @@
 // modules/inventario/queries.ts
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import { cacheLife, cacheTag } from 'next/cache'
 import type {
@@ -532,7 +532,7 @@ export async function fetchCatalogosInventario(): Promise<CatalogosInventario> {
   cacheLife('hours') // Cache por 1 hora ya que estos datos cambian poco
   cacheTag('inventario-catalogos')
 
-  const supabase = await createClient()
+  const supabase = createStaticClient()
 
   const [tiposRes, estadosRes, bodegasRes] = await Promise.all([
     supabase
@@ -571,7 +571,7 @@ export async function fetchTiposMovimiento(): Promise<TipoMovimientoRow[]> {
   cacheLife('hours')
   cacheTag('tipos-movimiento')
 
-  const supabase = await createClient()
+  const supabase = createStaticClient()
   const { data } = await supabase
     .from('cat_tipos_movimiento')
     .select('*')

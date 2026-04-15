@@ -142,6 +142,102 @@ export async function updateProductAction(
   return { success: true }
 }
 
+export async function updateProductoWebAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const productoId = toInteger(formData, 'producto_id')
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    // Precios
+    precio_publico: toNumeric(formData, 'precio_publico') ?? 0,
+    precio_oferta: toNumeric(formData, 'precio_oferta'),
+    // Nombre y descripciones web
+    // (slug lo gestiona el trigger de BD automáticamente)
+    // Flags booleanos
+    activo:               toBoolean(formData, 'activo'),
+    destacado:            toBoolean(formData, 'destacado'),
+    nuevo:                toBoolean(formData, 'nuevo'),
+    en_oferta:            toBoolean(formData, 'en_oferta'),
+    precio_negociable:    toBoolean(formData, 'precio_negociable'),
+    disponible_mayorista: toBoolean(formData, 'disponible_mayorista'),
+    // SEO
+    titulo_seo:      toCleanText(formData, 'titulo_seo'),
+    descripcion_seo: toCleanText(formData, 'descripcion_seo'),
+    keywords:        toCleanText(formData, 'keywords'),
+    // Otros
+    orden_display: toInteger(formData, 'orden_display'),
+    unidad_venta:  toCleanText(formData, 'unidad_venta'),
+    modo_override: toCleanText(formData, 'modo_override'),
+  }
+
+  const { error } = await (supabase
+    .from('productos_web') as any)
+    .update(payload)
+    .eq('producto_id', productoId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Acabados
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveAcabadoAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const id = toInteger(formData, 'id')
+  const productoId = toInteger(formData, 'producto_id')
+  
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    producto_id: productoId,
+    tipo_acabado_id: toInteger(formData, 'tipo_acabado_id'),
+    detalle_acabado_id: toInteger(formData, 'detalle_acabado_id'),
+    patron_acabado_id: toInteger(formData, 'patron_acabado_id'),
+    localizacion_id: toInteger(formData, 'localizacion_id'),
+  }
+
+  if (id) {
+    const { error } = await (supabase.from('acabado_producto') as any).update(payload).eq('id', id)
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await (supabase.from('acabado_producto') as any).insert(payload)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+export async function deleteAcabadoAction(
+  id: number,
+  productoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('acabado_producto') as any).delete().eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
 export async function deactivateProductAction(
   formData: FormData
 ): Promise<ActionResult> {
@@ -161,5 +257,287 @@ export async function deactivateProductAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/catalogo')
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cambiar estado de un producto (ej. borrador → publicado)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function cambiarEstadoProductoAction(
+  productoId: number,
+  nuevoEstado: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const ESTADOS_VALIDOS = ['borrador', 'pendiente', 'publicado', 'pausado', 'descontinuado']
+  if (!ESTADOS_VALIDOS.includes(nuevoEstado)) {
+    return { success: false, error: 'Estado no válido.' }
+  }
+
+  const supabase = await createClient()
+  const { error } = await (supabase
+    .from('productos') as any)
+    .update({ estado: nuevoEstado })
+    .eq('id', productoId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/catalogo')
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crear registro en productos_web (cuando el producto no tenía ninguno)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createProductoWebAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const productoId = toInteger(formData, 'producto_id')
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    producto_id: productoId,
+    // El trigger de BD genera el slug automáticamente al INSERT
+    precio_publico: toNumeric(formData, 'precio_publico') ?? 0,
+    precio_oferta:  toNumeric(formData, 'precio_oferta'),
+    activo:               toBoolean(formData, 'activo'),
+    destacado:            toBoolean(formData, 'destacado'),
+    nuevo:                toBoolean(formData, 'nuevo'),
+    en_oferta:            toBoolean(formData, 'en_oferta'),
+    precio_negociable:    toBoolean(formData, 'precio_negociable'),
+    disponible_mayorista: toBoolean(formData, 'disponible_mayorista'),
+    titulo_seo:      toCleanText(formData, 'titulo_seo'),
+    descripcion_seo: toCleanText(formData, 'descripcion_seo'),
+    keywords:        toCleanText(formData, 'keywords'),
+    orden_display:   toInteger(formData, 'orden_display') ?? 0,
+    unidad_venta:    toCleanText(formData, 'unidad_venta') ?? 'pieza',
+    modo_override:   toCleanText(formData, 'modo_override') ?? 'default',
+  }
+
+  const { error } = await (supabase
+    .from('productos_web') as any)
+    .insert(payload)
+
+  if (error) {
+    if (error.code === '23505') {
+      return { success: false, error: 'Este producto ya tiene un registro de tienda web.' }
+    }
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tags (Etiquetas)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveTagAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const id = toInteger(formData, 'id')
+  const productoId = toInteger(formData, 'producto_id')
+  
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    producto_id: productoId,
+    tipo_tag_id: toInteger(formData, 'tipo_tag_id'),
+    ref_tag_id:  toInteger(formData, 'ref_tag_id'),
+    valor_texto: toCleanText(formData, 'valor_texto'),
+  }
+
+  if (id) {
+    const { error } = await (supabase.from('producto_tags') as any).update(payload).eq('id', id)
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await (supabase.from('producto_tags') as any).insert(payload)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Variantes
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveVarianteAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const id = toInteger(formData, 'id')
+  const productoId = toInteger(formData, 'producto_id')
+  
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    producto_id: productoId,
+    talla_id: toInteger(formData, 'talla_id'),
+    color_id: toInteger(formData, 'color_id'),
+    costo_promedio: toNumeric(formData, 'costo_promedio'),
+    precio_venta: toNumeric(formData, 'precio_venta'),
+    activo: toBoolean(formData, 'activo'),
+    sku_completo: toCleanText(formData, 'sku_completo'),
+  }
+
+  if (id) {
+    const { error } = await (supabase.from('variantes_producto') as any).update(payload).eq('id', id)
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await (supabase.from('variantes_producto') as any).insert(payload)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+export async function deleteVarianteAction(
+  id: number,
+  productoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('variantes_producto') as any).delete().eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+export async function deleteTagAction(
+  id: number,
+  productoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('producto_tags') as any).delete().eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Complementos
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveComplementoAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const id = toInteger(formData, 'id')
+  const productoId = toInteger(formData, 'producto_id')
+  
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  const payload = {
+    producto_id: productoId,
+    parte_prenda_id: toInteger(formData, 'parte_prenda_id'),
+    tipo_comp_id:    toInteger(formData, 'tipo_comp_id'),
+    material_id:     toInteger(formData, 'material_id'),
+    corte_forma_id:  toInteger(formData, 'corte_forma_id'),
+    descripcion_adicional: toCleanText(formData, 'descripcion_adicional'),
+  }
+
+  if (id) {
+    const { error } = await (supabase.from('complemento_producto') as any).update(payload).eq('id', id)
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await (supabase.from('complemento_producto') as any).insert(payload)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+export async function deleteComplementoAction(
+  id: number,
+  productoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('complemento_producto') as any).delete().eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conjunto (Hijos)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveConjuntoItemAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const id = toInteger(formData, 'id')
+  const productoPadreId = toInteger(formData, 'producto_padre_id')
+  
+  if (!productoPadreId) return { success: false, error: 'ID de producto padre requerido.' }
+
+  const payload = {
+    producto_padre_id: productoPadreId,
+    producto_hijo_id:  toInteger(formData, 'producto_hijo_id'),
+    cantidad:          toInteger(formData, 'cantidad') || 1,
+    orden:             toInteger(formData, 'orden') || 0,
+    es_requerido:      toBoolean(formData, 'es_requerido'),
+  }
+
+  if (id) {
+    const { error } = await (supabase.from('producto_conjunto') as any).update(payload).eq('id', id)
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await (supabase.from('producto_conjunto') as any).insert(payload)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/catalogo/${productoPadreId}`)
+  return { success: true }
+}
+
+export async function deleteConjuntoItemAction(
+  id: number,
+  productoPadreId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('producto_conjunto') as any).delete().eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoPadreId}`)
   return { success: true }
 }

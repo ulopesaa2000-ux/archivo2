@@ -15,7 +15,9 @@ import {
   fetchVariantesProducto,
   fetchMedidasProducto,
   fetchConjuntoProducto,
+  fetchCatalogosEdicion,
 } from '@/modules/catalogo/queries'
+import type { CatalogosEdicion } from '@/modules/catalogo/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { HeroProducto } from './components/HeroProducto'
@@ -75,10 +77,11 @@ export default async function CatalogoDetallePage(props: {
   if (!producto) notFound()
 
   // ── Queries en paralelo para el hero ──────────────────────
-  const [fk, navegacion, imagenes] = await Promise.all([
+  const [fk, navegacion, imagenes, catalogos] = await Promise.all([
     fetchFKDescriptivas(producto),
     fetchNavegacionProducto(producto.id),
     fetchImagenesProducto(producto.id),
+    fetchCatalogosEdicion(),
   ])
 
   const imagenPrincipal = imagenes.find((i) => i.es_principal)?.url
@@ -113,11 +116,12 @@ export default async function CatalogoDetallePage(props: {
         producto={producto}
         fk={fk}
         imagenPrincipal={imagenPrincipal}
+        catalogos={catalogos}
       />
 
-      {/* ── Bloque E-commerce/SEO (desplegable) ─────────── */}
+      {/* ── Bloque E-commerce/SEO (desplegable) ───────────────── */}
       <Suspense fallback={<TabSkeleton rows={3} />}>
-        <TabEcommerceAsync productoId={producto.id} />
+        <TabEcommerceAsync productoId={producto.id} estado={producto.estado ?? 'borrador'} />
       </Suspense>
 
       <Separator />
@@ -156,25 +160,29 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="tags">
           <Suspense fallback={<TabSkeleton />}>
-            <TabTagsAsync productoId={producto.id} />
+            <TabTagsAsync productoId={producto.id} catalogos={catalogos} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="complementos">
           <Suspense fallback={<TabSkeleton />}>
-            <TabComplementosAsync productoId={producto.id} />
+            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="acabados">
           <Suspense fallback={<TabSkeleton />}>
-            <TabAcabadosAsync productoId={producto.id} />
+            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="variantes">
           <Suspense fallback={<TabSkeleton />}>
-            <TabVariantesAsync productoId={producto.id} />
+            <TabVariantesAsync
+              productoId={producto.id}
+              skuBase={producto.sku_base}
+              catalogos={catalogos}
+            />
           </Suspense>
         </TabsContent>
 
@@ -208,9 +216,15 @@ export default async function CatalogoDetallePage(props: {
 // y se resuelve dentro de su propio <Suspense>
 // ═══════════════════════════════════════════════════════════════
 
-async function TabEcommerceAsync({ productoId }: { productoId: number }) {
+async function TabEcommerceAsync({
+  productoId,
+  estado,
+}: {
+  productoId: number
+  estado: string
+}) {
   const web = await fetchProductoWeb(productoId)
-  return <TabEcommerce web={web} />
+  return <TabEcommerce web={web} productoId={productoId} estado={estado} />
 }
 
 async function TabImagenesAsync({ productoId }: { productoId: number }) {
@@ -223,24 +237,69 @@ async function TabCajasAsync({ productoId }: { productoId: number }) {
   return <TabCajas cajas={cajas} />
 }
 
-async function TabTagsAsync({ productoId }: { productoId: number }) {
+async function TabTagsAsync({
+  productoId,
+  catalogos,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+}) {
   const tags = await fetchTagsProducto(productoId)
-  return <TabTags tags={tags} />
+  return <TabTags tags={tags} productoId={productoId} catalogos={catalogos} />
 }
 
-async function TabComplementosAsync({ productoId }: { productoId: number }) {
+async function TabComplementosAsync({
+  productoId,
+  catalogos,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+}) {
   const complementos = await fetchComplementosProducto(productoId)
-  return <TabComplementos complementos={complementos} />
+  return (
+    <TabComplementos
+      complementos={complementos}
+      productoId={productoId}
+      catalogos={catalogos}
+    />
+  )
 }
 
-async function TabAcabadosAsync({ productoId }: { productoId: number }) {
+async function TabAcabadosAsync({
+  productoId,
+  catalogos,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+}) {
   const acabados = await fetchAcabadosProducto(productoId)
-  return <TabAcabados acabados={acabados} />
+  return (
+    <TabAcabados
+      acabados={acabados}
+      productoId={productoId}
+      catalogos={catalogos}
+    />
+  )
 }
 
-async function TabVariantesAsync({ productoId }: { productoId: number }) {
+async function TabVariantesAsync({
+  productoId,
+  skuBase,
+  catalogos,
+}: {
+  productoId: number
+  skuBase: string
+  catalogos: CatalogosEdicion
+}) {
   const variantes = await fetchVariantesProducto(productoId)
-  return <TabVariantes variantes={variantes} />
+  return (
+    <TabVariantes
+      variantes={variantes}
+      productoId={productoId}
+      skuBase={skuBase}
+      catalogos={catalogos}
+    />
+  )
 }
 
 async function TabMedidasAsync({ productoId }: { productoId: number }) {

@@ -4,13 +4,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
-  FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros,
+  FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros, CatalogosEdicion,
   FKDescriptivas, TagResuelto, ComplementoResuelto,
   AcabadoResuelto, VarianteResuelta, MedidaResuelta,
   ConjuntoResuelto, CajaConDetalle, CajaContenidoMap,
 } from './types'
 import type {
   ProductoRow, ProductoWebRow, ProductoImagenRow,
+  TipoPrendaRow, EdadRow, PersonaRow,
 } from '@/lib/types/tables'
 
 // ═══════════════════════════════════════════════════════════════
@@ -72,8 +73,10 @@ export async function fetchProductosCatalogo(
   }
 
   // ── Ordenamiento y paginación ─────────────────────────────
+  const sortBy = filtros.sort_by ?? 'id'
+  const ascending = filtros.order === 'asc'
   query = query
-    .order('id', { ascending: false })
+    .order(sortBy, { ascending })
     .range(from, to)
 
   const { data, count, error } = await query
@@ -114,6 +117,71 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
     marcas: marcasRes.data ?? [],
     generos: generosRes.data ?? [],
     telas: telasRes.data ?? [],
+  }
+}
+
+/**
+ * Todos los catálogos de FK necesarios para el formulario de edición
+ * del Hero de producto (marca, género, tipo de prenda, edad, telas, personas).
+ */
+export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
+  const supabase = await createClient()
+
+  const [
+    marcasRes, generosRes, telasRes, tiposRes, edadesRes, personasRes,
+    tiposTagRes, refTagsRes, partesRes, compTiposRes, acaTiposRes, acaDetRes, acaPatRes, locaRes,
+    tallasRes, coloresRes
+  ] = await Promise.all([
+    (supabase.from('cat_marcas') as any).select('id, nombre').eq('activo', true).order('nombre'),
+    (supabase.from('cat_generos') as any).select('id, nombre').eq('activo', true).order('nombre'),
+    (supabase.from('cat_telas') as any).select('id, nombre').order('nombre'),
+    (supabase.from('cat_tipo_prenda') as any).select('id, nombre').order('nombre'),
+    (supabase.from('cat_edades') as any).select('id, edad_talla').order('orden'),
+    (supabase.from('personas') as any).select('id, nombre_completo').order('nombre_completo'),
+
+    // Para Tabs
+    (supabase.from('tipo_tag') as any).select('id, nombre').order('nombre'),
+    (supabase.from('ref_tag') as any).select('id, nombre').order('nombre'),
+    (supabase.from('parte_prenda_comp') as any).select('id, nombre').order('nombre'),
+    (supabase.from('tipo_comp') as any).select('id, nombre').order('nombre'),
+    (supabase.from('tipo_acabado') as any).select('id, nombre').order('nombre'),
+    (supabase.from('detalle_acabado') as any).select('id, nombre').order('nombre'),
+    (supabase.from('patron_acabado') as any).select('id, estampado_patron').order('estampado_patron'),
+    (supabase.from('localizacion_acabado') as any).select('id, nombre').order('nombre'),
+    (supabase.from('cat_tallas') as any).select('id, nombre').order('orden'),
+    (supabase.from('cat_colores') as any).select('id, nombre').order('nombre'),
+  ])
+
+  const mapToCatalogo = (data: any[] | null) => (data ?? []) as { id: number; nombre: string }[]
+
+  return {
+    marcas:       mapToCatalogo(marcasRes.data),
+    generos:      mapToCatalogo(generosRes.data),
+    telas:        mapToCatalogo(telasRes.data),
+    tipos_prenda: mapToCatalogo(tiposRes.data),
+    edades: (edadesRes.data ?? []).map((e: any) => ({
+      id: e.id,
+      nombre: e.edad_talla ?? String(e.id),
+    })),
+    personas: (personasRes.data ?? []).map((p: any) => ({
+      id: p.id,
+      nombre: p.nombre_completo,
+    })),
+
+    tipos_tag:    mapToCatalogo(tiposTagRes.data),
+    ref_tags:     mapToCatalogo(refTagsRes.data),
+    partes:       mapToCatalogo(partesRes.data),
+    componente_tipos: mapToCatalogo(compTiposRes.data),
+    materiales:   mapToCatalogo(telasRes.data),
+    acabado_tipos:    mapToCatalogo(acaTiposRes.data),
+    acabado_detalles: mapToCatalogo(acaDetRes.data),
+    acabado_patrones: (acaPatRes.data ?? []).map((p: any) => ({
+      id: p.id,
+      nombre: p.estampado_patron ?? 'Sin nombre',
+    })),
+    localizaciones:   mapToCatalogo(locaRes.data),
+    tallas:           mapToCatalogo(tallasRes.data),
+    colores:          mapToCatalogo(coloresRes.data),
   }
 }
 
@@ -283,8 +351,7 @@ export async function fetchTagsProducto(
 ): Promise<TagResuelto[]> {
   const supabase = await createClient()
   const { data } = await (supabase.from('producto_tags') as any).select(`
-      id,
-      valor_texto,
+      id, valor_texto, tipo_tag_id, ref_tag_id,
       tipo_tag:tipo_tag!producto_tags_tipo_tag_id_fkey ( nombre, codigo ),
       ref_tag:ref_tag!producto_tags_ref_tag_id_fkey ( nombre, codigo )
     `)
@@ -292,8 +359,10 @@ export async function fetchTagsProducto(
 
   return (data ?? []).map((d: any) => ({
     id: d.id,
+    tipo_tag_id: d.tipo_tag_id,
     tipo_tag_nombre: d.tipo_tag?.nombre ?? null,
     tipo_tag_codigo: d.tipo_tag?.codigo ?? null,
+    ref_tag_id: d.ref_tag_id,
     ref_tag_nombre: d.ref_tag?.nombre ?? null,
     ref_tag_codigo: d.ref_tag?.codigo ?? null,
     valor_texto: d.valor_texto,
@@ -305,7 +374,8 @@ export async function fetchComplementosProducto(
 ): Promise<ComplementoResuelto[]> {
   const supabase = await createClient()
   const { data } = await (supabase.from('complemento_producto') as any).select(`
-      id, descripcion_adicional,
+      id, descripcion_adicional, 
+      parte_prenda_id, tipo_comp_id, material_id, corte_forma_id,
       parte:parte_prenda_comp!complemento_producto_parte_prenda_id_fkey ( nombre ),
       tipo:tipo_comp!complemento_producto_tipo_comp_id_fkey ( nombre ),
       material:cat_telas!complemento_producto_material_id_fkey ( nombre ),
@@ -315,9 +385,13 @@ export async function fetchComplementosProducto(
 
   return (data ?? []).map((d: any) => ({
     id: d.id,
+    parte_prenda_id: d.parte_prenda_id,
     parte_prenda: d.parte?.nombre ?? null,
+    tipo_comp_id: d.tipo_comp_id,
     tipo_complemento: d.tipo?.nombre ?? null,
+    material_id: d.material_id,
     material: d.material?.nombre ?? null,
+    corte_forma_id: d.corte_forma_id,
     corte_forma: d.corte?.nombre ?? null,
     descripcion_adicional: d.descripcion_adicional,
   }))
@@ -328,7 +402,7 @@ export async function fetchAcabadosProducto(
 ): Promise<AcabadoResuelto[]> {
   const supabase = await createClient()
   const { data } = await (supabase.from('acabado_producto') as any).select(`
-      id,
+      id, tipo_acabado_id, detalle_acabado_id, patron_acabado_id, localizacion_id,
       tipo:tipo_acabado!acabado_producto_tipo_acabado_id_fkey ( nombre ),
       detalle:detalle_acabado!acabado_producto_detalle_acabado_id_fkey ( nombre ),
       patron:patron_acabado!acabado_producto_patron_acabado_id_fkey ( estampado_patron ),
@@ -338,9 +412,13 @@ export async function fetchAcabadosProducto(
 
   return (data ?? []).map((d: any) => ({
     id: d.id,
+    tipo_acabado_id: d.tipo_acabado_id,
     tipo_acabado: d.tipo?.nombre ?? null,
+    detalle_acabado_id: d.detalle_acabado_id,
     detalle: d.detalle?.nombre ?? null,
+    patron_acabado_id: d.patron_acabado_id,
     patron: d.patron?.estampado_patron ?? null,
+    localizacion_id: d.localizacion_id,
     localizacion: d.localizacion?.nombre ?? null,
   }))
 }
@@ -351,6 +429,7 @@ export async function fetchVariantesProducto(
   const supabase = await createClient()
   const { data } = await (supabase.from('variantes_producto') as any).select(`
       id, sku_completo, costo_promedio, precio_venta, activo,
+      talla_id, color_id,
       talla:cat_tallas!variantes_producto_talla_id_fkey ( codigo, nombre ),
       color:cat_colores!variantes_producto_color_id_fkey ( nombre, hex_code )
     `)
@@ -359,8 +438,10 @@ export async function fetchVariantesProducto(
   return (data ?? []).map((d: any) => ({
     id: d.id,
     sku_completo: d.sku_completo,
+    talla_id: d.talla_id,
     talla_codigo: d.talla?.codigo ?? null,
     talla_nombre: d.talla?.nombre ?? null,
+    color_id: d.color_id,
     color_nombre: d.color?.nombre ?? null,
     color_hex: d.color?.hex_code ?? null,
     costo_promedio: d.costo_promedio,
