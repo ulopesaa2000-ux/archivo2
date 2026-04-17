@@ -36,7 +36,7 @@ export function useBodegaActiva(bodegas: BodegaRow[]) {
       setBodegaActivaId(savedId)
     } else if (bodegas.length > 0) {
       // Si no hay guardada o no es válida, usar la primera
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setBodegaActivaId(bodegas[0].id)
       setCookie(bodegas[0].id)
     }

@@ -32,7 +32,9 @@ export function StockMatrixFilters({ bodegas }: Props) {
 
   const [localQ, setLocalQ] = useState(searchParams.get('q') ?? '')
 
+  // Sync localQ when URL searchParams change (e.g. browser back/forward)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: sync local input state from URL params (external system)
     setLocalQ(searchParams.get('q') ?? '')
   }, [searchParams])
 

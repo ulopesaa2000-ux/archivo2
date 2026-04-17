@@ -30,11 +30,10 @@ export function OrdenFormDialog(props: Props) {
   const [internalOpen, setInternalOpen] = useState(false)
   const open = mode === 'create' ? internalOpen : props.open
   const setOpen = (v: boolean) => {
+    if (!v) setError(null)
     if (mode === 'create') setInternalOpen(v)
     else props.onOpenChange(v)
   }
-
-  useEffect(() => { if (!open) setError(null) }, [open])
 
   const orden = mode === 'edit' ? props.orden : undefined
 

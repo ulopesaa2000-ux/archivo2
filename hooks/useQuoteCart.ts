@@ -18,6 +18,7 @@ export function useQuoteCart() {
     if (stored) {
       try {
         const parsed: QuoteCart = JSON.parse(stored)
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: hydrate from localStorage (external system)
         setItems(parsed.items || [])
       } catch {
         console.error('Error parsing cart from localStorage')

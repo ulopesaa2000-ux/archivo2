@@ -54,7 +54,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total }: Props) {
         <Package className="mb-4 h-12 w-12 text-muted-foreground/50" />
         <p className="text-sm font-medium">No se han seleccionado bodegas.</p>
         <p className="text-sm text-muted-foreground max-w-sm mt-1">
-          Seleccione al menos una bodega, o la opción "Todas las bodegas" en los filtros superiores, para visualizar el inventario.
+          Seleccione al menos una bodega, o la opción &ldquo;Todas las bodegas&rdquo; en los filtros superiores, para visualizar el inventario.
         </p>
       </div>
     )

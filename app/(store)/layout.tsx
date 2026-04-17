@@ -54,7 +54,7 @@ export const metadata: Metadata = {
 
 export const viewport = 'width=device-width, initial-scale=1';
 
-export const themeColor = '#2D5A3D';
+const appThemeColor = '#2D5A3D';
 
 // Usa verifySessionOptional del DAL que no redirige si no hay sesión
 // y usa React.cache() para optimizar rendimiento
