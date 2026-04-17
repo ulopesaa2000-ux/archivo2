@@ -14,6 +14,7 @@ interface TabCajasProps {
   productoId: number
   tallasDisponibles: CatalogoItem[]
   coloresDisponibles: CatalogoItem[]
+  edadNombre?: string | null
 }
 
 // Caja temporal vacía para crear nueva
@@ -37,7 +38,7 @@ const crearCajaVacia = (tempId: number): SharedCajaData => ({
   }
 })
 
-export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponibles }: TabCajasProps) {
+export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponibles, edadNombre }: TabCajasProps) {
   const [cajasNuevas, setCajasNuevas] = useState<SharedCajaData[]>([])
   const [nextTempId, setNextTempId] = useState(-1)
 
@@ -105,6 +106,7 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
           onRemove={handleRemoveNueva}
           tallasDisponibles={tallasDisponibles}
           coloresDisponibles={coloresDisponibles}
+          edadNombre={edadNombre}
         />
       ))}
 
@@ -118,6 +120,7 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
             onEdit={handleEditCaja}
             tallasDisponibles={tallasDisponibles}
             coloresDisponibles={coloresDisponibles}
+            edadNombre={edadNombre}
           />
         ))
       ) : (
@@ -125,7 +128,7 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground border rounded-lg border-dashed">
             <Package className="h-8 w-8 mb-2 opacity-20" />
             <p>Este producto aún no tiene cajas vinculadas.</p>
-            <p className="text-sm mt-1">Haz clic en "Agregar Caja" para crear la primera.</p>
+            <p className="text-sm mt-1">Haz clic en &ldquo;Agregar Caja&rdquo; para crear la primera.</p>
           </div>
         )
       )}

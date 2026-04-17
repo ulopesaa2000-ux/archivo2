@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { HeroProducto } from './components/HeroProducto'
 import { ProductoNavigation } from './components/ProductoNavigation'
+import { CatalogoDetailActions } from './components/CatalogoDetailActions'
 import { TabCatalogos } from './components/TabCatalogos'
 import { TabEcommerce } from './components/TabEcommerce'
 import { TabImagenes } from './components/TabImagenes'
@@ -106,9 +107,12 @@ export default async function CatalogoDetallePage(props: {
           </span>
         </div>
 
-        {navegacion && (
-          <ProductoNavigation navegacion={navegacion} />
-        )}
+        <div className="flex items-center gap-2">
+          {navegacion && (
+            <ProductoNavigation navegacion={navegacion} />
+          )}
+          <CatalogoDetailActions productoId={producto.id} catalogos={catalogos} />
+        </div>
       </div>
 
       {/* ── Hero del producto ────────────────────────────── */}
@@ -161,7 +165,7 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="cajas">
           <Suspense fallback={<TabSkeleton />}>
-            <TabCajasAsync productoId={producto.id} catalogos={catalogos} />
+            <TabCajasAsync productoId={producto.id} catalogos={catalogos} edadNombre={fk.edad} />
           </Suspense>
         </TabsContent>
 
@@ -260,9 +264,11 @@ async function TabImagenesAsync({ productoId }: { productoId: number }) {
 async function TabCajasAsync({
   productoId,
   catalogos,
+  edadNombre,
 }: {
   productoId: number
   catalogos: CatalogosEdicion
+  edadNombre: string | null
 }) {
   const cajas = await fetchCajasProducto(productoId)
   return (
@@ -271,6 +277,7 @@ async function TabCajasAsync({
       productoId={productoId}
       tallasDisponibles={catalogos.tallas}
       coloresDisponibles={catalogos.colores}
+      edadNombre={edadNombre}
     />
   )
 }
@@ -347,5 +354,5 @@ async function TabMedidasAsync({ productoId }: { productoId: number }) {
 
 async function TabConjuntoAsync({ productoId }: { productoId: number }) {
   const conjunto = await fetchConjuntoProducto(productoId)
-  return <TabConjunto conjunto={conjunto} />
+  return <TabConjunto conjunto={conjunto} productoId={productoId} />
 }

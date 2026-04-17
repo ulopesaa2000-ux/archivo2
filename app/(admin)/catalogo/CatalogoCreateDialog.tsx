@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useTransition } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2 } from 'lucide-react'
-import { createProductAction, updateProductAction } from '@/modules/catalogo/actions'
+import { Loader2, Search } from 'lucide-react'
+import { toast } from 'sonner'
+import { createProductAction, updateProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
 import { fetchProductoPorIdParaEdicion } from '@/modules/catalogo/queries'
 import type { ProductoRow } from '@/lib/types/tables'
 import type { CatalogosParaFiltros } from '@/modules/catalogo/types'
@@ -21,17 +22,23 @@ export function CatalogoCreateDialog({
   catalogos: CatalogosParaFiltros
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const modal = searchParams.get('modal')
   const editId = searchParams.get('edit_id')
 
-  const isOpen = modal === 'create' || modal === 'edit'
+  const isOpen = modal === 'create' || modal === 'edit' || modal === 'copy'
   const isEdit = modal === 'edit'
+  const isCopy = modal === 'copy'
 
+  const [optimisticOpen, setOptimisticOpen] = useState(isOpen)
   const [isPending, startTransition] = useTransition()
   const [producto, setProducto] = useState<Partial<ProductoRow> | null>(null)
   const [loadingData, setLoadingData] = useState(false)
   const [formKey, setFormKey] = useState<string>('')
+  
+  const [checkingSku, setCheckingSku] = useState(false)
+  const [skuError, setSkuError] = useState<string | null>(null)
   
   // Controlled form state to prevent Base UI uncontrolled warnings
   const [formValues, setFormValues] = useState({
@@ -49,9 +56,18 @@ export function CatalogoCreateDialog({
     es_conjunto: false,
   })
 
+  // Sync optimisticOpen automatically
   useEffect(() => {
+    setOptimisticOpen(isOpen)
+    if (!isOpen) {
+      setSkuError(null)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: reset form state on modal param change
     setFormKey('')
-    if (isEdit && editId) {
+    if ((isEdit || isCopy) && editId) {
       setLoadingData(true)
       fetchProductoPorIdParaEdicion(Number(editId))
         .then(data => {
@@ -67,7 +83,7 @@ export function CatalogoCreateDialog({
         })
         .finally(() => {
           setLoadingData(false)
-          setFormKey(`edit-${editId}-${Date.now()}`)
+          setFormKey(`${isEdit ? 'edit' : 'copy'}-${editId}-${Date.now()}`)
         })
     } else if (modal === 'create') {
       const newProducto = {
@@ -99,13 +115,14 @@ export function CatalogoCreateDialog({
       setProducto(null)
       setFormKey('')
     }
-  }, [modal, editId])
+  }, [modal, editId, isEdit, isCopy])
   
   // Sync formValues when producto changes
   useEffect(() => {
     if (producto && formKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: sync controlled form state from fetched producto data
       setFormValues({
-        sku_base: producto.sku_base || '',
+        sku_base: isCopy ? `${producto.sku_base} (copia)` : (producto.sku_base || ''),
         nombre: producto.nombre || '',
         descripcion: producto.descripcion || '',
         precio_ec: producto.precio_ec?.toString() || '',
@@ -125,12 +142,41 @@ export function CatalogoCreateDialog({
     const params = new URLSearchParams(searchParams.toString())
     params.delete('modal')
     params.delete('edit_id')
-    router.push(`/catalogo?${params.toString()}`, { scroll: false })
+    // Simplemente limpiamos los params y nos quedamos en la ruta actual
+    setOptimisticOpen(false)
+    router.push(`${pathname}?${params.toString()}`, { scroll: false })
+  }
+
+  const verifySku = async (sku: string): Promise<boolean> => {
+    if (!sku) return true
+    setCheckingSku(true)
+    setSkuError(null)
+    try {
+      const exists = await checkSkuExistsAction(sku, isEdit && editId ? Number(editId) : undefined)
+      if (exists) {
+        setSkuError('El SKU ya existe o está en uso.')
+        return false
+      }
+      return true
+    } catch (e) {
+      return true // Si la alerta falla por red, que sea la acción final la que falle.
+    } finally {
+      setCheckingSku(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
+    const form = e.currentTarget
+    
+    // Doble confirmación de SKU
+    const isAvailable = await verifySku(formValues.sku_base)
+    if (!isAvailable) {
+      toast.error('Corrige los errores antes de guardar')
+      return
+    }
+
+    const formData = new FormData(form)
     
     if (isEdit && editId) {
       formData.append('product_id', editId)
@@ -142,42 +188,79 @@ export function CatalogoCreateDialog({
         : await createProductAction(formData)
         
       if (res.success) {
-        handleClose()
-        // router.refresh() no es necesario aquí porque las actions ya usan revalidatePath('/catalogo')
-        // lo cual automáticamente refrescará los Server Components en la ruta actual
+        if (isEdit) {
+          toast.success('Producto actualizado exitosamente')
+          handleClose() // Si solo editas desde la lista de catálogo, solo ciérralo
+        } else if ((modal === 'create' || isCopy) && res.id) {
+          toast.success('Producto creado, redirigiendo...', {
+            description: 'Abriendo el detalle para continuar edición',
+          })
+          // Redirige directamente (lo cual también limpia el modal ya que cambia de URL base si vienes desde /catalogo)
+          // O si venías de /catalogo/[idViejo], esto carga la página /catalogo/[idNuevo]
+          router.push(`/catalogo/${res.id}`)
+        }
       } else {
-        alert(res.error || 'Ocurrió un error al guardar')
+        toast.error('Error al guardar', { description: res.error || 'Ocurrió un error inesperado' })
       }
     })
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={optimisticOpen} onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent className="w-[98vw] sm:max-w-[800px] lg:max-w-[1100px] max-h-[95vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Editar Producto' : 'Nuevo Producto'}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? 'Editar Producto' : isCopy ? 'Copiar Producto' : 'Nuevo Producto'}
+          </DialogTitle>
           <DialogDescription>
-            {isEdit ? 'Modifica los datos del producto.' : 'Ingresa los datos para el nuevo producto.'}
+            {isEdit 
+              ? 'Modifica los datos del producto.' 
+              : isCopy 
+                ? 'Crea un nuevo producto basado en uno existente.' 
+                : 'Ingresa los datos para el nuevo producto.'}
           </DialogDescription>
         </DialogHeader>
 
         {loadingData || !formKey ? (
           <div className="flex justify-center p-8"><Loader2 className="animate-spin h-8 w-8 text-muted-foreground" /></div>
         ) : (
-          <form key={formKey} onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form key={formKey} onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="sku_base">SKU Base *</Label>
-                <Input id="sku_base" name="sku_base" value={formValues.sku_base} onChange={(e) => setFormValues(v => ({ ...v, sku_base: e.target.value }))} required />
+                <div className="flex gap-2">
+                  <Input 
+                    id="sku_base" 
+                    name="sku_base" 
+                    value={formValues.sku_base} 
+                    onChange={(e) => {
+                      setFormValues(v => ({ ...v, sku_base: e.target.value }))
+                      setSkuError(null)
+                    }} 
+                    required 
+                    className={skuError ? "border-destructive" : ""}
+                  />
+                  <Button 
+                    type="button" 
+                    variant="secondary" 
+                    size="icon"
+                    disabled={!formValues.sku_base || checkingSku}
+                    onClick={() => verifySku(formValues.sku_base)}
+                    title="Verificar SKU"
+                  >
+                    {checkingSku ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {skuError && <p className="text-xs text-destructive">{skuError}</p>}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 lg:col-span-2">
                 <Label htmlFor="nombre">Nombre</Label>
                 <Input id="nombre" name="nombre" value={formValues.nombre} onChange={(e) => setFormValues(v => ({ ...v, nombre: e.target.value }))} />
               </div>
               
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 lg:col-span-3">
                 <Label htmlFor="descripcion">Descripción</Label>
-                <Textarea id="descripcion" name="descripcion" value={formValues.descripcion} onChange={(e) => setFormValues(v => ({ ...v, descripcion: e.target.value }))} />
+                <Textarea id="descripcion" name="descripcion" rows={2} value={formValues.descripcion} onChange={(e) => setFormValues(v => ({ ...v, descripcion: e.target.value }))} />
               </div>
               
               <div className="space-y-2">
@@ -188,7 +271,11 @@ export function CatalogoCreateDialog({
               <div className="space-y-2">
                 <Label htmlFor="estado">Estado</Label>
                 <Select name="estado" value={formValues.estado} onValueChange={(val) => setFormValues(v => ({ ...v, estado: val || 'borrador' }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full h-8 px-3">
+                    <span className="flex-1 text-left truncate">
+                      {formValues.estado ? (formValues.estado.charAt(0).toUpperCase() + formValues.estado.slice(1)) : "Seleccione estado"}
+                    </span>
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="borrador">Borrador</SelectItem>
                     <SelectItem value="pendiente">Pendiente</SelectItem>
@@ -202,7 +289,11 @@ export function CatalogoCreateDialog({
               <div className="space-y-2">
                 <Label htmlFor="marca_id">Marca</Label>
                 <Select name="marca_id" value={formValues.marca_id} onValueChange={(val) => setFormValues(v => ({ ...v, marca_id: val || '' }))}>
-                  <SelectTrigger><SelectValue placeholder="Seleccione una marca" /></SelectTrigger>
+                  <SelectTrigger className="w-full h-8 px-3">
+                    <span className="flex-1 text-left truncate">
+                      {catalogos.marcas.find(m => String(m.id) === String(formValues.marca_id))?.nombre || "Seleccione una marca"}
+                    </span>
+                  </SelectTrigger>
                   <SelectContent>
                     {catalogos.marcas.map(m => (
                       <SelectItem key={m.id} value={m.id.toString()}>{m.nombre}</SelectItem>
@@ -214,7 +305,11 @@ export function CatalogoCreateDialog({
               <div className="space-y-2">
                 <Label htmlFor="genero_id">Género</Label>
                 <Select name="genero_id" value={formValues.genero_id} onValueChange={(val) => setFormValues(v => ({ ...v, genero_id: val || '' }))}>
-                  <SelectTrigger><SelectValue placeholder="Seleccione un género" /></SelectTrigger>
+                  <SelectTrigger className="w-full h-8 px-3">
+                    <span className="flex-1 text-left truncate">
+                      {catalogos.generos.find(g => String(g.id) === String(formValues.genero_id))?.nombre || "Seleccione un género"}
+                    </span>
+                  </SelectTrigger>
                   <SelectContent>
                     {catalogos.generos.map(g => (
                       <SelectItem key={g.id} value={g.id.toString()}>{g.nombre}</SelectItem>
@@ -233,19 +328,19 @@ export function CatalogoCreateDialog({
                 <Input id="familia" name="familia" value={formValues.familia} onChange={(e) => setFormValues(v => ({ ...v, familia: e.target.value }))} />
               </div>
 
-              <div className="flex items-center space-x-2 pt-4">
-                <Switch id="activo" name="activo" checked={formValues.activo} onCheckedChange={(val) => setFormValues(v => ({ ...v, activo: val }))} />
-                <Label htmlFor="activo">Activo</Label>
-              </div>
-
-              <div className="flex items-center space-x-2 pt-4">
-                <Switch id="destacado" name="destacado" checked={formValues.destacado} onCheckedChange={(val) => setFormValues(v => ({ ...v, destacado: val }))} />
-                <Label htmlFor="destacado">Destacado</Label>
-              </div>
-              
-              <div className="flex items-center space-x-2 pt-4">
-                <Switch id="es_conjunto" name="es_conjunto" checked={formValues.es_conjunto} onCheckedChange={(val) => setFormValues(v => ({ ...v, es_conjunto: val }))} />
-                <Label htmlFor="es_conjunto">Es Conjunto</Label>
+              <div className="flex flex-wrap items-center gap-6 pt-4 lg:col-span-3 border-t">
+                <div className="flex items-center space-x-2">
+                  <Switch id="activo" name="activo" checked={formValues.activo} onCheckedChange={(val) => setFormValues(v => ({ ...v, activo: val }))} />
+                  <Label htmlFor="activo">Activo</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch id="destacado" name="destacado" checked={formValues.destacado} onCheckedChange={(val) => setFormValues(v => ({ ...v, destacado: val }))} />
+                  <Label htmlFor="destacado">Destacado</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch id="es_conjunto" name="es_conjunto" checked={formValues.es_conjunto} onCheckedChange={(val) => setFormValues(v => ({ ...v, es_conjunto: val }))} />
+                  <Label htmlFor="es_conjunto">Es Conjunto</Label>
+                </div>
               </div>
             </div>
 

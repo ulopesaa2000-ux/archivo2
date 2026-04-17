@@ -70,7 +70,7 @@ export type CatalogosEdicion = {
   generos:      CatalogoItem[]
   telas:        CatalogoItem[]   // tela_ext y tela_forro
   tipos_prenda: CatalogoItem[]
-  edades:       CatalogoItem[]   // label viene de edad_talla en BD
+  edades:       CatalogoItem[]   // label viene de rango en BD (Infantil, Joven, etc.)
   personas:     CatalogoItem[]   // label viene de nombre_completo en BD
 
   // Para Tabs

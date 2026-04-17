@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -47,8 +48,31 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
   const [isEditing, setIsEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  
+  const [selects, setSelects] = useState({
+    marca: producto.marca_id?.toString() ?? '_none',
+    genero: producto.genero_id?.toString() ?? '_none',
+    tipo_prenda: producto.tipo_prenda_id?.toString() ?? '_none',
+    edad: producto.edad_id?.toString() ?? '_none',
+    persona: producto.persona_id?.toString() ?? '_none',
+    tela_ext: producto.tela_ext_id?.toString() ?? '_none',
+    tela_forro: producto.tela_forro_id?.toString() ?? '_none',
+  })
 
   const estadoColor = (producto.estado && ESTADO_PRODUCTO_COLORS[producto.estado]) || 'bg-gray-100 text-gray-800'
+
+  const startEdit = () => {
+    setSelects({
+      marca: producto.marca_id?.toString() ?? '_none',
+      genero: producto.genero_id?.toString() ?? '_none',
+      tipo_prenda: producto.tipo_prenda_id?.toString() ?? '_none',
+      edad: producto.edad_id?.toString() ?? '_none',
+      persona: producto.persona_id?.toString() ?? '_none',
+      tela_ext: producto.tela_ext_id?.toString() ?? '_none',
+      tela_forro: producto.tela_forro_id?.toString() ?? '_none',
+    })
+    setIsEditing(true)
+  }
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -210,36 +234,48 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <Label className="text-xs">Marca</Label>
-                  <Select name="marca_id" defaultValue={producto.marca_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin marca" /></SelectTrigger>
+                  <Select name="marca_id" value={selects.marca} onValueChange={(val) => setSelects(s => ({ ...s, marca: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.marca === '_none' ? '— Sin marca —' : catalogos.marcas.find(m => String(m.id) === selects.marca)?.nombre ?? '— Sin marca —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin marca —</SelectItem>
+                      <SelectItem value="_none" label="— Sin marca —">— Sin marca —</SelectItem>
                       {catalogos.marcas.map((m) => (
-                        <SelectItem key={m.id} value={String(m.id)}>{m.nombre}</SelectItem>
+                        <SelectItem key={m.id} value={String(m.id)} label={m.nombre}>{m.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Género</Label>
-                  <Select name="genero_id" defaultValue={producto.genero_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin género" /></SelectTrigger>
+                  <Select name="genero_id" value={selects.genero} onValueChange={(val) => setSelects(s => ({ ...s, genero: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.genero === '_none' ? '— Sin género —' : catalogos.generos.find(g => String(g.id) === selects.genero)?.nombre ?? '— Sin género —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin género —</SelectItem>
+                      <SelectItem value="_none" label="— Sin género —">— Sin género —</SelectItem>
                       {catalogos.generos.map((g) => (
-                        <SelectItem key={g.id} value={String(g.id)}>{g.nombre}</SelectItem>
+                        <SelectItem key={g.id} value={String(g.id)} label={g.nombre}>{g.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Tipo de prenda</Label>
-                  <Select name="tipo_prenda_id" defaultValue={producto.tipo_prenda_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin tipo" /></SelectTrigger>
+                  <Select name="tipo_prenda_id" value={selects.tipo_prenda} onValueChange={(val) => setSelects(s => ({ ...s, tipo_prenda: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.tipo_prenda === '_none' ? '— Sin tipo —' : catalogos.tipos_prenda.find(t => String(t.id) === selects.tipo_prenda)?.nombre ?? '— Sin tipo —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin tipo —</SelectItem>
+                      <SelectItem value="_none" label="— Sin tipo —">— Sin tipo —</SelectItem>
                       {catalogos.tipos_prenda.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                        <SelectItem key={t.id} value={String(t.id)} label={t.nombre}>{t.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -250,24 +286,32 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <Label className="text-xs">Edad</Label>
-                  <Select name="edad_id" defaultValue={producto.edad_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin edad" /></SelectTrigger>
+                  <Select name="edad_id" value={selects.edad} onValueChange={(val) => setSelects(s => ({ ...s, edad: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.edad === '_none' ? '— Sin edad —' : catalogos.edades.find(e => String(e.id) === selects.edad)?.nombre ?? '— Sin edad —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin edad —</SelectItem>
+                      <SelectItem value="_none" label="— Sin edad —">— Sin edad —</SelectItem>
                       {catalogos.edades.map((e) => (
-                        <SelectItem key={e.id} value={String(e.id)}>{e.nombre}</SelectItem>
+                        <SelectItem key={e.id} value={String(e.id)} label={e.nombre}>{e.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Persona / Fits</Label>
-                  <Select name="persona_id" defaultValue={producto.persona_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin persona" /></SelectTrigger>
+                  <Select name="persona_id" value={selects.persona} onValueChange={(val) => setSelects(s => ({ ...s, persona: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.persona === '_none' ? '— Sin persona —' : catalogos.personas.find(p => String(p.id) === selects.persona)?.nombre ?? '— Sin persona —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin persona —</SelectItem>
+                      <SelectItem value="_none" label="— Sin persona —">— Sin persona —</SelectItem>
                       {catalogos.personas.map((p) => (
-                        <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>
+                        <SelectItem key={p.id} value={String(p.id)} label={p.nombre}>{p.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -278,24 +322,32 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <Label className="text-xs">Tela exterior</Label>
-                  <Select name="tela_ext_id" defaultValue={producto.tela_ext_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin tela" /></SelectTrigger>
+                  <Select name="tela_ext_id" value={selects.tela_ext} onValueChange={(val) => setSelects(s => ({ ...s, tela_ext: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.tela_ext === '_none' ? '— Sin tela —' : catalogos.telas.find(t => String(t.id) === selects.tela_ext)?.nombre ?? '— Sin tela —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin tela —</SelectItem>
+                      <SelectItem value="_none" label="— Sin tela —">— Sin tela —</SelectItem>
                       {catalogos.telas.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                        <SelectItem key={t.id} value={String(t.id)} label={t.nombre}>{t.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Tela forro</Label>
-                  <Select name="tela_forro_id" defaultValue={producto.tela_forro_id?.toString() ?? '_none'}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Sin forro" /></SelectTrigger>
+                  <Select name="tela_forro_id" value={selects.tela_forro} onValueChange={(val) => setSelects(s => ({ ...s, tela_forro: val || '_none' }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <span className="truncate flex flex-1 text-left">
+                        {selects.tela_forro === '_none' ? '— Sin forro —' : catalogos.telas.find(t => String(t.id) === selects.tela_forro)?.nombre ?? '— Sin forro —'}
+                      </span>
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">— Sin forro —</SelectItem>
+                      <SelectItem value="_none" label="— Sin forro —">— Sin forro —</SelectItem>
                       {catalogos.telas.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                        <SelectItem key={t.id} value={String(t.id)} label={t.nombre}>{t.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -325,12 +377,13 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
             // ════════════════════════════════════════════════════
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Imagen */}
-              <div className="flex items-center justify-center bg-muted rounded-lg aspect-square overflow-hidden">
+              <div className="relative flex items-center justify-center bg-muted rounded-lg aspect-square overflow-hidden">
                 {imagenPrincipal ? (
-                  <img
+                  <Image
                     src={imagenPrincipal}
                     alt={producto.nombre ?? producto.sku_base}
-                    className="object-contain w-full h-full"
+                    fill
+                    className="object-contain"
                   />
                 ) : (
                   <Package className="h-16 w-16 text-muted-foreground/30" />
@@ -360,7 +413,7 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setIsEditing(true)}
+                    onClick={startEdit}
                     className="shrink-0"
                   >
                     <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
