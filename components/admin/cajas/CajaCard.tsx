@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash } from 'lucide-react'
+import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash, Calculator, Sparkles } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import type { SharedCajaData, SharedCajaContenidoMap } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
 import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
+import { ColorCombobox } from './ColorCombobox'
 
 // Tipo para fila de detalle editable
 type DetalleFila = {
@@ -41,6 +42,7 @@ interface CajaCardProps {
     base: Partial<SharedCajaData>
     detalles: { talla_id: number; color_id: number; cantidad: number }[]
   }) => Promise<void>
+  edadNombre?: string | null
 }
 
 
@@ -55,7 +57,8 @@ export function CajaCard({
   tallasDisponibles = [],
   coloresDisponibles = [],
   isNew = false,
-  onCreate
+  onCreate,
+  edadNombre
 }: CajaCardProps) {
   const [isEditing, setIsEditing] = useState(isNew)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
@@ -63,22 +66,22 @@ export function CajaCard({
   const isVertical = layout === 'vertical'
 
   // Estado temporal para edición de datos base
-  const [editData, setEditData] = useState({
+  const [editData, setEditData] = useState<any>({
     codigo_caja: caja.codigo_caja || '',
     nombre_pack: caja.nombre_pack || '',
-    piezas_por_caja: caja.piezas_por_caja || 0,
-    cbm: caja.cbm || 0,
-    peso_bruto_kg: caja.peso_bruto_kg || 0,
-    largo_cm: caja.largo_cm || 0,
-    ancho_cm: caja.ancho_cm || 0,
-    alto_cm: caja.alto_cm || 0,
-    costo_total_caja: caja.costo_total_caja || 0,
+    piezas_por_caja: caja.piezas_por_caja || 1,
+    cbm: caja.cbm || '',
+    peso_bruto_kg: caja.peso_bruto_kg || '',
+    largo_cm: caja.largo_cm || '',
+    ancho_cm: caja.ancho_cm || '',
+    alto_cm: caja.alto_cm || '',
+    costo_total_caja: caja.costo_total_caja || 1,
   })
 
   // Convertir contenidoMap a formato editable de filas
   const initialFilas = useMemo((): DetalleFila[] => {
     if (!caja.contenidoMap || !caja.contenidoMap.colores.length) return []
-    
+
     return caja.contenidoMap.colores.map((colorNombre, idx) => {
       // Buscar el color_id correspondiente
       const colorCat = coloresDisponibles.find(c => c.nombre === colorNombre)
@@ -107,7 +110,7 @@ export function CajaCard({
   const [selectedColorId, setSelectedColorId] = useState<string>('')
 
   // Si es modo orden, calculamos el total real de piezas
-  const totalPiezasCalculado = caja.cantidad_cajas 
+  const totalPiezasCalculado = caja.cantidad_cajas
     ? (caja.contenidoMap?.totalPiezas || caja.piezas_por_caja || 0) * caja.cantidad_cajas
     : (caja.contenidoMap?.totalPiezas || caja.piezas_por_caja || 0)
 
@@ -141,13 +144,13 @@ export function CajaCard({
       setEditData({
         codigo_caja: caja.codigo_caja || '',
         nombre_pack: caja.nombre_pack || '',
-        piezas_por_caja: caja.piezas_por_caja || 0,
-        cbm: caja.cbm || 0,
-        peso_bruto_kg: caja.peso_bruto_kg || 0,
-        largo_cm: caja.largo_cm || 0,
-        ancho_cm: caja.ancho_cm || 0,
-        alto_cm: caja.alto_cm || 0,
-        costo_total_caja: caja.costo_total_caja || 0,
+        piezas_por_caja: caja.piezas_por_caja || 1,
+        cbm: caja.cbm || '',
+        peso_bruto_kg: caja.peso_bruto_kg || '',
+        largo_cm: caja.largo_cm || '',
+        ancho_cm: caja.ancho_cm || '',
+        alto_cm: caja.alto_cm || '',
+        costo_total_caja: caja.costo_total_caja || 1,
       })
       setEditTallas(() => {
         if (!caja.contenidoMap || !caja.contenidoMap.tallas.length) return []
@@ -166,7 +169,7 @@ export function CajaCard({
     try {
       // Preparar datos de detalles
       const detalles: { talla_id: number; color_id: number; cantidad: number }[] = []
-      
+
       editFilas.forEach(fila => {
         editTallas.forEach(talla => {
           const cantidad = fila.cantidades[talla.nombre] || 0
@@ -180,8 +183,13 @@ export function CajaCard({
         })
       })
 
+      const basePayload = { ...editData } as Record<string, any>;
+      for (const k in basePayload) {
+        if (basePayload[k] === '') basePayload[k] = null;
+      }
+
       const payload = {
-        base: editData,
+        base: basePayload,
         detalles
       }
 
@@ -203,21 +211,21 @@ export function CajaCard({
     if (!selectedTallaId) return
     const talla = tallasDisponibles.find(t => t.id === parseInt(selectedTallaId))
     if (!talla) return
-    
+
     // Verificar si ya existe
     if (editTallas.some(t => t.id === talla.id)) {
       alert('Esta talla ya está agregada')
       return
     }
-    
+
     setEditTallas([...editTallas, talla])
-    
-    // Inicializar cantidad 0 para esta talla en todas las filas existentes
+
+    // Inicializar cantidad 1 para esta talla en todas las filas existentes
     setEditFilas(prev => prev.map(fila => ({
       ...fila,
-      cantidades: { ...fila.cantidades, [talla.nombre]: 0 }
+      cantidades: { ...fila.cantidades, [talla.nombre]: 1 }
     })))
-    
+
     setSelectedTallaId('')
   }
 
@@ -225,25 +233,25 @@ export function CajaCard({
     if (!selectedColorId) return
     const color = coloresDisponibles.find(c => c.id === parseInt(selectedColorId))
     if (!color) return
-    
+
     // Verificar si ya existe
     if (editFilas.some(f => f.colorId === color.id)) {
       alert('Este color ya está agregado')
       return
     }
-    
+
     // Crear nueva fila con cantidades 0 para todas las tallas
     const nuevaFila: DetalleFila = {
       colorId: color.id,
       colorNombre: color.nombre,
       cantidades: {}
     }
-    
-    // Inicializar todas las tallas con 0
+
+    // Inicializar todas las tallas con 1
     editTallas.forEach(talla => {
-      nuevaFila.cantidades[talla.nombre] = 0
+      nuevaFila.cantidades[talla.nombre] = 1
     })
-    
+
     setEditFilas([...editFilas, nuevaFila])
     setSelectedColorId('')
   }
@@ -251,9 +259,9 @@ export function CajaCard({
   const handleRemoveTalla = (tallaId: number) => {
     const talla = editTallas.find(t => t.id === tallaId)
     if (!talla) return
-    
+
     setEditTallas(editTallas.filter(t => t.id !== tallaId))
-    
+
     // Eliminar esta talla de todas las filas
     setEditFilas(prev => prev.map(fila => {
       const { [talla.nombre]: _, ...rest } = fila.cantidades
@@ -267,11 +275,38 @@ export function CajaCard({
 
   const handleCantidadChange = (colorId: number, tallaNombre: string, valor: string) => {
     const cantidad = parseInt(valor) || 0
-    setEditFilas(prev => prev.map(fila => 
-      fila.colorId === colorId 
+    setEditFilas(prev => prev.map(fila =>
+      fila.colorId === colorId
         ? { ...fila, cantidades: { ...fila.cantidades, [tallaNombre]: cantidad } }
         : fila
     ))
+  }
+
+  const handleAutoRecommendTallas = () => {
+    if (!edadNombre) return
+    const txt = edadNombre.toLowerCase()
+    const isInfantil = txt.includes('infantil') || txt.includes('joven') || txt.includes('adolecente')
+    
+    let sugerencias = isInfantil
+      ? ['TALLA 4', 'TALLA 6', 'TALLA 8', 'TALLA 10', 'TALLA 12', 'TALLA 14', 'TALLA 16']
+      : ['CHICA', 'MEDIANA', 'GRANDE', 'EXTRA GRANDE']
+
+    const tallasAgregar = tallasDisponibles.filter(
+      t => sugerencias.includes(t.nombre.toUpperCase()) && !editTallas.some(et => et.id === t.id)
+    )
+
+    if (tallasAgregar.length === 0) {
+      alert('Las tallas recomendadas ya están agregadas o no existen en el catálogo maestro.')
+      return
+    }
+
+    setEditTallas(prev => [...prev, ...tallasAgregar])
+
+    setEditFilas(prev => prev.map(fila => {
+      const nuevasCantidades = { ...fila.cantidades }
+      tallasAgregar.forEach(t => { nuevasCantidades[t.nombre] = 1 })
+      return { ...fila, cantidades: nuevasCantidades }
+    }))
   }
 
   return (
@@ -344,7 +379,7 @@ export function CajaCard({
                 )}
               </>
             )}
-            
+
             {isEditing && (
               <div className="flex items-center gap-1">
                 <Button
@@ -375,33 +410,52 @@ export function CajaCard({
         {/* Modo Edición - Formulario de datos base */}
         {isEditing ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className={cn("grid gap-4", isVertical ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4")}>
               <div className="space-y-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Piezas por caja</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Piezas por caja </Label>
                 <Input
                   type="number"
-                  value={editData.piezas_por_caja || ''}
-                  onChange={(e) => setEditData({ ...editData, piezas_por_caja: parseInt(e.target.value) || 0 })}
+                  min="1"
+                  step="1"
+                  value={editData.piezas_por_caja}
+                  onChange={(e) => setEditData({ ...editData, piezas_por_caja: e.target.value ? parseInt(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">CBM</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={editData.cbm || ''}
-                  onChange={(e) => setEditData({ ...editData, cbm: parseFloat(e.target.value) || 0 })}
-                  className="h-9 text-sm tabular-nums"
-                />
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">CBM (m³)</Label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={editData.cbm}
+                    onChange={(e) => setEditData({ ...editData, cbm: e.target.value ? parseFloat(e.target.value) : '' })}
+                    className={cn("h-9 text-sm tabular-nums", Number(editData.largo_cm) > 0 && Number(editData.ancho_cm) > 0 && Number(editData.alto_cm) > 0 ? "pr-8" : "")}
+                  />
+                  {(Number(editData.largo_cm) > 0 && Number(editData.ancho_cm) > 0 && Number(editData.alto_cm) > 0) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0.5 top-0.5 h-8 w-8 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                      onClick={() => {
+                        const calculatedCbm = (Number(editData.largo_cm) * Number(editData.ancho_cm) * Number(editData.alto_cm)) / 1000000;
+                        setEditData({ ...editData, cbm: Number(calculatedCbm.toFixed(3)) });
+                      }}
+                      title="Calcular CBM automáticamente desde L×A×A"
+                    >
+                      <Calculator className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso (kg)</Label>
                 <Input
                   type="number"
-                  step="0.001"
-                  value={editData.peso_bruto_kg || ''}
-                  onChange={(e) => setEditData({ ...editData, peso_bruto_kg: parseFloat(e.target.value) || 0 })}
+                  step="0.1"
+                  value={editData.peso_bruto_kg}
+                  onChange={(e) => setEditData({ ...editData, peso_bruto_kg: e.target.value ? parseFloat(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -409,9 +463,9 @@ export function CajaCard({
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Costo ($)</Label>
                 <Input
                   type="number"
-                  step="0.01"
-                  value={editData.costo_total_caja || ''}
-                  onChange={(e) => setEditData({ ...editData, costo_total_caja: parseFloat(e.target.value) || 0 })}
+                  step="0.1"
+                  value={editData.costo_total_caja}
+                  onChange={(e) => setEditData({ ...editData, costo_total_caja: e.target.value ? parseFloat(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -421,8 +475,8 @@ export function CajaCard({
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Largo (cm)</Label>
                 <Input
                   type="number"
-                  value={editData.largo_cm || ''}
-                  onChange={(e) => setEditData({ ...editData, largo_cm: parseInt(e.target.value) || 0 })}
+                  value={editData.largo_cm}
+                  onChange={(e) => setEditData({ ...editData, largo_cm: e.target.value ? parseInt(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -430,8 +484,8 @@ export function CajaCard({
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Ancho (cm)</Label>
                 <Input
                   type="number"
-                  value={editData.ancho_cm || ''}
-                  onChange={(e) => setEditData({ ...editData, ancho_cm: parseInt(e.target.value) || 0 })}
+                  value={editData.ancho_cm}
+                  onChange={(e) => setEditData({ ...editData, ancho_cm: e.target.value ? parseInt(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -439,8 +493,8 @@ export function CajaCard({
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Alto (cm)</Label>
                 <Input
                   type="number"
-                  value={editData.alto_cm || ''}
-                  onChange={(e) => setEditData({ ...editData, alto_cm: parseInt(e.target.value) || 0 })}
+                  value={editData.alto_cm}
+                  onChange={(e) => setEditData({ ...editData, alto_cm: e.target.value ? parseInt(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -504,28 +558,22 @@ export function CajaCard({
         {/* Modo Edición - Controles para agregar tallas y colores */}
         {isEditing && (
           <div className="bg-muted/30 p-4 rounded-lg border space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={cn("grid gap-4", isVertical ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2")}>
               {/* Agregar Color */}
               <div className="space-y-2">
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
                   Agregar Color
                 </Label>
                 <div className="flex gap-2">
-                  <Select value={selectedColorId} onValueChange={(val) => setSelectedColorId(val || '')}>
-                    <SelectTrigger className="flex-1 h-9 text-sm">
-                      <SelectValue placeholder="Seleccionar color..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {coloresDisponibles
-                        .filter(c => !editFilas.some(f => f.colorId === c.id))
-                        .map(color => (
-                          <SelectItem key={color.id} value={color.id.toString()}>
-                            {color.nombre}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <Button 
+                  <div className="flex-1">
+                    <ColorCombobox 
+                      coloresDisponibles={coloresDisponibles} 
+                      selectedColorId={selectedColorId} 
+                      onSelect={(val) => setSelectedColorId(val)} 
+                      disabledFilas={editFilas.map(f => f.colorId)}
+                    />
+                  </div>
+                  <Button
                     type="button"
                     onClick={handleAddColor}
                     disabled={!selectedColorId}
@@ -539,25 +587,43 @@ export function CajaCard({
 
               {/* Agregar Talla */}
               <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Agregar Talla
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                    Agregar Talla
+                  </Label>
+                  {edadNombre && (
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      onClick={handleAutoRecommendTallas} 
+                      className="h-4 px-1 text-[9px] uppercase tracking-widest text-primary hover:text-primary/80 hover:bg-primary/10"
+                      title="Sugerir tallas según edad del producto"
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Auto Recomendado
+                    </Button>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <Select value={selectedTallaId} onValueChange={(val) => setSelectedTallaId(val || '')}>
                     <SelectTrigger className="flex-1 h-9 text-sm">
-                      <SelectValue placeholder="Seleccionar talla..." />
+                      <span className="truncate flex flex-1 text-left">
+                        {selectedTallaId
+                          ? tallasDisponibles.find(t => t.id.toString() === selectedTallaId)?.nombre
+                          : <span className="text-muted-foreground">Seleccionar talla...</span>}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {tallasDisponibles
                         .filter(t => !editTallas.some(et => et.id === t.id))
                         .map(talla => (
-                          <SelectItem key={talla.id} value={talla.id.toString()}>
+                          <SelectItem key={talla.id} value={talla.id.toString()} label={talla.nombre}>
                             {talla.nombre}
                           </SelectItem>
                         ))}
                     </SelectContent>
                   </Select>
-                  <Button 
+                  <Button
                     type="button"
                     onClick={handleAddTalla}
                     disabled={!selectedTallaId}
@@ -578,10 +644,10 @@ export function CajaCard({
             <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest border-b pb-1">
               {isEditing ? 'Distribución Editable Talla × Color' : `Distribución Talla × Color ${isVertical ? '' : '(por caja)'}`}
             </p>
-            
+
             {isEditing ? (
               /* Modo Edición - Tabla Editable */
-              <div className="overflow-hidden rounded-lg border bg-background/50">
+              <div className="overflow-x-auto rounded-lg border bg-background/50">
                 <table className="text-[11px] border-collapse w-full">
                   <thead>
                     <tr className="bg-muted/40">
@@ -653,7 +719,7 @@ export function CajaCard({
                     </tr>
                   </tfoot>
                 </table>
-                
+
                 {editFilas.length === 0 && (
                   <div className="p-8 text-center text-muted-foreground">
                     <Package className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -749,7 +815,7 @@ export function CajaCard({
         )}
       </CardContent>
 
-      <ConfirmDeleteModal 
+      <ConfirmDeleteModal
         isOpen={showDeactivateModal}
         onOpenChange={setShowDeactivateModal}
         title="¿Desactivar caja?"

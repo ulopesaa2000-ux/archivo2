@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
@@ -42,10 +43,11 @@ async function DestacadosSection() {
 
               {/* Image */}
               {prod.imagen_principal ? (
-                <img
+                <Image
                   src={prod.imagen_principal}
                   alt={prod.nombre}
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  fill
+                  className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">

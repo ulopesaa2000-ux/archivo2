@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useTransition } from 'react'
+import { useCallback, useTransition, useState, useEffect } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,13 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  
+  const [q, setQ] = useState(searchParams.get('q') ?? '')
+
+  // Sync internal state if URL changes externally (e.g. clear filters)
+  useEffect(() => {
+    setQ(searchParams.get('q') ?? '')
+  }, [searchParams])
 
   const updateParam = useCallback((k: string, v: string | null) => {
     startTransition(() => {
@@ -39,8 +46,11 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Buscar código de caja..."
-          defaultValue={searchParams.get('q') ?? ''}
-          onChange={(e) => handleSearch(e.target.value)}
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value)
+            handleSearch(e.target.value)
+          }}
           className="pl-10"
         />
         {isPending && (

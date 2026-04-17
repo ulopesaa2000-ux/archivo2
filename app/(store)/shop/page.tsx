@@ -1,5 +1,6 @@
 // app/(store)/catalogo/page.tsx
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
@@ -106,13 +107,13 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
         <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
           <ol className="flex items-center space-x-2 text-[12px] text-[#8C8C8C]">
             <li>
-              <a
+              <Link
                 href="/"
                 className="text-[#262626] hover:text-[#1A1C1A] transition-colors"
                 aria-label="Ir al inicio"
               >
                 Inicio
-              </a>
+              </Link>
             </li>
             <li className="flex items-center">
               <span className="mx-2 text-[#8C8C8C]">/</span>

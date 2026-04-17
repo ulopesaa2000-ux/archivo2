@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useTransition, useCallback } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@/components/ui/button'
@@ -426,7 +427,7 @@ export function NoteDraftBuilder({
                 >
                   <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden shrink-0">
                     {p.imagen_url ? (
-                      <img src={p.imagen_url} alt="" className="object-contain w-full h-full" />
+                      <Image src={p.imagen_url} alt="" fill className="object-contain" />
                     ) : (
                       <Package className="h-4 w-4 text-muted-foreground" />
                     )}

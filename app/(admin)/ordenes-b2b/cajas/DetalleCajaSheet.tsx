@@ -13,14 +13,22 @@ import type { SharedCajaData } from '@/modules/cajas/types'
 export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
   const [data, setData] = useState<any | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [tallasDisponibles, setTallasDisponibles] = useState<any[]>([])
+  const [coloresDisponibles, setColoresDisponibles] = useState<any[]>([])
 
   useEffect(() => {
     setIsLoading(true)
-    fetch(`/api/ordenes-b2b/caja-detalle?id=${cajaId}`)
-      .then((res) => res.json())
-      .then(setData)
+    Promise.all([
+      fetch(`/api/ordenes-b2b/caja-detalle?id=${cajaId}`).then(res => res.json()),
+      import('@/modules/catalogo/queries').then(m => m.fetchCatalogosEdicion())
+    ])
+      .then(([cajaData, catalogos]) => {
+        setData(cajaData)
+        setTallasDisponibles(catalogos.tallas)
+        setColoresDisponibles(catalogos.colores)
+      })
       .catch((err) => {
-        console.error('Error fetching caja detail:', err)
+        console.error('Error fetching data:', err)
         setData(null)
       })
       .finally(() => setIsLoading(false))
@@ -55,6 +63,8 @@ export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
       <CajaCard 
         caja={sharedCaja} 
         layout="vertical" 
+        tallasDisponibles={tallasDisponibles}
+        coloresDisponibles={coloresDisponibles}
         onDeactivate={async (id) => {
           await import('@/modules/cajas/actions').then(m => m.desactivarCajaAction(id));
         }}

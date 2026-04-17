@@ -295,7 +295,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
               name="texto_boton_agregar"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Texto Botón "Agregar"</FormLabel>
+                  <FormLabel>Texto Botón &ldquo;Agregar&rdquo;</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="Ej: Agregar a cotización" />
                   </FormControl>
@@ -312,7 +312,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
               name="texto_boton_finalizar"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Texto Botón "Finalizar"</FormLabel>
+                  <FormLabel>Texto Botón &ldquo;Finalizar&rdquo;</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="Ej: Solicitar cotización" />
                   </FormControl>

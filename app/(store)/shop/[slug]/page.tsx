@@ -1,5 +1,6 @@
 // app/(store)/shop/[slug]/page.tsx
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
@@ -114,15 +115,15 @@ export default async function ProductPage({ params }: ProductPageProps) {
           <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
             <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
               <li>
-                <a href="/" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
+                <Link href="/" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
                   Inicio
-                </a>
+                </Link>
               </li>
               <li className="flex items-center">
                 <span className="mx-2">/</span>
-                <a href="/shop" className="hover:text-store-ink transition-colors" aria-label="Ver catálogo">
+                <Link href="/shop" className="hover:text-store-ink transition-colors" aria-label="Ver catálogo">
                   Catálogo
-                </a>
+                </Link>
               </li>
               <li className="flex items-center">
                 <span className="mx-2">/</span>

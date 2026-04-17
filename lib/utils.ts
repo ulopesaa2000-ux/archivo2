@@ -8,6 +8,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function parseUTCDate(dateString: string): Date {
+  let d = dateString
+  // Si viene de Supabase timestamp (sin tz), suele venir como "YYYY-MM-DD HH:mm:ss.ms"
+  if (d.includes(' ') && !d.includes('T')) {
+    d = d.replace(' ', 'T')
+  }
+  // Añadimos Z si no viene explícito (para forzar UTC en vez de local)
+  if (!d.endsWith('Z') && !d.match(/[+-]\d{2}:?\d{2}$/)) {
+    d = d + 'Z'
+  }
+  return new Date(d)
+}
+
 // ═══════════════════════════════════════════════════════════════
 // FECHAS — SIEMPRE en America/Mexico_City
 // ═══════════════════════════════════════════════════════════════
@@ -19,7 +32,7 @@ export function formatDate(date: string | null | undefined): string {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-  }).format(new Date(date))
+  }).format(parseUTCDate(date))
 }
 
 export function formatDateTime(date: string | null | undefined): string {
@@ -32,7 +45,7 @@ export function formatDateTime(date: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date(date))
+  }).format(parseUTCDate(date))
 }
 
 export function formatTime(date: string | null | undefined): string {
@@ -42,7 +55,7 @@ export function formatTime(date: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date(date))
+  }).format(parseUTCDate(date))
 }
 
 export function formatDateLong(date: string | null | undefined): string {
@@ -52,7 +65,7 @@ export function formatDateLong(date: string | null | undefined): string {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date(date))
+  }).format(parseUTCDate(date))
 }
 
 export function formatDateTimeLong(date: string | null | undefined): string {
@@ -65,13 +78,13 @@ export function formatDateTimeLong(date: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date(date))
+  }).format(parseUTCDate(date))
 }
 
 export function formatTimeAgo(date: string | null | undefined): string {
   if (!date) return '—'
   const now = new Date()
-  const past = new Date(date)
+  const past = parseUTCDate(date)
   const diffMs = now.getTime() - past.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   const diffHours = Math.floor(diffMins / 60)
@@ -86,7 +99,7 @@ export function formatTimeAgo(date: string | null | undefined): string {
 
 export function formatForDateTimeInput(date: string | null | undefined): string {
   if (!date) return ''
-  const d = new Date(date)
+  const d = parseUTCDate(date)
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: TIMEZONE,
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -98,7 +111,7 @@ export function formatForDateTimeInput(date: string | null | undefined): string 
 
 export function formatForDateInput(date: string | null | undefined): string {
   if (!date) return ''
-  const d = new Date(date)
+  const d = parseUTCDate(date)
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: TIMEZONE,
     year: 'numeric', month: '2-digit', day: '2-digit',
