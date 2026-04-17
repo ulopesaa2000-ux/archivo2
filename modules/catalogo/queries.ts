@@ -136,7 +136,7 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
     (supabase.from('cat_generos') as any).select('id, nombre').eq('activo', true).order('nombre'),
     (supabase.from('cat_telas') as any).select('id, nombre').order('nombre'),
     (supabase.from('cat_tipo_prenda') as any).select('id, nombre').order('nombre'),
-    (supabase.from('cat_edades') as any).select('id, edad_talla').order('orden'),
+    (supabase.from('cat_edades') as any).select('id, rango').order('orden'),
     (supabase.from('personas') as any).select('id, nombre_completo').order('nombre_completo'),
 
     // Para Tabs
@@ -162,7 +162,7 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
     tipos_prenda: mapToCatalogo(tiposRes.data),
     edades: (edadesRes.data ?? []).map((e: any) => ({
       id: e.id,
-      nombre: e.edad_talla ?? String(e.id),
+      nombre: e.rango ?? String(e.id),
     })),
     personas: (personasRes.data ?? []).map((p: any) => ({
       id: p.id,

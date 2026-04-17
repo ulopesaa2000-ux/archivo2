@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { ArrowUp, ArrowDown, ChevronsUpDown, Inbox } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -97,6 +98,13 @@ type DataTableProps<T> = {
   /** Contenido que se renderiza debajo de la fila cuando está expandida */
   renderExpanded?: (row: T) => ReactNode
 
+  // ── Selección ─────────────────────────────────────────────
+  /** Set de IDs seleccionados actualmente */
+  selectedIds?: Set<string | number>
+
+  /** Callback cuando cambia la selección. Si se provee, muestra checkboxes. */
+  onSelectionChange?: (ids: Set<string | number>) => void
+
   // ── Empty state ───────────────────────────────────────────
   emptyMessage?: string
   emptyIcon?: ReactNode
@@ -121,6 +129,8 @@ export function DataTable<T>({
   expandedRows,
   onToggleRow,
   renderExpanded,
+  selectedIds,
+  onSelectionChange,
   emptyMessage = 'No se encontraron resultados.',
   emptyIcon = <Inbox className="h-12 w-12" />,
   isLoading = false,
@@ -172,6 +182,23 @@ export function DataTable<T>({
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/50 hover:bg-muted/50">
+            {/* Columna de selección general */}
+            {onSelectionChange && (
+              <TableHead className="w-[40px] px-3 text-center">
+                <Checkbox
+                  checked={data.length > 0 && selectedIds?.size === data.length}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      onSelectionChange(new Set(data.map(rowKey)))
+                    } else {
+                      onSelectionChange(new Set())
+                    }
+                  }}
+                  aria-label="Seleccionar todo"
+                />
+              </TableHead>
+            )}
+
             {/* Columna extra para expand toggle */}
             {hasExpandable && (
               <TableHead className="w-[40px] px-2" />
@@ -209,9 +236,29 @@ export function DataTable<T>({
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
                     onRowClick && 'cursor-pointer',
+                    selectedIds?.has(key) && 'bg-primary/5',
                     rowClassName?.(row)
                   )}
                 >
+                  {/* Columna de selección por fila */}
+                  {onSelectionChange && (
+                    <TableCell className="px-3 w-[40px]" onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds?.has(key)}
+                        onCheckedChange={(checked) => {
+                          const newSet = new Set(selectedIds || [])
+                          if (checked) {
+                            newSet.add(key)
+                          } else {
+                            newSet.delete(key)
+                          }
+                          onSelectionChange(newSet)
+                        }}
+                        aria-label="Seleccionar fila"
+                      />
+                    </TableCell>
+                  )}
+
                   {/* Expand button column */}
                   {hasExpandable && (
                     <TableCell className="px-2 py-3 w-[40px]">

@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { ADMIN_ROUTES } from '@/lib/constants'
@@ -105,7 +106,7 @@ export function TabConjunto({
                   <td className="px-4 py-2">
                     <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden shrink-0 border">
                       {c.hijo_imagen ? (
-                        <img src={c.hijo_imagen} alt="" className="object-contain w-full h-full" />
+                        <Image src={c.hijo_imagen} alt="" fill className="object-contain" />
                       ) : (
                         <Package className="h-4 w-4 text-muted-foreground" />
                       )}

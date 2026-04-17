@@ -2,6 +2,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useState } from 'react'
 import { DataTable } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +15,10 @@ import { MoreHorizontal, Eye, Pencil, Trash2, Star, Layers, Package } from 'luci
 import { formatCurrency, truncate } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS, ADMIN_ROUTES } from '@/lib/constants'
 import type { ProductoListItem, CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
+import { QuickEditPopover } from './components/QuickEditPopover'
+import { bulkUpdateProductsAction, bulkDeactivateProductsAction } from '@/modules/catalogo/actions'
+import { BulkActionBar } from './components/BulkActionBar'
+import { toast } from 'sonner'
 
 /**
  * Tabla de productos del catálogo.
@@ -32,6 +37,29 @@ export function CatalogoTable({
   order: 'asc' | 'desc'
 }) {
   const marcasMap = new Map(catalogos.marcas.map((m) => [m.id, m.nombre]))
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
+
+  const handleQuickEditSave = async (ids: number[], payload: any) => {
+    const res = await bulkUpdateProductsAction(ids, payload)
+    if (res.success) {
+      toast.success(`Se actualizaron ${ids.length} productos correctamente.`)
+      // Opcional: limpiar selección
+      setSelectedIds(new Set())
+    } else {
+      toast.error('Error al actualizar', { description: res.error })
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds).map(Number)
+    const res = await bulkDeactivateProductsAction(ids)
+    if (res.success) {
+      toast.success(`Se desactivaron ${ids.length} productos correctamente.`)
+      setSelectedIds(new Set())
+    } else {
+      toast.error('Error al desactivar', { description: res.error })
+    }
+  }
 
   const columns: ColumnDef<ProductoListItem>[] = [
     {
@@ -51,9 +79,17 @@ export function CatalogoTable({
       key: 'descripcion',
       header: 'Descripción',
       cell: (row) => (
-        <span className="text-sm" title={row.descripcion ?? ''}>
-          {truncate(row.descripcion ?? row.nombre, 40)}
-        </span>
+        <QuickEditPopover
+          config={{ field: 'descripcion', type: 'text', label: 'Descripción' }}
+          value={row.descripcion ?? row.nombre}
+          rowId={row.id}
+          selectedIds={selectedIds}
+          onSave={handleQuickEditSave}
+        >
+          <span className="text-sm" title={row.descripcion ?? ''}>
+            {truncate(row.descripcion ?? row.nombre, 40)}
+          </span>
+        </QuickEditPopover>
       ),
     },
     {
@@ -61,7 +97,15 @@ export function CatalogoTable({
       header: 'Familia',
       sortKey: 'familia',
       cell: (row) => (
-        <span className="text-sm text-muted-foreground">{row.familia ?? '—'}</span>
+        <QuickEditPopover
+          config={{ field: 'familia', type: 'text', label: 'Familia' }}
+          value={row.familia}
+          rowId={row.id}
+          selectedIds={selectedIds}
+          onSave={handleQuickEditSave}
+        >
+          <span className="text-sm text-muted-foreground">{row.familia ?? '—'}</span>
+        </QuickEditPopover>
       ),
     },
     {
@@ -69,9 +113,18 @@ export function CatalogoTable({
       header: 'Marca',
       sortKey: 'marca_id',
       cell: (row) => (
-        <span className="text-sm">
-          {row.marca_id ? marcasMap.get(row.marca_id) ?? '—' : '—'}
-        </span>
+        <QuickEditPopover
+          config={{ field: 'marca_id', type: 'marca', label: 'Marca' }}
+          value={row.marca_id}
+          rowId={row.id}
+          selectedIds={selectedIds}
+          options={catalogos.marcas.map(m => ({ id: m.id, nombre: m.nombre }))}
+          onSave={handleQuickEditSave}
+        >
+          <span className="text-sm">
+            {row.marca_id ? marcasMap.get(row.marca_id) ?? '—' : '—'}
+          </span>
+        </QuickEditPopover>
       ),
     },
     {
@@ -91,9 +144,17 @@ export function CatalogoTable({
       headerClassName: 'text-right',
       className: 'text-right',
       cell: (row) => (
-        <span className="text-sm font-medium tabular-nums">
-          {row.precio_ec ? formatCurrency(row.precio_ec) : '—'}
-        </span>
+        <QuickEditPopover
+          config={{ field: 'precio_ec', type: 'number', label: 'Precio EC' }}
+          value={row.precio_ec}
+          rowId={row.id}
+          selectedIds={selectedIds}
+          onSave={handleQuickEditSave}
+        >
+          <span className="text-sm font-medium tabular-nums ml-auto">
+            {row.precio_ec ? formatCurrency(row.precio_ec) : '—'}
+          </span>
+        </QuickEditPopover>
       ),
     },
     {
@@ -101,12 +162,20 @@ export function CatalogoTable({
       header: 'Estado',
       sortKey: 'estado',
       cell: (row) => (
-        <Badge
-          variant="secondary"
-          className={`text-xs ${ESTADO_PRODUCTO_COLORS[row.estado] ?? 'bg-gray-100 text-gray-800'}`}
+        <QuickEditPopover
+          config={{ field: 'estado', type: 'estado', label: 'Estado' }}
+          value={row.estado}
+          rowId={row.id}
+          selectedIds={selectedIds}
+          onSave={handleQuickEditSave}
         >
-          {row.estado}
-        </Badge>
+          <Badge
+            variant="secondary"
+            className={`text-xs ${ESTADO_PRODUCTO_COLORS[row.estado] ?? 'bg-gray-100 text-gray-800'}`}
+          >
+            {row.estado}
+          </Badge>
+        </QuickEditPopover>
       ),
     },
     {
@@ -178,6 +247,7 @@ export function CatalogoTable({
   ]
 
   return (
+    <>
     <DataTable
       columns={columns}
       data={productos}
@@ -185,8 +255,17 @@ export function CatalogoTable({
       currentSortKey={sortBy}
       currentOrder={order}
       defaultSortKey="id"
+      selectedIds={selectedIds}
+      onSelectionChange={setSelectedIds}
       emptyMessage="No se encontraron productos con los filtros aplicados."
       emptyIcon={<Package className="h-12 w-12" />}
     />
+
+    <BulkActionBar 
+      selectedCount={selectedIds.size}
+      onClear={() => setSelectedIds(new Set())}
+      onBulkDelete={handleBulkDelete}
+    />
+    </>
   )
 }

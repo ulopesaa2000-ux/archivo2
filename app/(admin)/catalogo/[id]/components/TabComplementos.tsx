@@ -201,7 +201,7 @@ export function TabComplementos({
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.partes.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -229,7 +229,7 @@ export function TabComplementos({
                   </SelectTrigger>
                   <SelectContent>
                     {tiposFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                         {cat.complemento_en === 'TODO' && (
                           <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
@@ -240,7 +240,7 @@ export function TabComplementos({
                 </Select>
                 {selectedParteId && tiposFiltrados.length === 0 && (
                   <p className="text-[10px] text-muted-foreground">
-                    No hay tipos de componente configurados para "{selectedParteNombre}".
+                    No hay tipos de componente configurados para &ldquo;{selectedParteNombre}&rdquo;.
                   </p>
                 )}
               </div>
@@ -262,9 +262,9 @@ export function TabComplementos({
                     } />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
+                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                     {cortesFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                         {cat.corte_forma_en === 'TODO' && (
                           <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
@@ -278,7 +278,7 @@ export function TabComplementos({
                 </Select>
                 {selectedParteId && cortesFiltrados.length === 0 && (
                   <p className="text-[10px] text-muted-foreground">
-                    No hay cortes/formas configurados para "{selectedParteNombre}" o tipo seleccionado.
+                    No hay cortes/formas configurados para &ldquo;{selectedParteNombre}&rdquo; o tipo seleccionado.
                   </p>
                 )}
               </div>
@@ -290,9 +290,9 @@ export function TabComplementos({
                     <SelectValue placeholder="Selecciona material..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
+                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                     {catalogos.materiales.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}

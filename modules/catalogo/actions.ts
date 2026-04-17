@@ -39,6 +39,16 @@ function toBoolean(fd: FormData, key: string): boolean {
 
 // ═══════════════════════════════════════════════════════════════
 
+export async function checkSkuExistsAction(sku_base: string, currentId?: number): Promise<boolean> {
+  const supabase = await createClient()
+  let query = (supabase.from('productos') as any).select('id').eq('sku_base', sku_base)
+  if (currentId) {
+    query = query.neq('id', currentId)
+  }
+  const { data } = await query
+  return data && data.length > 0
+}
+
 export async function createProductAction(
   formData: FormData
 ): Promise<ActionResult> {
@@ -541,3 +551,94 @@ export async function deleteConjuntoItemAction(
   revalidatePath(`/catalogo/${productoPadreId}`)
   return { success: true }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crear Referencia Color
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createColorAction(
+  nombre: string,
+  codigo: string,
+  hexCode: string,
+  tipoColor: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const payload = {
+    nombre: nombre.toUpperCase(),
+    codigo: codigo.toUpperCase(),
+    hex_code: hexCode || null,
+    tipo_color: tipoColor,
+    orden_display: 99,
+  }
+
+  const { data, error } = await (supabase.from('cat_colores') as any).insert(payload).select('id').single()
+
+  if (error) {
+    if (error.code === '23505') {
+      return { success: false, error: `El código de color "${payload.codigo}" ya existe.` }
+    }
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, id: data.id }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actualización Masiva (Quick Edit)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function bulkUpdateProductsAction(
+  ids: number[],
+  payload: Partial<{
+    precio_ec: number
+    estado: string
+    marca_id: number | null
+    descripcion: string | null
+    familia: string | null
+  }>
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  if (!ids.length) return { success: false, error: 'No se seleccionaron productos' }
+
+  const supabase = await createClient()
+
+  const { error } = await (supabase
+    .from('productos') as any)
+    .update(payload)
+    .in('id', ids)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/catalogo')
+  return { success: true }
+}
+
+export async function bulkDeactivateProductsAction(
+  ids: number[]
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  if (!ids.length) return { success: false, error: 'No se seleccionaron productos' }
+
+  const supabase = await createClient()
+
+  const { error } = await (supabase
+    .from('productos') as any)
+    .update({ activo: false })
+    .in('id', ids)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/catalogo')
+  return { success: true }
+}
+

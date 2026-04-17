@@ -152,7 +152,7 @@ export function TabAcabados({
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.acabado_tipos.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -167,9 +167,9 @@ export function TabAcabados({
                     <SelectValue placeholder="Selecciona detalle..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
+                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                     {catalogos.acabado_detalles.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -184,9 +184,9 @@ export function TabAcabados({
                     <SelectValue placeholder="Selecciona patrón..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
+                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                     {catalogos.acabado_patrones.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -201,9 +201,9 @@ export function TabAcabados({
                     <SelectValue placeholder="Selecciona localización..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
+                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                     {catalogos.localizaciones.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                         {cat.nombre}
                       </SelectItem>
                     ))}

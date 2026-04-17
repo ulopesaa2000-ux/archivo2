@@ -1,6 +1,7 @@
 // app/(admin)/catalogo/[id]/components/TabImagenes.tsx
 'use client'
 
+import Image from 'next/image'
 import type { ProductoImagenRow } from '@/lib/types/tables'
 import { Badge } from '@/components/ui/badge'
 import { ImageIcon } from 'lucide-react'
@@ -15,7 +16,7 @@ export function TabImagenes({ imagenes }: { imagenes: ProductoImagenRow[] }) {
       {imagenes.map((img) => (
         <div key={img.id} className="rounded-lg border overflow-hidden">
           <div className="aspect-square bg-muted flex items-center justify-center">
-            <img src={img.url} alt={img.alt_text ?? ''} className="object-contain w-full h-full" />
+            <Image src={img.url} alt={img.alt_text ?? ''} fill className="object-contain" />
           </div>
           <div className="p-2 space-y-1">
             <div className="flex items-center gap-1 flex-wrap">

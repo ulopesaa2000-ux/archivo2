@@ -203,7 +203,7 @@ export function TabVariantes({
                     </SelectTrigger>
                     <SelectContent>
                       {catalogos.tallas.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id.toString()}>
+                        <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                           {cat.nombre}
                         </SelectItem>
                       ))}
@@ -217,9 +217,9 @@ export function TabVariantes({
                       <SelectValue placeholder="Selecciona..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_null">Ninguno</SelectItem>
+                      <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
                       {catalogos.colores.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id.toString()}>
+                        <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
                           {cat.nombre}
                         </SelectItem>
                       ))}
