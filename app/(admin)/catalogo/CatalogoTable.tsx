@@ -1,10 +1,10 @@
-// app/(admin)/catalogo/CatalogoTable.tsx
 'use client'
 
+// app/(admin)/catalogo/CatalogoTable.tsx
+
 import Link from 'next/link'
-import { useState } from 'react'
-import { DataTable } from '@/components/admin/DataTable'
-import type { ColumnDef } from '@/components/admin/DataTable'
+import { DataTable, DataTableProvider, useDataTableContext, BulkActionBar, QuickEditPopover } from '@/components/admin/DataTable'
+import type { ColumnDef, TableFeatures, QuickEditField, BulkAction } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,58 +15,96 @@ import { MoreHorizontal, Eye, Pencil, Trash2, Star, Layers, Package } from 'luci
 import { formatCurrency, truncate } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS, ADMIN_ROUTES } from '@/lib/constants'
 import type { ProductoListItem, CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
-import { QuickEditPopover } from './components/QuickEditPopover'
-import { bulkUpdateProductsAction, bulkDeactivateProductsAction } from '@/modules/catalogo/actions'
-import { BulkActionBar } from './components/BulkActionBar'
 import { toast } from 'sonner'
 
-/**
- * Tabla de productos del catálogo.
- * Usa DataTable<T> genérico — cualquier cambio en ese componente
- * se refleja aquí automáticamente.
- */
-export function CatalogoTable({
-  productos,
-  catalogos,
-  sortBy,
-  order,
-}: {
+type Props = {
   productos: ProductoListItem[]
   catalogos: CatalogosParaFiltros
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
-}) {
+}
+
+// ── Acciones masivas (definidas por la página, no acopladas) ─────────────────
+const bulkActions: BulkAction[] = [
+  {
+    id: 'deactivate',
+    label: 'Desactivar',
+    icon: Trash2,
+    variant: 'destructive' as const,
+    async onClick(ids: number[]) {
+      const { bulkDeactivateProductsAction } = await import('@/modules/catalogo/actions')
+      const result = await bulkDeactivateProductsAction(ids)
+      return result.success
+    },
+  },
+]
+
+// ── Features para esta tabla ────────────────────────────────────────────────
+const TABLE_FEATURES: TableFeatures = {
+  selectable: true,
+  sortable: true,
+  quickEdit: [
+    { key: 'descripcion', label: 'Descripción', type: 'text' as const },
+    { key: 'familia', label: 'Familia', type: 'text' as const },
+    { key: 'marca_id', label: 'Marca', type: 'select' as const, options: [] as {id: string | number; label: string}[] },
+    { key: 'precio_ec', label: 'Precio EC', type: 'currency' as const },
+    { key: 'estado', label: 'Estado', type: 'select' as const, options: [
+      { id: 'borrador', label: 'Borrador' },
+      { id: 'pendiente', label: 'Pendiente' },
+      { id: 'publicado', label: 'Publicado' },
+      { id: 'pausado', label: 'Pausado' },
+      { id: 'descontinuado', label: 'Descontinuado' },
+    ] as {id: string; label: string}[]},
+  ] as QuickEditField[],
+  bulkActions,
+  columnSelector: false,
+}
+
+// ── QuickEdit save handler (global para todas las celdas) ────────────────────
+async function handleQuickEditSave(
+  ids: number[],
+  field: string,
+  value: unknown
+) {
+  const { bulkUpdateProductsAction } = await import('@/modules/catalogo/actions')
+  const res = await bulkUpdateProductsAction(ids, { [field]: value })
+  if (res.success) {
+    toast.success(`Actualizado ${ids.length} producto${ids.length > 1 ? 's' : ''}`)
+  } else {
+    toast.error('Error al actualizar', { description: res.error })
+  }
+}
+
+// ── Componente interno (usa el context) ──────────────────────────────────────
+function CatalogoTableInner({
+  productos,
+  catalogos,
+  sortBy,
+  order,
+}: Props) {
+  const ctx = useDataTableContext()
   const marcasMap = new Map(catalogos.marcas.map((m) => [m.id, m.nombre]))
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
 
-  const handleQuickEditSave = async (ids: number[], payload: any) => {
-    const res = await bulkUpdateProductsAction(ids, payload)
-    if (res.success) {
-      toast.success(`Se actualizaron ${ids.length} productos correctamente.`)
-      // Opcional: limpiar selección
-      setSelectedIds(new Set())
-    } else {
-      toast.error('Error al actualizar', { description: res.error })
-    }
+  const handleBulkDeactivate = async (ids: number[]) => {
+    const { bulkDeactivateProductsAction } = await import('@/modules/catalogo/actions')
+    return bulkDeactivateProductsAction(ids)
   }
 
-  const handleBulkDelete = async () => {
-    const ids = Array.from(selectedIds).map(Number)
-    const res = await bulkDeactivateProductsAction(ids)
-    if (res.success) {
-      toast.success(`Se desactivaron ${ids.length} productos correctamente.`)
-      setSelectedIds(new Set())
-    } else {
-      toast.error('Error al desactivar', { description: res.error })
-    }
-  }
+  // Construir opciones de marca para el campo select
+  const marcaOptions = catalogos.marcas.map(m => ({ id: m.id, label: m.nombre }))
+
+  // Enrich quickEdit fields con opciones
+  const quickEditFields = (ctx.features.quickEdit as QuickEditField[] | null)?.map((f) => {
+    if (f.key === 'marca_id') return { ...f, options: marcaOptions }
+    return f
+  }) ?? null
 
   const columns: ColumnDef<ProductoListItem>[] = [
     {
       key: 'sku',
       header: 'SKU',
       sortKey: 'sku_base',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <Link
           href={ADMIN_ROUTES.catalogo.detalle(row.id)}
           className="font-mono text-sm font-medium text-primary hover:underline"
@@ -78,13 +116,12 @@ export function CatalogoTable({
     {
       key: 'descripcion',
       header: 'Descripción',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <QuickEditPopover
-          config={{ field: 'descripcion', type: 'text', label: 'Descripción' }}
+          field={(quickEditFields ?? []).find(f => f.key === 'descripcion')!}
           value={row.descripcion ?? row.nombre}
           rowId={row.id}
-          selectedIds={selectedIds}
-          onSave={handleQuickEditSave}
+          onSaveGlobal={handleQuickEditSave}
         >
           <span className="text-sm" title={row.descripcion ?? ''}>
             {truncate(row.descripcion ?? row.nombre, 40)}
@@ -96,13 +133,12 @@ export function CatalogoTable({
       key: 'familia',
       header: 'Familia',
       sortKey: 'familia',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <QuickEditPopover
-          config={{ field: 'familia', type: 'text', label: 'Familia' }}
+          field={(quickEditFields ?? []).find(f => f.key === 'familia')!}
           value={row.familia}
           rowId={row.id}
-          selectedIds={selectedIds}
-          onSave={handleQuickEditSave}
+          onSaveGlobal={handleQuickEditSave}
         >
           <span className="text-sm text-muted-foreground">{row.familia ?? '—'}</span>
         </QuickEditPopover>
@@ -112,14 +148,12 @@ export function CatalogoTable({
       key: 'marca',
       header: 'Marca',
       sortKey: 'marca_id',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <QuickEditPopover
-          config={{ field: 'marca_id', type: 'marca', label: 'Marca' }}
+          field={(quickEditFields ?? []).find(f => f.key === 'marca_id')!}
           value={row.marca_id}
           rowId={row.id}
-          selectedIds={selectedIds}
-          options={catalogos.marcas.map(m => ({ id: m.id, nombre: m.nombre }))}
-          onSave={handleQuickEditSave}
+          onSaveGlobal={handleQuickEditSave}
         >
           <span className="text-sm">
             {row.marca_id ? marcasMap.get(row.marca_id) ?? '—' : '—'}
@@ -133,7 +167,7 @@ export function CatalogoTable({
       sortKey: 'pz_en_caja',
       headerClassName: 'text-right',
       className: 'text-right',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <span className="text-sm tabular-nums">{row.pz_en_caja ?? '—'}</span>
       ),
     },
@@ -143,13 +177,12 @@ export function CatalogoTable({
       sortKey: 'precio_ec',
       headerClassName: 'text-right',
       className: 'text-right',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <QuickEditPopover
-          config={{ field: 'precio_ec', type: 'number', label: 'Precio EC' }}
+          field={(quickEditFields ?? []).find(f => f.key === 'precio_ec')!}
           value={row.precio_ec}
           rowId={row.id}
-          selectedIds={selectedIds}
-          onSave={handleQuickEditSave}
+          onSaveGlobal={handleQuickEditSave}
         >
           <span className="text-sm font-medium tabular-nums ml-auto">
             {row.precio_ec ? formatCurrency(row.precio_ec) : '—'}
@@ -161,13 +194,12 @@ export function CatalogoTable({
       key: 'estado',
       header: 'Estado',
       sortKey: 'estado',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <QuickEditPopover
-          config={{ field: 'estado', type: 'estado', label: 'Estado' }}
+          field={(quickEditFields ?? []).find(f => f.key === 'estado')!}
           value={row.estado}
           rowId={row.id}
-          selectedIds={selectedIds}
-          onSave={handleQuickEditSave}
+          onSaveGlobal={handleQuickEditSave}
         >
           <Badge
             variant="secondary"
@@ -182,7 +214,7 @@ export function CatalogoTable({
       key: 'flags',
       header: '',
       headerClassName: 'w-[60px]',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <div className="flex items-center gap-1">
           {row.destacado && (
             <span title="Destacado">
@@ -206,7 +238,7 @@ export function CatalogoTable({
       key: 'acciones',
       header: '',
       headerClassName: 'w-[50px]',
-      cell: (row) => (
+      cell: (row: ProductoListItem) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
@@ -248,24 +280,38 @@ export function CatalogoTable({
 
   return (
     <>
-    <DataTable
-      columns={columns}
-      data={productos}
-      rowKey={(row) => row.id}
-      currentSortKey={sortBy}
-      currentOrder={order}
-      defaultSortKey="id"
-      selectedIds={selectedIds}
-      onSelectionChange={setSelectedIds}
-      emptyMessage="No se encontraron productos con los filtros aplicados."
-      emptyIcon={<Package className="h-12 w-12" />}
-    />
+      <DataTable
+        columns={columns}
+        data={productos}
+        rowKey={(row: ProductoListItem) => row.id}
+        currentSortKey={sortBy}
+        currentOrder={order}
+        defaultSortKey="id"
+        emptyMessage="No se encontraron productos con los filtros aplicados."
+        emptyIcon={<Package className="h-12 w-12" />}
+      />
 
-    <BulkActionBar 
-      selectedCount={selectedIds.size}
-      onClear={() => setSelectedIds(new Set())}
-      onBulkDelete={handleBulkDelete}
-    />
+      <BulkActionBar
+        actions={bulkActions.map(a => ({
+          ...a,
+          onClick: async (ids: number[]) => {
+            const res = await a.onClick(ids)
+            if (res !== false) {
+              ctx.clearSelection()
+            }
+          },
+        }))}
+        label="productos"
+      />
     </>
+  )
+}
+
+// ── Export con Provider ───────────────────────────────────────────────────────
+export function CatalogoTable(props: Props) {
+  return (
+    <DataTableProvider route="/catalogo" features={TABLE_FEATURES}>
+      <CatalogoTableInner {...props} />
+    </DataTableProvider>
   )
 }

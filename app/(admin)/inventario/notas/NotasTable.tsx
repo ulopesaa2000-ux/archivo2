@@ -1,8 +1,9 @@
-// app/(admin)/inventario/notas/NotasTable.tsx
 'use client'
 
+// app/(admin)/inventario/notas/NotasTable.tsx
+
 import Link from 'next/link'
-import { DataTable } from '@/components/admin/DataTable'
+import { DataTable, DataTableProvider } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,28 +13,35 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MoreHorizontal, Eye, FileText } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
-import {
-  ADMIN_ROUTES, ESTADO_NOTA_COLORS,
-  TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
-} from '@/lib/constants'
+import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
 import type { NotaListItem } from '@/modules/inventario/types'
 
-export function NotasTable({
-  notas,
-  sortKey,
-  sortOrder,
-}: {
+type Props = {
   notas: NotaListItem[]
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
-}) {
+}
+
+// ── Features para Notas ──────────────────────────────────────────────────────
+const TABLE_FEATURES = {
+  selectable: false,
+  expandable: false,
+  sortable: true,
+  columnSelector: false,
+} as const
+
+function NotasTableInner({
+  notas,
+  sortKey,
+  sortOrder,
+}: Props) {
   const columns: ColumnDef<NotaListItem>[] = [
     {
       key: 'numero_nota',
       header: 'N° Nota',
       sortKey: 'numero_nota',
       headerClassName: 'w-[160px]',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <Link
           href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
           className="font-mono text-sm font-medium text-primary hover:underline"
@@ -46,7 +54,7 @@ export function NotasTable({
       key: 'tipo',
       header: 'Tipo',
       sortKey: 'tipo_codigo',
-      cell: (row) => {
+      cell: (row: NotaListItem) => {
         const icon = TIPO_MOVIMIENTO_ICONS[row.tipo_codigo] ?? ''
         const color = TIPO_MOVIMIENTO_COLORS[row.tipo_codigo] ?? 'bg-gray-100 text-gray-800'
         return (
@@ -61,7 +69,7 @@ export function NotasTable({
       key: 'origen',
       header: 'Origen',
       sortKey: 'bodega_origen_nombre',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <span className="text-sm">{row.bodega_origen_nombre}</span>
       ),
     },
@@ -70,7 +78,7 @@ export function NotasTable({
       header: 'Destino',
       headerClassName: 'hidden lg:table-cell',
       className: 'hidden lg:table-cell',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <span className="text-sm text-muted-foreground">
           {row.bodega_destino_nombre ?? '—'}
         </span>
@@ -82,7 +90,7 @@ export function NotasTable({
       sortKey: 'total_cajas',
       headerClassName: 'text-center w-[70px]',
       className: 'text-center',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <span className="text-sm tabular-nums font-medium">
           {row.total_cajas ?? 0}
         </span>
@@ -113,7 +121,7 @@ export function NotasTable({
       header: 'Usuario',
       headerClassName: 'hidden xl:table-cell',
       className: 'hidden xl:table-cell',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <span className="text-sm text-muted-foreground">
           {row.usuario_nombre}
         </span>
@@ -123,7 +131,7 @@ export function NotasTable({
       key: 'acciones',
       header: '',
       headerClassName: 'w-[50px]',
-      cell: (row) => (
+      cell: (row: NotaListItem) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -154,5 +162,13 @@ export function NotasTable({
       emptyMessage="No se encontraron notas con los filtros aplicados."
       emptyIcon={<FileText className="h-12 w-12" />}
     />
+  )
+}
+
+export function NotasTable(props: Props) {
+  return (
+    <DataTableProvider route="/inventario/notas" features={TABLE_FEATURES}>
+      <NotasTableInner {...props} />
+    </DataTableProvider>
   )
 }

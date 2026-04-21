@@ -157,6 +157,11 @@ export function SidebarContent({
           href: ADMIN_ROUTES.configuracion.auditoriaProductos,
           icon: History,
         },
+        {
+          label: 'Configuración de Tablas',
+          href: ADMIN_ROUTES.configuracion.tablas,
+          icon: Settings,
+        },
       ],
     },
   ]

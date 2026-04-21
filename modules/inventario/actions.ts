@@ -197,7 +197,6 @@ export async function actualizarNotaAction(
   const { error: deleteError } = await supabase
     .from('nota_detalle_productos')
     .delete()
-    .eq('id', notaId) // Note: user said delete detail where note_id ... but code says .eq('id', notaId) ... fixing to nota_id
     .eq('nota_id', notaId)
 
   if (deleteError) {

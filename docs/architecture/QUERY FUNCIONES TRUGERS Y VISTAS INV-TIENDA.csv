@@ -1,0 +1,409 @@
+vista,columna,tipo_dato,es_nulo,posicion
+appsheet_login,usuario_id,integer,YES,1
+appsheet_login,usuario,character varying,YES,2
+appsheet_login,contrasena,character varying,YES,3
+appsheet_login,nombre,character varying,YES,4
+appsheet_login,nombre_corto,text,YES,5
+appsheet_login,perfil,character varying,YES,6
+appsheet_login,nivel_acceso,integer,YES,7
+appsheet_login,correo,character varying,YES,8
+appsheet_login,tel,character varying,YES,9
+appsheet_login,activo,boolean,YES,10
+contenedor_cajas,id,integer,YES,1
+contenedor_cajas,contenedor_id,integer,YES,2
+contenedor_cajas,caja_id,integer,YES,3
+contenedor_cajas,orden_id,integer,YES,4
+contenedor_cajas,cantidad_cajas,integer,YES,5
+contenedor_cajas,created_at,timestamp without time zone,YES,6
+v_catalogo_listado,id,integer,YES,1
+v_catalogo_listado,sku_base,character varying,YES,2
+v_catalogo_listado,nombre,text,YES,3
+v_catalogo_listado,descripcion,text,YES,4
+v_catalogo_listado,estado,text,YES,5
+v_catalogo_listado,destacado,boolean,YES,6
+v_catalogo_listado,es_conjunto,boolean,YES,7
+v_catalogo_listado,familia,text,YES,8
+v_catalogo_listado,activo,boolean,YES,9
+v_catalogo_listado,created_at,timestamp with time zone,YES,10
+v_catalogo_listado,updated_at,timestamp with time zone,YES,11
+v_catalogo_listado,marca_nombre,text,YES,12
+v_catalogo_listado,marca_logo,text,YES,13
+v_catalogo_listado,genero_nombre,text,YES,14
+v_catalogo_listado,genero_codigo,character varying,YES,15
+v_catalogo_listado,edad_rango,text,YES,16
+v_catalogo_listado,tipo_prenda_nombre,text,YES,17
+v_catalogo_listado,tipo_prenda_clasificacion,text,YES,18
+v_catalogo_listado,tipo_prenda_vista_web,text,YES,19
+v_catalogo_listado,web_slug,text,YES,20
+v_catalogo_listado,web_titulo_seo,text,YES,21
+v_catalogo_listado,precio_publico,numeric,YES,22
+v_catalogo_listado,precio_oferta,numeric,YES,23
+v_catalogo_listado,en_oferta,boolean,YES,24
+v_catalogo_listado,web_destacado,boolean,YES,25
+v_catalogo_listado,web_nuevo,boolean,YES,26
+v_catalogo_listado,web_activo,boolean,YES,27
+v_catalogo_listado,web_orden_display,integer,YES,28
+v_catalogo_listado,web_visitas,integer,YES,29
+v_catalogo_listado,web_fecha_publicacion,timestamp without time zone,YES,30
+v_catalogo_listado,imagen_principal,text,YES,31
+v_catalogo_listado,colores_disponibles,json,YES,32
+v_catalogo_listado,tallas_disponibles,json,YES,33
+v_catalogo_listado,precio_variante_min,numeric,YES,34
+v_catalogo_listado,precio_variante_max,numeric,YES,35
+v_catalogo_listado,total_variantes_activas,integer,YES,36
+v_catalogo_web,producto_id,integer,YES,1
+v_catalogo_web,sku_base,character varying,YES,2
+v_catalogo_web,nombre,text,YES,3
+v_catalogo_web,descripcion,text,YES,4
+v_catalogo_web,slug,text,YES,5
+v_catalogo_web,precio_publico,numeric,YES,6
+v_catalogo_web,precio_oferta,numeric,YES,7
+v_catalogo_web,en_oferta,boolean,YES,8
+v_catalogo_web,destacado,boolean,YES,9
+v_catalogo_web,nuevo,boolean,YES,10
+v_catalogo_web,marca,text,YES,11
+v_catalogo_web,genero,text,YES,12
+v_catalogo_web,tipo_prenda,text,YES,13
+v_catalogo_web,imagen_principal,text,YES,14
+v_catalogo_web,total_variantes,bigint,YES,15
+v_catalogo_web,stock_total,integer,YES,16
+v_contenedor_packing,codigo_contenedor,text,YES,1
+v_contenedor_packing,numero_contenedor,character varying,YES,2
+v_contenedor_packing,numero_bl,character varying,YES,3
+v_contenedor_packing,estado_contenedor,character varying,YES,4
+v_contenedor_packing,fecha_etd,timestamp without time zone,YES,5
+v_contenedor_packing,fecha_eta,timestamp without time zone,YES,6
+v_contenedor_packing,orden_id,integer,YES,7
+v_contenedor_packing,folio_proveedor,character varying,YES,8
+v_contenedor_packing,estado_orden,character varying,YES,9
+v_contenedor_packing,moneda,character varying,YES,10
+v_contenedor_packing,proveedor,character varying,YES,11
+v_contenedor_packing,producto_id,integer,YES,12
+v_contenedor_packing,sku_base,character varying,YES,13
+v_contenedor_packing,producto_nombre,text,YES,14
+v_contenedor_packing,marca,text,YES,15
+v_contenedor_packing,composicion,text,YES,16
+v_contenedor_packing,piezas_solicitadas,integer,YES,17
+v_contenedor_packing,piezas_pedidas,integer,YES,18
+v_contenedor_packing,cajas_pedidas,numeric,YES,19
+v_contenedor_packing,precio_unitario,numeric,YES,20
+v_contenedor_packing,precio_yuan,numeric,YES,21
+v_contenedor_packing,importe_total,numeric,YES,22
+v_contenedor_packing,cbm_detalle,numeric,YES,23
+v_contenedor_packing,codigo_caja,text,YES,24
+v_contenedor_packing,nombre_pack,text,YES,25
+v_contenedor_packing,cantidad_cajas,integer,YES,26
+v_contenedor_packing,piezas_por_caja,integer,YES,27
+v_contenedor_packing,tallas_caja,text,YES,28
+v_contenedor_packing,colores_caja,text,YES,29
+v_contenedor_packing,cbm_por_caja,numeric,YES,30
+v_contenedor_packing,cbm_subtotal_caja,numeric,YES,31
+v_contenedor_packing,peso_bruto_caja,numeric,YES,32
+v_contenedor_packing,peso_total_caja,numeric,YES,33
+v_contenedor_resumen,contenedor_id,integer,YES,1
+v_contenedor_resumen,codigo_contenedor,text,YES,2
+v_contenedor_resumen,numero_contenedor,character varying,YES,3
+v_contenedor_resumen,numero_bl,character varying,YES,4
+v_contenedor_resumen,naviera,character varying,YES,5
+v_contenedor_resumen,buque,character varying,YES,6
+v_contenedor_resumen,puerto_origen,character varying,YES,7
+v_contenedor_resumen,puerto_destino,character varying,YES,8
+v_contenedor_resumen,fecha_etd,timestamp without time zone,YES,9
+v_contenedor_resumen,fecha_eta,timestamp without time zone,YES,10
+v_contenedor_resumen,estado,character varying,YES,11
+v_contenedor_resumen,cbm_total,numeric,YES,12
+v_contenedor_resumen,peso_total_kg,numeric,YES,13
+v_contenedor_resumen,total_ordenes,bigint,YES,14
+v_contenedor_resumen,total_proveedores,bigint,YES,15
+v_contenedor_resumen,cajas_totales,bigint,YES,16
+v_contenedor_resumen,piezas_totales,bigint,YES,17
+v_contenedor_resumen,cbm_ocupado,numeric,YES,18
+v_contenedor_resumen,pct_cbm_ocupado,numeric,YES,19
+v_contenedor_resumen,valor_total_usd,numeric,YES,20
+v_inventario_disponible,producto_id,integer,YES,1
+v_inventario_disponible,sku_base,character varying,YES,2
+v_inventario_disponible,producto_nombre,text,YES,3
+v_inventario_disponible,variante_id,integer,YES,4
+v_inventario_disponible,sku_completo,text,YES,5
+v_inventario_disponible,talla,character varying,YES,6
+v_inventario_disponible,talla_codigo,character varying,YES,7
+v_inventario_disponible,color,text,YES,8
+v_inventario_disponible,color_hex,character varying,YES,9
+v_inventario_disponible,bodega_id,integer,YES,10
+v_inventario_disponible,bodega_nombre,character varying,YES,11
+v_inventario_disponible,bodega_codigo,character varying,YES,12
+v_inventario_disponible,cajas,numeric,YES,13
+v_inventario_disponible,piezas_sueltas,integer,YES,14
+v_inventario_disponible,total_piezas,integer,YES,15
+v_inventario_disponible,precio_venta,numeric,YES,16
+v_inventario_disponible,ubicacion_pasillo,text,YES,17
+v_inventario_disponible,updated_at,timestamp without time zone,YES,18
+v_nota_detalle_completo,detalle_id,integer,YES,1
+v_nota_detalle_completo,nota_id,integer,YES,2
+v_nota_detalle_completo,numero_nota,character varying,YES,3
+v_nota_detalle_completo,variante_id,integer,YES,4
+v_nota_detalle_completo,producto_id,integer,YES,5
+v_nota_detalle_completo,sku_completo,text,YES,6
+v_nota_detalle_completo,producto_nombre,text,YES,7
+v_nota_detalle_completo,sku_base,character varying,YES,8
+v_nota_detalle_completo,talla,character varying,YES,9
+v_nota_detalle_completo,color,text,YES,10
+v_nota_detalle_completo,cajas,numeric,YES,11
+v_nota_detalle_completo,piezas_sueltas,integer,YES,12
+v_nota_detalle_completo,pz_en_caja,integer,YES,13
+v_nota_detalle_completo,total_piezas,integer,YES,14
+v_nota_detalle_completo,precio_venta,numeric,YES,15
+v_nota_detalle_completo,valor_total,numeric,YES,16
+v_nota_detalle_completo,modo_detalle,text,YES,17
+v_producto_acabados,id,integer,YES,1
+v_producto_acabados,producto_id,integer,YES,2
+v_producto_acabados,created_at,timestamp without time zone,YES,3
+v_producto_acabados,tipo_acabado_id,integer,YES,4
+v_producto_acabados,tipo_acabado_nombre,text,YES,5
+v_producto_acabados,detalle_acabado_id,integer,YES,6
+v_producto_acabados,detalle_acabado_nombre,text,YES,7
+v_producto_acabados,detalle_acabado_tipo,text,YES,8
+v_producto_acabados,detalle_acabado_descripcion,text,YES,9
+v_producto_acabados,patron_acabado_id,integer,YES,10
+v_producto_acabados,patron_nombre,text,YES,11
+v_producto_acabados,patron_subcategoria,text,YES,12
+v_producto_acabados,patron_tipo_acabado,text,YES,13
+v_producto_acabados,localizacion_id,integer,YES,14
+v_producto_acabados,localizacion_nombre,text,YES,15
+v_producto_cajas,id,integer,YES,1
+v_producto_cajas,producto_id,integer,YES,2
+v_producto_cajas,codigo_caja,text,YES,3
+v_producto_cajas,nombre_pack,text,YES,4
+v_producto_cajas,piezas_por_caja,integer,YES,5
+v_producto_cajas,tallas,text,YES,6
+v_producto_cajas,colores,text,YES,7
+v_producto_cajas,costo_total_caja,numeric,YES,8
+v_producto_cajas,peso_bruto_kg,numeric,YES,9
+v_producto_cajas,largo_cm,numeric,YES,10
+v_producto_cajas,ancho_cm,numeric,YES,11
+v_producto_cajas,alto_cm,numeric,YES,12
+v_producto_cajas,cbm,numeric,YES,13
+v_producto_cajas,created_at,timestamp without time zone,YES,14
+v_producto_cajas,persona_id,integer,YES,15
+v_producto_cajas,proveedor_nombre,character varying,YES,16
+v_producto_cajas,proveedor_tipo,character varying,YES,17
+v_producto_cajas,proveedor_email,character varying,YES,18
+v_producto_complementos,id,integer,YES,1
+v_producto_complementos,producto_id,integer,YES,2
+v_producto_complementos,descripcion_adicional,text,YES,3
+v_producto_complementos,created_at,timestamp without time zone,YES,4
+v_producto_complementos,parte_prenda_id,integer,YES,5
+v_producto_complementos,parte_prenda_nombre,text,YES,6
+v_producto_complementos,parte_prenda_tipo,character varying,YES,7
+v_producto_complementos,tipo_comp_id,integer,YES,8
+v_producto_complementos,tipo_comp_nombre,text,YES,9
+v_producto_complementos,tipo_comp_nombre_en,text,YES,10
+v_producto_complementos,material_id,integer,YES,11
+v_producto_complementos,material_nombre,text,YES,12
+v_producto_complementos,material_composicion,text,YES,13
+v_producto_complementos,material_tipo,text,YES,14
+v_producto_complementos,corte_forma_id,integer,YES,15
+v_producto_complementos,corte_forma_nombre,text,YES,16
+v_producto_complementos,corte_forma_nombre_en,text,YES,17
+v_producto_conjunto,id,integer,YES,1
+v_producto_conjunto,producto_padre_id,integer,YES,2
+v_producto_conjunto,cantidad,integer,YES,3
+v_producto_conjunto,es_requerido,boolean,YES,4
+v_producto_conjunto,orden,integer,YES,5
+v_producto_conjunto,created_at,timestamp without time zone,YES,6
+v_producto_conjunto,producto_hijo_id,integer,YES,7
+v_producto_conjunto,hijo_sku,character varying,YES,8
+v_producto_conjunto,hijo_nombre,text,YES,9
+v_producto_conjunto,hijo_descripcion,text,YES,10
+v_producto_conjunto,hijo_estado,text,YES,11
+v_producto_conjunto,hijo_activo,boolean,YES,12
+v_producto_conjunto,hijo_imagen,text,YES,13
+v_producto_conjunto,hijo_precio_publico,numeric,YES,14
+v_producto_conjunto,hijo_slug,text,YES,15
+v_producto_detalle,id,integer,YES,1
+v_producto_detalle,sku_base,character varying,YES,2
+v_producto_detalle,nombre,text,YES,3
+v_producto_detalle,descripcion,text,YES,4
+v_producto_detalle,composicion,text,YES,5
+v_producto_detalle,precio_ec,numeric,YES,6
+v_producto_detalle,proveedor_id,integer,YES,7
+v_producto_detalle,marca_id,integer,YES,8
+v_producto_detalle,genero_id,integer,YES,9
+v_producto_detalle,tela_forro_id,integer,YES,10
+v_producto_detalle,tela_ext_id,integer,YES,11
+v_producto_detalle,edad_id,integer,YES,12
+v_producto_detalle,tipo_prenda_id,integer,YES,13
+v_producto_detalle,pz_en_caja,integer,YES,14
+v_producto_detalle,activo,boolean,YES,15
+v_producto_detalle,created_at,timestamp with time zone,YES,16
+v_producto_detalle,updated_at,timestamp with time zone,YES,17
+v_producto_detalle,familia,text,YES,18
+v_producto_detalle,estado,text,YES,19
+v_producto_detalle,destacado,boolean,YES,20
+v_producto_detalle,es_conjunto,boolean,YES,21
+v_producto_detalle,persona_id,integer,YES,22
+v_producto_detalle,marca_nombre,text,YES,23
+v_producto_detalle,marca_logo,text,YES,24
+v_producto_detalle,genero_nombre,text,YES,25
+v_producto_detalle,genero_codigo,character varying,YES,26
+v_producto_detalle,edad_rango,text,YES,27
+v_producto_detalle,edad_talla,text,YES,28
+v_producto_detalle,tipo_prenda_nombre,text,YES,29
+v_producto_detalle,tipo_prenda_clasificacion,text,YES,30
+v_producto_detalle,tipo_prenda_vista_web,text,YES,31
+v_producto_detalle,tipo_prenda_descripcion,text,YES,32
+v_producto_detalle,tela_ext_nombre,text,YES,33
+v_producto_detalle,tela_ext_composicion,text,YES,34
+v_producto_detalle,tela_ext_descripcion,text,YES,35
+v_producto_detalle,tela_ext_elasticidad,text,YES,36
+v_producto_detalle,tela_ext_transparencia,text,YES,37
+v_producto_detalle,tela_ext_cuidado,text,YES,38
+v_producto_detalle,tela_forro_nombre,text,YES,39
+v_producto_detalle,tela_forro_composicion,text,YES,40
+v_producto_detalle,persona_nombre,character varying,YES,41
+v_producto_detalle,persona_tipo,character varying,YES,42
+v_producto_detalle,web_id,integer,YES,43
+v_producto_detalle,web_slug,text,YES,44
+v_producto_detalle,web_titulo_seo,text,YES,45
+v_producto_detalle,web_descripcion_seo,text,YES,46
+v_producto_detalle,web_keywords,text,YES,47
+v_producto_detalle,web_precio_publico,numeric,YES,48
+v_producto_detalle,web_precio_oferta,numeric,YES,49
+v_producto_detalle,web_en_oferta,boolean,YES,50
+v_producto_detalle,web_destacado,boolean,YES,51
+v_producto_detalle,web_nuevo,boolean,YES,52
+v_producto_detalle,web_activo,boolean,YES,53
+v_producto_detalle,web_orden_display,integer,YES,54
+v_producto_detalle,web_visitas,integer,YES,55
+v_producto_detalle,web_fecha_publicacion,timestamp without time zone,YES,56
+v_producto_detalle,imagen_principal,text,YES,57
+v_producto_detalle,total_variantes,integer,YES,58
+v_producto_detalle,total_cajas,integer,YES,59
+v_producto_detalle,total_imagenes,integer,YES,60
+v_producto_detalle,total_tags,integer,YES,61
+v_producto_detalle,total_complementos,integer,YES,62
+v_producto_detalle,total_acabados,integer,YES,63
+v_producto_detalle,total_medidas,integer,YES,64
+v_producto_detalle,total_conjunto,integer,YES,65
+v_producto_imagenes,id,integer,YES,1
+v_producto_imagenes,producto_id,integer,YES,2
+v_producto_imagenes,url,text,YES,3
+v_producto_imagenes,es_principal,boolean,YES,4
+v_producto_imagenes,orden,integer,YES,5
+v_producto_imagenes,alt_text,text,YES,6
+v_producto_imagenes,uso_imagen,text,YES,7
+v_producto_imagenes,origen_imagen,text,YES,8
+v_producto_imagenes,created_at,timestamp without time zone,YES,9
+v_producto_medidas,id,integer,YES,1
+v_producto_medidas,producto_id,integer,YES,2
+v_producto_medidas,medida_cm,numeric,YES,3
+v_producto_medidas,medida_ft,numeric,YES,4
+v_producto_medidas,created_at,timestamp without time zone,YES,5
+v_producto_medidas,talla_id,integer,YES,6
+v_producto_medidas,talla_codigo,character varying,YES,7
+v_producto_medidas,talla_nombre,character varying,YES,8
+v_producto_medidas,talla_orden,integer,YES,9
+v_producto_medidas,talla_categoria,character varying,YES,10
+v_producto_medidas,punto_medida_id,integer,YES,11
+v_producto_medidas,punto_medida_nombre,text,YES,12
+v_producto_medidas,punto_medida_inch,text,YES,13
+v_producto_medidas,punto_medida_clasificacion,text,YES,14
+v_producto_medidas,punto_medida_posicion,text,YES,15
+v_producto_tags,id,integer,YES,1
+v_producto_tags,producto_id,integer,YES,2
+v_producto_tags,tipo_tag_id,integer,YES,3
+v_producto_tags,ref_tag_id,integer,YES,4
+v_producto_tags,valor_texto,character varying,YES,5
+v_producto_tags,created_at,timestamp without time zone,YES,6
+v_producto_tags,tipo_tag_nombre,text,YES,7
+v_producto_tags,tipo_tag_codigo,character varying,YES,8
+v_producto_tags,tipo_tag_tipo_dato,character varying,YES,9
+v_producto_tags,tipo_tag_es_multiple,boolean,YES,10
+v_producto_tags,tipo_tag_orden,integer,YES,11
+v_producto_tags,tipo_tag_icono,character varying,YES,12
+v_producto_tags,ref_tag_nombre,character varying,YES,13
+v_producto_tags,ref_tag_codigo,character varying,YES,14
+v_producto_tags,ref_tag_nombre_en,character varying,YES,15
+v_producto_tags,ref_tag_descripcion,text,YES,16
+v_producto_tags,ref_tag_booleano,boolean,YES,17
+v_producto_tags,ref_tag_sup_inf,character varying,YES,18
+v_producto_variantes,id,integer,YES,1
+v_producto_variantes,producto_id,integer,YES,2
+v_producto_variantes,sku_completo,text,YES,3
+v_producto_variantes,costo_promedio,numeric,YES,4
+v_producto_variantes,precio_venta,numeric,YES,5
+v_producto_variantes,activo,boolean,YES,6
+v_producto_variantes,created_at,timestamp without time zone,YES,7
+v_producto_variantes,updated_at,timestamp without time zone,YES,8
+v_producto_variantes,talla_id,integer,YES,9
+v_producto_variantes,talla_codigo,character varying,YES,10
+v_producto_variantes,talla_nombre,character varying,YES,11
+v_producto_variantes,talla_categoria,character varying,YES,12
+v_producto_variantes,talla_orden,integer,YES,13
+v_producto_variantes,talla_us,character varying,YES,14
+v_producto_variantes,talla_es_extra,boolean,YES,15
+v_producto_variantes,color_id,integer,YES,16
+v_producto_variantes,color_codigo,character varying,YES,17
+v_producto_variantes,color_nombre,text,YES,18
+v_producto_variantes,color_hex,character varying,YES,19
+v_producto_variantes,color_nombre_interno,character varying,YES,20
+v_producto_variantes,color_tipo,character varying,YES,21
+v_producto_variantes,color_orden,integer,YES,22
+v_stock_alertas,bodega_id,integer,YES,1
+v_stock_alertas,bodega_codigo,character varying,YES,2
+v_stock_alertas,bodega_nombre,character varying,YES,3
+v_stock_alertas,producto_id,integer,YES,4
+v_stock_alertas,sku_base,character varying,YES,5
+v_stock_alertas,producto_nombre,text,YES,6
+v_stock_alertas,variante_id,integer,YES,7
+v_stock_alertas,sku_completo,text,YES,8
+v_stock_alertas,talla,character varying,YES,9
+v_stock_alertas,color,text,YES,10
+v_stock_alertas,cajas,numeric,YES,11
+v_stock_alertas,piezas_sueltas,integer,YES,12
+v_stock_alertas,total_piezas,integer,YES,13
+v_stock_alertas,pz_en_caja,integer,YES,14
+v_stock_alertas,alerta_stock,text,YES,15
+v_stock_alertas,ubicacion_pasillo,text,YES,16
+v_stock_alertas,updated_at,timestamp without time zone,YES,17
+v_stock_consolidado,producto_id,integer,YES,1
+v_stock_consolidado,sku_base,character varying,YES,2
+v_stock_consolidado,producto_nombre,text,YES,3
+v_stock_consolidado,cajas_total_global,numeric,YES,4
+v_stock_consolidado,piezas_total_global,bigint,YES,5
+v_stock_consolidado,piezas_estimadas_global,numeric,YES,6
+v_stock_consolidado,num_bodegas,bigint,YES,7
+v_stock_consolidado,ultima_actualizacion,timestamp without time zone,YES,8
+v_stock_desglose_cajas,producto_id,integer,YES,1
+v_stock_desglose_cajas,sku_base,character varying,YES,2
+v_stock_desglose_cajas,producto_nombre,text,YES,3
+v_stock_desglose_cajas,bodega_id,integer,YES,4
+v_stock_desglose_cajas,bodega_nombre,character varying,YES,5
+v_stock_desglose_cajas,caja_id,integer,YES,6
+v_stock_desglose_cajas,codigo_caja,text,YES,7
+v_stock_desglose_cajas,nombre_pack,text,YES,8
+v_stock_desglose_cajas,piezas_por_caja,integer,YES,9
+v_stock_desglose_cajas,cajas_de_este_tipo,numeric,YES,10
+v_stock_desglose_cajas,piezas_sueltas,integer,YES,11
+v_stock_desglose_cajas,piezas_estimadas,numeric,YES,12
+v_stock_desglose_cajas,ultima_actualizacion,timestamp without time zone,YES,13
+v_stock_por_producto,producto_id,integer,YES,1
+v_stock_por_producto,sku_base,character varying,YES,2
+v_stock_por_producto,producto_nombre,text,YES,3
+v_stock_por_producto,bodega_id,integer,YES,4
+v_stock_por_producto,bodega_codigo,character varying,YES,5
+v_stock_por_producto,bodega_nombre,character varying,YES,6
+v_stock_por_producto,cajas_total,numeric,YES,7
+v_stock_por_producto,piezas_total,integer,YES,8
+v_stock_por_producto,piezas_estimadas_total,numeric,YES,9
+v_stock_por_producto,ubicacion_pasillo,text,YES,10
+v_stock_por_producto,ultima_actualizacion,timestamp without time zone,YES,11
+v_variantes_disponibles,id,integer,YES,1
+v_variantes_disponibles,sku_completo,text,YES,2
+v_variantes_disponibles,nombre_completo,text,YES,3
+v_variantes_disponibles,producto,text,YES,4
+v_variantes_disponibles,talla,character varying,YES,5
+v_variantes_disponibles,color,text,YES,6
+v_variantes_disponibles,precio_venta,numeric,YES,7
+v_variantes_disponibles,pz_en_caja,integer,YES,8
+v_variantes_disponibles,activo,boolean,YES,9
