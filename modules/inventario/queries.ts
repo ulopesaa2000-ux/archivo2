@@ -601,14 +601,14 @@ export async function searchProductos(
   const { data, error } = await supabase
     .from('productos')
     .select(`
-      id, sku_base, nombre, pz_en_caja,
+      id, sku_base, nombre, descripcion, pz_en_caja,
       marca:cat_marcas!productos_marca_id_fkey ( nombre ),
       imagenes:producto_imagenes!producto_imagenes_producto_id_fkey (
         url
       )
     `)
     .eq('activo', true)
-    .or(`sku_base.ilike.%${term}%,nombre.ilike.%${term}%`)
+    .or(`sku_base.ilike.%${term}%,descripcion.ilike.%${term}%`)
     .order('sku_base')
     .limit(limit)
 
@@ -623,6 +623,7 @@ export async function searchProductos(
       id: p.id,
       sku_base: p.sku_base,
       nombre: p.nombre,
+      descripcion: p.descripcion,
       pz_en_caja: p.pz_en_caja,
       marca_nombre: marca?.nombre ?? null,
       imagen_url: primeraImagen,

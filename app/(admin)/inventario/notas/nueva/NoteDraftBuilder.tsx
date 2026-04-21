@@ -285,7 +285,7 @@ export function NoteDraftBuilder({
             <div className="space-y-2">
               <Label>Tipo de Movimiento *</Label>
               <Select
-                value={draft.tipo_movimiento_id?.toString() ?? undefined}
+                value={draft.tipo_movimiento_id?.toString() ?? ''}
                 onValueChange={(v) => {
                   if (!v) return
                   const id = parseInt(v)
@@ -298,7 +298,9 @@ export function NoteDraftBuilder({
                 disabled={mode === 'edit'}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar..." />
+                  <SelectValue>
+                    {catalogos.tiposMovimiento.find(t => t.id === draft.tipo_movimiento_id)?.nombre ?? 'Seleccionar...'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {catalogos.tiposMovimiento.map((t) => (
@@ -317,14 +319,16 @@ export function NoteDraftBuilder({
             <div className="space-y-2">
               <Label>Bodega Origen *</Label>
               <Select
-                value={draft.bodega_origen_id?.toString() ?? undefined}
+                value={draft.bodega_origen_id?.toString() ?? ''}
                 onValueChange={(v) =>
                   v && setDraft((prev) => ({ ...prev, bodega_origen_id: parseInt(v) }))
                 }
                 disabled={mode === 'edit'}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar..." />
+                  <SelectValue>
+                    {catalogos.bodegas.find(b => b.id === draft.bodega_origen_id)?.nombre ?? 'Seleccionar...'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {catalogos.bodegas.map((b) => (
@@ -343,13 +347,18 @@ export function NoteDraftBuilder({
             {tipoSeleccionado?.requiere_destino && (
               <div className="space-y-2">
                 <Label>Bodega Destino *</Label>
-                <Select
-                  value={draft.bodega_destino_id?.toString() ?? undefined}
-                  onValueChange={(v) =>
-                    v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
-                  }
-                  disabled={mode === 'edit'}
-                >
+<Select
+                value={draft.bodega_destino_id?.toString() ?? ''}
+                onValueChange={(v) =>
+                  v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
+                }
+                disabled={mode === 'edit'}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {catalogos.bodegas.find(b => b.id === draft.bodega_destino_id)?.nombre ?? 'Seleccionar...'}
+                  </SelectValue>
+                </SelectTrigger>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar..." />
                   </SelectTrigger>
@@ -415,32 +424,26 @@ export function NoteDraftBuilder({
             )}
           </div>
 
-          {/* Resultados de búsqueda (grid 2×5) */}
+          {/* Resultados de búsqueda - grid 2 columnas */}
           {searchResults.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-auto border rounded-lg p-2">
-              {searchResults.map((p) => (
+            <div className="grid grid-cols-2 gap-2 max-h-[250px] overflow-auto border rounded-lg p-2">
+              {searchResults.slice(0, 10).map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => handleSelectProduct(p)}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted text-left transition-colors"
+                  className="flex flex-col gap-1 p-2 rounded-lg border hover:bg-muted text-left transition-colors text-sm"
                 >
-                  <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden shrink-0">
-                    {p.imagen_url ? (
-                      <Image src={p.imagen_url} alt="" fill className="object-contain" />
-                    ) : (
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-mono text-xs font-medium truncate">{p.sku_base}</p>
-                    <p className="text-xs text-muted-foreground truncate">{p.nombre}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {p.marca_nombre ?? ''} · {p.pz_en_caja ?? '?'} pz/caja
-                    </p>
-                  </div>
+                  <span className="font-mono text-xs font-medium">{p.sku_base}</span>
+                  <span className="text-xs text-muted-foreground line-clamp-2">{p.descripcion ?? p.nombre}</span>
+                  <span className="text-[10px] text-muted-foreground">{p.pz_en_caja ?? '?'} pz/caja</span>
                 </button>
               ))}
+              {searchResults.length > 10 && (
+                <div className="col-span-2 text-center text-xs text-muted-foreground py-1 border-t">
+                  +{searchResults.length - 10} más resultados
+                </div>
+              )}
             </div>
           )}
 
@@ -478,7 +481,7 @@ export function NoteDraftBuilder({
                 <div className="space-y-1">
                   <Label className="text-xs">Caja física (opcional)</Label>
                   <Select
-                    value={addCajaId || undefined}
+                    value={addCajaId ?? ''}
                     onValueChange={(val) => setAddCajaId(val || '')}
                   >
                     <SelectTrigger className="h-9">

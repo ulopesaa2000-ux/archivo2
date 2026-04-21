@@ -53,3 +53,6 @@ Thumbs.db
 tests/e2e/.auth/
 .env*
 !.env.example
+*.log
+*.ps1
+*.sql

@@ -1,12 +1,11 @@
 // app/(admin)/inventario/bodegas/BodegaUsuarios.tsx
 'use client'
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Loader2, Users } from 'lucide-react'
+import { Plus, Trash2, Users } from 'lucide-react'
 import {
   asignarUsuarioBodegaAction,
   eliminarUsuarioBodegaAction,
@@ -23,25 +22,25 @@ type UsuarioBodega = {
   usuario_nombre: string
 }
 
-export function BodegaUsuarios({ bodegaId }: { bodegaId: number }) {
+type Props = {
+  bodegaId: number
+  initialUsuarios?: UsuarioBodega[]
+}
+
+export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [usuarios, setUsuarios] = useState<UsuarioBodega[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [usuarios, setUsuarios] = useState<UsuarioBodega[]>(initialUsuarios ?? [])
+  const [isLoading, setIsLoading] = useState(!initialUsuarios)
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`/api/inventario/bodega-usuarios?bodega_id=${bodegaId}`)
-        if (res.ok) {
-          const data = await res.json()
-          setUsuarios(data)
-        }
-      } catch { /* ignore */ }
-      setIsLoading(false)
-    }
-    load()
-  }, [bodegaId])
+  // Cargar usuarios solo si no se pasaron como prop
+  if (isLoading && initialUsuarios === undefined) {
+    setIsLoading(false)
+    fetch(`/api/inventario/bodega-usuarios?bodega_id=${bodegaId}`)
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(data => setUsuarios(data))
+      .catch(() => { /* ignore */ })
+  }
 
   const handleDelete = (asignacionId: number) => {
     startTransition(async () => {
@@ -49,15 +48,6 @@ export function BodegaUsuarios({ bodegaId }: { bodegaId: number }) {
       setUsuarios((prev) => prev.filter((u) => u.id !== asignacionId))
       router.refresh()
     })
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Cargando usuarios...
-      </div>
-    )
   }
 
   return (

@@ -178,6 +178,7 @@ export type ProductoBusqueda = {
   id: number
   sku_base: string
   nombre: string | null
+  descripcion: string | null
   pz_en_caja: number | null
   marca_nombre: string | null
   imagen_url: string | null
