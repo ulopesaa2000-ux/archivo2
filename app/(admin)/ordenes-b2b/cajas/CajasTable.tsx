@@ -1,20 +1,22 @@
-// app/(admin)/ordenes-b2b/cajas/CajasTable.tsx
 'use client'
 
-import Link from 'next/link'
-import { DataTable, DataTableProvider } from '@/components/admin/DataTable'
+import { DataTable, DataTableProvider, useDataTableContext } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Eye, Package } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { cn } from '@/lib/utils'
 import type { CajaListItem } from '@/modules/ordenes-b2b/types'
+import { DetalleCajaSheet } from './DetalleCajaSheet'
+import { Button } from '@/components/ui/button'
 
 type Props = {
   items: CajaListItem[]
 }
 
 function CajasTableInner({ items }: Props) {
+  const ctx = useDataTableContext()
+
   const columns: ColumnDef<CajaListItem>[] = [
     {
       key: 'codigo_caja',
@@ -90,15 +92,26 @@ function CajasTableInner({ items }: Props) {
       key: 'acciones',
       header: '',
       headerClassName: 'w-[50px]',
-      cell: (row: CajaListItem) => (
-        <Link
-          href={/* TODO: Add route for caja detalle */'#'}
-          className="flex h-7 w-7 items-center justify-center"
-          title={`Ver caja ${row.id}`}
-        >
-          <Eye className="h-3.5 w-3.5" />
-        </Link>
-      ),
+      cell: (row: CajaListItem) => {
+        const isExpanded = ctx.expandedIds.has(row.id)
+        return (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 transition-colors",
+              isExpanded && "text-primary bg-primary/10"
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+              ctx.onToggleExpand(row.id)
+            }}
+            title={isExpanded ? 'Cerrar detalle' : 'Ver detalle de caja'}
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+        )
+      },
     },
   ]
 
@@ -108,6 +121,7 @@ function CajasTableInner({ items }: Props) {
       data={items}
       rowKey={(row: CajaListItem) => row.id}
       defaultSortKey="codigo_caja"
+      renderExpanded={(row) => <DetalleCajaSheet cajaId={row.id} />}
       emptyMessage="No se encontraron cajas."
       emptyIcon={<Package className="h-12 w-12" />}
     />
@@ -116,7 +130,7 @@ function CajasTableInner({ items }: Props) {
 
 export function CajasTable(props: Props) {
   return (
-    <DataTableProvider route="/ordenes-b2b/cajas" features={{ selectable: true, expandable: false, sortable: true }}>
+    <DataTableProvider route="/ordenes-b2b/cajas" features={{ selectable: true, expandable: true, sortable: true }}>
       <CajasTableInner {...props} />
     </DataTableProvider>
   )

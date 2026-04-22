@@ -8,12 +8,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash, Calculator, Sparkles } from 'lucide-react'
+import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash, Calculator, Sparkles, Wand2, Info } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
+import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
 import type { SharedCajaData, SharedCajaContenidoMap } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
 import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
 import { ColorCombobox } from './ColorCombobox'
+import { MultiTagInput } from './MultiTagInput'
+import { toast } from 'sonner'
 
 // Tipo para fila de detalle editable
 type DetalleFila = {
@@ -76,6 +79,15 @@ export function CajaCard({
     ancho_cm: caja.ancho_cm || '',
     alto_cm: caja.alto_cm || '',
     costo_total_caja: caja.costo_total_caja || 1,
+    tallas_summary: caja.tallas ? caja.tallas.split('|').filter(Boolean).map((t) => {
+      const cat = CAT_TALLAS_MAESTRO.find((ct) => ct.codigo === t || ct.nombre === t)
+      return {
+        id: cat?.id ?? t,
+        label: cat?.nombre ?? t,
+        value: cat?.codigo ?? t,
+      }
+    }) : [],
+    colores_summary: caja.colores ? caja.colores.split('|').filter(Boolean).map(c => ({ id: c, label: c, value: c })) : [],
   })
 
   // Convertir contenidoMap a formato editable de filas
@@ -151,6 +163,15 @@ export function CajaCard({
         ancho_cm: caja.ancho_cm || '',
         alto_cm: caja.alto_cm || '',
         costo_total_caja: caja.costo_total_caja || 1,
+        tallas_summary: caja.tallas ? caja.tallas.split('|').filter(Boolean).map((t) => {
+          const cat = CAT_TALLAS_MAESTRO.find((ct) => ct.codigo === t || ct.nombre === t)
+          return {
+            id: cat?.id ?? t,
+            label: cat?.nombre ?? t,
+            value: cat?.codigo ?? t,
+          }
+        }) : [],
+        colores_summary: caja.colores ? caja.colores.split('|').filter(Boolean).map(c => ({ id: c, label: c, value: c })) : [],
       })
       setEditTallas(() => {
         if (!caja.contenidoMap || !caja.contenidoMap.tallas.length) return []
@@ -184,6 +205,15 @@ export function CajaCard({
       })
 
       const basePayload = { ...editData } as Record<string, any>;
+      
+      // Convertir tags de resumen a strings piped
+      basePayload.tallas = editData.tallas_summary.map((t: any) => t.value).join('|')
+      basePayload.colores = editData.colores_summary.map((c: any) => c.label).join('|')
+      
+      // Limpiar campos de UI que no van a la BD
+      delete basePayload.tallas_summary
+      delete basePayload.colores_summary
+
       for (const k in basePayload) {
         if (basePayload[k] === '') basePayload[k] = null;
       }
@@ -207,56 +237,57 @@ export function CajaCard({
     }
   }
 
-  const handleAddTalla = () => {
-    if (!selectedTallaId) return
-    const talla = tallasDisponibles.find(t => t.id === parseInt(selectedTallaId))
-    if (!talla) return
+  // Handlers para los Tags de Resumen (Top)
+  const handleAddTallaSummary = (option: any) => {
+    if (editData.tallas_summary.some((t: any) => t.id === option.id)) return
+    setEditData({ ...editData, tallas_summary: [...editData.tallas_summary, option] })
+  }
 
-    // Verificar si ya existe
-    if (editTallas.some(t => t.id === talla.id)) {
-      alert('Esta talla ya está agregada')
-      return
-    }
+  const handleRemoveTallaSummary = (id: string | number) => {
+    setEditData({ ...editData, tallas_summary: editData.tallas_summary.filter((t: any) => t.id !== id) })
+  }
+
+  const handleAddColorSummary = (option: any) => {
+    if (editData.colores_summary.some((c: any) => c.id === option.id)) return
+    setEditData({ ...editData, colores_summary: [...editData.colores_summary, option] })
+  }
+
+  const handleRemoveColorSummary = (id: string | number) => {
+    setEditData({ ...editData, colores_summary: editData.colores_summary.filter((c: any) => c.id !== id) })
+  }
+
+  // Handlers para la Matriz (Dropdowns)
+  const handleAddTallaMatrix = (tallaId: string) => {
+    const talla = tallasDisponibles.find(t => t.id === Number(tallaId))
+    if (!talla) return
+    if (editTallas.some(t => t.id === talla.id)) return
 
     setEditTallas([...editTallas, talla])
-
-    // Inicializar cantidad 1 para esta talla en todas las filas existentes
     setEditFilas(prev => prev.map(fila => ({
       ...fila,
       cantidades: { ...fila.cantidades, [talla.nombre]: 1 }
     })))
-
     setSelectedTallaId('')
   }
 
-  const handleAddColor = () => {
-    if (!selectedColorId) return
-    const color = coloresDisponibles.find(c => c.id === parseInt(selectedColorId))
+  const handleAddColorMatrix = (colorId: string | number) => {
+    const color = coloresDisponibles.find(c => c.id === Number(colorId))
     if (!color) return
+    if (editFilas.some(f => f.colorId === color.id)) return
 
-    // Verificar si ya existe
-    if (editFilas.some(f => f.colorId === color.id)) {
-      alert('Este color ya está agregado')
-      return
-    }
-
-    // Crear nueva fila con cantidades 0 para todas las tallas
     const nuevaFila: DetalleFila = {
       colorId: color.id,
       colorNombre: color.nombre,
       cantidades: {}
     }
-
-    // Inicializar todas las tallas con 1
-    editTallas.forEach(talla => {
-      nuevaFila.cantidades[talla.nombre] = 1
-    })
+    editTallas.forEach(t => { nuevaFila.cantidades[t.nombre] = 1 })
 
     setEditFilas([...editFilas, nuevaFila])
     setSelectedColorId('')
   }
 
-  const handleRemoveTalla = (tallaId: number) => {
+  const handleRemoveTalla = (id: number | string) => {
+    const tallaId = typeof id === 'string' ? parseInt(id) : id
     const talla = editTallas.find(t => t.id === tallaId)
     if (!talla) return
 
@@ -269,11 +300,11 @@ export function CajaCard({
     }))
   }
 
-  const handleRemoveColor = (colorId: number) => {
+  const handleRemoveColor = (colorId: number | string) => {
     setEditFilas(editFilas.filter(f => f.colorId !== colorId))
   }
 
-  const handleCantidadChange = (colorId: number, tallaNombre: string, valor: string) => {
+  const handleCantidadChange = (colorId: number | string, tallaNombre: string, valor: string) => {
     const cantidad = parseInt(valor) || 0
     setEditFilas(prev => prev.map(fila =>
       fila.colorId === colorId
@@ -296,7 +327,7 @@ export function CajaCard({
     )
 
     if (tallasAgregar.length === 0) {
-      alert('Las tallas recomendadas ya están agregadas o no existen en el catálogo maestro.')
+      toast.info('Las tallas recomendadas ya están agregadas o no existen.')
       return
     }
 
@@ -308,6 +339,52 @@ export function CajaCard({
       return { ...fila, cantidades: nuevasCantidades }
     }))
   }
+
+  const handleAutoFillFila = (colorId: number) => {
+    if (editTallas.length < 2) {
+      toast.error('Necesitas al menos dos tallas para autocompletar.')
+      return
+    }
+
+    setEditFilas(prev => prev.map(fila => {
+      if (fila.colorId !== colorId) return fila
+
+      const firstTallaNombre = editTallas[0].nombre
+      const firstVal = fila.cantidades[firstTallaNombre] || 0
+      
+      const newCantidades = { ...fila.cantidades }
+      for (let i = 1; i < editTallas.length; i++) {
+        newCantidades[editTallas[i].nombre] = firstVal
+      }
+      return { ...fila, cantidades: newCantidades }
+    }))
+    
+    toast.success('Fila autocompletada.')
+  }
+
+  // Mapeo para MultiTagInput
+  const tallaTags = useMemo(() => editTallas.map(t => {
+    const cat = tallasDisponibles.find(ct => ct.id === t.id)
+    return { id: t.id, label: t.nombre, value: cat?.codigo || t.nombre }
+  }), [editTallas, tallasDisponibles])
+
+  const colorTags = useMemo(() => editFilas.map(f => ({
+    id: f.colorId,
+    label: f.colorNombre,
+    value: f.colorNombre
+  })), [editFilas])
+
+  const tallaOptions = useMemo(() => CAT_TALLAS_MAESTRO.map(t => ({
+    id: t.id,
+    label: t.nombre,
+    value: t.codigo
+  })), [])
+
+  const colorOptions = useMemo(() => coloresDisponibles.map(c => ({
+    id: c.id,
+    label: c.nombre,
+    value: c.nombre
+  })), [coloresDisponibles])
 
   return (
     <Card className={cn("overflow-hidden transition-all border-l-4", isEditing ? "border-l-primary" : "border-l-transparent")}>
@@ -499,6 +576,28 @@ export function CajaCard({
                 />
               </div>
             </div>
+            <div className="p-5 rounded-xl border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-950/50 shadow-sm space-y-4 transition-all">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <MultiTagInput 
+                  label="Tallas de Caja (Resumen)"
+                  placeholder="Buscar talla en catálogo..."
+                  options={tallaOptions}
+                  selectedValues={editData.tallas_summary}
+                  onAdd={handleAddTallaSummary}
+                  onRemove={handleRemoveTallaSummary}
+                  freeText={false}
+                />
+                <MultiTagInput 
+                  label="Colores de Caja (Resumen)"
+                  placeholder="Colores separados por | o Enter..."
+                  options={colorOptions}
+                  selectedValues={editData.colores_summary}
+                  onAdd={handleAddColorSummary}
+                  onRemove={handleRemoveColorSummary}
+                  freeText={true}
+                />
+              </div>
+            </div>
           </div>
         ) : (
           /* Modo Vista - KPIs Logísticos */
@@ -555,95 +654,71 @@ export function CajaCard({
           </div>
         )}
 
-        {/* Modo Edición - Controles para agregar tallas y colores */}
-        {isEditing && (
-          <div className="bg-muted/30 p-4 rounded-lg border space-y-4">
-            <div className={cn("grid gap-4", isVertical ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2")}>
-              {/* Agregar Color */}
-              <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                  Agregar Color
-                </Label>
-                <div className="flex gap-2">
-                  <div className="flex-1">
+        {/* Matriz de contenido - Modo Vista o Edición */}
+        {(caja.contenidoMap || isEditing) ? (
+          <div className={cn(
+            "p-5 rounded-xl border-2 shadow-md space-y-4 mt-6 transition-all",
+            isEditing 
+              ? "border-zinc-300 dark:border-zinc-700 bg-zinc-50/30 dark:bg-zinc-950/40" 
+              : "border-muted-foreground/10 bg-transparent"
+          )}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-2">
+              <div className="flex flex-col gap-1">
+                <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">
+                  {isEditing ? 'Matriz de Distribución Talla × Color' : `Distribución Talla × Color ${isVertical ? '' : '(por caja)'}`}
+                </p>
+                {isEditing && editTallas.length > 1 && (
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-1">
+                    <Info className="h-3 w-3 text-blue-500" />
+                    Rellena la primera talla de un color y usa el botón 🪄 en su fila para replicar la cantidad.
+                  </p>
+                )}
+              </div>
+              
+              {isEditing && (
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[9px] uppercase font-bold text-muted-foreground">Agregar Talla:</Label>
+                    <Select value={selectedTallaId} onValueChange={(val) => val && handleAddTallaMatrix(val)}>
+                      <SelectTrigger className="h-8 w-32 text-xs">
+                        <SelectValue placeholder="Seleccionar..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tallasDisponibles
+                          .filter(t => !editTallas.some(et => et.id === t.id))
+                          .map(t => (
+                            <SelectItem key={t.id} value={t.id.toString()}>{t.nombre}</SelectItem>
+                          ))
+                        }
+                      </SelectContent>
+                    </Select>
+                    
+                    {edadNombre && (
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleAutoRecommendTallas} 
+                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-primary border-primary/20 hover:bg-primary/5"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                        Sugerir
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[9px] uppercase font-bold text-muted-foreground">Agregar Color:</Label>
                     <ColorCombobox 
-                      coloresDisponibles={coloresDisponibles} 
-                      selectedColorId={selectedColorId} 
-                      onSelect={(val) => setSelectedColorId(val)} 
+                      coloresDisponibles={coloresDisponibles}
+                      selectedColorId={selectedColorId}
+                      onSelect={handleAddColorMatrix}
                       disabledFilas={editFilas.map(f => f.colorId)}
                     />
                   </div>
-                  <Button
-                    type="button"
-                    onClick={handleAddColor}
-                    disabled={!selectedColorId}
-                    className="h-9 px-3 bg-primary hover:bg-primary/90"
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    <span className="text-xs">Agregar</span>
-                  </Button>
                 </div>
-              </div>
-
-              {/* Agregar Talla */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                    Agregar Talla
-                  </Label>
-                  {edadNombre && (
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      onClick={handleAutoRecommendTallas} 
-                      className="h-4 px-1 text-[9px] uppercase tracking-widest text-primary hover:text-primary/80 hover:bg-primary/10"
-                      title="Sugerir tallas según edad del producto"
-                    >
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      Auto Recomendado
-                    </Button>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Select value={selectedTallaId} onValueChange={(val) => setSelectedTallaId(val || '')}>
-                    <SelectTrigger className="flex-1 h-9 text-sm">
-                      <span className="truncate flex flex-1 text-left">
-                        {selectedTallaId
-                          ? tallasDisponibles.find(t => t.id.toString() === selectedTallaId)?.nombre
-                          : <span className="text-muted-foreground">Seleccionar talla...</span>}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tallasDisponibles
-                        .filter(t => !editTallas.some(et => et.id === t.id))
-                        .map(talla => (
-                          <SelectItem key={talla.id} value={talla.id.toString()} label={talla.nombre}>
-                            {talla.nombre}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    onClick={handleAddTalla}
-                    disabled={!selectedTallaId}
-                    className="h-9 px-3 bg-primary hover:bg-primary/90"
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    <span className="text-xs">Agregar</span>
-                  </Button>
-                </div>
-              </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Matriz de contenido - Modo Vista o Edición */}
-        {(caja.contenidoMap || isEditing) ? (
-          <div className="space-y-3">
-            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest border-b pb-1">
-              {isEditing ? 'Distribución Editable Talla × Color' : `Distribución Talla × Color ${isVertical ? '' : '(por caja)'}`}
-            </p>
 
             {isEditing ? (
               /* Modo Edición - Tabla Editable */
@@ -676,7 +751,19 @@ export function CajaCard({
                     {editFilas.map((fila) => (
                       <tr key={fila.colorId} className="group hover:bg-muted/20 transition-colors">
                         <td className="border px-3 py-2 font-medium text-foreground flex items-center justify-between">
-                          <span>{fila.colorNombre}</span>
+                          <div className="flex items-center gap-2">
+                            <span>{fila.colorNombre}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleAutoFillFila(fila.colorId)}
+                              className="h-6 w-6 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                              title="Autocompletar fila"
+                            >
+                              <Wand2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                           <button
                             type="button"
                             onClick={() => handleRemoveColor(fila.colorId)}

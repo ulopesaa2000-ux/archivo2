@@ -308,6 +308,39 @@ export async function cancelarNotaAction(
 
   revalidatePath('/inventario/notas')
   revalidatePath(`/inventario/notas/${notaId}`)
+  revalidatePath('/inventario/stock')
+
+  return { success: true }
+}
+
+/**
+ * Cambia el estado de una nota de forma atómica.
+ * No intenta procesar stock a menos que el estado sea CONF.
+ */
+export async function cambiarEstadoNotaAction(
+  notaId: number,
+  nuevoEstadoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('notas_inventario')
+    .update({ 
+      estado_id: nuevoEstadoId,
+      usuario_id: user.id // Opcional: registrar quién hizo el último cambio
+    })
+    .eq('id', notaId)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath(`/inventario/notas/${notaId}`)
+  revalidatePath('/inventario/stock')
 
   return { success: true }
 }

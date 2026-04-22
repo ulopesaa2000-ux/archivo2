@@ -115,7 +115,7 @@ export async function updateCajaDetallesAction(
   // Obtener nombres de tallas y colores para el campo texto
   const { data: tallasData } = await supabase
     .from('cat_tallas')
-    .select('id, nombre')
+    .select('id, nombre, codigo')
     .in('id', Array.from(tallasUnicas))
 
   const { data: coloresData } = await supabase
@@ -123,8 +123,9 @@ export async function updateCajaDetallesAction(
     .select('id, nombre')
     .in('id', Array.from(coloresUnicos))
 
-  const tallasTexto = tallasData?.map(t => t.nombre).join(', ') || ''
-  const coloresTexto = coloresData?.map(c => c.nombre).join(', ') || ''
+  // El usuario solicitó guardar el código de las tallas y concatenar con "|"
+  const tallasTexto = tallasData?.map(t => t.codigo || t.nombre).join('|') || ''
+  const coloresTexto = coloresData?.map(c => c.nombre).join('|') || ''
 
   const { error: updateError } = await supabase
     .from('cajas_producto')
@@ -137,7 +138,6 @@ export async function updateCajaDetallesAction(
 
   if (updateError) {
     console.error('Error actualizando resumen de caja:', updateError)
-    // No lanzar error, los detalles ya se guardaron
   }
 
   // Refrescar rutas

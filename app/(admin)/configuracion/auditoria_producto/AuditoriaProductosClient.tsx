@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { DataTable, ColumnDef } from '@/components/admin/DataTable'
+import { DataTable, ColumnDef, DataTableProvider, useDataTableContext } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,15 +21,15 @@ interface Props {
   initialData: AuditoriaGeneralRow[]
 }
 
-export function AuditoriaProductosClient({ initialData }: Props) {
+function AuditoriaProductosClientInner({ initialData }: Props) {
   const router = useRouter()
+  const ctx = useDataTableContext()
   const [searchTerm, setSearchTerm] = useState('')
   const [accionFilter, setAccionFilter] = useState<string>('ALL')
 
   const handleAccionChange = (value: string | null) => {
     setAccionFilter(value || 'ALL')
   }
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   const filteredData = useMemo(() => {
     return initialData.filter((item) => {
@@ -44,17 +44,6 @@ export function AuditoriaProductosClient({ initialData }: Props) {
       return matchesSearch && matchesAccion
     })
   }, [initialData, searchTerm, accionFilter])
-
-  const toggleRow = (id: string | number) => {
-    const numericId = typeof id === 'string' ? parseInt(id, 10) : id
-    const newSet = new Set(expandedRows)
-    if (newSet.has(numericId)) {
-      newSet.delete(numericId)
-    } else {
-      newSet.add(numericId)
-    }
-    setExpandedRows(newSet)
-  }
 
   const getAccionBadge = (accion: string) => {
     switch (accion) {
@@ -309,8 +298,6 @@ export function AuditoriaProductosClient({ initialData }: Props) {
         columns={columns}
         data={filteredData}
         rowKey={(row) => row.id}
-        expandedRows={expandedRows}
-        onToggleRow={toggleRow}
         renderExpanded={renderExpanded}
         emptyMessage="No se encontraron registros de auditoría."
         emptyIcon={<History className="h-12 w-12" />}
@@ -320,5 +307,13 @@ export function AuditoriaProductosClient({ initialData }: Props) {
         Mostrando {filteredData.length} de {initialData.length} registros
       </div>
     </div>
+  )
+}
+
+export function AuditoriaProductosClient(props: Props) {
+  return (
+    <DataTableProvider route="/configuracion/auditoria_producto" features={{ expandable: true }}>
+      <AuditoriaProductosClientInner {...props} />
+    </DataTableProvider>
   )
 }

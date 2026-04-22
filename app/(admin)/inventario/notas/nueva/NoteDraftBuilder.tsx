@@ -347,20 +347,17 @@ export function NoteDraftBuilder({
             {tipoSeleccionado?.requiere_destino && (
               <div className="space-y-2">
                 <Label>Bodega Destino *</Label>
-<Select
-                value={draft.bodega_destino_id?.toString() ?? ''}
-                onValueChange={(v) =>
-                  v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
-                }
-                disabled={mode === 'edit'}
-              >
-                <SelectTrigger>
-                  <SelectValue>
-                    {catalogos.bodegas.find(b => b.id === draft.bodega_destino_id)?.nombre ?? 'Seleccionar...'}
-                  </SelectValue>
-                </SelectTrigger>
+                <Select
+                  value={draft.bodega_destino_id?.toString() ?? ''}
+                  onValueChange={(v) =>
+                    v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
+                  }
+                  disabled={mode === 'edit'}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar..." />
+                    <SelectValue>
+                      {catalogos.bodegas.find(b => b.id === draft.bodega_destino_id)?.nombre ?? 'Seleccionar...'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.bodegas

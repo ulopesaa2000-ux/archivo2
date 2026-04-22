@@ -642,3 +642,40 @@ export async function bulkDeactivateProductsAction(
   return { success: true }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Medidas
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveMedidasAction(
+  productoId: number,
+  medidas: { talla_id: number; punto_medida_id: number; medida_cm: number }[]
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  if (!productoId) return { success: false, error: 'ID de producto requerido.' }
+
+  // 1. Eliminar medidas existentes
+  const { error: deleteError } = await (supabase.from('medidas_producto') as any)
+    .delete()
+    .eq('producto_id', productoId)
+
+  if (deleteError) return { success: false, error: deleteError.message }
+
+  // 2. Insertar nuevas medidas si hay
+  if (medidas.length > 0) {
+    const payload = medidas.map((m) => ({
+      producto_id: productoId,
+      talla_id: m.talla_id,
+      punto_medida_id: m.punto_medida_id,
+      medida_cm: m.medida_cm,
+    }))
+
+    const { error: insertError } = await (supabase.from('medidas_producto') as any).insert(payload)
+    if (insertError) return { success: false, error: insertError.message }
+  }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true }
+}

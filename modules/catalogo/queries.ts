@@ -149,11 +149,11 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
     (supabase.from('detalle_acabado') as any).select('id, nombre').order('nombre'),
     (supabase.from('patron_acabado') as any).select('id, estampado_patron').order('estampado_patron'),
     (supabase.from('localizacion_acabado') as any).select('id, nombre').order('nombre'),
-    (supabase.from('cat_tallas') as any).select('id, nombre').order('orden'),
-    (supabase.from('cat_colores') as any).select('id, nombre').order('nombre'),
+    (supabase.from('cat_tallas') as any).select('id, nombre, codigo').order('orden'),
+    (supabase.from('cat_colores') as any).select('id, nombre, codigo').order('nombre'),
   ])
 
-  const mapToCatalogo = (data: any[] | null) => (data ?? []) as { id: number; nombre: string }[]
+  const mapToCatalogo = (data: any[] | null) => (data ?? []) as any[]
 
   return {
     marcas:       mapToCatalogo(marcasRes.data),
@@ -182,8 +182,8 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
       nombre: p.estampado_patron ?? 'Sin nombre',
     })),
     localizaciones:   mapToCatalogo(locaRes.data),
-    tallas:           mapToCatalogo(tallasRes.data),
-    colores:          mapToCatalogo(coloresRes.data),
+    tallas:           (tallasRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
+    colores:          (coloresRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
   }
 }
 
@@ -607,5 +607,11 @@ export async function fetchAuditoriaGeneral(
     .limit(limit)
 
   if (error) throw error
+  return data ?? []
+}
+
+export async function fetchPuntosMedida() {
+  const supabase = await createClient()
+  const { data } = await (supabase.from('puntos_medida') as any).select('id, punto_medida, size_inch, position, clasificacion').order('punto_medida')
   return data ?? []
 }
