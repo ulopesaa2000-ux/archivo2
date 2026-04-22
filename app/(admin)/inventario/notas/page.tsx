@@ -5,10 +5,11 @@ import { NotasFilters } from './NotasFilters'
 import { NotasTable } from './NotasTable'
 import { Pagination } from '@/components/admin/Pagination'
 import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { Plus, Clock, RefreshCw, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 import Link from 'next/link'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { FiltrosNotas } from '@/modules/inventario/types'
+import { Card, CardContent } from '@/components/ui/card'
 
 export const metadata: Metadata = {
   title: 'Notas de Inventario',
@@ -66,6 +67,65 @@ export default async function NotasPage({
             Nueva Nota
           </Button>
         </Link>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-background/50 border shadow-sm group hover:border-yellow-500/30 transition-colors">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-500">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Pendientes</p>
+              <p className="text-xl font-black font-mono leading-none mt-1">
+                {notas.filter(n => n.estado_codigo === 'PEND').length}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-background/50 border shadow-sm group hover:border-blue-500/30 transition-colors">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+              <RefreshCw className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">En Proceso</p>
+              <p className="text-xl font-black font-mono leading-none mt-1">
+                {notas.filter(n => n.estado_codigo === 'PROC').length}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-background/50 border shadow-sm group hover:border-emerald-500/30 transition-colors">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+              <ArrowDownLeft className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Ingresadas</p>
+              <p className="text-xl font-black font-mono leading-none mt-1">
+                {notas.filter(n => n.estado_codigo === 'CONF' && n.tipo_codigo === 'ENT').reduce((acc, curr) => acc + (curr.total_cajas || 0), 0)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-background/50 border shadow-sm group hover:border-red-500/30 transition-colors">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
+              <ArrowUpRight className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Egresadas</p>
+              <p className="text-xl font-black font-mono leading-none mt-1">
+                {notas.filter(n => n.estado_codigo === 'CONF' && n.tipo_codigo === 'SAL').reduce((acc, curr) => acc + (curr.total_cajas || 0), 0)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filtros (Client, FIJOS) */}

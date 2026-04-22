@@ -172,3 +172,28 @@ export const AÑOS_DISPONIBLES = [2020, 2021, 2022, 2023, 2024, 2025, 2026] as c
 
 // ── Monedas ─────────────────────────────────────────────────
 export const MONEDAS = ['USD', 'MXN', 'CNY'] as const
+
+// ── Catálogo Maestro de Tallas (Cacheado) ────────────────────
+export const CAT_TALLAS_MAESTRO = [
+  { id: 1, codigo: '0', categoria: 'ADULTO', nombre: 'CERO' },
+  { id: 2, codigo: 'ECH', categoria: 'ADULTO', nombre: 'EXTRA CHICA' },
+  { id: 3, codigo: 'CH', categoria: 'ADULTO', nombre: 'CHICA' },
+  { id: 4, codigo: 'M', categoria: 'ADULTO', nombre: 'MEDIANA' },
+  { id: 5, codigo: 'G', categoria: 'ADULTO', nombre: 'GRANDE' },
+  { id: 6, codigo: 'EG', categoria: 'ADULTO', nombre: 'EXTRA GRANDE' },
+  { id: 7, codigo: '2EG', categoria: 'ADULTO', nombre: '2X EXTRA GRANDE' },
+  { id: 8, codigo: '3EG', categoria: 'ADULTO', nombre: '3X EXTRA GRANDE' },
+  { id: 9, codigo: '4EG', categoria: 'ADULTO', nombre: '4X EXTRA GRANDE' },
+  { id: 10, codigo: '5EG', categoria: 'ADULTO', nombre: '5X EXTRA GRANDE' },
+  { id: 11, codigo: '2', categoria: 'INFANTIL', nombre: 'TALLA 2' },
+  { id: 12, codigo: '3', categoria: 'ADULTO', nombre: 'TALLA 3' },
+  { id: 13, codigo: '4', categoria: 'INFANTIL', nombre: 'TALLA 4' },
+  { id: 14, codigo: '5', categoria: 'ADULTO', nombre: 'TALLA 5' },
+  { id: 15, codigo: '6', categoria: 'INFANTIL', nombre: 'TALLA 6' },
+  { id: 16, codigo: '8', categoria: 'INFANTIL', nombre: 'TALLA 8' },
+  { id: 17, codigo: '10', categoria: 'INFANTIL', nombre: 'TALLA 10' },
+  { id: 18, codigo: '12', categoria: 'INFANTIL', nombre: 'TALLA 12' },
+  { id: 19, codigo: '14', categoria: 'INFANTIL', nombre: 'TALLA 14' },
+  { id: 20, codigo: '16', categoria: 'INFANTIL', nombre: 'TALLA 16' },
+  { id: 21, codigo: 'UNITALLA', categoria: 'ADULTO', nombre: 'UNITALLA' },
+] as const

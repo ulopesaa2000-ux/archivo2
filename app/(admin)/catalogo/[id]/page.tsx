@@ -16,6 +16,7 @@ import {
   fetchMedidasProducto,
   fetchConjuntoProducto,
   fetchCatalogosEdicion,
+  fetchPuntosMedida,
 } from '@/modules/catalogo/queries'
 import type { CatalogosEdicion } from '@/modules/catalogo/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -199,7 +200,7 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="medidas">
           <Suspense fallback={<TabSkeleton />}>
-            <TabMedidasAsync productoId={producto.id} />
+            <TabMedidasAsync productoId={producto.id} edadNombre={fk.edad} tipoPrendaNombre={fk.tipo_prenda} />
           </Suspense>
         </TabsContent>
 
@@ -347,9 +348,12 @@ async function TabVariantesAsync({
   )
 }
 
-async function TabMedidasAsync({ productoId }: { productoId: number }) {
-  const medidas = await fetchMedidasProducto(productoId)
-  return <TabMedidas medidas={medidas} />
+async function TabMedidasAsync({ productoId, edadNombre, tipoPrendaNombre }: { productoId: number; edadNombre: string | null; tipoPrendaNombre?: string | null }) {
+  const [medidas, puntosMedida] = await Promise.all([
+    fetchMedidasProducto(productoId),
+    fetchPuntosMedida(),
+  ])
+  return <TabMedidas medidas={medidas} puntosCat={puntosMedida} productoId={productoId} edadNombre={edadNombre} tipoPrendaNombre={tipoPrendaNombre} />
 }
 
 async function TabConjuntoAsync({ productoId }: { productoId: number }) {

@@ -4,6 +4,7 @@
 import { MobileSidebar } from './MobileSidebar'
 import { BodegaSelector } from './BodegaSelector'
 import { LogoutButton } from './LogoutButton'
+import { ModeToggle } from './ModeToggle'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Store, ChevronDown } from 'lucide-react'
@@ -88,6 +89,11 @@ export function Header({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Separator orientation="vertical" className="h-6 hidden sm:block" />
+
+          {/* ── Theme Toggle ───────────────────────────────── */}
+          <ModeToggle />
 
           <Separator orientation="vertical" className="h-6 hidden sm:block" />
 
