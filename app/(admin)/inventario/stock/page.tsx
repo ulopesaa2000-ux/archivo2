@@ -6,8 +6,9 @@ import { StockFilters } from '@/app/(admin)/inventario/stock/StockFilters'
 import { StockTable } from '@/app/(admin)/inventario/stock/StockTable'
 import { StockMatrixFilters } from '@/app/(admin)/inventario/stock/StockMatrixFilters'
 import { StockMatrixTable } from '@/app/(admin)/inventario/stock/StockMatrixTable'
+import { StockPageHeader } from '@/app/(admin)/inventario/stock/StockPageHeader'
 import { Pagination } from '@/components/admin/Pagination'
-import { Warehouse, Grid3X3 } from 'lucide-react'
+import { Warehouse } from 'lucide-react'
 import type { FiltrosStock, FiltrosStockMatrix, StockMatrixItem } from '@/modules/inventario/types'
 
 export const metadata: Metadata = {
@@ -82,18 +83,18 @@ export default async function StockPage({
       bodegasColumnas = []
     }
 
-    return (
-      <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Stock Consolidado (Matriz)</h1>
-          <p className="text-sm text-muted-foreground">
-            Todas las bodegas disponibles — {total} producto{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <StockMatrixFilters bodegas={catalogos.bodegas} />
-        <StockMatrixTable items={items} bodegasColumnas={bodegasColumnas} total={total} />
-      </div>
-    )
+  return (
+    <div className="space-y-4">
+      <StockPageHeader
+        title="Stock Consolidado (Matriz)"
+        subtitle={`Todas las bodegas disponibles — ${total} producto${total !== 1 ? 's' : ''}`}
+        bodegas={catalogos.bodegas}
+        bodegaActivaId={bodegaActivaId}
+      />
+      <StockMatrixFilters bodegas={catalogos.bodegas} />
+      <StockMatrixTable items={items} bodegasColumnas={bodegasColumnas} total={total} />
+    </div>
+  )
   }
 
   // Vista Normal (Una sola bodega)
@@ -108,12 +109,12 @@ export default async function StockPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Stock por Bodega</h1>
-        <p className="text-sm text-muted-foreground">
-          {bodegaActiva?.nombre ?? 'Bodega seleccionada'} — {total} producto{total !== 1 ? 's' : ''}
-        </p>
-      </div>
+      <StockPageHeader
+        title="Stock por Bodega"
+        subtitle={`${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`}
+        bodegas={catalogos.bodegas}
+        bodegaActivaId={bodegaActivaId}
+      />
       <StockFilters />
       <StockTable items={items} bodegaId={bodegaActivaId} />
       <Pagination total={total} />
