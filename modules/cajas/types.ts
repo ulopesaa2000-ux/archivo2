@@ -26,4 +26,7 @@ export type SharedCajaData = {
   
   // Datos específicos para órdenes
   cantidad_cajas?: number | null
+
+  // Caja principal para generar variantes
+  es_principal?: boolean | null
 }

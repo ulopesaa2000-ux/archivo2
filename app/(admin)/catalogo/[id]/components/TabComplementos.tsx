@@ -50,6 +50,9 @@ export function TabComplementos({
   const [selectedParteId, setSelectedParteId] = useState<string>('')
   // Estado para trackear el tipo de componente seleccionado (filtra cortes)
   const [selectedTipoCompId, setSelectedTipoCompId] = useState<string>('')
+  // Estados para cortes y materiales
+  const [selectedCorteFormaId, setSelectedCorteFormaId] = useState<string>('')
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string>('')
 
   const handleOpenAdd = () => {
     setEditingComp(null)
@@ -62,6 +65,8 @@ export function TabComplementos({
     setEditingComp(comp)
     setSelectedParteId(comp.parte_prenda_id?.toString() || '')
     setSelectedTipoCompId(comp.tipo_comp_id?.toString() || '')
+    setSelectedCorteFormaId(comp.corte_forma_id?.toString() || '')
+    setSelectedMaterialId(comp.material_id?.toString() || '')
     setIsDialogOpen(true)
   }
 
@@ -91,6 +96,29 @@ export function TabComplementos({
           (selectedTipoCompNombre && cf.corte_forma_en === selectedTipoCompNombre)
       )
     : []
+
+  // Nombres seleccionados para mostrar en SelectValue
+  const selectedParteNombreDisplay = selectedParteId
+    ? catalogos.partes.find((p) => p.id.toString() === selectedParteId)?.nombre
+    : undefined
+
+  const selectedTipoCompNombreDisplay = selectedTipoCompId
+    ? (tiposFiltrados.find(tc => tc.id.toString() === selectedTipoCompId)?.nombre ??
+        catalogos.componente_tipos.find(tc => tc.id.toString() === selectedTipoCompId)?.nombre)
+    : undefined
+
+  const selectedCorteFormaNombre = selectedCorteFormaId === '_null'
+    ? 'Ninguno'
+    : selectedCorteFormaId
+    ? (cortesFiltrados.find(cf => cf.id.toString() === selectedCorteFormaId)?.nombre ??
+        catalogos.corte_formas.find(cf => cf.id.toString() === selectedCorteFormaId)?.nombre)
+    : undefined
+
+  const selectedMaterialNombre = selectedMaterialId === '_null'
+    ? 'Ninguno'
+    : selectedMaterialId
+    ? catalogos.materiales.find(m => m.id.toString() === selectedMaterialId)?.nombre
+    : undefined
 
   const handleDelete = async () => {
     if (!deletingComp) return
@@ -178,7 +206,16 @@ export function TabComplementos({
       )}
 
       {/* DIALOGO DE FORMULARIO */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedParteId('')
+          setSelectedTipoCompId('')
+          setSelectedCorteFormaId('')
+          setSelectedMaterialId('')
+          setEditingComp(null)
+        }
+        setIsDialogOpen(open)
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
@@ -193,15 +230,18 @@ export function TabComplementos({
                   onValueChange={(val) => {
                     setSelectedParteId(val || '')
                     setSelectedTipoCompId('') // Reset tipo cuando cambia la parte
+                    setSelectedCorteFormaId('')
                   }}
                   required
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona parte..." />
+                    <SelectValue placeholder="Selecciona parte...">
+                      {selectedParteNombreDisplay}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.partes.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -214,7 +254,10 @@ export function TabComplementos({
                 <Select
                   name="tipo_comp_id"
                   value={selectedTipoCompId}
-                  onValueChange={(val) => setSelectedTipoCompId(val || '')}
+                  onValueChange={(val) => {
+                    setSelectedTipoCompId(val || '')
+                    setSelectedCorteFormaId('')
+                  }}
                   disabled={!selectedParteId || tiposFiltrados.length === 0}
                   required
                 >
@@ -225,11 +268,13 @@ export function TabComplementos({
                         : tiposFiltrados.length === 0
                           ? "Sin tipos para esta parte"
                           : "Selecciona tipo..."
-                    } />
+                    }>
+                      {selectedTipoCompNombreDisplay}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {tiposFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                         {cat.complemento_en === 'TODO' && (
                           <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
@@ -249,7 +294,8 @@ export function TabComplementos({
                 <Label htmlFor="corte_forma_id">Corte / Forma</Label>
                 <Select
                   name="corte_forma_id"
-                  defaultValue={editingComp?.corte_forma_id?.toString() || ''}
+                  value={selectedCorteFormaId}
+                  onValueChange={(val) => setSelectedCorteFormaId(val || '')}
                   disabled={!selectedParteId || cortesFiltrados.length === 0}
                 >
                   <SelectTrigger>
@@ -259,12 +305,14 @@ export function TabComplementos({
                         : cortesFiltrados.length === 0
                           ? "Sin cortes para esta parte/tipo"
                           : "Selecciona corte/forma..."
-                    } />
+                    }>
+                      {selectedCorteFormaNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {cortesFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                         {cat.corte_forma_en === 'TODO' && (
                           <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
@@ -285,14 +333,20 @@ export function TabComplementos({
 
               <div className="grid gap-2">
                 <Label htmlFor="material_id">Material</Label>
-                <Select name="material_id" defaultValue={editingComp?.material_id?.toString() || ''}>
+                <Select
+                  name="material_id"
+                  value={selectedMaterialId}
+                  onValueChange={(val) => setSelectedMaterialId(val || '')}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona material..." />
+                    <SelectValue placeholder="Selecciona material...">
+                      {selectedMaterialNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {catalogos.materiales.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}

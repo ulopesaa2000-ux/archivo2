@@ -44,16 +44,52 @@ export function TabAcabados({
   const [editingAca, setEditingAca] = useState<AcabadoResuelto | null>(null)
   const [deletingAca, setDeletingAca] = useState<AcabadoResuelto | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Estados para cada select
+  const [selectedTipoAcabadoId, setSelectedTipoAcabadoId] = useState<string>('')
+  const [selectedDetalleId, setSelectedDetalleId] = useState<string>('')
+  const [selectedPatronId, setSelectedPatronId] = useState<string>('')
+  const [selectedLocalizacionId, setSelectedLocalizacionId] = useState<string>('')
 
   const handleOpenAdd = () => {
     setEditingAca(null)
+    setSelectedTipoAcabadoId('')
+    setSelectedDetalleId('')
+    setSelectedPatronId('')
+    setSelectedLocalizacionId('')
     setIsDialogOpen(true)
   }
 
   const handleOpenEdit = (aca: AcabadoResuelto) => {
     setEditingAca(aca)
+    setSelectedTipoAcabadoId(aca.tipo_acabado_id?.toString() || '')
+    setSelectedDetalleId(aca.detalle_acabado_id?.toString() || '')
+    setSelectedPatronId(aca.patron_acabado_id?.toString() || '')
+    setSelectedLocalizacionId(aca.localizacion_id?.toString() || '')
     setIsDialogOpen(true)
   }
+
+  // Nombres seleccionados para mostrar en SelectValue
+  const selectedTipoAcabadoNombre = selectedTipoAcabadoId
+    ? catalogos.acabado_tipos.find(t => t.id.toString() === selectedTipoAcabadoId)?.nombre
+    : undefined
+
+  const selectedDetalleNombre = selectedDetalleId === '_null'
+    ? 'Ninguno'
+    : selectedDetalleId
+    ? catalogos.acabado_detalles.find(d => d.id.toString() === selectedDetalleId)?.nombre
+    : undefined
+
+  const selectedPatronNombre = selectedPatronId === '_null'
+    ? 'Ninguno'
+    : selectedPatronId
+    ? catalogos.acabado_patrones.find(p => p.id.toString() === selectedPatronId)?.nombre
+    : undefined
+
+  const selectedLocalizacionNombre = selectedLocalizacionId === '_null'
+    ? 'Ninguno'
+    : selectedLocalizacionId
+    ? catalogos.localizaciones.find(l => l.id.toString() === selectedLocalizacionId)?.nombre
+    : undefined
 
   const handleDelete = async () => {
     if (!deletingAca) return
@@ -137,7 +173,16 @@ export function TabAcabados({
       )}
 
       {/* DIALOGO DE FORMULARIO */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedTipoAcabadoId('')
+          setSelectedDetalleId('')
+          setSelectedPatronId('')
+          setSelectedLocalizacionId('')
+          setEditingAca(null)
+        }
+        setIsDialogOpen(open)
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
@@ -146,13 +191,20 @@ export function TabAcabados({
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="tipo_acabado_id">Tipo de Acabado</Label>
-                <Select name="tipo_acabado_id" defaultValue={editingAca?.tipo_acabado_id?.toString() || ''} required>
+                <Select
+                  name="tipo_acabado_id"
+                  value={selectedTipoAcabadoId}
+                  onValueChange={(val) => setSelectedTipoAcabadoId(val || '')}
+                  required
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona tipo..." />
+                    <SelectValue placeholder="Selecciona tipo...">
+                      {selectedTipoAcabadoNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.acabado_tipos.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -162,14 +214,20 @@ export function TabAcabados({
 
               <div className="grid gap-2">
                 <Label htmlFor="detalle_acabado_id">Detalle</Label>
-                <Select name="detalle_acabado_id" defaultValue={editingAca?.detalle_acabado_id?.toString() || ''}>
+                <Select
+                  name="detalle_acabado_id"
+                  value={selectedDetalleId}
+                  onValueChange={(val) => setSelectedDetalleId(val || '')}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona detalle..." />
+                    <SelectValue placeholder="Selecciona detalle...">
+                      {selectedDetalleNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {catalogos.acabado_detalles.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -179,14 +237,20 @@ export function TabAcabados({
 
               <div className="grid gap-2">
                 <Label htmlFor="patron_acabado_id">Patrón / Estampado</Label>
-                <Select name="patron_acabado_id" defaultValue={editingAca?.patron_acabado_id?.toString() || ''}>
+                <Select
+                  name="patron_acabado_id"
+                  value={selectedPatronId}
+                  onValueChange={(val) => setSelectedPatronId(val || '')}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona patrón..." />
+                    <SelectValue placeholder="Selecciona patrón...">
+                      {selectedPatronNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {catalogos.acabado_patrones.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -196,14 +260,20 @@ export function TabAcabados({
 
               <div className="grid gap-2">
                 <Label htmlFor="localizacion_id">Localización</Label>
-                <Select name="localizacion_id" defaultValue={editingAca?.localizacion_id?.toString() || ''}>
+                <Select
+                  name="localizacion_id"
+                  value={selectedLocalizacionId}
+                  onValueChange={(val) => setSelectedLocalizacionId(val || '')}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona localización..." />
+                    <SelectValue placeholder="Selecciona localización...">
+                      {selectedLocalizacionNombre}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {catalogos.localizaciones.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}

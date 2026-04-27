@@ -7,7 +7,6 @@ import React, {
   useContext,
   useState,
   useCallback,
-  useEffect,
   type ReactNode,
 } from 'react'
 import type { TableFeatures, QuickEditField } from './types'
@@ -57,12 +56,6 @@ export function DataTableProvider({
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
   const [expandedIds, setExpandedIds] = useState<Set<string | number>>(new Set())
-
-  // Limpiar selección cuando cambian los features (navegación entre páginas)
-  useEffect(() => {
-    setSelectedIds(new Set())
-    setExpandedIds(new Set())
-  }, [route])
 
   const onSelectionChange = useCallback((ids: Set<string | number>) => {
     setSelectedIds(ids)

@@ -65,7 +65,6 @@ export function CatalogoCreateDialog({
   }, [isOpen])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: reset form state on modal param change
     setFormKey('')
     if ((isEdit || isCopy) && editId) {
       setLoadingData(true)
@@ -120,7 +119,6 @@ export function CatalogoCreateDialog({
   // Sync formValues when producto changes
   useEffect(() => {
     if (producto && formKey) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: sync controlled form state from fetched producto data
       setFormValues({
         sku_base: isCopy ? `${producto.sku_base} (copia)` : (producto.sku_base || ''),
         nombre: producto.nombre || '',
@@ -136,7 +134,7 @@ export function CatalogoCreateDialog({
         es_conjunto: producto.es_conjunto ?? false,
       })
     }
-  }, [producto, formKey])
+  }, [producto, formKey, isCopy])
 
   const handleClose = () => {
     const params = new URLSearchParams(searchParams.toString())

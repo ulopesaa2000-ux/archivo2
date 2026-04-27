@@ -17,15 +17,27 @@ export async function fetchUserTableConfig(
 
   // 1. Si hay usuario, intentar cargar su config
   if (user) {
-    const { data: userConfig } = await (supabase as any)
-      .from('user_table_configs')
-      .select('features, is_default')
-      .eq('user_id', user.id)
-      .eq('route', route)
-      .single()
+    const [userConfigRes, globalDefaultRes] = await Promise.all([
+      (supabase as any)
+        .from('user_table_configs')
+        .select('features, is_default')
+        .eq('user_id', user.id)
+        .eq('route', route)
+        .single(),
+      (supabase as any)
+        .from('table_config_defaults')
+        .select('features')
+        .eq('route', route)
+        .single(),
+    ])
+    const userConfig = userConfigRes.data
 
     if (userConfig && !userConfig.is_default) {
       return { config: userConfig.features as TableFeatures, source: 'db' }
+    }
+
+    if (globalDefaultRes.data) {
+      return { config: globalDefaultRes.data.features as TableFeatures, source: 'default' }
     }
   }
 
@@ -68,16 +80,18 @@ export async function fetchAllUserTableConfigs(): Promise<Map<string, TableFeatu
 
   const supabase = await createClient()
 
-  // 1. Cargar configs del usuario
-  const { data: userConfigs } = await (supabase as any)
-    .from('user_table_configs')
-    .select('route, features, is_default')
-    .eq('user_id', user.id)
-
-  // 2. Cargar todos los defaults globales
-  const { data: globalDefaults } = await (supabase as any)
-    .from('table_config_defaults')
-    .select('route, features')
+  // User configs and global defaults are independent, so load both at once.
+  const [userConfigsRes, globalDefaultsRes] = await Promise.all([
+    (supabase as any)
+      .from('user_table_configs')
+      .select('route, features, is_default')
+      .eq('user_id', user.id),
+    (supabase as any)
+      .from('table_config_defaults')
+      .select('route, features'),
+  ])
+  const userConfigs = userConfigsRes.data
+  const globalDefaults = globalDefaultsRes.data
 
   // 3. Map de defaults globales
   const defaultsMap = new Map<string, TableFeatures>()

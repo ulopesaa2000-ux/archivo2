@@ -1,22 +1,36 @@
-// app/(admin)/ecommerce/config/page.tsx
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { Suspense } from 'react'
 import { ConfigForm } from '@/components/admin/ecommerce/ConfigForm'
-import type { ConfigEcommerce } from '@/modules/ecommerce/types'
+import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 
 export const metadata: Metadata = {
   title: 'Configuración Ecommerce',
 }
 
-export default async function EcommerceConfigPage() {
-  const supabase = await createClient()
-  
-  const { data: config } = await supabase
-    .from('config_ecommerce')
-    .select('*')
-    .eq('id', 1)
-    .single()
+async function ConfigFormSection() {
+  const config = await fetchConfigEcommerce()
 
+  return <ConfigForm config={config || undefined} />
+}
+
+function ConfigFormSkeleton() {
+  return (
+    <div className="space-y-6">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="rounded-lg border p-6 space-y-4">
+          <div className="h-5 w-48 rounded bg-muted animate-pulse" />
+          <div className="h-4 w-72 rounded bg-muted animate-pulse" />
+          <div className="space-y-3 pt-2">
+            <div className="h-10 rounded bg-muted animate-pulse" />
+            <div className="h-10 rounded bg-muted animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function EcommerceConfigPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -26,7 +40,9 @@ export default async function EcommerceConfigPage() {
         </p>
       </div>
 
-      <ConfigForm config={(config as ConfigEcommerce) || undefined} />
+      <Suspense fallback={<ConfigFormSkeleton />}>
+        <ConfigFormSection />
+      </Suspense>
     </div>
   )
 }

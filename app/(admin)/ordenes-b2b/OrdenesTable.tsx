@@ -14,7 +14,7 @@ import type { OrdenB2BListItem, CatalogosB2B } from '@/modules/ordenes-b2b/types
 
 type Props = {
   items: OrdenB2BListItem[]
-  catalogos: CatalogosB2B
+  catalogos?: CatalogosB2B
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
   initialFeatures?: TableFeatures

@@ -337,13 +337,18 @@ async function TabVariantesAsync({
   skuBase: string
   catalogos: CatalogosEdicion
 }) {
-  const variantes = await fetchVariantesProducto(productoId)
+  const [variantes, cajas] = await Promise.all([
+    fetchVariantesProducto(productoId),
+    fetchCajasProducto(productoId),
+  ])
+  const cajaPrincipal = cajas.find(c => c.es_principal) ?? null
   return (
     <TabVariantes
       variantes={variantes}
       productoId={productoId}
       skuBase={skuBase}
       catalogos={catalogos}
+      cajaPrincipal={cajaPrincipal}
     />
   )
 }

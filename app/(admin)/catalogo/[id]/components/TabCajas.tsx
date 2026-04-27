@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Package, Plus, Box } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import type { SharedCajaData } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
-import { desactivarCajaAction, updateCajaCompletaAction, createCajaAction } from '@/modules/cajas/actions'
+import { desactivarCajaAction, updateCajaCompletaAction, createCajaAction, marcarCajaPrincipalAction } from '@/modules/cajas/actions'
 
 interface TabCajasProps {
   cajas: any[]
@@ -39,6 +40,7 @@ const crearCajaVacia = (tempId: number): SharedCajaData => ({
 })
 
 export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponibles, edadNombre }: TabCajasProps) {
+  const router = useRouter()
   const [cajasNuevas, setCajasNuevas] = useState<SharedCajaData[]>([])
   const [nextTempId, setNextTempId] = useState(-1)
 
@@ -59,8 +61,7 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
     detalles: { talla_id: number; color_id: number; cantidad: number }[]
   }) => {
     await createCajaAction(productoId, data)
-    // Recargar página para mostrar la nueva caja con ID real
-    window.location.reload()
+    router.refresh()
   }
 
   const handleEditCaja = async (cajaId: number, data: {
@@ -69,6 +70,12 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
   }) => {
     await updateCajaCompletaAction(cajaId, data)
     // La revalidación del path debería actualizar los datos
+  }
+
+  const handleMarcarPrincipal = async (cajaId: number, prodId: number) => {
+    const res = await marcarCajaPrincipalAction(cajaId, prodId)
+    router.refresh()
+    return res
   }
 
   return (
@@ -121,6 +128,9 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
             tallasDisponibles={tallasDisponibles}
             coloresDisponibles={coloresDisponibles}
             edadNombre={edadNombre}
+            esPrincipal={caja.es_principal ?? false}
+            onMarcarPrincipal={handleMarcarPrincipal}
+            productoId={productoId}
           />
         ))
       ) : (

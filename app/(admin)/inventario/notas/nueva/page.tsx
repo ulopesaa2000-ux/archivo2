@@ -1,8 +1,7 @@
 // app/(admin)/inventario/notas/nueva/page.tsx
 import type { Metadata } from 'next'
 import { fetchCatalogosInventario } from '@/modules/inventario/queries'
-import { getCurrentUser } from '@/modules/auth/queries'
-import { redirect } from 'next/navigation'
+import { verifySession } from '@/lib/dal'
 import { NoteDraftBuilder } from './NoteDraftBuilder'
 
 export const metadata: Metadata = {
@@ -16,10 +15,11 @@ export const metadata: Metadata = {
  * Solo al presionar "Guardar como Borrador" o "Confirmar" se escribe a BD.
  */
 export default async function NuevaNotaPage() {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
-
-  const catalogos = await fetchCatalogosInventario()
+  const catalogosPromise = fetchCatalogosInventario()
+  const [{ user }, catalogos] = await Promise.all([
+    verifySession(),
+    catalogosPromise,
+  ])
 
   return (
     <div className="space-y-4">

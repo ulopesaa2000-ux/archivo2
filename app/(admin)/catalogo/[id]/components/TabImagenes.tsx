@@ -15,8 +15,8 @@ export function TabImagenes({ imagenes }: { imagenes: ProductoImagenRow[] }) {
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-4">
       {imagenes.map((img) => (
         <div key={img.id} className="rounded-lg border overflow-hidden">
-          <div className="aspect-square bg-muted flex items-center justify-center">
-            <Image src={img.url} alt={img.alt_text ?? ''} fill className="object-contain" />
+          <div className="aspect-square bg-muted flex items-center justify-center relative overflow-hidden">
+            <Image src={img.url} alt={img.alt_text ?? ''} fill className="object-contain" sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw" />
           </div>
           <div className="p-2 space-y-1">
             <div className="flex items-center gap-1 flex-wrap">
