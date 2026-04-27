@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { Check, ChevronsUpDown, Plus, Loader2, Wand2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -107,6 +108,7 @@ function inferirHexYCodigo(nombre: string) {
 
 
 export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, disabledFilas }: ColorComboboxProps) {
+  const router = useRouter()
   const [openCombobox, setOpenCombobox] = useState(false)
   const [openModal, setOpenModal] = useState(false)
   const [search, setSearch] = useState('')
@@ -154,8 +156,7 @@ export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, d
         toast.success(`Color "${nuevoNombre}" creado exitosamente`)
         setOpenModal(false)
         onSelect(res.id.toString())
-        // trigger reload to fetch new color from catalog in parent component
-        window.location.reload()
+        router.refresh()
       } else {
         toast.error(res.error || 'Error al crear color')
       }
@@ -194,7 +195,7 @@ export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, d
                 <p className="text-muted-foreground mb-3">No se encontraron resultados.</p>
                 <Button variant="secondary" size="sm" onClick={handleOpenModal} className="w-[80%]">
                   <Plus className="h-4 w-4 mr-2" />
-                  Agregar "{debouncedSearch || search}"
+                  Agregar &quot;{debouncedSearch || search}&quot;
                 </Button>
               </CommandEmpty>
               <CommandGroup>

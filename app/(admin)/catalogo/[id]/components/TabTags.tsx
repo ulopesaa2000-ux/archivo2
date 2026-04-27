@@ -47,6 +47,7 @@ export function TabTags({
   const [isPending, startTransition] = useTransition()
   // Estado para trackear el tipo de tag seleccionado (para filtrar ref_tags)
   const [selectedTipoTagId, setSelectedTipoTagId] = useState<string>('')
+  const [selectedRefTagId, setSelectedRefTagId] = useState<string>('')
 
   const handleOpenAdd = () => {
     setEditingTag(null)
@@ -57,6 +58,7 @@ export function TabTags({
   const handleOpenEdit = (tag: TagResuelto) => {
     setEditingTag(tag)
     setSelectedTipoTagId(tag.tipo_tag_id?.toString() || '')
+    setSelectedRefTagId(tag.ref_tag_id?.toString() || '')
     setIsDialogOpen(true)
   }
 
@@ -68,6 +70,14 @@ export function TabTags({
   // Obtener info del tipo_tag seleccionado para mostrar si permite múltiples
   const tipoTagSeleccionado: TipoTagCatalogo | undefined = selectedTipoTagId
     ? catalogos.tipos_tag.find((tt) => tt.id === parseInt(selectedTipoTagId))
+    : undefined
+
+  // Nombre del ref_tag seleccionado para mostrar en el SelectValue
+  const selectedRefTagName = selectedRefTagId === '_null'
+    ? 'Ninguno'
+    : selectedRefTagId
+    ? (refTagsFiltrados.find(rt => rt.id.toString() === selectedRefTagId)?.nombre ??
+        catalogos.ref_tags.find(rt => rt.id.toString() === selectedRefTagId)?.nombre)
     : undefined
 
   const handleDelete = async () => {
@@ -151,7 +161,14 @@ export function TabTags({
       )}
 
       {/* DIALOGO DE FORMULARIO */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedTipoTagId('')
+          setSelectedRefTagId('')
+          setEditingTag(null)
+        }
+        setIsDialogOpen(open)
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
@@ -170,15 +187,22 @@ export function TabTags({
                 <Select
                   name="tipo_tag_id"
                   value={selectedTipoTagId}
-                  onValueChange={(val) => setSelectedTipoTagId(val || '')}
+                  onValueChange={(val) => {
+                    setSelectedTipoTagId(val || '')
+                    setSelectedRefTagId('')
+                  }}
                   required
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un tipo..." />
+                    <SelectValue placeholder="Selecciona un tipo...">
+                      {selectedTipoTagId
+                        ? catalogos.tipos_tag.find(t => t.id.toString() === selectedTipoTagId)?.nombre
+                        : null}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {catalogos.tipos_tag.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}
@@ -190,7 +214,8 @@ export function TabTags({
                 <Label htmlFor="ref_tag_id">Referencia / Categoría</Label>
                 <Select
                   name="ref_tag_id"
-                  defaultValue={editingTag?.ref_tag_id?.toString() || ''}
+                  value={selectedRefTagId}
+                  onValueChange={(val) => setSelectedRefTagId(val || '')}
                   disabled={!selectedTipoTagId || refTagsFiltrados.length === 0}
                 >
                   <SelectTrigger>
@@ -200,12 +225,14 @@ export function TabTags({
                         : refTagsFiltrados.length === 0
                           ? "Sin referencias para este tipo"
                           : "Selecciona una referencia..."
-                    } />
+                    }>
+                      {selectedRefTagName}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_null" label="Ninguno">Ninguno</SelectItem>
+                    <SelectItem value="_null">Ninguno</SelectItem>
                     {refTagsFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()} label={cat.nombre}>
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.nombre}
                       </SelectItem>
                     ))}

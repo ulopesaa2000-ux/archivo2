@@ -37,7 +37,7 @@ export async function fetchOrdenesB2B(
       cliente:personas!ordenes_b2b_cliente_b2b_id_fkey (
         nombre_completo
       )
-    `, { count: 'exact' })
+    `, { count: 'estimated' })
 
   if (filtros.q) {
     query = query.ilike('folio_proveedor', `%${filtros.q}%`)

@@ -433,6 +433,26 @@ export async function deleteVarianteAction(
   return { success: true }
 }
 
+export async function deleteVariantesBatchAction(
+  ids: number[],
+  productoId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  if (!ids.length) return { success: false, error: 'No se seleccionaron variantes' }
+
+  const supabase = await createClient()
+  const { error } = await (supabase.from('variantes_producto') as any)
+    .delete()
+    .in('id', ids)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath(`/catalogo/${productoId}`)
+  return { success: true, id: ids.length }
+}
+
 export async function deleteTagAction(
   id: number,
   productoId: number
@@ -579,6 +599,36 @@ export async function createColorAction(
   if (error) {
     if (error.code === '23505') {
       return { success: false, error: `El código de color "${payload.codigo}" ya existe.` }
+    }
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, id: data.id }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crear Talla
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createTallaAction(
+  nombre: string,
+  codigo: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const payload = {
+    nombre: nombre.toUpperCase(),
+    codigo: codigo.toUpperCase(),
+    orden_display: 99,
+  }
+
+  const { data, error } = await (supabase.from('cat_tallas') as any).insert(payload).select('id').single()
+
+  if (error) {
+    if (error.code === '23505') {
+      return { success: false, error: `La talla "${codigo}" ya existe.` }
     }
     return { success: false, error: error.message }
   }

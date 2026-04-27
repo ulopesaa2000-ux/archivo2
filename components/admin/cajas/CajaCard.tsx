@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash, Calculator, Sparkles, Wand2, Info } from 'lucide-react'
+import { Pencil, Trash2, Package, X, Check, Loader2, Plus, Trash, Calculator, Sparkles, Wand2, Info, Star } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
 import type { SharedCajaData, SharedCajaContenidoMap } from '@/modules/cajas/types'
@@ -46,6 +46,10 @@ interface CajaCardProps {
     detalles: { talla_id: number; color_id: number; cantidad: number }[]
   }) => Promise<void>
   edadNombre?: string | null
+  // Caja principal
+  esPrincipal?: boolean
+  onMarcarPrincipal?: (cajaId: number, productoId: number) => Promise<void | { success: boolean; error?: string }>
+  productoId?: number
 }
 
 
@@ -61,11 +65,16 @@ export function CajaCard({
   coloresDisponibles = [],
   isNew = false,
   onCreate,
-  edadNombre
+  edadNombre,
+  esPrincipal = false,
+  onMarcarPrincipal,
+  productoId,
 }: CajaCardProps) {
   const [isEditing, setIsEditing] = useState(isNew)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isMarkingPrincipal, setIsMarkingPrincipal] = useState(false)
+  const [showMarkPrincipalModal, setShowMarkPrincipalModal] = useState(false)
   const isVertical = layout === 'vertical'
 
   // Estado temporal para edición de datos base
@@ -416,6 +425,12 @@ export function CajaCard({
                   {caja.producto_sku && (
                     <Badge variant="outline" className="font-mono text-[10px] uppercase tracking-wider">{caja.producto_sku}</Badge>
                   )}
+                  {esPrincipal && (
+                    <Badge variant="default" className="bg-amber-400 text-amber-900 hover:bg-amber-400 gap-1">
+                      <Star className="h-3 w-3 fill-current" />
+                      PRINCIPAL
+                    </Badge>
+                  )}
                 </>
               )}
             </CardTitle>
@@ -452,6 +467,21 @@ export function CajaCard({
                     disabled={isPending}
                     title="Desactivar caja (Eliminar)">
                     {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
+                {!esPrincipal && onMarcarPrincipal && productoId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                    onClick={() => setShowMarkPrincipalModal(true)}
+                    disabled={isMarkingPrincipal}
+                    title="Marcar como caja principal para generar variantes">
+                    {isMarkingPrincipal ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Star className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 )}
               </>
@@ -910,6 +940,45 @@ export function CajaCard({
         onConfirm={async () => {
           if (onDeactivate) {
             await onDeactivate(caja.id)
+          }
+        }}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={showMarkPrincipalModal}
+        onOpenChange={setShowMarkPrincipalModal}
+        title="Marcar como caja principal"
+        description="Solo una caja puede ser principal por producto. Si ya existe una caja principal marcada, será reemplazada automáticamente. La caja principal se utiliza para generar variantes de ecommerce (talla × color)."
+        elementName={`Caja: ${caja.codigo_caja} ${caja.nombre_pack ? `(${caja.nombre_pack})` : ''}`}
+        onConfirm={async () => {
+          if (!onMarcarPrincipal || !productoId) return
+          setIsMarkingPrincipal(true)
+          try {
+            const res = await onMarcarPrincipal(caja.id, productoId)
+            if (res && typeof res === 'object' && 'success' in res && !res.success) {
+              toast.error(res.error ?? 'No se pudo marcar la caja como principal')
+            } else {
+              // Éxito: mostrar toast principal
+              toast.success(
+                <div className="space-y-1.5">
+                  <p className="font-medium">Caja <span className="font-mono">{caja.codigo_caja}</span> marcada como principal</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Si había otra caja principal, fue reemplazada automáticamente.
+                    Ve al tab <strong className="text-foreground">Variantes</strong> y presiona <strong className="text-foreground">Generar desde caja</strong> para sincronizar las combinaciones de ecommerce.
+                  </p>
+                </div>,
+                { duration: 6000 }
+              )
+              // Si hay warning (caja sin detalles), mostrar advertencia adicional
+              if (res && typeof res === 'object' && 'error' in res && res.error) {
+                toast.warning(res.error, { duration: 8000 })
+              }
+            }
+          } catch (err) {
+            toast.error('Error al marcar la caja como principal')
+          } finally {
+            setIsMarkingPrincipal(false)
+            setShowMarkPrincipalModal(false)
           }
         }}
       />

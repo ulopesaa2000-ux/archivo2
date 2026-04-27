@@ -1,6 +1,7 @@
 // modules/auth/queries.ts
 'use server'
 
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import type { UsuarioConRol, BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 
@@ -37,7 +38,7 @@ export async function getSession() {
  *   - El usuario no existe en inv-tienda.usuarios
  *   - El usuario está inactivo
  */
-export async function getCurrentUser(): Promise<UsuarioConRol | null> {
+export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
   const supabase = await createClient()
 
   try {
@@ -66,47 +67,43 @@ export async function getCurrentUser(): Promise<UsuarioConRol | null> {
 
     // 2.5 Intentar traer rol
     let rol = null;
-    try {
-      const { data: rolData, error: rolError } = await supabase
-        .from('roles')
-        .select(`
-          id,
-          nombre,
-          nivel_acceso,
-          descripcion
-        `)
-        .eq('id', usuario.rol_id)
-        .single()
-      
-      if (!rolError && rolData) {
-        rol = rolData;
-      }
-    } catch (e) {
-      console.error("Error fetching rol:", e);
-    }
+    const rolPromise = supabase
+      .from('roles')
+      .select(`
+        id,
+        nombre,
+        nivel_acceso,
+        descripcion
+      `)
+      .eq('id', usuario.rol_id)
+      .single()
 
     // 2.6 Intentar traer permisos (puede fallar por RLS si no tiene permisos específicos)
     let permisos = null;
-    try {
-      const { data: permisosData, error: permisosError } = await supabase
-        .from('usuario_permisos')
-        .select(`
-          es_super_admin,
-          puede_gestionar_compras_b2b,
-          puede_gestionar_contenedores,
-          puede_gestionar_ecommerce,
-          puede_ver_inventario,
-          puede_crear_notas_inventario,
-          puede_aprobar_notas_inventario
-        `)
-        .eq('usuario_id', usuario.id)
-        .single()
-      
-      if (!permisosError && permisosData) {
-        permisos = permisosData;
-      }
-    } catch (e) {
-      console.error("Error fetching permisos:", e);
+    const permisosPromise = supabase
+      .from('usuario_permisos')
+      .select(`
+        es_super_admin,
+        puede_gestionar_compras_b2b,
+        puede_gestionar_contenedores,
+        puede_gestionar_ecommerce,
+        puede_ver_inventario,
+        puede_crear_notas_inventario,
+        puede_aprobar_notas_inventario
+      `)
+      .eq('usuario_id', usuario.id)
+      .single()
+
+    const [rolResult, permisosResult] = await Promise.allSettled([
+      rolPromise,
+      permisosPromise,
+    ])
+
+    if (rolResult.status === 'fulfilled' && !rolResult.value.error) {
+      rol = rolResult.value.data
+    }
+    if (permisosResult.status === 'fulfilled' && !permisosResult.value.error) {
+      permisos = permisosResult.value.data
     }
 
     // 3. Actualizar último acceso (fire and forget, no bloquea)
@@ -125,7 +122,7 @@ export async function getCurrentUser(): Promise<UsuarioConRol | null> {
     console.error("Auth getCurrentUser error:", error);
     return null;
   }
-}
+})
 
 /**
  * Trae las bodegas a las que el usuario tiene acceso.
@@ -135,10 +132,10 @@ export async function getCurrentUser(): Promise<UsuarioConRol | null> {
  * 
  * Se usa para poblar el BodegaSelector en el Header.
  */
-export async function fetchBodegasUsuario(
+export const fetchBodegasUsuario = cache(async (
   usuarioId: number,
   nivelAcceso: number
-): Promise<(BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]> {
+): Promise<(BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]> => {
   const supabase = await createClient()
 
   // Nivel 1-2: acceso total
@@ -186,4 +183,4 @@ export async function fetchBodegasUsuario(
         },
       }
     })
-}
+})

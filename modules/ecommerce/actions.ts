@@ -1,7 +1,7 @@
 // modules/ecommerce/actions.ts
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
 import type {
@@ -32,6 +32,7 @@ export async function actualizarConfigEcommerce(data: ConfigEcommerceUpdate) {
   }
   
   // Revalidar todas las rutas del store
+  revalidateTag('ecommerce-config', 'max')
   revalidatePath('/(store)')
   revalidatePath('/(admin)/ecommerce/config')
   

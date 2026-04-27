@@ -3,6 +3,259 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { SharedCajaData } from './types'
+import type { ActionResult } from '@/modules/catalogo/actions'
+
+// ═══════════════════════════════════════════════════════════════
+// MARCAR CAJA PRINCIPAL
+// ═══════════════════════════════════════════════════════════════
+export async function marcarCajaPrincipalAction(
+  cajaId: number,
+  productoId: number
+): Promise<ActionResult> {
+  const supabase = await createClient()
+
+  // Verificar si la caja tiene detalles válidos antes de marcarla
+  const { data: detalles, error: detallesError } = await (supabase
+    .from('caja_detalles') as any)
+    .select('id, talla_id, color_id, cantidad')
+    .eq('caja_id', cajaId)
+
+  if (detallesError) {
+    console.error('Error consultando detalles:', detallesError)
+  }
+  console.log(`[marcarCajaPrincipal] cajaId=${cajaId}, detalles encontrados=${detalles?.length ?? 0}`, detalles)
+
+  const tieneDetalles = detalles?.some((d: any) =>
+    d.talla_id != null && d.color_id != null && d.cantidad > 0
+  ) ?? false
+  console.log(`[marcarCajaPrincipal] tieneDetalles=${tieneDetalles}`)
+
+  // 1. Desmarcar todas las cajas principales del producto
+  const { error: clearError } = await (supabase
+    .from('cajas_producto') as any)
+    .update({ es_principal: false })
+    .eq('producto_id', productoId)
+    .eq('es_principal', true)
+
+  if (clearError) {
+    console.error('Error desmarcando cajas principales:', clearError)
+    return { success: false, error: clearError.message }
+  }
+
+  // 2. Marcar la caja seleccionada como principal
+  const { error: setError } = await (supabase
+    .from('cajas_producto') as any)
+    .update({ es_principal: true })
+    .eq('id', cajaId)
+
+  if (setError) {
+    console.error('Error marcando caja principal:', setError)
+    return { success: false, error: setError.message }
+  }
+
+  revalidatePath('/(admin)/catalogo/[id]', 'page')
+
+  if (!tieneDetalles) {
+    return {
+      success: true,
+      error: '⚠️ Esta caja no tiene un packing completo (tallas × colores con cantidad > 0). Las variantes de ecommerce no se podrán generar hasta que agregues el packing en el tab Cajas.',
+    }
+  }
+
+  return { success: true }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GENERAR VARIANTES DESDE CAJA PRINCIPAL (SINCRONIZACIÓN INCREMENTAL)
+// ═══════════════════════════════════════════════════════════════
+export async function generarVariantesDesdeCajaPrincipalAction(
+  productoId: number
+): Promise<ActionResult> {
+  const supabase = await createClient()
+
+  // 1. Obtener la caja principal del producto
+  const { data: cajaPrincipal, error: cajaError } = await (supabase
+    .from('cajas_producto') as any)
+    .select('id, codigo_caja')
+    .eq('producto_id', productoId)
+    .eq('es_principal', true)
+    .single()
+
+  if (cajaError || !cajaPrincipal) {
+    return { success: false, error: 'No hay caja marcada como principal para este producto.' }
+  }
+
+  // 2. Obtener los caja_detalles de esa caja
+  const { data: detalles, error: detallesError } = await (supabase
+    .from('caja_detalles') as any)
+    .select('talla_id, color_id, cantidad')
+    .eq('caja_id', cajaPrincipal.id)
+
+  if (detallesError) {
+    console.error('Error consultando detalles para variantes:', detallesError)
+    return { success: false, error: detallesError.message }
+  }
+
+  console.log(`[generarVariantes] cajaId=${cajaPrincipal.id}, detalles encontrados=${detalles?.length ?? 0}`, detalles)
+
+  // Filtrar solo detalles válidos en JS (evita problemas de SQL con IS NOT NULL)
+  const detallesValidos = (detalles ?? []).filter((d: any) =>
+    d.talla_id != null && d.color_id != null && d.cantidad > 0
+  )
+
+  if (detallesValidos.length === 0) {
+    return {
+      success: false,
+      error: `La caja principal «${cajaPrincipal.codigo_caja}» no tiene un packing completo (tallas × colores con cantidad > 0). Agrega el packing en el tab Cajas y luego vuelve aquí para generar variantes.`
+    }
+  }
+
+  // 3. Obtener sku_base y precio_ec del producto
+  const { data: producto } = await (supabase
+    .from('productos') as any)
+    .select('sku_base, precio_ec')
+    .eq('id', productoId)
+    .single()
+
+  if (!producto) {
+    return { success: false, error: 'Producto no encontrado.' }
+  }
+
+  // 4. Extraer combinaciones únicas de talla_id + color_id desde el packing
+  const combinacionesEsperadas = new Map<string, { talla_id: number; color_id: number }>()
+  for (const d of detallesValidos) {
+    const key = `${d.talla_id}-${d.color_id}`
+    if (!combinacionesEsperadas.has(key)) {
+      combinacionesEsperadas.set(key, { talla_id: d.talla_id, color_id: d.color_id })
+    }
+  }
+
+  if (combinacionesEsperadas.size === 0) {
+    return {
+      success: false,
+      error: `El packing de la caja «${cajaPrincipal.codigo_caja}» no tiene combinaciones válidas de talla × color. Verifica que los detalles tengan cantidad mayor a 0.`
+    }
+  }
+
+  // 5. Obtener variantes existentes del producto (con ID para poder actualizarlas)
+  const { data: variantesExistentes } = await (supabase
+    .from('variantes_producto') as any)
+    .select('id, talla_id, color_id, activo')
+    .eq('producto_id', productoId)
+
+  const existentesMap = new Map<string, { id: number; activo: boolean }>()
+  for (const v of (variantesExistentes ?? [])) {
+    const key = `${v.talla_id}-${v.color_id}`
+    existentesMap.set(key, { id: v.id, activo: v.activo })
+  }
+
+  // 6. Obtener info de tallas y colores para construir SKU
+  const { data: tallasData } = await (supabase
+    .from('cat_tallas') as any)
+    .select('id, codigo')
+
+  const { data: coloresData } = await (supabase
+    .from('cat_colores') as any)
+    .select('id, codigo')
+
+  const tallaMap = new Map(tallasData?.map((t: any) => [t.id, t.codigo ?? '']) ?? [])
+  const colorMap = new Map(coloresData?.map((c: any) => [c.id, c.codigo ?? '']) ?? [])
+
+  // 7. Calcular diferencias: nuevas vs obsoletas
+  const nuevasVariantes: any[] = []
+  const idsParaReactivar: number[] = []
+
+  for (const [, { talla_id, color_id }] of combinacionesEsperadas) {
+    const key = `${talla_id}-${color_id}`
+    const existente = existentesMap.get(key)
+
+    if (!existente) {
+      // No existe → crear nueva
+      const sku_completo = [
+        producto.sku_base ?? '',
+        tallaMap.get(talla_id) ?? String(talla_id),
+        colorMap.get(color_id) ?? String(color_id),
+      ].filter(Boolean).join('-')
+
+      nuevasVariantes.push({
+        producto_id: productoId,
+        talla_id,
+        color_id,
+        sku_completo,
+        costo_promedio: null,
+        precio_venta: producto.precio_ec ?? null,
+        activo: true,
+      })
+    } else if (!existente.activo) {
+      // Existe pero está inactiva → reactivar
+      idsParaReactivar.push(existente.id)
+    }
+  }
+
+  // 8. Identificar variantes obsoletas (que ya no están en el packing)
+  const idsObsoletas: number[] = []
+  for (const [key, existente] of existentesMap) {
+    if (existente.activo && !combinacionesEsperadas.has(key)) {
+      idsObsoletas.push(existente.id)
+    }
+  }
+
+  // 9. Ejecutar cambios en BD
+  let insertadas = 0
+  let reactivadas = 0
+  let desactivadas = 0
+
+  if (nuevasVariantes.length > 0) {
+    const { error: insertError } = await (supabase
+      .from('variantes_producto') as any)
+      .insert(nuevasVariantes)
+
+    if (insertError) {
+      return { success: false, error: insertError.message }
+    }
+    insertadas = nuevasVariantes.length
+  }
+
+  if (idsParaReactivar.length > 0) {
+    const { error: reactivarError } = await (supabase
+      .from('variantes_producto') as any)
+      .update({ activo: true })
+      .in('id', idsParaReactivar)
+
+    if (!reactivarError) {
+      reactivadas = idsParaReactivar.length
+    }
+  }
+
+  if (idsObsoletas.length > 0) {
+    const { error: desactivarError } = await (supabase
+      .from('variantes_producto') as any)
+      .update({ activo: false })
+      .in('id', idsObsoletas)
+
+    if (!desactivarError) {
+      desactivadas = idsObsoletas.length
+    }
+  }
+
+  revalidatePath('/(admin)/catalogo/[id]', 'page')
+
+  const totalCambios = insertadas + reactivadas + desactivadas
+  if (totalCambios === 0) {
+    return { success: true, error: 'Las variantes ya están sincronizadas con el packing de la caja principal.' }
+  }
+
+  const partes: string[] = []
+  if (insertadas > 0) partes.push(`${insertadas} nueva${insertadas !== 1 ? 's' : ''}`)
+  if (reactivadas > 0) partes.push(`${reactivadas} reactivada${reactivadas !== 1 ? 's' : ''}`)
+  if (desactivadas > 0) partes.push(`${desactivadas} desactivada${desactivadas !== 1 ? 's' : ''}`)
+
+  return {
+    success: true,
+    id: totalCambios,
+    error: `Sincronización completada: ${partes.join(', ')}. Total: ${combinacionesEsperadas.size} variantes activas según el packing de «${cajaPrincipal.codigo_caja}».`
+  }
+}
 
 export async function desactivarCajaAction(cajaId: number) {
   const supabase = await createClient()

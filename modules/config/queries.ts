@@ -4,12 +4,18 @@
 import { createClient } from '@/lib/supabase/server'
 import type { RolConPermisos, UsuarioConDetalle, PermisoModulo, ModuloPermiso } from './types'
 
+type RolBaseRow = {
+  id: number
+  nombre: string
+  descripcion: string | null
+  nivel_acceso: number
+}
+
 /** Trae todos los usuarios con su rol (activos primero → nivel_acceso ascendente) */
 export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
   const supabase = await createClient()
 
-  // Cast any: tabla roles y sus columnas no están en database.types.ts generado
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('usuarios')
     .select(`
       id,
@@ -46,8 +52,7 @@ export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
 export async function fetchRolesConPermisos(): Promise<RolConPermisos[]> {
   const supabase = await createClient()
 
-  // Cast any: tabla roles con columna nivel_acceso no está en database.types.ts
-  const { data: rolesData, error: rolesError } = await (supabase as any)
+  const { data: rolesData, error: rolesError } = await supabase
     .from('roles')
     .select('id, nombre, descripcion, nivel_acceso')
     .order('nivel_acceso')
@@ -78,11 +83,11 @@ export async function fetchRolesConPermisos(): Promise<RolConPermisos[]> {
     })
   }
 
-  return (rolesData as any[]).map((r) => ({
-    id:           r.id           as number,
-    nombre:       r.nombre       as string,
-    descripcion:  r.descripcion  as string | null ?? null,
-    nivel_acceso: r.nivel_acceso as number,
+  return (rolesData as RolBaseRow[]).map((r) => ({
+    id:           r.id,
+    nombre:       r.nombre,
+    descripcion:  r.descripcion ?? null,
+    nivel_acceso: r.nivel_acceso,
     permisos:     permisosMap.get(r.id) ?? [],
   }))
 }

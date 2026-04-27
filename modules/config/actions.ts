@@ -3,7 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import type { ModuloPermiso, TipoPermiso } from './types'
+import type { ModuloPermiso, PermisoModulo, TipoPermiso } from './types'
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -37,7 +37,7 @@ export async function cambiarRolUsuario(
 
   const { error } = await supabase
     .from('usuarios')
-    .update({ rol_id: rolId } as any)
+    .update({ rol_id: rolId })
     .eq('id', usuarioId)
 
   if (error) {
@@ -74,9 +74,10 @@ export async function toggleRolPermiso(
   }
 
   if (existing) {
+    const updatePayload = { [tipo]: valor } as any
     const { error } = await supabase
       .from('rol_permisos')
-      .update({ [tipo]: valor } as any)
+      .update(updatePayload)
       .eq('rol_id', rolId)
       .eq('modulo', modulo)
 
@@ -94,7 +95,7 @@ export async function toggleRolPermiso(
         puede_crear:    tipo === 'puede_crear'     ? valor : false,
         puede_editar:   tipo === 'puede_editar'    ? valor : false,
         puede_eliminar: tipo === 'puede_eliminar'  ? valor : false,
-      } as any)
+      })
 
     if (error) {
       console.error('toggleRolPermiso INSERT error:', error.message)
@@ -116,7 +117,7 @@ export async function crearRolAction(
   nivel_acceso: number,
   permisos: { modulo: ModuloPermiso; puede_leer: boolean; puede_crear: boolean; puede_editar: boolean; puede_eliminar: boolean }[]
 ): Promise<ActionResult> {
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   // 1. Insertar el rol
   const { data: nuevoRol, error: rolError } = await supabase
@@ -126,7 +127,7 @@ export async function crearRolAction(
       descripcion,
       nivel_acceso,
     })
-    .select()
+    .select('id')
     .single()
 
   if (rolError) {
@@ -151,8 +152,22 @@ export async function crearRolAction(
 
     if (permError) {
       console.error('crearRolAction permissions error:', permError.message)
-      // No revertimos el rol por ahora, pero informamos el error
-      return { success: false, error: 'Rol creado pero hubo un error al asignar permisos.' }
+      // Rollback compensatorio: evitar rol huérfano sin permisos.
+      const { error: rollbackError } = await supabase
+        .from('roles')
+        .delete()
+        .eq('id', nuevoRol.id)
+
+      if (rollbackError) {
+        console.error('crearRolAction rollback error:', rollbackError.message)
+        return {
+          success: false,
+          error:
+            'Falló la asignación de permisos y no se pudo revertir el rol creado. Se requiere revisión manual.',
+        }
+      }
+
+      return { success: false, error: 'No se pudo crear el rol porque falló la asignación inicial de permisos.' }
     }
   }
 

@@ -115,6 +115,7 @@ export type CajaContenidoMap = {
 }
 
 export type CajaConDetalle = CajaProductoRow & {
+  es_principal?: boolean | null
   detalles: (CajaDetalleRow & {
     talla_codigo: string | null
     talla_nombre: string | null

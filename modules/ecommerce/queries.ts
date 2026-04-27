@@ -1,7 +1,8 @@
 // modules/ecommerce/queries.ts
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { cacheLife, cacheTag } from 'next/cache'
+import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   ConfigEcommerce,
@@ -20,7 +21,11 @@ import type {
 // ═══════════════════════════════════════════════════════════════
 
 export async function fetchConfigEcommerce(): Promise<ConfigEcommerce | null> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag('ecommerce-config')
+
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('config_ecommerce')

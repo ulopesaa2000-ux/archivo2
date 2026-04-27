@@ -2,7 +2,7 @@
 
 // app/(admin)/configuracion/tablas/TableConfigClient.tsx
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useTransition } from 'react'
 import { toast } from 'sonner'
 import { TableConfigCard } from './TableConfigCard'
@@ -43,13 +43,6 @@ export function TableConfigClient({ table, initialConfig }: Props) {
   const [config, setConfig] = useState<TableFeatures>(() => {
     return initialConfig ?? defaultFeatures
   })
-
-  // Sync si llega una config nueva desde el servidor
-  useEffect(() => {
-    if (initialConfig) {
-      setConfig(initialConfig)
-    }
-  }, [initialConfig])
 
   const isModified = JSON.stringify(config) !== JSON.stringify(
     initialConfig ?? defaultFeatures

@@ -128,7 +128,7 @@ export function NuevoRolModal() {
             
             <div className="grid gap-2">
               <Label htmlFor="nivel">Nivel de Acceso</Label>
-              <Select value={nivelAcceso} onValueChange={setNivelAcceso}>
+              <Select value={nivelAcceso} onValueChange={(val) => setNivelAcceso(val || '2')}>
                 <SelectTrigger id="nivel">
                   <SelectValue placeholder="Selecciona un nivel" />
                 </SelectTrigger>
