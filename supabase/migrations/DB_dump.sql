@@ -91,6 +91,7 @@ CREATE TABLE inv-tienda.cajas_producto (
   cbm numeric,
   created_at timestamp without time zone DEFAULT now(),
   activo boolean,
+  es_principal boolean DEFAULT false,
   CONSTRAINT cajas_producto_pkey PRIMARY KEY (id),
   CONSTRAINT cajas_producto_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES inv-tienda.productos(id),
   CONSTRAINT cajas_producto_proveedor_id_fkey FOREIGN KEY (proveedor_id) REFERENCES inv-tienda.personas(id)
@@ -399,6 +400,7 @@ CREATE TABLE inv-tienda.notas_inventario (
   estado_id integer NOT NULL,
   observaciones text,
   created_at timestamp without time zone DEFAULT now(),
+  activo boolean DEFAULT true CHECK (activo = ANY (ARRAY[true, false])),
   CONSTRAINT notas_inventario_pkey PRIMARY KEY (id),
   CONSTRAINT notas_inventario_tipo_movimiento_id_fkey FOREIGN KEY (tipo_movimiento_id) REFERENCES inv-tienda.cat_tipos_movimiento(id),
   CONSTRAINT notas_inventario_bodega_origen_id_fkey FOREIGN KEY (bodega_origen_id) REFERENCES inv-tienda.bodegas(id),
@@ -671,6 +673,16 @@ CREATE TABLE inv-tienda.roles (
   created_at timestamp without time zone DEFAULT now(),
   CONSTRAINT roles_pkey PRIMARY KEY (id)
 );
+CREATE TABLE inv-tienda.table_config_defaults (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  route text NOT NULL UNIQUE,
+  features jsonb NOT NULL DEFAULT '{}'::jsonb,
+  columnas_visibles jsonb,
+  description text,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT table_config_defaults_pkey PRIMARY KEY (id)
+);
 CREATE TABLE inv-tienda.tipo_acabado (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
   nombre text NOT NULL,
@@ -694,6 +706,18 @@ CREATE TABLE inv-tienda.tipo_tag (
   activo boolean DEFAULT true,
   created_at timestamp without time zone DEFAULT now(),
   CONSTRAINT tipo_tag_pkey PRIMARY KEY (id)
+);
+CREATE TABLE inv-tienda.user_table_configs (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  user_id integer NOT NULL,
+  route text NOT NULL,
+  features jsonb NOT NULL DEFAULT '{}'::jsonb,
+  columnas_visibles jsonb,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT user_table_configs_pkey PRIMARY KEY (id),
+  CONSTRAINT user_table_configs_user_id_fkey FOREIGN KEY (user_id) REFERENCES inv-tienda.usuarios(id)
 );
 CREATE TABLE inv-tienda.usuario_bodegas (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,

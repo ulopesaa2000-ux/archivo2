@@ -1,0 +1,727 @@
+nombre_funcion,definicion
+actualizar_inventario_stock,"CREATE OR REPLACE FUNCTION ""inv-tienda"".actualizar_inventario_stock(p_bodega_id integer, p_producto_id integer, p_cajas_delta numeric, p_piezas_delta integer, p_usuario_id integer, p_caja_id integer DEFAULT NULL::integer)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare
+  v_general_id integer;
+  v_general_cajas numeric;
+  v_general_piezas integer;
+  v_general_cajas_new numeric;
+  v_general_piezas_new integer;
+
+  v_caja_id_row integer;
+  v_caja_cajas numeric;
+  v_caja_piezas integer;
+  v_caja_cajas_new numeric;
+  v_caja_piezas_new integer;
+begin
+  ---------------------------------------------------------
+  -- 1. Registro general (caja_id IS NULL)
+  ---------------------------------------------------------
+  select
+    id,
+    cajas,
+    piezas_sueltas
+  into
+    v_general_id,
+    v_general_cajas,
+    v_general_piezas
+  from ""inv-tienda"".inventario_stock
+  where bodega_id = p_bodega_id
+    and producto_id = p_producto_id
+    and caja_id is null
+  for update;
+
+  v_general_cajas_new := greatest(0, coalesce(v_general_cajas, 0) + p_cajas_delta);
+  v_general_piezas_new := greatest(0, coalesce(v_general_piezas, 0) + p_piezas_delta);
+
+  if v_general_id is not null then
+    update ""inv-tienda"".inventario_stock
+    set
+      cajas = v_general_cajas_new,
+      piezas_sueltas = v_general_piezas_new,
+      updated_by = p_usuario_id,
+      updated_at = now()
+    where id = v_general_id;
+  else
+    insert into ""inv-tienda"".inventario_stock (
+      bodega_id,
+      producto_id,
+      caja_id,
+      cajas,
+      piezas_sueltas,
+      created_by,
+      updated_by
+    )
+    values (
+      p_bodega_id,
+      p_producto_id,
+      null,
+      v_general_cajas_new,
+      v_general_piezas_new,
+      p_usuario_id,
+      p_usuario_id
+    );
+  end if;
+
+  ---------------------------------------------------------
+  -- 2. Si el general quedo en cero, limpiar especificos
+  ---------------------------------------------------------
+  if v_general_cajas_new = 0 and v_general_piezas_new = 0 then
+    update ""inv-tienda"".inventario_stock
+    set
+      cajas = 0,
+      piezas_sueltas = 0,
+      updated_by = p_usuario_id,
+      updated_at = now()
+    where bodega_id = p_bodega_id
+      and producto_id = p_producto_id
+      and caja_id is not null;
+  end if;
+
+  ---------------------------------------------------------
+  -- 3. Registro especifico por caja, solo si viene caja_id
+  ---------------------------------------------------------
+  if p_caja_id is not null then
+    select
+      id,
+      cajas,
+      piezas_sueltas
+    into
+      v_caja_id_row,
+      v_caja_cajas,
+      v_caja_piezas
+    from ""inv-tienda"".inventario_stock
+    where bodega_id = p_bodega_id
+      and producto_id = p_producto_id
+      and caja_id = p_caja_id
+    for update;
+
+    v_caja_cajas_new := greatest(0, coalesce(v_caja_cajas, 0) + p_cajas_delta);
+    v_caja_piezas_new := greatest(0, coalesce(v_caja_piezas, 0) + p_piezas_delta);
+
+    if v_caja_id_row is not null then
+      update ""inv-tienda"".inventario_stock
+      set
+        cajas = v_caja_cajas_new,
+        piezas_sueltas = v_caja_piezas_new,
+        updated_by = p_usuario_id,
+        updated_at = now()
+      where id = v_caja_id_row;
+    else
+      insert into ""inv-tienda"".inventario_stock (
+        bodega_id,
+        producto_id,
+        caja_id,
+        cajas,
+        piezas_sueltas,
+        created_by,
+        updated_by
+      )
+      values (
+        p_bodega_id,
+        p_producto_id,
+        p_caja_id,
+        v_caja_cajas_new,
+        v_caja_piezas_new,
+        p_usuario_id,
+        p_usuario_id
+      );
+    end if;
+  end if;
+end;
+$function$
+"
+fn_auditoria_productos,"CREATE OR REPLACE FUNCTION ""inv-tienda"".fn_auditoria_productos()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_productoid   integer;
+    v_datos_ant    jsonb;
+    v_datos_nvo    jsonb;
+    v_campos       text[]  := ARRAY[]::text[];
+    v_key          text;
+    v_usuarioid    integer;
+BEGIN
+    -- Resolver usuario activo a partir de la sesión de Supabase Auth
+    v_usuarioid := ""inv-tienda"".get_current_usuario_id();
+
+    -- ── INSERT ──────────────────────────────────────────────────
+    IF TG_OP = 'INSERT' THEN
+        v_productoid := NEW.id;
+        v_datos_ant  := NULL;
+        v_datos_nvo  := to_jsonb(NEW);
+        v_campos     := ARRAY['INSERT'];
+
+    -- ── DELETE ──────────────────────────────────────────────────
+    ELSIF TG_OP = 'DELETE' THEN
+        v_productoid := OLD.id;
+        v_datos_ant  := to_jsonb(OLD);
+        v_datos_nvo  := NULL;
+        v_campos     := ARRAY['DELETE'];
+
+    -- ── UPDATE ──────────────────────────────────────────────────
+    ELSE
+        v_productoid := NEW.id;
+        v_datos_ant  := to_jsonb(OLD);
+        v_datos_nvo  := to_jsonb(NEW);
+
+        -- Detectar qué campos cambiaron (excluye ruido de timestamps automáticos)
+        FOR v_key IN SELECT key FROM jsonb_each(to_jsonb(NEW))
+        LOOP
+            IF v_key NOT IN ('updatedat', 'createdat') THEN
+                IF (to_jsonb(OLD) ->> v_key) IS DISTINCT FROM (to_jsonb(NEW) ->> v_key) THEN
+                    v_campos := array_append(v_campos, v_key);
+                END IF;
+            END IF;
+        END LOOP;
+
+        -- Si no hubo cambios reales (p.ej. solo updatedat), no registrar
+        IF cardinality(v_campos) = 0 THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    -- ── Registrar en la tabla de auditoría ──────────────────────
+    INSERT INTO ""inv-tienda"".auditoria_productos (
+        productoid,
+        accion,
+        campos_modificados,
+        datos_anteriores,
+        datos_nuevos,
+        usuarioid,
+        fechaauditoria
+    ) VALUES (
+        v_productoid,
+        TG_OP,
+        v_campos,
+        v_datos_ant,
+        v_datos_nvo,
+        v_usuarioid,
+        now()
+    );
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+"
+fn_historial_estados_nota,"CREATE OR REPLACE FUNCTION ""inv-tienda"".fn_historial_estados_nota()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  -- Si es una CREACIÓN de nota (INSERT)
+  IF (TG_OP = 'INSERT') THEN
+    IF NEW.estado_id IS NOT NULL THEN
+      INSERT INTO ""inv-tienda"".historial_estados_nota (
+        nota_id, estado_anterior_id, estado_nuevo_id, usuario_id, comentario
+      ) VALUES (
+        NEW.id, NULL, NEW.estado_id, NEW.usuario_id, 'Nota creada inicialmente'
+      );
+    END IF;
+
+  -- Si es una ACTUALIZACIÓN (UPDATE) y el estado CAMBIÓ
+  ELSIF (TG_OP = 'UPDATE') THEN
+    IF OLD.estado_id IS DISTINCT FROM NEW.estado_id THEN
+      INSERT INTO ""inv-tienda"".historial_estados_nota (
+        nota_id, estado_anterior_id, estado_nuevo_id, usuario_id, comentario
+      ) VALUES (
+        NEW.id, OLD.estado_id, NEW.estado_id, NEW.usuario_id, 'Cambio de estado automatizado'
+      );
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$function$
+"
+fn_navegar_producto,"CREATE OR REPLACE FUNCTION ""inv-tienda"".fn_navegar_producto(p_producto_id integer)
+ RETURNS TABLE(posicion integer, total integer, id_anterior integer, sku_anterior text, id_siguiente integer, sku_siguiente text)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  WITH ordenados AS (
+    SELECT
+      id,
+      sku_base,
+      ROW_NUMBER() OVER (ORDER BY sku_base) AS pos,
+      COUNT(*)     OVER ()                  AS total
+    FROM ""inv-tienda"".productos
+    WHERE activo = true
+  ),
+  con_vecinos AS (
+    SELECT
+      id,
+      sku_base,
+      pos::integer,
+      total::integer,
+      LAG(id)       OVER (ORDER BY pos)::integer  AS id_anterior,
+      LAG(sku_base) OVER (ORDER BY pos)           AS sku_anterior,
+      LEAD(id)      OVER (ORDER BY pos)::integer  AS id_siguiente,
+      LEAD(sku_base) OVER (ORDER BY pos)          AS sku_siguiente
+    FROM ordenados
+  )
+  SELECT
+    pos,
+    total,
+    id_anterior,
+    sku_anterior,
+    id_siguiente,
+    sku_siguiente
+  FROM con_vecinos
+  WHERE id = p_producto_id;
+$function$
+"
+fn_procesar_nota_inventario,"CREATE OR REPLACE FUNCTION ""inv-tienda"".fn_procesar_nota_inventario()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_tipo record;
+  v_det record;
+  v_stock record;
+BEGIN
+  IF NEW.estado_id = OLD.estado_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM ""inv-tienda"".cat_estados_nota
+    WHERE id = NEW.estado_id AND codigo = 'CONF'
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO v_tipo FROM ""inv-tienda"".cat_tipos_movimiento WHERE id = NEW.tipo_movimiento_id;
+
+  FOR v_det IN (SELECT * FROM ""inv-tienda"".nota_detalle_productos WHERE nota_id = NEW.id) LOOP
+    IF v_tipo.afecta_inventario = 0 AND v_tipo.requiere_destino = true THEN
+      
+      SELECT * INTO v_stock FROM ""inv-tienda"".inventario_stock
+      WHERE bodega_id = NEW.bodega_origen_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+      
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontro stock en origen para producto %', v_det.producto_id;
+      END IF;
+
+      IF COALESCE(v_stock.cajas, 0) < v_det.cajas OR COALESCE(v_stock.piezas_sueltas, 0) < COALESCE(v_det.piezas_sueltas, 0) THEN
+        RAISE EXCEPTION 'Stock insuficiente. Disponible: % cajas y % piezas. Intento de salida: % cajas y % piezas.', COALESCE(v_stock.cajas, 0), COALESCE(v_stock.piezas_sueltas, 0), v_det.cajas, COALESCE(v_det.piezas_sueltas, 0);
+      END IF;
+
+      UPDATE ""inv-tienda"".inventario_stock
+      SET 
+        cajas = cajas - v_det.cajas,
+        piezas_sueltas = piezas_sueltas - COALESCE(v_det.piezas_sueltas, 0),
+        updated_at = NOW(),
+        updated_by = NEW.usuario_id
+      WHERE bodega_id = NEW.bodega_origen_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+
+      UPDATE ""inv-tienda"".inventario_stock
+      SET 
+        cajas = cajas + v_det.cajas,
+        piezas_sueltas = piezas_sueltas + COALESCE(v_det.piezas_sueltas, 0),
+        updated_at = NOW(),
+        updated_by = NEW.usuario_id
+      WHERE bodega_id = NEW.bodega_destino_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+
+      IF NOT FOUND THEN
+        INSERT INTO ""inv-tienda"".inventario_stock (bodega_id, producto_id, caja_id, cajas, piezas_sueltas, created_by, updated_by)
+        VALUES (NEW.bodega_destino_id, v_det.producto_id, v_det.caja_id, v_det.cajas, COALESCE(v_det.piezas_sueltas, 0), NEW.usuario_id, NEW.usuario_id);
+      END IF;
+
+    ELSIF v_tipo.afecta_inventario = -1 THEN
+      SELECT * INTO v_stock FROM ""inv-tienda"".inventario_stock
+      WHERE bodega_id = NEW.bodega_origen_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+      
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontro stock en origen para producto %', v_det.producto_id;
+      END IF;
+
+      IF COALESCE(v_stock.cajas, 0) < v_det.cajas OR COALESCE(v_stock.piezas_sueltas, 0) < COALESCE(v_det.piezas_sueltas, 0) THEN
+        RAISE EXCEPTION 'Stock insuficiente. Disponible: % cajas y % piezas. Intento de salida: % cajas y % piezas.', COALESCE(v_stock.cajas, 0), COALESCE(v_stock.piezas_sueltas, 0), v_det.cajas, COALESCE(v_det.piezas_sueltas, 0);
+      END IF;
+
+      UPDATE ""inv-tienda"".inventario_stock
+      SET 
+        cajas = cajas - v_det.cajas,
+        piezas_sueltas = piezas_sueltas - COALESCE(v_det.piezas_sueltas, 0),
+        updated_at = NOW(),
+        updated_by = NEW.usuario_id
+      WHERE bodega_id = NEW.bodega_origen_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+      
+    ELSIF v_tipo.afecta_inventario = 1 THEN
+      UPDATE ""inv-tienda"".inventario_stock
+      SET 
+        cajas = cajas + v_det.cajas,
+        piezas_sueltas = piezas_sueltas + COALESCE(v_det.piezas_sueltas, 0),
+        updated_at = NOW(),
+        updated_by = NEW.usuario_id
+      WHERE bodega_id = NEW.bodega_origen_id
+      AND producto_id = v_det.producto_id
+      AND (caja_id = v_det.caja_id OR (caja_id IS NULL AND v_det.caja_id IS NULL));
+
+      IF NOT FOUND THEN
+        INSERT INTO ""inv-tienda"".inventario_stock (bodega_id, producto_id, caja_id, cajas, piezas_sueltas, created_by, updated_by)
+        VALUES (NEW.bodega_origen_id, v_det.producto_id, v_det.caja_id, v_det.cajas, COALESCE(v_det.piezas_sueltas, 0), NEW.usuario_id, NEW.usuario_id);
+      END IF;
+    END IF;
+  END LOOP;
+
+  NEW.fecha_confirmacion := NOW();
+  RETURN NEW;
+END;
+$function$
+"
+fn_puede_acceder_bodega,"CREATE OR REPLACE FUNCTION ""inv-tienda"".fn_puede_acceder_bodega(p_usuario_id integer, p_bodega_id integer)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_nivel_acceso  int;
+  v_tiene_permiso boolean;
+BEGIN
+  SELECT r.nivel_acceso INTO v_nivel_acceso
+  FROM ""inv-tienda"".usuarios u
+  JOIN ""inv-tienda"".roles r ON u.rol_id = r.id
+  WHERE u.id = p_usuario_id;
+
+  IF v_nivel_acceso IN (1, 2) THEN
+    RETURN TRUE;
+  END IF;
+
+  SELECT COUNT(*) > 0 INTO v_tiene_permiso
+  FROM ""inv-tienda"".usuario_bodegas
+  WHERE usuario_id = p_usuario_id
+    AND bodega_id  = p_bodega_id;
+
+  RETURN v_tiene_permiso;
+END;
+$function$
+"
+get_current_usuario_id,"CREATE OR REPLACE FUNCTION ""inv-tienda"".get_current_usuario_id()
+ RETURNS integer
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $function$
+    SELECT id
+    FROM   ""inv-tienda"".usuarios
+    WHERE  auth_user_id = auth.uid()
+    LIMIT  1;
+$function$
+"
+sp_agregar_producto_nota,"CREATE OR REPLACE FUNCTION ""inv-tienda"".sp_agregar_producto_nota(p_nota_id integer, p_cajas numeric, p_variante_id integer DEFAULT NULL::integer, p_producto_id integer DEFAULT NULL::integer, p_piezas_sueltas integer DEFAULT 0, p_caja_id integer DEFAULT NULL::integer)
+ RETURNS text
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare
+  v_estado_codigo varchar(20);
+  v_detalle_id integer;
+begin
+  if (p_variante_id is null and p_producto_id is null)
+     or (p_variante_id is not null and p_producto_id is not null) then
+    raise exception 'Debe proveer exactamente uno: p_variante_id o p_producto_id';
+  end if;
+
+  select e.codigo
+    into v_estado_codigo
+  from ""inv-tienda"".notas_inventario n
+  join ""inv-tienda"".cat_estados_nota e on n.estado_id = e.id
+  where n.id = p_nota_id;
+
+  if v_estado_codigo not in ('PEND', 'PROC') then
+    raise exception 'Solo se pueden agregar productos a notas en estado PENDIENTE o EN PROCESO';
+  end if;
+
+  if p_variante_id is not null then
+    select id
+      into v_detalle_id
+    from ""inv-tienda"".nota_detalle_productos
+    where nota_id = p_nota_id
+      and variante_id = p_variante_id
+    limit 1;
+
+    if v_detalle_id is not null then
+      update ""inv-tienda"".nota_detalle_productos
+      set
+        cajas = cajas + p_cajas,
+        piezas_sueltas = piezas_sueltas + p_piezas_sueltas
+      where id = v_detalle_id;
+    else
+      insert into ""inv-tienda"".nota_detalle_productos
+        (nota_id, variante_id, producto_id, cajas, piezas_sueltas, caja_id)
+      values
+        (p_nota_id, p_variante_id, null, p_cajas, p_piezas_sueltas, p_caja_id)
+      returning id into v_detalle_id;
+    end if;
+  else
+    select id
+      into v_detalle_id
+    from ""inv-tienda"".nota_detalle_productos
+    where nota_id = p_nota_id
+      and producto_id = p_producto_id
+      and caja_id is not distinct from p_caja_id
+    limit 1;
+
+    if v_detalle_id is not null then
+      update ""inv-tienda"".nota_detalle_productos
+      set
+        cajas = cajas + p_cajas,
+        piezas_sueltas = piezas_sueltas + p_piezas_sueltas
+      where id = v_detalle_id;
+    else
+      insert into ""inv-tienda"".nota_detalle_productos
+        (nota_id, variante_id, producto_id, cajas, piezas_sueltas, caja_id)
+      values
+        (p_nota_id, null, p_producto_id, p_cajas, p_piezas_sueltas, p_caja_id)
+      returning id into v_detalle_id;
+    end if;
+  end if;
+
+  return 'Producto agregado exitosamente. ID: ' || v_detalle_id;
+end;
+$function$
+"
+sp_cancelar_nota,"CREATE OR REPLACE FUNCTION ""inv-tienda"".sp_cancelar_nota(p_nota_id integer, p_usuario_id integer, p_motivo character varying DEFAULT NULL::character varying)
+ RETURNS text
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_estado_codigo    varchar(20);
+  v_estado_cancelado int;
+  v_estado_anterior  int;
+  
+  -- Variables para la nota inversa (en el futuro)
+  v_nota_original    RECORD;
+  v_nuevo_tipo_mov   integer;
+  v_nueva_bodega_ori integer;
+  v_nueva_bodega_des integer;
+  v_nueva_nota_id    integer;
+BEGIN
+  -- 1. Obtener la nota original
+  SELECT n.*, e.codigo as estado_codigo
+    INTO v_nota_original
+  FROM ""inv-tienda"".notas_inventario n
+  JOIN ""inv-tienda"".cat_estados_nota e ON n.estado_id = e.id
+  WHERE n.id = p_nota_id;
+
+  v_estado_anterior := v_nota_original.estado_id;
+  v_estado_codigo   := v_nota_original.estado_codigo;
+
+  -- 2. Bifurcación de lógica - LOGICA ANTIGUA (Actual)
+  IF v_estado_codigo IN ('PEND', 'PROC') THEN
+    -- A. Nota no ha afectado stock. Solo se cancela administrativamente.
+    SELECT id INTO v_estado_cancelado FROM ""inv-tienda"".cat_estados_nota WHERE codigo = 'CANC';
+
+    UPDATE ""inv-tienda"".notas_inventario
+    SET estado_id = v_estado_cancelado
+    WHERE id = p_nota_id;
+    
+    -- Nota: El trigger trg_auditoria_estados_nota se encarga ahora de registrar el historial.
+
+    RETURN 'Nota PENDIENTE/EN PROCESO cancelada exitosamente';
+    
+  -- 3. Bifurcación de lógica - NUEVA LOGICA DE DEVOLUCION (Oculta por el momento)
+  ELSIF v_estado_codigo = 'CONF' THEN
+  
+    -- TODO: PERMISOLOGÍA
+    -- IF NOT p_usuario_tiene_permiso_global THEN
+    --   RAISE EXCEPTION 'Solo un Administrador Global puede cancelar notas confirmadas.';
+    -- END IF;
+    
+    -- BLOQUEO ACTUAL: Mantenemos la restricción por ahora según instrucción.
+    RAISE EXCEPTION 'La cancelación de notas confirmadas con autodevolución de stock está en desarrollo y bloqueada por falta de permisos integrados al sistema.';
+    
+    /* 
+    ========================================================================
+    == LÓGICA DE CANCELACIÓN CON REVERSO AUTO-GENERADO (FUTURO) ==
+    ========================================================================
+    -- Determinamos el tipo de nota a crear basándose en cat_tipos_movimiento
+    -- 1 = ENT, 2 = SAL, 3 = TRF, 4 = AJU, 5 = DEV
+
+    IF v_nota_original.tipo_movimiento_id = 1 THEN       -- Era ENTRADA
+      v_nuevo_tipo_mov := 5;                             -- Creamos DEVOLUCION (o Salida)
+      v_nueva_bodega_ori := v_nota_original.bodega_destino_id;
+      v_nueva_bodega_des := NULL;
+    ELSIF v_nota_original.tipo_movimiento_id = 2 THEN    -- Era SALIDA
+      v_nuevo_tipo_mov := 1;                             -- Creamos ENTRADA (regresa la mercancía)
+      v_nueva_bodega_ori := NULL;
+      v_nueva_bodega_des := v_nota_original.bodega_origen_id;
+    ELSIF v_nota_original.tipo_movimiento_id = 3 THEN    -- Era TRASLADO
+      v_nuevo_tipo_mov := 3;                             -- Creamos TRASLADO inverso
+      v_nueva_bodega_ori := v_nota_original.bodega_destino_id;
+      v_nueva_bodega_des := v_nota_original.bodega_origen_id;
+    ELSE
+      RAISE EXCEPTION 'Tipo de movimiento no soportado para reversión.';
+    END IF;
+
+    -- A. Creamos la cabecera de la nota inversa como CONFIRMADA directamente
+    INSERT INTO ""inv-tienda"".notas_inventario (
+      tipo_movimiento_id, 
+      bodega_origen_id, 
+      bodega_destino_id, 
+      usuario_id,
+      estado_id, 
+      nota_referencia,
+      nota_original_id,
+      observaciones
+    ) VALUES (
+      v_nuevo_tipo_mov,
+      v_nueva_bodega_ori,
+      v_nueva_bodega_des,
+      p_usuario_id,
+      (SELECT id FROM ""inv-tienda"".cat_estados_nota WHERE codigo = 'CONF'),
+      'DEV-CANC-' || v_nota_original.numero_nota,
+      p_nota_id,
+      COALESCE(p_motivo, 'Nota generada automáticamente por cancelación de Mvto: ' || v_nota_original.numero_nota)
+    ) RETURNING id INTO v_nueva_nota_id;
+
+    -- B. Clonamos los detalles de los productos
+    INSERT INTO ""inv-tienda"".nota_detalle_productos (
+      nota_id, variante_id, producto_id, cajas, piezas_sueltas, caja_id
+    )
+    SELECT 
+      v_nueva_nota_id, variante_id, producto_id, cajas, piezas_sueltas, caja_id
+    FROM ""inv-tienda"".nota_detalle_productos
+    WHERE nota_id = p_nota_id;
+
+    -- Al insertar con estado CONF, nuestro trigger trg_procesar_nota_inventario 
+    -- detonará mágicamente, haciendo los insert o update a la tabla de stock para devolverla!
+    -- Si el stock ya no estuviera (ej. devuelves una entrada que ya se vendió), el trigger 
+    -- lanzará excepción ""Stock insuficiente"" y cancelará toda la transacción atómicamente.
+
+    -- C. Marcamos la nota original como CANCELADA
+    SELECT id INTO v_estado_cancelado FROM ""inv-tienda"".cat_estados_nota WHERE codigo = 'CANC';
+    UPDATE ""inv-tienda"".notas_inventario
+    SET estado_id = v_estado_cancelado
+    WHERE id = p_nota_id;
+
+    RETURN 'Nota CONFIRMADA cancelada exitosamente y reversada con nota interna de reingreso/egreso.';
+    ========================================================================
+    */
+
+  ELSE
+    RAISE EXCEPTION 'Estado no reconocido para cancelación.';
+  END IF;
+
+END;
+$function$
+"
+sp_crear_nota,"CREATE OR REPLACE FUNCTION ""inv-tienda"".sp_crear_nota(p_tipo_movimiento_id integer, p_bodega_origen_id integer, p_bodega_destino_id integer, p_usuario_id integer, p_nota_referencia character varying DEFAULT NULL::character varying, p_observaciones text DEFAULT NULL::text)
+ RETURNS TABLE(nota_id integer, numero_nota character varying)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_numero_nota      varchar(20);
+  v_estado_pendiente int;
+  v_requiere_destino boolean;
+  v_nueva_nota_id    int;
+BEGIN
+  SELECT requiere_destino INTO v_requiere_destino
+  FROM ""inv-tienda"".cat_tipos_movimiento
+  WHERE id = p_tipo_movimiento_id;
+
+  IF v_requiere_destino AND p_bodega_destino_id IS NULL THEN
+    RAISE EXCEPTION 'Este tipo de movimiento requiere bodega destino';
+  END IF;
+
+  v_numero_nota := 'N-' || TO_CHAR(NOW(), 'YYYYMMDD') || '-' ||
+                   LPAD(nextval('""inv-tienda"".""seq_notas_inventario""')::TEXT, 4, '0');
+
+  SELECT id INTO v_estado_pendiente
+  FROM ""inv-tienda"".cat_estados_nota
+  WHERE codigo = 'PEND';
+
+  INSERT INTO ""inv-tienda"".notas_inventario (
+    numero_nota, tipo_movimiento_id, bodega_origen_id, bodega_destino_id,
+    usuario_id, nota_referencia, estado_id, observaciones
+  )
+  VALUES (
+    v_numero_nota, p_tipo_movimiento_id, p_bodega_origen_id, p_bodega_destino_id,
+    p_usuario_id, p_nota_referencia, v_estado_pendiente, p_observaciones
+  )
+  RETURNING id INTO v_nueva_nota_id;
+
+  RETURN QUERY SELECT v_nueva_nota_id, v_numero_nota;
+END;
+$function$
+"
+trg_actualizar_total_cajas_delete,"CREATE OR REPLACE FUNCTION ""inv-tienda"".trg_actualizar_total_cajas_delete()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+BEGIN
+  UPDATE ""inv-tienda"".notas_inventario
+  SET total_cajas = (
+    SELECT COALESCE(SUM(cajas), 0)
+    FROM ""inv-tienda"".nota_detalle_productos
+    WHERE nota_id = OLD.nota_id
+  )
+  WHERE id = OLD.nota_id;
+  RETURN OLD;
+END;
+$function$
+"
+trg_actualizar_total_cajas_insert,"CREATE OR REPLACE FUNCTION ""inv-tienda"".trg_actualizar_total_cajas_insert()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+BEGIN
+  UPDATE ""inv-tienda"".notas_inventario
+  SET total_cajas = (
+    SELECT COALESCE(SUM(cajas), 0)
+    FROM ""inv-tienda"".nota_detalle_productos
+    WHERE nota_id = NEW.nota_id
+  )
+  WHERE id = NEW.nota_id;
+  RETURN NEW;
+END;
+$function$
+"
+trg_actualizar_total_cajas_update,"CREATE OR REPLACE FUNCTION ""inv-tienda"".trg_actualizar_total_cajas_update()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+BEGIN
+  UPDATE ""inv-tienda"".notas_inventario
+  SET total_cajas = (
+    SELECT COALESCE(SUM(cajas), 0)
+    FROM ""inv-tienda"".nota_detalle_productos
+    WHERE nota_id = NEW.nota_id
+  )
+  WHERE id = NEW.nota_id;
+  RETURN NEW;
+END;
+$function$
+"
+update_updated_at_column,"CREATE OR REPLACE FUNCTION ""inv-tienda"".update_updated_at_column()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $function$
+"

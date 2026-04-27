@@ -1,0 +1,101 @@
+vista,columna,tipo_dato,es_nulo,posicion
+appsheet_login,usuario_id,integer,YES,1
+appsheet_login,usuario,character varying,YES,2
+appsheet_login,contrasena,character varying,YES,3
+appsheet_login,nombre,character varying,YES,4
+appsheet_login,nombre_corto,text,YES,5
+appsheet_login,perfil,character varying,YES,6
+appsheet_login,nivel_acceso,integer,YES,7
+appsheet_login,correo,character varying,YES,8
+appsheet_login,tel,character varying,YES,9
+appsheet_login,activo,boolean,YES,10
+contenedor_cajas,id,integer,YES,1
+contenedor_cajas,contenedor_id,integer,YES,2
+contenedor_cajas,caja_id,integer,YES,3
+contenedor_cajas,orden_id,integer,YES,4
+contenedor_cajas,cantidad_cajas,integer,YES,5
+contenedor_cajas,created_at,timestamp without time zone,YES,6
+v_auditoria_productos,id,integer,YES,1
+v_auditoria_productos,productoid,integer,YES,2
+v_auditoria_productos,sku_base,character varying,YES,3
+v_auditoria_productos,productonombre,text,YES,4
+v_auditoria_productos,accion,character varying,YES,5
+v_auditoria_productos,campos_modificados,ARRAY,YES,6
+v_auditoria_productos,datos_anteriores,jsonb,YES,7
+v_auditoria_productos,datos_nuevos,jsonb,YES,8
+v_auditoria_productos,usuarioid,integer,YES,9
+v_auditoria_productos,usuarionombre,character varying,YES,10
+v_auditoria_productos,fechaauditoria,timestamp without time zone,YES,11
+v_catalogo_listado,id,integer,YES,1
+v_catalogo_listado,sku_base,character varying,YES,2
+v_catalogo_listado,nombre,text,YES,3
+v_catalogo_listado,descripcion,text,YES,4
+v_catalogo_listado,estado,text,YES,5
+v_catalogo_listado,destacado,boolean,YES,6
+v_catalogo_listado,es_conjunto,boolean,YES,7
+v_catalogo_listado,familia,text,YES,8
+v_catalogo_listado,activo,boolean,YES,9
+v_catalogo_listado,created_at,timestamp with time zone,YES,10
+v_catalogo_listado,updated_at,timestamp with time zone,YES,11
+v_catalogo_listado,marca_nombre,text,YES,12
+v_catalogo_listado,marca_logo,text,YES,13
+v_catalogo_listado,genero_nombre,text,YES,14
+v_catalogo_listado,genero_codigo,character varying,YES,15
+v_catalogo_listado,edad_rango,text,YES,16
+v_catalogo_listado,tipo_prenda_nombre,text,YES,17
+v_catalogo_listado,tipo_prenda_clasificacion,text,YES,18
+v_catalogo_listado,tipo_prenda_vista_web,text,YES,19
+v_catalogo_listado,web_slug,text,YES,20
+v_catalogo_listado,web_titulo_seo,text,YES,21
+v_catalogo_listado,precio_publico,numeric,YES,22
+v_catalogo_listado,precio_oferta,numeric,YES,23
+v_catalogo_listado,en_oferta,boolean,YES,24
+v_catalogo_listado,web_destacado,boolean,YES,25
+v_catalogo_listado,web_nuevo,boolean,YES,26
+v_catalogo_listado,web_activo,boolean,YES,27
+v_catalogo_listado,web_orden_display,integer,YES,28
+v_catalogo_listado,web_visitas,integer,YES,29
+v_catalogo_listado,web_fecha_publicacion,timestamp without time zone,YES,30
+v_catalogo_listado,imagen_principal,text,YES,31
+v_catalogo_listado,colores_disponibles,json,YES,32
+v_catalogo_listado,tallas_disponibles,json,YES,33
+v_catalogo_listado,precio_variante_min,numeric,YES,34
+v_catalogo_listado,precio_variante_max,numeric,YES,35
+v_catalogo_listado,total_variantes_activas,integer,YES,36
+v_catalogo_web,producto_id,integer,YES,1
+v_catalogo_web,sku_base,character varying,YES,2
+v_catalogo_web,nombre,text,YES,3
+v_catalogo_web,descripcion,text,YES,4
+v_catalogo_web,slug,text,YES,5
+v_catalogo_web,precio_publico,numeric,YES,6
+v_catalogo_web,precio_oferta,numeric,YES,7
+v_catalogo_web,en_oferta,boolean,YES,8
+v_catalogo_web,destacado,boolean,YES,9
+v_catalogo_web,nuevo,boolean,YES,10
+v_catalogo_web,marca,text,YES,11
+v_catalogo_web,genero,text,YES,12
+v_catalogo_web,tipo_prenda,text,YES,13
+v_catalogo_web,imagen_principal,text,YES,14
+v_catalogo_web,total_variantes,bigint,YES,15
+v_catalogo_web,stock_total,integer,YES,16
+v_contenedor_packing,codigo_contenedor,text,YES,1
+v_contenedor_packing,numero_contenedor,character varying,YES,2
+v_contenedor_packing,numero_bl,character varying,YES,3
+v_contenedor_packing,estado_contenedor,character varying,YES,4
+v_contenedor_packing,fecha_etd,timestamp without time zone,YES,5
+v_contenedor_packing,fecha_eta,timestamp without time zone,YES,6
+v_contenedor_packing,orden_id,integer,YES,7
+v_contenedor_packing,folio_proveedor,character varying,YES,8
+v_contenedor_packing,estado_orden,character varying,YES,9
+v_contenedor_packing,moneda,character varying,YES,10
+v_contenedor_packing,proveedor,character varying,YES,11
+v_contenedor_packing,producto_id,integer,YES,12
+v_contenedor_packing,sku_base,character varying,YES,13
+v_contenedor_packing,producto_nombre,text,YES,14
+v_contenedor_packing,marca,text,YES,15
+v_contenedor_packing,composicion,text,YES,16
+v_contenedor_packing,piezas_solicitadas,integer,YES,17
+v_contenedor_packing,piezas_pedidas,integer,YES,18
+v_contenedor_packing,cajas_pedidas,numeric,YES,19
+v_contenedor_packing,precio_unitario,numeric,YES,20
+v_contenedor_packing,precio_yuan,numeric,YES,21
