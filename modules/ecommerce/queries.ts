@@ -226,6 +226,7 @@ export async function fetchProductosWebPublicos(
       id,
       slug,
       producto_id,
+      titulo_seo,
       precio_publico,
       precio_oferta,
       en_oferta,
@@ -233,6 +234,7 @@ export async function fetchProductosWebPublicos(
       nuevo,
       modo_override,
       unidad_venta,
+      activo,
       productos!inner(
         sku_base,
         nombre,
@@ -306,6 +308,9 @@ export async function fetchProductosWebPublicos(
     sku_base: item.productos?.sku_base,
     nombre: item.productos?.descripcion || item.productos?.nombre || item.titulo_seo || 'Producto',
     descripcion: item.productos?.descripcion,
+    composicion: null,
+    titulo_seo: item.titulo_seo ?? null,
+    descripcion_seo: null, // No se carga en lista
     precio_publico: item.precio_publico,
     precio_oferta: item.precio_oferta,
     en_oferta: item.en_oferta,
@@ -314,9 +319,13 @@ export async function fetchProductosWebPublicos(
     marca: item.productos?.cat_marcas?.nombre,
     tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
     genero: item.productos?.cat_generos?.nombre,
+    tela_exterior: null,
+    tela_forro: null,
+    keywords: null,
     imagen_principal: imagenesMap[item.producto_id] || null,
     modo_override: item.modo_override,
     unidad_venta: item.unidad_venta,
+    activo: item.activo,
   }))
 
   return {
@@ -389,6 +398,7 @@ export async function fetchProductoWebBySlug(
     nombre: prod?.descripcion || prod?.nombre || data.titulo_seo || 'Producto sin nombre',
     descripcion: prod?.descripcion,
     composicion: prod?.composicion ?? null,
+    titulo_seo: data.titulo_seo ?? null,
     descripcion_seo: data.descripcion_seo ?? null,
     precio_publico: data.precio_publico,
     precio_oferta: data.precio_oferta,
@@ -404,7 +414,30 @@ export async function fetchProductoWebBySlug(
     imagen_principal: imagen?.url || null,
     modo_override: data.modo_override,
     unidad_venta: data.unidad_venta,
+    activo: data.activo,
   } as ProductoWebPublico
+}
+
+/**
+ * Obtiene todos los slugs de productos activos para el sitemap.
+ */
+export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at: string }[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('productos_web')
+    .select('slug, updated_at')
+    .eq('activo', true)
+
+  if (error) {
+    console.error('Error fetchAllProductSlugs:', error)
+    return []
+  }
+
+  return (data || []).map((item) => ({
+    slug: item.slug,
+    updated_at: item.updated_at || new Date().toISOString()
+  }))
 }
 
 // ═══════════════════════════════════════════════════════════════

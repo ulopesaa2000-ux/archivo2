@@ -7,10 +7,24 @@ import { ProductosNoPublicados } from '@/components/admin/ecommerce/ProductosNoP
 
 export const metadata: Metadata = { title: 'Catálogo Web' }
 
-export default async function ProductosWebPage() {
+async function ProductosWebData() {
   const { productos, total } = await fetchProductosWebAdmin({ page: 1 })
   const noPublicados = await fetchProductosNoPublicados()
 
+  return (
+    <>
+      {/* Productos no publicados */}
+      {noPublicados.length > 0 && (
+        <ProductosNoPublicados productos={noPublicados} />
+      )}
+
+      {/* Productos publicados */}
+      <ProductosWebTable productos={productos} total={total} />
+    </>
+  )
+}
+
+export default async function ProductosWebPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -20,14 +34,8 @@ export default async function ProductosWebPage() {
         </p>
       </div>
 
-      {/* Productos no publicados */}
-      {noPublicados.length > 0 && (
-        <ProductosNoPublicados productos={noPublicados} />
-      )}
-
-      {/* Productos publicados */}
       <Suspense fallback={<div className="h-96 bg-muted animate-pulse rounded-lg" />}>
-        <ProductosWebTable productos={productos} total={total} />
+        <ProductosWebData />
       </Suspense>
     </div>
   )

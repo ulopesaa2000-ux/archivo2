@@ -32,9 +32,10 @@ function buildQuickEditFields(route: string): TableFeatures['quickEdit'] {
 type Props = {
   table: AdminTableDefinition
   initialConfig: TableFeatures | null
+  isGlobal?: boolean
 }
 
-export function TableConfigClient({ table, initialConfig }: Props) {
+export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
   const [isPending, startTransition] = useTransition()
   const [isSaving, setIsSaving] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
@@ -84,7 +85,7 @@ export function TableConfigClient({ table, initialConfig }: Props) {
         route: table.route,
         features: config,
         columnas_visibles: null,
-      })
+      }, isGlobal)
       setIsSaving(false)
       if (result.success) {
         toast.success('Configuración guardada correctamente')

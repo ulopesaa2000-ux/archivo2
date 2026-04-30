@@ -4,6 +4,8 @@ import { Suspense } from 'react'
 import { fetchBodegas, fetchUsuariosBodega } from '@/modules/inventario/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 import { BodegaForm } from './BodegaForm'
 import { BodegaUsuarios } from './BodegaUsuarios'
 import { Badge } from '@/components/ui/badge'
@@ -108,7 +110,59 @@ function BodegasSkeleton() {
   )
 }
 
-export default async function BodegasPage() {
+async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) {
+  const bodegas = await fetchBodegas()
+  const usuariosPorBodega = await Promise.all(
+    bodegas.map(b => fetchUsuariosBodega(b.id))
+  )
+
+  if (agruparPorCiudad) {
+    return (
+      <div className="space-y-8">
+        {Object.entries(
+          bodegas.reduce((acc, bodega, index) => {
+            const city = bodega.ciudad || (bodega.es_virtual ? 'Virtuales' : 'Sin ciudad asignada')
+            if (!acc[city]) acc[city] = []
+            acc[city].push({ bodega, index })
+            return acc
+          }, {} as Record<string, { bodega: any, index: number }[]>)
+        ).sort(([a], [b]) => a.localeCompare(b)).map(([city, items]) => (
+          <div key={city} className="space-y-4">
+            <h2 className="text-lg font-semibold border-b pb-2">{city}</h2>
+            <div className="grid gap-4">
+              {items.map(({ bodega, index }) => (
+                <BodegaCard
+                  key={bodega.id}
+                  bodega={bodega}
+                  usuarios={usuariosPorBodega[index]}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-4">
+      {bodegas.map((bodega, index) => (
+        <BodegaCard
+          key={bodega.id}
+          bodega={bodega}
+          usuarios={usuariosPorBodega[index]}
+        />
+      ))}
+    </div>
+  )
+}
+
+export default async function BodegasPage(props: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const searchParams = await props.searchParams
+  const agruparPorCiudad = searchParams.agrupar !== 'no'
+
   const user = await getCurrentUser()
   if (!user) redirect('/login')
 
@@ -121,30 +175,27 @@ export default async function BodegasPage() {
     )
   }
 
-  const bodegas = await fetchBodegas()
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bodegas</h1>
           <p className="text-sm text-muted-foreground">
-            {bodegas.length} bodega{bodegas.length !== 1 ? 's' : ''} registrada{bodegas.length !== 1 ? 's' : ''}
+            Listado de bodegas registradas
           </p>
         </div>
-        <BodegaForm mode="create" />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href={agruparPorCiudad ? "?agrupar=no" : "/inventario/bodegas"}>
+              {agruparPorCiudad ? "Quitar agrupación" : "Agrupar por ciudad"}
+            </Link>
+          </Button>
+          <BodegaForm mode="create" />
+        </div>
       </div>
 
       <Suspense fallback={<BodegasSkeleton />}>
-        <div className="grid gap-4">
-          {bodegas.map((bodega) => (
-            <BodegaCard
-              key={bodega.id}
-              bodega={bodega}
-              usuarios={[]}
-            />
-          ))}
-        </div>
+        <BodegasList agruparPorCiudad={agruparPorCiudad} />
       </Suspense>
     </div>
   )

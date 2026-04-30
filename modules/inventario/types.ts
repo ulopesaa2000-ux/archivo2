@@ -109,6 +109,8 @@ export type StockListItem = {
   caja_id: number | null
   producto_sku: string
   producto_nombre: string | null
+  producto_descripcion: string | null
+  producto_familia: string | null
   producto_pz_en_caja: number | null
   marca_nombre: string | null
   caja_codigo: string | null
@@ -138,6 +140,8 @@ export type StockMatrixItem = {
   producto_id: number
   producto_sku: string
   producto_nombre: string | null
+  producto_descripcion: string | null
+  producto_familia: string | null
   pz_en_caja: number | null
   total_general: number
   stock_por_bodega: Record<number, { cajas: number; piezas_sueltas: number; total: number }>

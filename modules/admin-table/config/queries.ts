@@ -136,3 +136,20 @@ export async function fetchTableConfigDefault(route: string): Promise<TableFeatu
 
   return data ? (data.features as TableFeatures) : null
 }
+
+export async function fetchAllGlobalTableConfigs(): Promise<Map<string, TableFeatures>> {
+  const supabase = await createClient()
+  const result = new Map<string, TableFeatures>()
+  
+  const { data: defaults } = await (supabase as any)
+    .from('table_config_defaults')
+    .select('route, features')
+
+  if (defaults) {
+    for (const row of defaults as TableConfigDefaultRow[]) {
+      result.set(row.route, row.features as TableFeatures)
+    }
+  }
+  
+  return result
+}

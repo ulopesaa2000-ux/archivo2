@@ -1,6 +1,8 @@
 // app/(admin)/inventario/notas/page.tsx
 import type { Metadata } from 'next'
 import { fetchNotas, fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
+import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { NotasFilters } from './NotasFilters'
 import { NotasTable } from './NotasTable'
 import { Pagination } from '@/components/admin/Pagination'
@@ -44,10 +46,16 @@ export default async function NotasPage({
     page: sp.page ? parseInt(sp.page) : 1,
   }
 
-  const [{ notas, total }, catalogos] = await Promise.all([
+  const [{ notas, total }, catalogos, tableConfig] = await Promise.all([
     fetchNotas(filtros),
     fetchCatalogosInventario(),
+    fetchUserTableConfig('/inventario/notas'),
   ])
+
+  const features = {
+    ...getDefaultFeatures('/inventario/notas'),
+    ...tableConfig.config,
+  }
 
   return (
     <div className="space-y-4">
@@ -132,7 +140,7 @@ export default async function NotasPage({
       <NotasFilters catalogos={catalogos} />
 
       {/* Tabla (Server, se re-renderiza) */}
-      <NotasTable notas={notas} />
+      <NotasTable notas={notas} initialFeatures={features} />
 
       {/* Paginación */}
       <Pagination total={total} />

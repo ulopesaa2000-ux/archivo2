@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { ProductGalleryClient } from './components/ProductGalleryClient'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
@@ -16,7 +17,7 @@ interface ProductPageProps {
   params: Promise<{ slug: string }>
 }
 
-// ✅ CORREGIDO: Metadata simplificado sin absolute/template
+// ✅ MEJORA: Generación de metadatos optimizada para redes sociales
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params
   const producto = await fetchProductoWebBySlug(slug)
@@ -28,19 +29,47 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     }
   }
 
+  // ✅ LÓGICA DE FALLBACK: Prioriza SEO Web > SKU + Descripción > Solo SKU
+  const productTitle = producto.titulo_seo 
+    ? producto.titulo_seo 
+    : (producto.sku_base && producto.descripcion) 
+      ? `${producto.sku_base} - ${producto.descripcion}`
+      : producto.sku_base || 'Producto'
+
+  const productDescription = producto.descripcion_seo || producto.descripcion || `Descubre el producto ${producto.sku_base} en inv-tienda`
+  
+  // Imagen optimizada para OG (1200x630)
+  const ogImageUrl = producto.imagen_principal 
+    ? getSmartImagenUrl(producto.imagen_principal, 'og')
+    : '/og-image.jpg'
+
   return {
-    title: `${producto.descripcion ?? 'Producto'} | inv-tienda`,
-    description: producto.descripcion_seo ?? producto.descripcion ?? undefined,
-    keywords: producto.keywords ?? undefined,
+    title: `${productTitle} | inv-tienda`,
+    description: productDescription,
+    keywords: producto.keywords || undefined,
     openGraph: {
-      title: producto.descripcion ?? undefined,
-      description: producto.descripcion_seo ?? producto.descripcion ?? undefined,
-      images: producto.imagen_principal ? [producto.imagen_principal] : undefined,
+      title: productTitle,
+      description: productDescription,
+      type: 'website',
+      url: `${SITE_URL}/shop/${producto.slug}`,
+      siteName: 'inv-tienda',
+      images: [
+        {
+          url: ogImageUrl,
+          width: 1200,
+          height: 630,
+          alt: productTitle,
+        }
+      ],
     },
     twitter: {
       card: 'summary_large_image',
-      title: producto.descripcion ?? undefined,
-      description: producto.descripcion_seo ?? producto.descripcion ?? undefined,
+      title: productTitle,
+      description: productDescription,
+      images: [ogImageUrl],
+    },
+    alternates: {
+      canonical: `${SITE_URL}/shop/${producto.slug}`,
     }
   }
 }
@@ -66,26 +95,37 @@ export default async function ProductPage({ params }: ProductPageProps) {
       fetchMedidasPublicas(producto.producto_id) ?? { puntos: [], tallas: [], tabla: {} },
     ])
 
-    // ✅ CORREGIDO: Schema sin datos ficticios
+    // ✅ LÓGICA DE NOMBRE: Prioriza SEO Web > SKU + Descripción > Solo SKU
+    const productTitle = producto.titulo_seo 
+      ? producto.titulo_seo 
+      : (producto.sku_base && producto.descripcion) 
+        ? `${producto.sku_base} - ${producto.descripcion}`
+        : producto.sku_base || 'Producto'
+
+    // ✅ CORREGIDO: Schema enriquecido con datos reales
     const productSchema = {
       "@context": "https://schema.org",
       "@type": "Product",
-      name: producto.nombre,
-      description: producto.descripcion_seo || producto.descripcion,
+      name: productTitle,
+      description: producto.descripcion_seo || producto.descripcion || productTitle,
+      sku: producto.sku_base,
       image: producto.imagen_principal 
-        ? [producto.imagen_principal, ...imagenes.map(img => img.url)] 
+        ? [getSmartImagenUrl(producto.imagen_principal, 'hero'), ...imagenes.map(img => img.url)] 
         : [],
-      brand: { "@type": "Brand", name: producto.marca || "inv-tienda" },
+      brand: { 
+        "@type": "Brand", 
+        name: producto.marca || "inv-tienda" 
+      },
       offers: {
         "@type": "Offer",
         url: `${SITE_URL}/shop/${producto.slug}`,
-        priceCurrency: "USD",
+        priceCurrency: "USD", // Podría ser dinámico si se requiere
         price: producto.precio_oferta || producto.precio_publico,
         priceValidUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         itemCondition: "https://schema.org/NewCondition",
-        availability: "https://schema.org/InStock"
-      }
-      // ✅ ELIMINADO: aggregateRating y review con datos falsos
+        availability: producto.activo ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+      },
+      keywords: producto.keywords || undefined
     }
 
     const breadcrumbSchema = {
@@ -94,7 +134,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Inicio", item: `${SITE_URL}/` },
         { "@type": "ListItem", position: 2, name: "Catálogo", item: `${SITE_URL}/shop` },
-        { "@type": "ListItem", position: 3, name: producto.nombre, item: `${SITE_URL}/shop/${producto.slug}` }
+        { "@type": "ListItem", position: 3, name: productTitle, item: `${SITE_URL}/shop/${producto.slug}` }
       ]
     }
 
@@ -128,7 +168,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <li className="flex items-center">
                 <span className="mx-2">/</span>
                 <span className="text-store-ink font-medium" aria-current="page">
-                  {producto.nombre}
+                  {productTitle}
                 </span>
               </li>
             </ol>

@@ -22,6 +22,7 @@ type Props = {
   catalogos: CatalogosParaFiltros
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
+  initialFeatures: TableFeatures
 }
 
 // ── Acciones masivas (definidas por la página, no acopladas) ─────────────────
@@ -39,8 +40,8 @@ const bulkActions: BulkAction[] = [
   },
 ]
 
-// ── Features para esta tabla ────────────────────────────────────────────────
-const TABLE_FEATURES: TableFeatures = {
+// Features base de respaldo en caso de que initialFeatures falle
+const FALLBACK_FEATURES: TableFeatures = {
   selectable: true,
   sortable: true,
   quickEdit: [
@@ -307,11 +308,10 @@ function CatalogoTableInner({
   )
 }
 
-// ── Export con Provider ───────────────────────────────────────────────────────
-export function CatalogoTable(props: Props) {
+export function CatalogoTable({ initialFeatures, ...props }: Props) {
   return (
-    <DataTableProvider route="/catalogo" features={TABLE_FEATURES}>
-      <CatalogoTableInner {...props} />
+    <DataTableProvider route="/catalogo" features={{ ...FALLBACK_FEATURES, ...initialFeatures, bulkActions }}>
+      <CatalogoTableInner {...props} sortBy={props.sortBy} order={props.order} initialFeatures={initialFeatures} />
     </DataTableProvider>
   )
 }

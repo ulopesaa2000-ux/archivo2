@@ -3,6 +3,17 @@ import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
 import { ArrowRight } from 'lucide-react'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'inv-tienda | Moda que te define - Colección 2026',
+  description: 'Descubre nuestra exclusiva colección de moda 2026. Chamarra, pants, gorros y accesorios diseñados con los mejores materiales. Calidad y estilo en cada prenda.',
+  openGraph: {
+    title: 'inv-tienda | Moda que te define',
+    description: 'Explora nuestra colección 2026 de moda exclusiva. Calidad y diseño en un solo lugar.',
+    images: ['/og-image.jpg'],
+  }
+}
 
 async function DestacadosSection() {
   const { productos: destacados } = await fetchProductosWebPublicos({ destacado: true, page: 1 })

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 
 type Props = {
   items: CajaListItem[]
+  initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
 }
 
 function CajasTableInner({ items }: Props) {
@@ -128,9 +129,16 @@ function CajasTableInner({ items }: Props) {
   )
 }
 
-export function CajasTable(props: Props) {
+// Fallback features base
+const FALLBACK_FEATURES = {
+  selectable: true,
+  expandable: true,
+  sortable: true,
+} as const
+
+export function CajasTable({ initialFeatures, ...props }: Props) {
   return (
-    <DataTableProvider route="/ordenes-b2b/cajas" features={{ selectable: true, expandable: true, sortable: true }}>
+    <DataTableProvider route="/ordenes-b2b/cajas" features={{ ...FALLBACK_FEATURES, ...initialFeatures }}>
       <CajasTableInner {...props} />
     </DataTableProvider>
   )

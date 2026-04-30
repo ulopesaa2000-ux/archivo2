@@ -3,7 +3,7 @@
 import { useTransition, useCallback, useState, useEffect } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Input } from '@/components/ui/input'
-import { Search, Loader2, X } from 'lucide-react'
+import { Search, Loader2, X, Layers } from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -16,6 +16,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { ClearFilters } from '@/components/admin/ClearFilters'
@@ -81,6 +83,8 @@ export function StockMatrixFilters({ bodegas }: Props) {
   const isNone = searchParams.get('bodegas') === 'none'
   const isTodas = !isNone && currentBodegas.length === 0
 
+  const currentAgrupacion = searchParams.get('agrupar_por') || 'ninguno'
+
   const toggleCiudad = (ciudad: string) => {
     const list = new Set(currentCiudades)
     if (list.has(ciudad)) list.delete(ciudad)
@@ -110,6 +114,27 @@ export function StockMatrixFilters({ bodegas }: Props) {
           <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
         )}
       </div>
+
+      {/* Agrupar Por */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" className="min-w-[140px] justify-between">
+            <span className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              {currentAgrupacion === 'familia' ? 'Por Familia' : 'Sin agrupar'}
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[160px]">
+          <DropdownMenuRadioGroup
+            value={currentAgrupacion}
+            onValueChange={(val) => setParam('agrupar_por', val === 'ninguno' ? null : val)}
+          >
+            <DropdownMenuRadioItem value="ninguno">Sin agrupar</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="familia">Por Familia</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Bodegas */}
       <DropdownMenu>
