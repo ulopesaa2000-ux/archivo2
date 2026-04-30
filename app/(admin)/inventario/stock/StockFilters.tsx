@@ -6,8 +6,15 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Search, Loader2, X, Eye } from 'lucide-react'
+import { Search, Loader2, X, Eye, Layers } from 'lucide-react'
 import { useFilterParams } from '@/components/admin/useFilterParams'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 export function StockFilters() {
   const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
@@ -18,6 +25,7 @@ export function StockFilters() {
 
   const currentQ          = searchParam('q')
   const currentStockCero  = searchParam('con_stock_cero') === 'true'
+  const currentAgrupacion = searchParam('agrupar_por') || 'ninguno'
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
@@ -35,6 +43,27 @@ export function StockFilters() {
           <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
         )}
       </div>
+
+      {/* Agrupar Por */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" className="min-w-[140px] justify-between">
+            <span className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              {currentAgrupacion === 'familia' ? 'Por Familia' : 'Sin agrupar'}
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[160px]">
+          <DropdownMenuRadioGroup
+            value={currentAgrupacion}
+            onValueChange={(val) => updateParam('agrupar_por', val === 'ninguno' ? null : val)}
+          >
+            <DropdownMenuRadioItem value="ninguno">Sin agrupar</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="familia">Por Familia</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Checkbox: stock en cero */}
       <div className="flex items-center gap-2">

@@ -160,7 +160,7 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="imagenes">
           <Suspense fallback={<TabSkeleton />}>
-            <TabImagenesAsync productoId={producto.id} />
+            <TabImagenesAsync productoId={producto.id} skuBase={producto.sku_base} />
           </Suspense>
         </TabsContent>
 
@@ -257,9 +257,15 @@ async function TabEcommerceAsync({
   )
 }
 
-async function TabImagenesAsync({ productoId }: { productoId: number }) {
+async function TabImagenesAsync({
+  productoId,
+  skuBase,
+}: {
+  productoId: number
+  skuBase: string
+}) {
   const imagenes = await fetchImagenesProducto(productoId)
-  return <TabImagenes imagenes={imagenes} />
+  return <TabImagenes imagenes={imagenes} productoId={productoId} skuBase={skuBase} />
 }
 
 async function TabCajasAsync({

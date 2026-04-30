@@ -96,8 +96,14 @@ export const ADMIN_TABLES_LIST: AdminTableDefinition[] = [
   },
   {
     route: '/inventario/stock',
-    label: 'Stock por Bodega',
-    description: 'Matriz de inventario por producto y bodega.',
+    label: 'Stock por Bodega (Específico)',
+    description: 'Inventario de una bodega seleccionada.',
+    features_disponibles: ['sortable', 'columnSelector'],
+  },
+  {
+    route: '/inventario/stock-global',
+    label: 'Stock Global (Matriz)',
+    description: 'Matriz consolidada de inventario en todas las bodegas.',
     features_disponibles: ['sortable', 'columnSelector'],
   },
   {

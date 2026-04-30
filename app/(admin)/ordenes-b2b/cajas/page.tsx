@@ -1,6 +1,8 @@
 // app/(admin)/ordenes-b2b/cajas/page.tsx
 import type { Metadata } from 'next'
 import { fetchCajasListado, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
+import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { CajasFilters } from './CajasFilters'
 import { CajasTable } from './CajasTable'
 import { Pagination } from '@/components/admin/Pagination'
@@ -21,10 +23,16 @@ export default async function CajasPage({
     page: params.page ? parseInt(params.page) : 1,
   }
 
-  const [{ items, total }, catalogos] = await Promise.all([
+  const [{ items, total }, catalogos, tableConfig] = await Promise.all([
     fetchCajasListado(filtros),
     fetchCatalogosB2B(),
+    fetchUserTableConfig('/ordenes-b2b/cajas'),
   ])
+
+  const features = {
+    ...getDefaultFeatures('/ordenes-b2b/cajas'),
+    ...tableConfig.config,
+  }
 
   return (
     <div className="space-y-4">
@@ -33,7 +41,7 @@ export default async function CajasPage({
         <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
       </div>
       <CajasFilters catalogos={catalogos} />
-      <CajasTable items={items} />
+      <CajasTable items={items} initialFeatures={features} />
       <Pagination total={total} />
     </div>
   )

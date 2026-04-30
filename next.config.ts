@@ -29,6 +29,17 @@ const nextConfig: NextConfig = {
         hostname: 'snow-wolverine-506185.hostingersite.com',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'supabase.sistemaindumentaria.com',
+        pathname: '/storage/v1/object/public/**',
+      },
+      {
+        // imgproxy render endpoint (image transformations)
+        protocol: 'https',
+        hostname: 'supabase.sistemaindumentaria.com',
+        pathname: '/storage/v1/render/image/public/**',
+      },
     ],
   },
   turbopack: {},

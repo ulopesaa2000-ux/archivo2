@@ -341,7 +341,7 @@ export async function fetchStockByBodega(
       id, bodega_id, producto_id, cajas, piezas_sueltas,
       ubicacion_pasillo, updated_at, caja_id,
       producto:productos!inventario_stock_producto_id_fkey (
-        id, sku_base, nombre, pz_en_caja,
+        id, sku_base, nombre, descripcion, familia, pz_en_caja,
         marca:cat_marcas!productos_marca_id_fkey ( nombre )
       ),
       caja:cajas_producto!inventario_stock_caja_id_fkey (
@@ -386,6 +386,8 @@ export async function fetchStockByBodega(
       caja_id: s.caja_id,
       producto_sku: prod?.sku_base ?? '',
       producto_nombre: prod?.nombre ?? null,
+      producto_descripcion: prod?.descripcion ?? null,
+      producto_familia: prod?.familia ?? null,
       producto_pz_en_caja: prod?.pz_en_caja ?? null,
       marca_nombre: marca?.nombre ?? null,
       caja_codigo: caja?.codigo_caja ?? null,
@@ -468,7 +470,7 @@ export async function fetchStockMatrix(
   let query = supabase
     .from('productos')
     .select(`
-      id, sku_base, nombre, pz_en_caja,
+      id, sku_base, nombre, descripcion, familia, pz_en_caja,
       inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
     `, { count: 'exact' })
 
@@ -514,6 +516,8 @@ export async function fetchStockMatrix(
       producto_id: prod.id,
       producto_sku: prod.sku_base,
       producto_nombre: prod.nombre,
+      producto_descripcion: prod.descripcion,
+      producto_familia: prod.familia,
       pz_en_caja: prod.pz_en_caja,
       stock_por_bodega: dict,
       total_general: totalGeneral,

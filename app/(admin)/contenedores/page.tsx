@@ -1,6 +1,8 @@
 // app/(admin)/contenedores/page.tsx
 import type { Metadata } from 'next'
 import { fetchContenedores } from '@/modules/contenedores/queries'
+import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
+import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { ContenedoresFilters } from './ContenedoresFilters'
 import { ContenedoresTable } from './ContenedoresTable'
 import { Pagination } from '@/components/admin/Pagination'
@@ -22,7 +24,15 @@ export default async function ContenedoresPage({
     page: params.page ? parseInt(params.page) : 1,
   }
 
-  const { items, total } = await fetchContenedores(filtros)
+  const [{ items, total }, tableConfig] = await Promise.all([
+    fetchContenedores(filtros),
+    fetchUserTableConfig('/contenedores'),
+  ])
+
+  const features = {
+    ...getDefaultFeatures('/contenedores'),
+    ...tableConfig.config,
+  }
 
   return (
     <div className="space-y-4">
@@ -36,7 +46,7 @@ export default async function ContenedoresPage({
         <ContenedorFormDialog mode="create" />
       </div>
       <ContenedoresFilters />
-      <ContenedoresTable items={items} />
+      <ContenedoresTable items={items} initialFeatures={features} />
       <Pagination total={total} />
     </div>
   )

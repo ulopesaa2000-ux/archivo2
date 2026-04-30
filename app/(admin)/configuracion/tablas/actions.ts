@@ -1,7 +1,7 @@
 // app/(admin)/configuracion/tablas/actions.ts
 'use server'
 
-import { saveTableConfigAction, resetTableConfigAction } from '@/modules/admin-table/config/actions'
+import { saveTableConfigAction, resetTableConfigAction, updateTableConfigDefaultAction } from '@/modules/admin-table/config/actions'
 import type { TableFeatures } from '@/components/admin/DataTable/types'
 
 export type SaveConfigPayload = {
@@ -11,8 +11,12 @@ export type SaveConfigPayload = {
 }
 
 export async function guardarConfiguracionAction(
-  payload: SaveConfigPayload
+  payload: SaveConfigPayload,
+  isGlobal?: boolean
 ) {
+  if (isGlobal) {
+    return updateTableConfigDefaultAction(payload.route, payload.features)
+  }
   return saveTableConfigAction(payload)
 }
 

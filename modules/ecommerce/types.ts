@@ -65,6 +65,7 @@ export interface ProductoWebPublico {
   nombre: string
   descripcion: string | null
   composicion: string | null
+  titulo_seo: string | null
   descripcion_seo: string | null
   precio_publico: number | null
   precio_oferta: number | null
@@ -81,6 +82,7 @@ export interface ProductoWebPublico {
   // Modo override
   modo_override: 'default' | 'catalogo' | 'ecommerce' | null
   unidad_venta: 'pieza' | 'caja' | 'ambas' | null
+  activo: boolean
 }
 
 // ═══════════════════════════════════════════════════════════════

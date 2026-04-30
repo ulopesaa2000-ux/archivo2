@@ -6,8 +6,12 @@ import type { FiltrosCatalogo, CatalogoSortBy } from '@/modules/catalogo/types'
 import { CatalogoCreateDialog } from './CatalogoCreateDialog'
 import { CatalogoFilters } from './CatalogoFilters'
 import { CatalogoTable } from './CatalogoTable'
+import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
+import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
+import { Suspense } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export const metadata: Metadata = {
   title: 'Catálogo de Productos',
@@ -45,6 +49,73 @@ function parseOptionalInt(value?: string) {
  * - `CatalogoTable` es server y se vuelve a resolver con los search params.
  * - `Pagination` actualiza la URL sin recargar el shell admin.
  */
+async function CatalogoData({ 
+  filtros, 
+  sortBy, 
+  order 
+}: { 
+  filtros: FiltrosCatalogo
+  sortBy: CatalogoSortBy
+  order: 'asc' | 'desc'
+}) {
+  const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
+    fetchProductosCatalogo(filtros),
+    fetchUserTableConfig('/catalogo')
+  ])
+
+  const userFeatures = tableConfig.config
+  const features = {
+    ...getDefaultFeatures('/catalogo'),
+    ...userFeatures,
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Catálogo de Productos
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <Link 
+          href="/catalogo?modal=create" 
+          scroll={false} 
+          className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Nuevo Producto
+        </Link>
+      </div>
+
+      <CatalogoCreateDialog catalogos={catalogos} />
+
+      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+      <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} initialFeatures={features} />
+      <Pagination total={total} />
+    </>
+  )
+}
+
+function CatalogoSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-32 mt-1" />
+        </div>
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <Skeleton className="h-12 w-full" />
+      <Skeleton className="h-[400px] w-full" />
+    </div>
+  )
+}
+
 export default async function CatalogoPage({
   searchParams,
 }: {
@@ -69,35 +140,11 @@ export default async function CatalogoPage({
     order,
   }
 
-  const { productos, total, catalogos } = await fetchProductosCatalogo(filtros)
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Catálogo de Productos
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-
-        <Link 
-          href="/catalogo?modal=create" 
-          scroll={false} 
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Nuevo Producto
-        </Link>
-      </div>
-
-      <CatalogoCreateDialog catalogos={catalogos} />
-
-      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
-      <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} />
-      <Pagination total={total} />
+      <Suspense fallback={<CatalogoSkeleton />}>
+        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} />
+      </Suspense>
     </div>
   )
 }

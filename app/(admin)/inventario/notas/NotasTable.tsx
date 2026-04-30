@@ -20,10 +20,11 @@ type Props = {
   notas: NotaListItem[]
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
+  initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
 }
 
-// ── Features para Notas ──────────────────────────────────────────────────────
-const TABLE_FEATURES = {
+// Fallback features base
+const FALLBACK_FEATURES = {
   selectable: false,
   expandable: false,
   sortable: true,
@@ -165,9 +166,9 @@ function NotasTableInner({
   )
 }
 
-export function NotasTable(props: Props) {
+export function NotasTable({ initialFeatures, ...props }: Props) {
   return (
-    <DataTableProvider route="/inventario/notas" features={TABLE_FEATURES}>
+    <DataTableProvider route="/inventario/notas" features={{ ...FALLBACK_FEATURES, ...initialFeatures }}>
       <NotasTableInner {...props} />
     </DataTableProvider>
   )
