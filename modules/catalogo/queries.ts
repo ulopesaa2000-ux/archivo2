@@ -579,7 +579,17 @@ export async function fetchAuditoriaProducto(
     .eq('productoid', productoId)
     .order('fechaauditoria', { ascending: false })
 
-  if (error) throw error
+  if (error) {
+    console.error('fetchAuditoriaProducto error:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      productoId,
+    })
+    return []
+  }
+
   return data ?? []
 }
 
@@ -606,7 +616,17 @@ export async function fetchAuditoriaGeneral(
     .select('*')
     .limit(limit)
 
-  if (error) throw error
+  if (error) {
+    console.error('fetchAuditoriaGeneral error:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      limit,
+    })
+    return []
+  }
+
   return data ?? []
 }
 

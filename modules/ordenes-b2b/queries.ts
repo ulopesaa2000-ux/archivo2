@@ -60,7 +60,13 @@ export async function fetchOrdenesB2B(
 
   const { data, count, error } = await query
   if (error) {
-    console.error('Error fetchOrdenesB2B:', error)
+    console.error('Error fetchOrdenesB2B:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      filtros,
+    })
     return { items: [], total: 0 }
   }
 
@@ -273,6 +279,24 @@ export async function fetchCatalogosB2B(): Promise<CatalogosB2B> {
       .eq('activo', true)
       .order('nombre_completo'),
   ])
+
+  if (provRes.error) {
+    console.error('fetchCatalogosB2B proveedores error:', {
+      message: provRes.error.message,
+      details: provRes.error.details,
+      hint: provRes.error.hint,
+      code: provRes.error.code,
+    })
+  }
+
+  if (cliRes.error) {
+    console.error('fetchCatalogosB2B clientesB2B error:', {
+      message: cliRes.error.message,
+      details: cliRes.error.details,
+      hint: cliRes.error.hint,
+      code: cliRes.error.code,
+    })
+  }
 
   return {
     proveedores: provRes.data ?? [],

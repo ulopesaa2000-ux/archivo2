@@ -16,10 +16,6 @@ export function createClient() {
     {
       db: {
         schema: 'inv-tienda'
-      },
-      cookieOptions: {
-        sameSite: 'none',
-        secure: true,
       }
     }
   )
