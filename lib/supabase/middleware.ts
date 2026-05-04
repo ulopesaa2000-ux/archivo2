@@ -3,8 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
-  '/(admin)',
-  '/api/admin'
+  '/catalogo',
+  '/configuracion',
+  '/contenedores',
+  '/ecommerce',
+  '/inventario',
+  '/ordenes-b2b',
+  '/api/debug-permissions',
+  '/api/debug-user',
+  '/api/inventario',
+  '/api/ordenes-b2b',
 ]
 
 export async function updateSession(request: NextRequest) {

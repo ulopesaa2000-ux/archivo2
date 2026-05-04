@@ -36,7 +36,12 @@ export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
     .order('activo', { ascending: false })
 
   if (error || !data) {
-    console.error('fetchUsuarios error:', error?.message ?? error)
+    console.error('fetchUsuarios error:', error ? {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    } : 'No data')
     return []
   }
 
@@ -58,7 +63,12 @@ export async function fetchRolesConPermisos(): Promise<RolConPermisos[]> {
     .order('nivel_acceso')
 
   if (rolesError || !rolesData) {
-    console.error('fetchRolesConPermisos roles error:', rolesError?.message ?? rolesError)
+    console.error('fetchRolesConPermisos roles error:', rolesError ? {
+      message: rolesError.message,
+      details: rolesError.details,
+      hint: rolesError.hint,
+      code: rolesError.code,
+    } : 'No data')
     return []
   }
 
@@ -68,7 +78,12 @@ export async function fetchRolesConPermisos(): Promise<RolConPermisos[]> {
     .select('rol_id, modulo, puede_leer, puede_crear, puede_editar, puede_eliminar')
 
   if (permisosError) {
-    console.error('fetchRolesConPermisos permisos error:', permisosError?.message ?? permisosError)
+    console.error('fetchRolesConPermisos permisos error:', {
+      message: permisosError.message,
+      details: permisosError.details,
+      hint: permisosError.hint,
+      code: permisosError.code,
+    })
   }
 
   const permisosMap = new Map<number, PermisoModulo[]>()
