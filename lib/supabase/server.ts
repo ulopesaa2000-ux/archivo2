@@ -1,70 +1,88 @@
 // lib/supabase/server.ts
-import { createServerClient } from '@supabase/ssr'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
-import { Database } from '../types/database.types'
+import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { Database } from "../types/database.types";
 
-export async function createClient() {
-  const cookieStore = await cookies()
+function getSupabaseEnv() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('Supabase URL and Anon Key are required. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables.')
+  if (!supabaseUrl) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL. Define it in Dokploy environment variables and build args."
+    );
   }
 
-  return createServerClient<Database, 'inv-tienda'>(
-    supabaseUrl || 'https://placeholder.supabase.co',
-    supabaseAnonKey || 'placeholder',
+  if (!supabaseAnonKey) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY. Define it in Dokploy environment variables and build args."
+    );
+  }
+
+  return {
+    supabaseUrl,
+    supabaseAnonKey,
+  };
+}
+
+/**
+ * Cliente dinámico con cookies.
+ * Úsalo SOLO en páginas, layouts, server actions o route handlers que dependan de sesión/auth.
+ *
+ * Las rutas que usen este cliente deben ser dinámicas:
+ * export const dynamic = "force-dynamic";
+ */
+export async function createClient() {
+  const cookieStore = await cookies();
+
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
+
+  return createServerClient<Database, "inv-tienda">(
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
+            cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, {
                 ...options,
-                sameSite: 'none',
+                sameSite: "none",
                 secure: true,
-              })
-            )
+              });
+            });
           } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // Puede ocurrir si setAll se llama desde un Server Component.
+            // Se puede ignorar si tienes middleware refrescando sesiones.
           }
         },
       },
       db: {
-        schema: 'inv-tienda'
-      }
+        schema: "inv-tienda",
+      },
     }
-  )
+  );
 }
 
 /**
- * Cliente estático para usar dentro de "use cache"
- * No utiliza cookies() ni @supabase/ssr para evitar dependencias dinámicas,
- * permitiendo cachear datos globales que no dependan del usuario.
+ * Cliente estático.
+ * No usa cookies(), no usa @supabase/ssr.
+ * Úsalo para datos públicos/cacheables que NO dependan del usuario.
  */
 export function createStaticClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('Supabase URL and Anon Key are required.')
-  }
-
-  return createSupabaseClient<Database, 'inv-tienda'>(
-    supabaseUrl || 'https://placeholder.supabase.co',
-    supabaseAnonKey || 'placeholder',
+  return createSupabaseClient<Database, "inv-tienda">(
+    supabaseUrl,
+    supabaseAnonKey,
     {
       db: {
-        schema: 'inv-tienda'
-      }
+        schema: "inv-tienda",
+      },
     }
-  )
+  );
 }
