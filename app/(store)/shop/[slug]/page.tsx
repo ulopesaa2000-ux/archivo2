@@ -12,6 +12,7 @@ import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 
 // ✅ MEJORA: Constante para URL base (evita hardcoded)
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://inv-tienda.com'
+const PRICE_VALID_UNTIL = '2027-12-31'
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>
@@ -121,7 +122,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
         url: `${SITE_URL}/shop/${producto.slug}`,
         priceCurrency: "USD", // Podría ser dinámico si se requiere
         price: producto.precio_oferta || producto.precio_publico,
-        priceValidUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priceValidUntil: PRICE_VALID_UNTIL,
         itemCondition: "https://schema.org/NewCondition",
         availability: producto.activo ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
       },
