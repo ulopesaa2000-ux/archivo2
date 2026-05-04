@@ -565,7 +565,7 @@ export async function fetchAuditoriaProducto(
   const supabase = await createClient()
   const { data, error } = await (supabase
     .schema('inv-tienda') as any)
-    .from('auditoria_productos')
+    .from('v_auditoria_productos')
     .select(`
       id,
       productoid,
@@ -574,7 +574,7 @@ export async function fetchAuditoriaProducto(
       datos_anteriores,
       datos_nuevos,
       fechaauditoria,
-      usuarios ( nombrecompleto )
+      usuarionombre
     `)
     .eq('productoid', productoId)
     .order('fechaauditoria', { ascending: false })
@@ -590,7 +590,10 @@ export async function fetchAuditoriaProducto(
     return []
   }
 
-  return data ?? []
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    usuarios: row.usuarionombre ? { nombrecompleto: row.usuarionombre } : null,
+  }))
 }
 
 export interface AuditoriaGeneralRow {
