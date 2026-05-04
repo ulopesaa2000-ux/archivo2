@@ -16,7 +16,7 @@ interface GraciasPageProps {
 }
 
 export default async function GraciasPage({ searchParams }: GraciasPageProps) {
-  connection()
+  await connection()
   const params = await searchParams
   const numeroOrden = params.orden
 
