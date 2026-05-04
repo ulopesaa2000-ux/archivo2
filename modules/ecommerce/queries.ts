@@ -34,7 +34,13 @@ export async function fetchConfigEcommerce(): Promise<ConfigEcommerce | null> {
     .single()
 
   if (error) {
-    console.error('Error fetchConfigEcommerce:', error)
+    console.error('Error fetchConfigEcommerce:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    })
     return null
   }
 

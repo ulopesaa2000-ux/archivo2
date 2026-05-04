@@ -1,6 +1,7 @@
 // app/(auth)/login/page.tsx
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import { Suspense } from 'react'
 import { LoginForm } from './LoginForm'
 import { getCurrentUser } from '@/modules/auth/queries'
 
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
  * 2. Si es válido, lo envía en un solo salto a /dashboard.
  * 3. Si no es válido (ej. falta token, o usuario inactivo), muestra el form.
  */
-export default async function LoginPage({
+async function LoginContent({
   searchParams,
 }: {
   searchParams: Promise<{ redirect?: string; expired?: string; error?: string }>
@@ -62,5 +63,25 @@ export default async function LoginPage({
 
       <LoginForm redirectTo={redirectTo} />
     </>
+  )
+}
+
+function LoginFallback() {
+  return (
+    <div className="space-y-4">
+      <div className="mx-auto h-12 w-12 rounded-xl bg-muted animate-pulse" />
+      <div className="mx-auto h-8 w-40 rounded bg-muted animate-pulse" />
+      <div className="h-48 rounded-lg bg-muted animate-pulse" />
+    </div>
+  )
+}
+
+export default function LoginPage(props: {
+  searchParams: Promise<{ redirect?: string; expired?: string; error?: string }>
+}) {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginContent {...props} />
+    </Suspense>
   )
 }

@@ -20,6 +20,16 @@ export const metadata: Metadata = {
   title: 'Stock por Bodega',
 }
 
+type StockPageSearchParams = {
+  q?: string
+  marca_id?: string
+  con_stock_cero?: string
+  page?: string
+  ciudades?: string | string[]
+  bodegas?: string | string[]
+  agrupar_por?: string
+}
+
 function parseArray(val: string | string[] | undefined): string[] {
   if (!val) return []
   return Array.isArray(val) ? val : [val]
@@ -131,18 +141,10 @@ function StockSkeleton() {
   )
 }
 
-export default async function StockPage({
+async function StockPageContent({
   searchParams,
 }: {
-  searchParams: Promise<{
-    q?: string
-    marca_id?: string
-    con_stock_cero?: string
-    page?: string
-    ciudades?: string | string[]
-    bodegas?: string | string[]
-    agrupar_por?: string
-  }>
+  searchParams: Promise<StockPageSearchParams>
 }) {
   const cookieStore = await cookies()
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
@@ -203,6 +205,18 @@ export default async function StockPage({
         bodegaActivaId={bodegaActivaId} 
         agruparPor={sp.agrupar_por}
       />
+    </Suspense>
+  )
+}
+
+export default function StockPage({
+  searchParams,
+}: {
+  searchParams: Promise<StockPageSearchParams>
+}) {
+  return (
+    <Suspense fallback={<StockSkeleton />}>
+      <StockPageContent searchParams={searchParams} />
     </Suspense>
   )
 }
