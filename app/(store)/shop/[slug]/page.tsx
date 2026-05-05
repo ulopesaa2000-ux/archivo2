@@ -1,11 +1,12 @@
 // app/(store)/shop/[slug]/page.tsx
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { Suspense } from 'react'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import { slugify } from '@/lib/utils'
 import { ProductGalleryClient } from './components/ProductGalleryClient'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
@@ -61,8 +62,8 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     : '/og-image.jpg'
   const ogImageUrl = toAbsolute(rawOgImage, dynamicSiteUrl)
 
-  // ✅ CORREGIDO: URL limpia sin espacios
-  const productUrl = `${dynamicSiteUrl}/shop/${encodeURIComponent(producto.slug)}`
+  // URL canónica: misma lógica que sitemap.ts (slugify elimina espacios/mayúsculas)
+  const productUrl = `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`
 
   return {
     title: `${productTitle} | ${SITE_NAME}`,
@@ -78,8 +79,6 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       images: [
         {
           url: ogImageUrl,
-          width: 1200,
-          height: 630,
           alt: productTitle,
         }
       ],
@@ -128,6 +127,14 @@ export default async function ProductPage({ params }: ProductPageProps) {
       notFound()
     }
 
+    // Redirect 301 si la URL no es la canónica
+    // Next.js decodifica %20 → espacio en params, por eso comparamos el slug
+    // crudo contra el canónico directamente (no slugify vs slugify, que siempre serían iguales)
+    const canonicalSlug = slugify(producto.slug)
+    if (slug !== canonicalSlug) {
+      redirect(`/shop/${canonicalSlug}`)
+    }
+
     const [variantes, imagenes, medidas] = await Promise.all([
       fetchVariantesProducto(producto.producto_id) ?? [],
       fetchImagenesProducto(producto.producto_id) ?? [],
@@ -159,7 +166,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       },
       offers: {
         "@type": "Offer",
-        url: `${dynamicSiteUrl}/shop/${encodeURIComponent(producto.slug)}`,
+        url: `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`,
         priceCurrency: 'ARS',
         price: producto.precio_oferta || producto.precio_publico,
         priceValidUntil: PRICE_VALID_UNTIL,
