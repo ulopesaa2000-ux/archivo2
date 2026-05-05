@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next'
 import { fetchAllProductSlugs } from '@/modules/ecommerce/queries'
+import { slugify } from '@/lib/utils'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Base URL limpio sin espacios al final
@@ -30,21 +31,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Páginas de productos dinámicas
   const productos = await fetchAllProductSlugs()
 
-  const productPages: MetadataRoute.Sitemap = productos.map((p) => {
-    // Limpieza de slug: espacios → guiones, sin espacios extra
-    const cleanSlug = p.slug
-      .trim()
-      .replace(/\s+/g, '-')     // todos los espacios por guiones
-      .replace(/-+/g, '-')      // múltiples guiones seguidos → uno solo
-      .toLowerCase()            // minúsculas para URL limpia
-
-    return {
-      url: `${baseUrl}/shop/${encodeURIComponent(cleanSlug)}`,
-      lastModified: new Date(p.updated_at),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    }
-  })
+  const productPages: MetadataRoute.Sitemap = productos.map((p) => ({
+    url: `${baseUrl}/shop/${slugify(p.slug)}`,
+    lastModified: new Date(p.updated_at),
+    changeFrequency: 'weekly',
+    priority: 0.6,
+  }))
 
   return [...staticPages, ...productPages]
 }
