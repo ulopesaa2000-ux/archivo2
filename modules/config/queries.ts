@@ -19,6 +19,7 @@ export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
     .from('usuarios')
     .select(`
       id,
+      auth_user_id,
       nombre_completo,
       username,
       email,

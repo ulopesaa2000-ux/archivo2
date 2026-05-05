@@ -28,6 +28,8 @@ async function buildFiltros(searchParams: SearchParams): Promise<FiltrosOrdenesB
     estado: params.estado,
     proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id) : undefined,
     page: params.page ? parseInt(params.page) : 1,
+    sort_by: params.sort_by,
+    order: params.order as 'asc' | 'desc',
   }
 
   if (yearParam) {
@@ -79,7 +81,12 @@ async function OrdenesB2BTable({ searchParams }: { searchParams: SearchParams })
       <p className="text-sm text-muted-foreground">
         {total} orden{total !== 1 ? 'es' : ''}
       </p>
-      <OrdenesTable items={items} initialFeatures={features} />
+      <OrdenesTable 
+        items={items} 
+        initialFeatures={features} 
+        sortKey={filtros.sort_by}
+        sortOrder={filtros.order}
+      />
       <Pagination total={total} />
     </div>
   )

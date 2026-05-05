@@ -140,7 +140,7 @@ export default async function CatalogoDetallePage(props: {
 
       {/* ── Tabs de contenido ────────────────────────────── */}
       <Tabs defaultValue="catalogos" className="flex-col">
-        <TabsList className="flex-wrap h-auto gap-1">
+        <TabsList className="flex-wrap h-auto group-data-[orientation=horizontal]/tabs:h-auto gap-1 mb-4 p-1">
           <TabsTrigger value="catalogos">Catálogos</TabsTrigger>
           <TabsTrigger value="imagenes">Imágenes</TabsTrigger>
           <TabsTrigger value="cajas">Cajas</TabsTrigger>

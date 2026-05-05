@@ -21,6 +21,8 @@ export default async function CajasPage({
     proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id) : undefined,
     año: params.año ? parseInt(params.año) : undefined,
     page: params.page ? parseInt(params.page) : 1,
+    sort_by: (params as any).sort_by,
+    order: (params as any).order,
   }
 
   const [{ items, total }, catalogos, tableConfig] = await Promise.all([
@@ -41,7 +43,12 @@ export default async function CajasPage({
         <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
       </div>
       <CajasFilters catalogos={catalogos} />
-      <CajasTable items={items} initialFeatures={features} />
+      <CajasTable 
+        items={items} 
+        initialFeatures={features} 
+        sortKey={filtros.sort_by}
+        sortOrder={filtros.order}
+      />
       <Pagination total={total} />
     </div>
   )

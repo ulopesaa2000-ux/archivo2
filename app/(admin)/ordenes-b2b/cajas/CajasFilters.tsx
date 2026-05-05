@@ -33,7 +33,21 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
   }, [searchParams, pathname, router])
 
   const handleSearch = useDebouncedCallback((t: string) => updateParam('q', t || null), 400)
+
+  const updateSort = useCallback((val: string | null) => {
+    if (!val) return
+    startTransition(() => {
+      const p = new URLSearchParams(searchParams.toString())
+      const [sort, dir] = val.split(':')
+      if (sort) p.set('sort_by', sort)
+      if (dir) p.set('order', dir)
+      p.delete('page')
+      router.push(`${pathname}?${p.toString()}`, { scroll: false })
+    })
+  }, [searchParams, pathname, router])
+
   const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+  const currentSort = `${searchParams.get('sort_by') || 'codigo_caja'}:${searchParams.get('order') || 'asc'}`
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
@@ -57,7 +71,7 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
         value={searchParams.get('proveedor_id') ?? '_all'}
         onValueChange={(v) => updateParam('proveedor_id', v === '_all' ? null : v)}
       >
-        <SelectTrigger className="w-[200px] h-9 text-sm">
+        <SelectTrigger className="w-[180px] h-9 text-sm">
           <span className="truncate">
             {searchParams.get('proveedor_id') === '_all' || !searchParams.get('proveedor_id')
               ? 'Todos los proveedores'
@@ -74,24 +88,18 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
         </SelectContent>
       </Select>
 
-      <Select
-        value={searchParams.get('año') ?? '_all'}
-        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}
-      >
-        <SelectTrigger className="w-[130px] h-9 text-sm">
-          <span className="truncate">
-            {searchParams.get('año') === '_all' || !searchParams.get('año')
-              ? 'Todos los años'
-              : `Año: ${searchParams.get('año')}`}
-          </span>
+      <Select value={currentSort} onValueChange={updateSort}>
+        <SelectTrigger className="w-[170px] h-9 text-sm">
+          <SelectValue placeholder="Ordenar por" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="_all">Todos los años</SelectItem>
-          {AÑOS_DISPONIBLES.map((a) => (
-            <SelectItem key={a} value={String(a)}>
-              {a}
-            </SelectItem>
-          ))}
+          <SelectItem value="codigo_caja:asc">Código (A-Z)</SelectItem>
+          <SelectItem value="codigo_caja:desc">Código (Z-A)</SelectItem>
+          <SelectItem value="producto_sku:asc">SKU (A-Z)</SelectItem>
+          <SelectItem value="piezas_por_caja:desc">Más piezas</SelectItem>
+          <SelectItem value="cbm:desc">Más volumen (CBM)</SelectItem>
+          <SelectItem value="peso_bruto_kg:desc">Más peso (kg)</SelectItem>
+          <SelectItem value="proveedor_nombre:asc">Proveedor (A-Z)</SelectItem>
         </SelectContent>
       </Select>
 

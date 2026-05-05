@@ -207,4 +207,166 @@ export async function eliminarRolAction(rolId: number): Promise<ActionResult> {
   return { success: true }
 }
 
-export type { TipoPermiso }
+/**
+ * Cambia la contraseña de un usuario en auth.users
+ * Requiere SUPABASE_SERVICE_ROLE_KEY en las variables de entorno.
+ */
+export async function cambiarPasswordAction(
+  usuarioId: number,
+  nuevaPassword: string
+): Promise<ActionResult> {
+  const supabase = await createClient()
+
+  // 1. Obtener el auth_user_id del usuario
+  const { data: user, error: fetchError } = await supabase
+    .from('usuarios')
+    .select('auth_user_id')
+    .eq('id', usuarioId)
+    .single()
+
+  if (fetchError || !user?.auth_user_id) {
+    console.error('cambiarPasswordAction error:', fetchError?.message)
+    return { success: false, error: 'Usuario no encontrado.' }
+  }
+
+  // 2. Usar cliente con Service Role para cambiar contraseña
+  // Nota: Esto requiere que el cliente de Supabase tenga permisos de admin.
+  // Como no hay un supabase.auth.admin sin Service Role, usaremos el cliente
+  // con la variable de entorno SUPABASE_SERVICE_ROLE_KEY si existe.
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para realizar esta acción.' }
+  }
+
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  const supabaseAdmin = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+    user.auth_user_id,
+    { password: nuevaPassword }
+  )
+
+  if (updateError) {
+    console.error('cambiarPasswordAction update error:', updateError.message)
+    return { success: false, error: 'No se pudo actualizar la contraseña en Auth.' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Crea un nuevo usuario en auth.users y luego en inv-tienda.usuarios
+ * Requiere SUPABASE_SERVICE_ROLE_KEY
+ */
+export async function crearUsuarioAction(payload: {
+  nombreCompleto: string
+  email: string
+  password: string
+  rolId: number
+}): Promise<ActionResult> {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para crear usuarios.' }
+  }
+
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  const supabaseAdmin = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  // 1. Crear en auth.users
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email: payload.email,
+    password: payload.password,
+    email_confirm: true,
+  })
+
+  if (authError || !authData.user) {
+    console.error('crearUsuarioAction auth error:', authError?.message)
+    return { success: false, error: authError?.message || 'Error al crear usuario en Auth.' }
+  }
+
+  // 2. Crear en inv-tienda.usuarios usando el cliente normal (ya validado por el context actual o el mismo admin)
+  // Pero el trigger trg_auto_slug o un trigger after_insert_auth_user podría ya crearlo si existe. 
+  // Verificaremos si existe, y si no, lo insertamos.
+  const supabase = await createClient()
+  
+  // Asumimos que no hay trigger automático creando todo completo, lo insertamos/actualizamos.
+  const { error: dbError } = await supabase
+    .from('usuarios')
+    .upsert({
+      auth_user_id: authData.user.id,
+      email: payload.email,
+      nombre_completo: payload.nombreCompleto,
+      rol_id: payload.rolId,
+      activo: true,
+      username: payload.email.split('@')[0], // default username
+    }, { onConflict: 'auth_user_id' })
+
+  if (dbError) {
+    console.error('crearUsuarioAction db error:', dbError.message)
+    // Rollback
+    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    return { success: false, error: 'No se pudo crear el registro del usuario en la base de datos.' }
+  }
+
+  revalidatePath('/configuracion/usuarios')
+  return { success: true }
+}
+
+/**
+ * Sincroniza un usuario existente en la BD que no tiene auth_user_id
+ * creándolo en auth.users y vinculando su UUID.
+ */
+export async function sincronizarUsuarioAction(payload: {
+  usuarioId: number
+  email: string
+  password: string
+}): Promise<ActionResult> {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY.' }
+  }
+
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  const supabaseAdmin = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  // 1. Crear en auth.users
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email: payload.email,
+    password: payload.password,
+    email_confirm: true,
+  })
+
+  if (authError || !authData.user) {
+    console.error('sincronizarUsuarioAction auth error:', authError?.message)
+    return { success: false, error: authError?.message || 'Error al crear usuario en Auth.' }
+  }
+
+  // 2. Actualizar en inv-tienda.usuarios
+  const supabase = await createClient()
+  const { error: updateError } = await supabase
+    .from('usuarios')
+    .update({ auth_user_id: authData.user.id })
+    .eq('id', payload.usuarioId)
+
+  if (updateError) {
+    console.error('sincronizarUsuarioAction db error:', updateError.message)
+    // Rollback
+    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    return { success: false, error: 'No se pudo actualizar el registro del usuario.' }
+  }
+
+  revalidatePath('/configuracion/usuarios')
+  return { success: true }
+}

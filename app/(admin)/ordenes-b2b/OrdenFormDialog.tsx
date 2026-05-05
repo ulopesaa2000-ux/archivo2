@@ -43,6 +43,7 @@ export function OrdenFormDialog(props: Props) {
   const clienteDefaultId = orden
     ? String(catalogos.clientesB2B.find(c => c.nombre_completo === orden.cliente_nombre)?.id ?? '')
     : ''
+  const clienteSelectDefaultValue = clienteDefaultId || '_none'
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -106,10 +107,13 @@ export function OrdenFormDialog(props: Props) {
             </div>
             <div className="space-y-2">
               <Label>Cliente destino (opcional)</Label>
-              <Select name="cliente_b2b_id" defaultValue={clienteDefaultId || ''}>
+              <Select
+                name="cliente_b2b_id"
+                defaultValue={clienteSelectDefaultValue}
+              >
                 <SelectTrigger data-testid="orden-cliente-trigger"><SelectValue placeholder="Ninguno" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Ninguno</SelectItem>
+                  <SelectItem value="_none">Ninguno</SelectItem>
                   {catalogos.clientesB2B.map((c) => (
                     <SelectItem key={c.id} value={String(c.id)}>{c.nombre_completo}</SelectItem>
                   ))}

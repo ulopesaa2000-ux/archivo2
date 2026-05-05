@@ -54,9 +54,21 @@ export async function fetchOrdenesB2B(
       .lt('fecha_orden', `${filtros.año + 1}-01-01T00:00:00`)
   }
 
-  query = query
-    .order('fecha_orden', { ascending: false })
-    .range(from, to)
+  // Manejo de ordenamiento dinámico
+  const sort = filtros.sort_by || 'fecha_orden'
+  const ascending = filtros.order === 'asc'
+
+  if (sort === 'proveedor_nombre') {
+    query = query.order('proveedor(nombre_completo)', { ascending })
+  } else if (sort === 'cliente_nombre') {
+    query = query.order('cliente(nombre_completo)', { ascending })
+  } else if (sort === 'contenedor_codigo') {
+    query = query.order('contenedor(codigo_contenedor)', { ascending })
+  } else {
+    query = query.order(sort, { ascending })
+  }
+
+  query = query.range(from, to)
 
   const { data, count, error } = await query
   if (error) {
@@ -340,7 +352,19 @@ export async function fetchCajasListado(
     query = query.eq('proveedor_id', filtros.proveedor_id)
   }
 
-  query = query.order('created_at', { ascending: false }).range(from, to)
+  // Manejo de ordenamiento dinámico
+  const sort = filtros.sort_by || 'codigo_caja'
+  const ascending = filtros.order === 'asc'
+
+  if (sort === 'proveedor_nombre') {
+    query = query.order('proveedor(nombre_completo)', { ascending })
+  } else if (sort === 'producto_sku') {
+    query = query.order('producto(sku_base)', { ascending })
+  } else {
+    query = query.order(sort, { ascending })
+  }
+
+  query = query.range(from, to)
 
   const { data, count, error } = await query
   if (error) {

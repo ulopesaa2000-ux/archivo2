@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     creator: '@inv-tienda'
   },
   // metadataBase es necesario para resolver URLs absolutas en Open Graph y Twitter
-  metadataBase: new URL('https://inv-tienda.com')
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://inv-tienda.com')
 };
 
 export const viewport = 'width=device-width, initial-scale=1';

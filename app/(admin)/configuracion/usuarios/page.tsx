@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import { Shield } from 'lucide-react'
 import { fetchUsuarios, fetchRolesConPermisos } from '@/modules/config/queries'
+import { getCurrentUser } from '@/modules/auth/queries'
 import { UsuariosManager } from './UsuariosManager'
 
 export const metadata: Metadata = {
@@ -9,9 +10,10 @@ export const metadata: Metadata = {
 }
 
 export default async function UsuariosPage() {
-  const [usuarios, roles] = await Promise.all([
+  const [usuarios, roles, currentUser] = await Promise.all([
     fetchUsuarios(),
     fetchRolesConPermisos(),
+    getCurrentUser(),
   ])
 
   return (
@@ -46,7 +48,7 @@ export default async function UsuariosPage() {
       </div>
 
       {/* Manager interactivo */}
-      <UsuariosManager usuarios={usuarios} roles={roles} />
+      <UsuariosManager usuarios={usuarios} roles={roles} currentUser={currentUser} />
     </div>
   )
 }

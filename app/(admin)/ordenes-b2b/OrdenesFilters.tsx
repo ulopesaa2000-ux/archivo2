@@ -31,7 +31,21 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
   )
 
   const handleSearch = useDebouncedCallback((t: string) => updateParam('q', t || null), 400)
+
+  const updateSort = useCallback((val: string | null) => {
+    if (!val) return
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      const [sort, dir] = val.split(':')
+      if (sort) params.set('sort_by', sort)
+      if (dir) params.set('order', dir)
+      params.delete('page')
+      router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    })
+  }, [searchParams, pathname, router])
+
   const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+  const currentSort = `${searchParams.get('sort_by') || 'fecha_orden'}:${searchParams.get('order') || 'desc'}`
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
@@ -44,7 +58,7 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
 
       <Select value={searchParams.get('estado') ?? '_all'}
         onValueChange={(v) => updateParam('estado', v === '_all' ? null : v)}>
-        <SelectTrigger className="w-[175px] h-9 text-sm">
+        <SelectTrigger className="w-[160px] h-9 text-sm">
           <span className="truncate">
             {searchParams.get('estado') ?? 'Todos los estados'}
           </span>
@@ -63,7 +77,7 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
 
       <Select value={searchParams.get('proveedor_id') ?? '_all'}
         onValueChange={(v) => updateParam('proveedor_id', v === '_all' ? null : v)}>
-        <SelectTrigger className="w-[190px] h-9 text-sm">
+        <SelectTrigger className="w-[180px] h-9 text-sm">
           <span className="truncate">
             {searchParams.get('proveedor_id')
               ? (catalogos.proveedores.find(p => String(p.id) === searchParams.get('proveedor_id'))?.nombre_completo ?? 'Proveedor')
@@ -78,16 +92,18 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
         </SelectContent>
       </Select>
 
-      <Select value={searchParams.get('año') ?? '_all'}
-        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}>
-        <SelectTrigger className="w-[120px] h-9 text-sm">
-          <span className="truncate">
-            {searchParams.get('año') ?? 'Todos los años'}
-          </span>
+      <Select value={currentSort} onValueChange={updateSort}>
+        <SelectTrigger className="w-[180px] h-9 text-sm">
+          <SelectValue placeholder="Ordenar por" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="_all">Todos los años</SelectItem>
-          {AÑOS_DISPONIBLES.map((a) => (<SelectItem key={a} value={String(a)}>{a}</SelectItem>))}
+          <SelectItem value="fecha_orden:desc">Más recientes</SelectItem>
+          <SelectItem value="fecha_orden:asc">Más antiguos</SelectItem>
+          <SelectItem value="total_piezas:desc">Más piezas</SelectItem>
+          <SelectItem value="total_cajas:desc">Más cajas</SelectItem>
+          <SelectItem value="proveedor_nombre:asc">Proveedor (A-Z)</SelectItem>
+          <SelectItem value="id:desc">ID Mayor</SelectItem>
+          <SelectItem value="id:asc">ID Menor</SelectItem>
         </SelectContent>
       </Select>
 

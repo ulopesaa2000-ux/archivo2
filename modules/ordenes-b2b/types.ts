@@ -9,6 +9,18 @@ export type FiltrosOrdenesB2B = {
   proveedor_id?: number
   año?: number
   page?: number
+  sort_by?: string
+  order?: 'asc' | 'desc'
+}
+
+export type FiltrosCajas = {
+  q?: string
+  proveedor_id?: number
+  año?: number
+  contenedor_id?: number
+  page?: number
+  sort_by?: string
+  order?: 'asc' | 'desc'
 }
 
 // ── Orden en listado ────────────────────────────────────────
@@ -125,12 +137,4 @@ export type CajaDetalleTC = {
 export type CatalogosB2B = {
   proveedores: Pick<PersonaRow, 'id' | 'nombre_completo'>[]
   clientesB2B: Pick<PersonaRow, 'id' | 'nombre_completo'>[]
-}
-
-export type FiltrosCajas = {
-  q?: string
-  proveedor_id?: number
-  año?: number
-  contenedor_id?: number
-  page?: number
 }

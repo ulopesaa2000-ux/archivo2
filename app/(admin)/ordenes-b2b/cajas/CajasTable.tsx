@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { DataTable, DataTableProvider, useDataTableContext } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -9,14 +10,19 @@ import { cn } from '@/lib/utils'
 import type { CajaListItem } from '@/modules/ordenes-b2b/types'
 import { DetalleCajaSheet } from './DetalleCajaSheet'
 import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
 type Props = {
   items: CajaListItem[]
   initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
+  sortKey?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
-function CajasTableInner({ items }: Props) {
+function CajasTableInner({ items, sortKey, sortOrder }: Props) {
   const ctx = useDataTableContext()
+  const [selectedCajaId, setSelectedCajaId] = useState<number | null>(null)
+  const [isSheetOpen, setIsSheetOpen] = useState(false)
 
   const columns: ColumnDef<CajaListItem>[] = [
     {
@@ -30,6 +36,7 @@ function CajasTableInner({ items }: Props) {
     {
       key: 'producto',
       header: 'Producto',
+      sortKey: 'producto_sku',
       cell: (row: CajaListItem) => (
         <>
           <span className="font-mono">{row.producto_sku ?? '—'}</span>
@@ -94,20 +101,17 @@ function CajasTableInner({ items }: Props) {
       header: '',
       headerClassName: 'w-[50px]',
       cell: (row: CajaListItem) => {
-        const isExpanded = ctx.expandedIds.has(row.id)
         return (
           <Button
             variant="ghost"
             size="icon"
-            className={cn(
-              "h-7 w-7 transition-colors",
-              isExpanded && "text-primary bg-primary/10"
-            )}
+            className="h-7 w-7 transition-colors hover:text-primary hover:bg-primary/10"
             onClick={(e) => {
               e.stopPropagation()
-              ctx.onToggleExpand(row.id)
+              setSelectedCajaId(row.id)
+              setIsSheetOpen(true)
             }}
-            title={isExpanded ? 'Cerrar detalle' : 'Ver detalle de caja'}
+            title="Ver detalle de caja"
           >
             <Eye className="h-3.5 w-3.5" />
           </Button>
@@ -117,15 +121,29 @@ function CajasTableInner({ items }: Props) {
   ]
 
   return (
-    <DataTable
-      columns={columns}
-      data={items}
-      rowKey={(row: CajaListItem) => row.id}
-      defaultSortKey="codigo_caja"
-      renderExpanded={(row) => <DetalleCajaSheet cajaId={row.id} />}
-      emptyMessage="No se encontraron cajas."
-      emptyIcon={<Package className="h-12 w-12" />}
-    />
+    <div className="relative">
+      <DataTable
+        columns={columns}
+        data={items}
+        rowKey={(row: CajaListItem) => row.id}
+        currentSortKey={sortKey}
+        currentOrder={sortOrder}
+        defaultSortKey="codigo_caja"
+        emptyMessage="No se encontraron cajas."
+        emptyIcon={<Package className="h-12 w-12" />}
+      />
+
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent side="right" className="!w-[98vw] !max-w-[98vw] sm:!w-[90vw] sm:!max-w-[90vw] md:!w-[75vw] md:!max-w-[75vw] lg:!w-[55vw] lg:!max-w-[55vw] xl:!w-[45vw] xl:!max-w-[45vw] overflow-y-auto flex flex-col p-3 sm:p-6">
+          <SheetHeader className="pb-4 border-b">
+            <SheetTitle className="text-xl">Detalle de Caja</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto py-2">
+            {selectedCajaId && <DetalleCajaSheet cajaId={selectedCajaId} />}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
   )
 }
 
