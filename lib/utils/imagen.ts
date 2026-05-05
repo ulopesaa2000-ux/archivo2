@@ -3,6 +3,8 @@
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const BUCKET = 'product_images'
+// Host de WordPress donde están las imágenes externas del catálogo
+const WORDPRESS_HOST = 'snow-wolverine-506185.hostingersite.com'
 
 // ─── Presets de tamaño por contexto de vista ──────────────────────────────────
 
@@ -39,6 +41,30 @@ const PRESET_CONFIG: Record<ImagenPreset, PresetConfig> = {
  */
 export function isStorageUrl(url: string): boolean {
   return url.includes(SUPABASE_URL) && url.includes(BUCKET)
+}
+
+/**
+ * Detecta si la URL viene de WordPress (hostingersite.com).
+ * WordPress genera variantes de tamaño con el patrón: imagen-WIDTHxHEIGHT.ext
+ */
+export function isWordPressUrl(url: string): boolean {
+  return url.includes(WORDPRESS_HOST)
+}
+
+/**
+ * Para imágenes de WordPress, inserta el sufijo de tamaño OG (-1080x630)
+ * antes de la extensión para usar la variante landscape ya generada por WP.
+ *
+ * Ejemplo:
+ *   AND240016.jpg          → AND240016-1080x630.jpg
+ *   AND240016-300x400.jpg  → AND240016-1080x630.jpg  (reemplaza tamaño previo)
+ */
+export function getWordPressOgUrl(url: string): string {
+  // Si ya tiene un sufijo de tamaño WP (ej. -300x400), lo reemplazamos
+  // Patrón: -NNNxNNN antes de la extensión
+  const withoutSize = url.replace(/-\d+x\d+(\.\w+)$/, '$1')
+  // Insertar -1080x630 antes de la extensión
+  return withoutSize.replace(/(\.[^.]+)$/, '-1080x630$1')
 }
 
 // ─── Funciones principales ────────────────────────────────────────────────────
@@ -82,8 +108,17 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
  */
 export function getSmartImagenUrl(url: string | null | undefined, preset: ImagenPreset): string {
   if (!url) return '/placeholder-product.webp'
-  if (!isStorageUrl(url)) return url  // URL externa — pasar directamente sin imgproxy
-  return getImagenUrl(url, preset)
+
+  // Imagen de WordPress: para OG usamos la variante -1080x630 (landscape)
+  if (isWordPressUrl(url)) {
+    return preset === 'og' ? getWordPressOgUrl(url) : url
+  }
+
+  // Imagen de Supabase Storage: aplicar imgproxy
+  if (isStorageUrl(url)) return getImagenUrl(url, preset)
+
+  // URL externa desconocida: devolver sin modificar
+  return url
 }
 
 /**
