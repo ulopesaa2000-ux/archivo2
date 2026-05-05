@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next'
 import { fetchAllProductSlugs } from '@/modules/ecommerce/queries'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = 'https://inv-tienda.com'
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://wear.sistemaindumentaria.com'
 
   // 1. Páginas estáticas
   const staticPages: MetadataRoute.Sitemap = [
