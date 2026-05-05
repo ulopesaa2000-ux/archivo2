@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
 import { Suspense } from 'react'
 import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
@@ -22,6 +23,16 @@ interface ProductPageProps {
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params
   const producto = await fetchProductoWebBySlug(slug)
+
+  let dynamicSiteUrl = SITE_URL
+  try {
+    const headersList = await headers()
+    const host = headersList.get('x-forwarded-host') || headersList.get('host')
+    const protocol = headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
+    if (host) dynamicSiteUrl = `${protocol}://${host}`
+  } catch (error) {
+    // Fallback to SITE_URL if headers() fails in some contexts
+  }
 
   if (!producto) {
     return {
@@ -52,7 +63,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       title: productTitle,
       description: productDescription,
       type: 'website',
-      url: `${SITE_URL}/shop/${producto.slug}`,
+      url: `${dynamicSiteUrl}/shop/${producto.slug}`,
       siteName: 'inv-tienda',
       images: [
         {
@@ -70,13 +81,23 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       images: [ogImageUrl],
     },
     alternates: {
-      canonical: `${SITE_URL}/shop/${producto.slug}`,
+      canonical: `${dynamicSiteUrl}/shop/${producto.slug}`,
     }
   }
 }
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params
+  
+  let dynamicSiteUrl = SITE_URL
+  try {
+    const headersList = await headers()
+    const host = headersList.get('x-forwarded-host') || headersList.get('host')
+    const protocol = headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
+    if (host) dynamicSiteUrl = `${protocol}://${host}`
+  } catch (error) {
+    // Fallback to SITE_URL
+  }
   
   // ✅ MEJORA: Manejo de errores con try-catch
   try {
@@ -119,7 +140,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       },
       offers: {
         "@type": "Offer",
-        url: `${SITE_URL}/shop/${producto.slug}`,
+        url: `${dynamicSiteUrl}/shop/${producto.slug}`,
         priceCurrency: "USD", // Podría ser dinámico si se requiere
         price: producto.precio_oferta || producto.precio_publico,
         priceValidUntil: PRICE_VALID_UNTIL,
@@ -133,9 +154,9 @@ export default async function ProductPage({ params }: ProductPageProps) {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Inicio", item: `${SITE_URL}/` },
-        { "@type": "ListItem", position: 2, name: "Catálogo", item: `${SITE_URL}/shop` },
-        { "@type": "ListItem", position: 3, name: productTitle, item: `${SITE_URL}/shop/${producto.slug}` }
+        { "@type": "ListItem", position: 1, name: "Inicio", item: `${dynamicSiteUrl}/` },
+        { "@type": "ListItem", position: 2, name: "Catálogo", item: `${dynamicSiteUrl}/shop` },
+        { "@type": "ListItem", position: 3, name: productTitle, item: `${dynamicSiteUrl}/shop/${producto.slug}` }
       ]
     }
 
