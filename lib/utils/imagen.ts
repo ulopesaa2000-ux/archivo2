@@ -109,18 +109,26 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
 export function getSmartImagenUrl(url: string | null | undefined, preset: ImagenPreset): string {
   if (!url) return '/placeholder-product.webp'
 
-  // Imagen de WordPress: devolvemos la original. Si forzamos -1080x630 y no existe, Meta falla (404)
-  if (isWordPressUrl(url)) {
-    // Si la URL ya trae un sufijo de tamaño chiquito (ej -300x300), podríamos limpiarlo para dar la original
-    // pero por ahora devolvemos la URL tal cual.
-    const withoutSize = url.replace(/-\d+x\d+(\.\w+)$/, '$1')
-    return withoutSize // Entregamos la resolución completa/original para OG
+  // Para OpenGraph (Facebook, WhatsApp) siempre pasamos la URL original sin transformaciones.
+  // Los bots de Meta suelen fallar si la URL tiene parámetros complejos, extensión .webp (aunque cambies el format),
+  // o si el servidor de imgproxy tarda unos milisegundos de más. Meta recorta y procesa la imagen por su cuenta.
+  if (preset === 'og') {
+    if (isWordPressUrl(url)) {
+      return url.replace(/-\d+x\d+(\.\w+)$/, '$1') // Limpiamos cualquier tamaño pequeño
+    }
+    // Para Supabase, devolvemos el /object/public/ tal cual sin parámetros
+    return url.split('?')[0]
   }
 
-  // Imagen de Supabase Storage: aplicar imgproxy
+  // Si no es OG, y es de WordPress, devolvemos tal cual
+  if (isWordPressUrl(url)) {
+    return url
+  }
+
+  // Imagen de Supabase Storage (no OG): aplicar imgproxy
   if (isStorageUrl(url)) return getImagenUrl(url, preset)
 
-  // URL externa desconocida: devolver sin modificar
+  // URL externa desconocida
   return url
 }
 
