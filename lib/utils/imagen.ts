@@ -28,7 +28,7 @@ const PRESET_CONFIG: Record<ImagenPreset, PresetConfig> = {
   card_lg:   { width: 520,          quality: 80, resize: 'contain' },
   hero:      { width: 800,          quality: 85, resize: 'contain' },
   full:      { width: 1200,         quality: 90, resize: 'contain' },
-  og:        { width: 1200, height: 630, quality: 75, resize: 'cover', format: 'jpeg' },
+  og:        { width: 1200, height: 630, quality: 70, resize: 'fill', format: 'jpeg' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
