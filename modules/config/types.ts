@@ -83,6 +83,7 @@ export function buildPermisosCompletos(permisos: PermisoModulo[]): Record<Modulo
 
 export type UsuarioConDetalle = {
   id: number
+  auth_user_id: string | null     // Columna añadida para validar si está en Auth
   nombre_completo: string | null  // columna real: nombre_completo
   username: string | null
   email: string | null

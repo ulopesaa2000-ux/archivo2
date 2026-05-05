@@ -32,6 +32,8 @@ import type {
   ProductoBusqueda, CajaParaSelector, NotaCompleta,
 } from '@/modules/inventario/types'
 
+const NO_CAJA_VALUE = '_none'
+
 type Props = {
   catalogos: CatalogosInventario
   usuarioId: number
@@ -99,7 +101,7 @@ export function NoteDraftBuilder({
   // Formulario de agregar producto
   const [addCajas, setAddCajas] = useState<string>('1')
   const [addPiezas, setAddPiezas] = useState<string>('0')
-  const [addCajaId, setAddCajaId] = useState<string>('')
+  const [addCajaId, setAddCajaId] = useState<string>(NO_CAJA_VALUE)
 
   // Confirmación
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
@@ -143,7 +145,7 @@ export function NoteDraftBuilder({
     setSearchTerm(product.sku_base)
     setAddCajas('1')
     setAddPiezas('0')
-    setAddCajaId('')
+    setAddCajaId(NO_CAJA_VALUE)
 
     // Cargar cajas del producto
     try {
@@ -171,7 +173,7 @@ export function NoteDraftBuilder({
       return
     }
 
-    const cajaSeleccionada = addCajaId
+    const cajaSeleccionada = addCajaId && addCajaId !== NO_CAJA_VALUE
       ? cajasDisponibles.find((c) => c.id === parseInt(addCajaId))
       : null
 
@@ -199,7 +201,7 @@ export function NoteDraftBuilder({
     setCajasDisponibles([])
     setAddCajas('1')
     setAddPiezas('0')
-    setAddCajaId('')
+    setAddCajaId(NO_CAJA_VALUE)
     setError(null)
   }
 
@@ -478,14 +480,14 @@ export function NoteDraftBuilder({
                 <div className="space-y-1">
                   <Label className="text-xs">Caja física (opcional)</Label>
                   <Select
-                    value={addCajaId ?? ''}
-                    onValueChange={(val) => setAddCajaId(val || '')}
+                    value={addCajaId}
+                    onValueChange={(val) => setAddCajaId(val || NO_CAJA_VALUE)}
                   >
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Sin caja" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin caja específica</SelectItem>
+                          <SelectItem value={NO_CAJA_VALUE}>Sin caja específica</SelectItem>
                       {cajasDisponibles.map((c) => (
                         <SelectItem key={c.id} value={String(c.id)}>
                           {c.codigo_caja} {c.nombre_pack ? `(${c.nombre_pack})` : ''}

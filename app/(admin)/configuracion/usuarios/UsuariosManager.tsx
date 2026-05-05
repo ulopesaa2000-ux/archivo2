@@ -33,15 +33,20 @@ import type {
 } from '@/modules/config/types'
 import { MODULOS_ORDEN, MODULO_LABELS, buildPermisosCompletos } from '@/modules/config/types'
 import { NuevoRolModal } from './NuevoRolModal'
+import { NuevoUsuarioModal } from '@/app/(admin)/configuracion/usuarios/NuevoUsuarioModal'
+import { CambiarPasswordModal } from '@/app/(admin)/configuracion/usuarios/CambiarPasswordModal'
+import { SincronizarUsuarioModal } from '@/app/(admin)/configuracion/usuarios/SincronizarUsuarioModal'
+
 import { toast } from 'sonner'
+import type { UsuarioConRol } from '@/lib/types/tables'
 
 // ─────────────────────────────────────────────────
 // Columnas reales confirmadas por MCP: puede_leer, puede_crear, puede_editar, puede_eliminar
 const TIPO_COLS: { key: TipoPermiso; label: string; short: string }[] = [
-  { key: 'puede_leer',     label: 'Leer',     short: 'L' },
-  { key: 'puede_crear',   label: 'Crear',    short: 'C' },
-  { key: 'puede_editar',  label: 'Editar',   short: 'E' },
-  { key: 'puede_eliminar',label: 'Eliminar', short: 'D' },
+  { key: 'puede_leer', label: 'Leer', short: 'L' },
+  { key: 'puede_crear', label: 'Crear', short: 'C' },
+  { key: 'puede_editar', label: 'Editar', short: 'E' },
+  { key: 'puede_eliminar', label: 'Eliminar', short: 'D' },
 ]
 
 // ─────────────────────────────────────────────────
@@ -157,7 +162,7 @@ function RolPermisoCard({ rol }: { rol: RolConPermisos }) {
               Acceso Total
             </span>
           )}
-          
+
           {!isSuperAdmin && (
             <Button
               variant="ghost"
@@ -249,9 +254,11 @@ function RolPermisoCard({ rol }: { rol: RolConPermisos }) {
 function UsuarioRow({
   usuario,
   roles,
+  isCurrentUserSuperAdmin,
 }: {
   usuario: UsuarioConDetalle
   roles: RolConPermisos[]
+  isCurrentUserSuperAdmin: boolean
 }) {
   const [isPendingActivo, startActivo] = useTransition()
   const [isPendingRol, startRol] = useTransition()
@@ -296,14 +303,43 @@ function UsuarioRow({
         )}>
           {avatarChar}
         </div>
-        <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{displayName}</p>
+        <div className="min-w-0 flex flex-col gap-0.5">
+          <p className="font-medium text-sm truncate flex items-center gap-2">
+            {displayName}
+            {/* BADGE DE AUTH */}
+            {usuario.auth_user_id ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 ring-1 ring-inset ring-emerald-500/20">
+                Verificado
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive ring-1 ring-inset ring-destructive/20">
+                Sin vincular
+              </span>
+            )}
+          </p>
           <p className="text-xs text-muted-foreground truncate">{usuario.email}</p>
         </div>
       </div>
 
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-3 ml-12 sm:ml-0">
+
+        {/* Validar Sincronización Auth vs Cambiar Contraseña */}
+        {!usuario.auth_user_id && isCurrentUserSuperAdmin && usuario.email ? (
+          <SincronizarUsuarioModal
+            usuarioId={usuario.id}
+            emailUsuario={usuario.email}
+            nombreUsuario={displayName}
+          />
+        ) : (
+          isCurrentUserSuperAdmin && (
+            <CambiarPasswordModal
+              usuarioId={usuario.id}
+              nombreUsuario={displayName}
+            />
+          )
+        )}
+
         {/* Rol selector */}
         {isSuperAdmin ? (
           <NivelBadge nivel={1} nombre="Super Admin" />
@@ -314,9 +350,11 @@ function UsuarioRow({
             disabled={isPendingRol}
           >
             <SelectTrigger className="h-8 text-xs w-[180px]">
-              <SelectValue />
+              <SelectValue>
+                {roles.find((r) => r.id === usuario.rol_id)?.nombre || 'Seleccionar rol'}
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="min-w-max">
               {roles
                 .filter((r) => r.nivel_acceso > 1)
                 .map((r) => (
@@ -366,11 +404,14 @@ function UsuarioRow({
 export function UsuariosManager({
   usuarios,
   roles,
+  currentUser,
 }: {
   usuarios: UsuarioConDetalle[]
   roles: RolConPermisos[]
+  currentUser: UsuarioConRol | null
 }) {
   const [tab, setTab] = useState<'usuarios' | 'roles'>('usuarios')
+  const isCurrentUserSuperAdmin = currentUser?.rol?.nivel_acceso === 1
 
   return (
     <div className="space-y-6">
@@ -402,6 +443,7 @@ export function UsuariosManager({
         </div>
 
         {tab === 'roles' && <NuevoRolModal />}
+        {tab === 'usuarios' && <NuevoUsuarioModal roles={roles} />}
       </div>
 
       {/* TAB: USUARIOS */}
@@ -428,7 +470,12 @@ export function UsuariosManager({
           ) : (
             <div>
               {usuarios.map((u) => (
-                <UsuarioRow key={u.id} usuario={u} roles={roles} />
+                <UsuarioRow
+                  key={u.id}
+                  usuario={u}
+                  roles={roles}
+                  isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
+                />
               ))}
             </div>
           )}

@@ -96,7 +96,7 @@ export function CajaCard({
         value: cat?.codigo ?? t,
       }
     }) : [],
-    colores_summary: caja.colores ? caja.colores.split('|').filter(Boolean).map(c => ({ id: c, label: c, value: c })) : [],
+    colores_summary: caja.colores ? Array.from(new Set(caja.colores.split('|').filter(Boolean).map(c => c.trim()))).map(c => ({ id: c, label: c, value: c })) : [],
   })
 
   // Convertir contenidoMap a formato editable de filas
@@ -180,7 +180,7 @@ export function CajaCard({
             value: cat?.codigo ?? t,
           }
         }) : [],
-        colores_summary: caja.colores ? caja.colores.split('|').filter(Boolean).map(c => ({ id: c, label: c, value: c })) : [],
+        colores_summary: caja.colores ? Array.from(new Set(caja.colores.split('|').filter(Boolean).map(c => c.trim()))).map(c => ({ id: c, label: c, value: c })) : [],
       })
       setEditTallas(() => {
         if (!caja.contenidoMap || !caja.contenidoMap.tallas.length) return []

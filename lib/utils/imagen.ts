@@ -19,6 +19,7 @@ interface PresetConfig {
   height?: number
   quality: number
   resize: 'cover' | 'contain' | 'fill'
+  format?: 'jpeg' | 'png' | 'webp' | 'origin'
 }
 
 const PRESET_CONFIG: Record<ImagenPreset, PresetConfig> = {
@@ -27,7 +28,7 @@ const PRESET_CONFIG: Record<ImagenPreset, PresetConfig> = {
   card_lg:   { width: 520,          quality: 80, resize: 'contain' },
   hero:      { width: 800,          quality: 85, resize: 'contain' },
   full:      { width: 1200,         quality: 90, resize: 'contain' },
-  og:        { width: 1200, height: 630, quality: 85, resize: 'cover' },
+  og:        { width: 1200, height: 630, quality: 75, resize: 'cover', format: 'jpeg' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
     resize:  config.resize,
   })
   if (config.height) params.set('height', String(config.height))
+  if (config.format) params.set('format', config.format)
 
   return `${renderBase}?${params.toString()}`
 }
