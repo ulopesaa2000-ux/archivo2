@@ -775,6 +775,7 @@ export async function uploadImagenAction(
   const origenImagen = toCleanText(formData, 'origen_imagen') ?? 'local'
 
   let publicUrl: string
+  let urlOg: string | null = null // Disponible para ambos modos
 
   if (origenImagen === 'url_externa') {
     // ── Modo URL externa: no se sube nada al Storage ─────────
@@ -790,11 +791,22 @@ export async function uploadImagenAction(
     const file = formData.get('file') as File | null
     if (!file || file.size === 0) return { success: false, error: 'No se recibió ningún archivo.' }
 
-    // ── Optimización con Sharp ─────────────────────────────
+    const skuSafe = skuBase.replace(/[^a-zA-Z0-9_\-]/g, '_')
+    const uuid = crypto.randomUUID()
+
+    // ── Obtener arrayBuffer una sola vez para ambas transformaciones ─
+    let fileArrayBuffer: ArrayBuffer
+    try {
+      fileArrayBuffer = await file.arrayBuffer()
+    } catch (err: any) {
+      console.error('Error leyendo archivo:', err)
+      return { success: false, error: 'Error al leer el archivo.' }
+    }
+
+    // ── Optimización WebP para display normal ─────────────────
     let optimizedBuffer: Buffer
     try {
-      const arrayBuffer = await file.arrayBuffer()
-      optimizedBuffer = await sharp(Buffer.from(arrayBuffer))
+      optimizedBuffer = await sharp(Buffer.from(fileArrayBuffer))
         .resize({ width: 2048, withoutEnlargement: true }) // Máximo 2K para web
         .webp({ quality: 80 }) // Formato Google WebP (alta compresión, alta calidad)
         .toBuffer()
@@ -803,9 +815,7 @@ export async function uploadImagenAction(
       return { success: false, error: 'Error al procesar la imagen.' }
     }
 
-    const uuid        = crypto.randomUUID()
-    const folder      = USO_A_FOLDER[usoImagen] ?? 'galeria'
-    const skuSafe     = skuBase.replace(/[^a-zA-Z0-9_\-]/g, '_')
+    const folder = USO_A_FOLDER[usoImagen] ?? 'galeria'
     const storagePath = `Productos/${skuSafe}/${folder}/${uuid}.webp`
 
     const { error: uploadError } = await supabase.storage
@@ -825,6 +835,58 @@ export async function uploadImagenAction(
       return { success: false, error: 'No se pudo obtener la URL pública de la imagen.' }
     }
     publicUrl = urlData.publicUrl
+
+    // ── Crear imagen OG para SEO (WhatsApp, Telegram, etc.) ───
+    // Solo cuando es imagen principal
+    if (esPrincipal) {
+      try {
+        // Detectar orientación de la imagen original
+        const metadata = await sharp(Buffer.from(fileArrayBuffer)).metadata()
+        const isVertical = (metadata.height || 0) > (metadata.width || 0)
+
+        let ogBuffer: Buffer
+
+        if (isVertical) {
+          // Vertical (plantilla Canva): crop cover + padding para 1200x630
+          // Zoom 800x800 crop al centro, luego padding a 1200x630
+          ogBuffer = await sharp(Buffer.from(fileArrayBuffer))
+            .resize({ width: 800, height: 800, fit: 'cover' })
+            .extend({
+              top: 0,
+              bottom: 0,
+              left: 200, // (1200-800)/2 = 200
+              right: 200,
+              background: { r: 255, g: 255, b: 255 }
+            })
+            .jpeg({ quality: 85 })
+            .toBuffer()
+        } else {
+          // Horizontal: contain con fondo blanco
+          ogBuffer = await sharp(Buffer.from(fileArrayBuffer))
+            .resize({ width: 1200, height: 630, fit: 'contain', background: { r: 255, g: 255, b: 255 } })
+            .jpeg({ quality: 85 })
+            .toBuffer()
+        }
+
+        const ogPath = `Productos/${skuSafe}/${skuSafe}_seo.jpg`
+        
+        const { error: ogError } = await supabase.storage
+          .from(BUCKET)
+          .upload(ogPath, ogBuffer, {
+            contentType: 'image/jpeg',
+            upsert: true // Sobrescribir si existe
+          })
+
+        if (!ogError) {
+          const { data: ogUrlData } = supabase.storage.from(BUCKET).getPublicUrl(ogPath)
+          if (ogUrlData?.publicUrl) {
+            urlOg = ogUrlData.publicUrl
+          }
+        }
+      } catch (ogErr: any) {
+        console.warn('[uploadImagenAction] Error creando imagen OG:', ogErr.message)
+      }
+    }
   }
 
   // ── Si es principal, quitar la anterior ───────────────────
@@ -835,16 +897,23 @@ export async function uploadImagenAction(
   }
 
   // ── Registrar en BD ───────────────────────────────────────
+  const insertData: Record<string, unknown> = {
+    producto_id:   productoId,
+    url:           publicUrl,
+    es_principal:  esPrincipal,
+    orden,
+    alt_text:      altText,
+    uso_imagen:    usoImagen,
+    origen_imagen: origenImagen,
+  }
+
+  // Agregar URL OG si existe
+  if (urlOg) {
+    insertData.url_og = urlOg
+  }
+
   const { error: dbError } = await (supabase.from('producto_imagenes') as any)
-    .insert({
-      producto_id:   productoId,
-      url:           publicUrl,
-      es_principal:  esPrincipal,
-      orden,
-      alt_text:      altText,
-      uso_imagen:    usoImagen,
-      origen_imagen: origenImagen,
-    })
+    .insert(insertData)
 
   if (dbError) {
     // Si fue local y falla la BD, limpiar el Storage

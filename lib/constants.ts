@@ -59,6 +59,7 @@ export const ADMIN_ROUTES = {
     lista: '/catalogo',
     detalle: (id: number | string) => `/catalogo/${id}`,
     catalogos: '/catalogo/catalogos',
+    imagenes: '/catalogo/imagenes',
   },
   inventario: {
     notas: '/inventario/notas',
