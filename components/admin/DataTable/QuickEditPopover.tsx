@@ -140,7 +140,9 @@ export function QuickEditPopover({
                   onValueChange={(v) => setEditValue(v)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={field.placeholder ?? 'Seleccionar...'} />
+                    <SelectValue placeholder={field.placeholder ?? 'Seleccionar...'}>
+                      {field.options.find(opt => String(opt.id) === String(editValue))?.label ?? field.placeholder ?? 'Seleccionar...'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {field.options.map((opt) => (

@@ -40,6 +40,15 @@ const bulkActions: BulkAction[] = [
   },
 ]
 
+// Opciones para estado
+const ESTADO_OPTIONS = [
+  { id: 'borrador', label: 'Borrador' },
+  { id: 'pendiente', label: 'Pendiente' },
+  { id: 'publicado', label: 'Publicado' },
+  { id: 'pausado', label: 'Pausado' },
+  { id: 'descontinuado', label: 'Descontinuado' },
+] as const
+
 // Features base de respaldo en caso de que initialFeatures falle
 const FALLBACK_FEATURES: TableFeatures = {
   selectable: true,
@@ -49,13 +58,7 @@ const FALLBACK_FEATURES: TableFeatures = {
     { key: 'familia', label: 'Familia', type: 'text' as const },
     { key: 'marca_id', label: 'Marca', type: 'select' as const, options: [] as {id: string | number; label: string}[] },
     { key: 'precio_ec', label: 'Precio EC', type: 'currency' as const },
-    { key: 'estado', label: 'Estado', type: 'select' as const, options: [
-      { id: 'borrador', label: 'Borrador' },
-      { id: 'pendiente', label: 'Pendiente' },
-      { id: 'publicado', label: 'Publicado' },
-      { id: 'pausado', label: 'Pausado' },
-      { id: 'descontinuado', label: 'Descontinuado' },
-    ] as {id: string; label: string}[]},
+    { key: 'estado', label: 'Estado', type: 'select' as const, options: [...ESTADO_OPTIONS] as {id: string; label: string}[] },
   ] as QuickEditField[],
   bulkActions,
   columnSelector: false,
@@ -97,6 +100,7 @@ function CatalogoTableInner({
   // Enrich quickEdit fields con opciones
   const quickEditFields = (ctx.features.quickEdit as QuickEditField[] | null)?.map((f) => {
     if (f.key === 'marca_id') return { ...f, options: marcaOptions }
+    if (f.key === 'estado') return { ...f, options: [...ESTADO_OPTIONS] as {id: string; label: string}[] }
     return f
   }) ?? null
 

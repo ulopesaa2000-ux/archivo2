@@ -23,6 +23,7 @@ import {
   ChevronDown,
   LayoutGrid,
   History,
+  ImageIcon,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -66,6 +67,11 @@ export function SidebarContent({
           label: 'Catálogos Soporte',
           href: ADMIN_ROUTES.catalogo.catalogos,
           icon: SwatchBook,
+        },
+        {
+          label: 'Imágenes',
+          href: ADMIN_ROUTES.catalogo.imagenes,
+          icon: ImageIcon,
         },
       ],
     },

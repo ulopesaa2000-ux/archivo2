@@ -26,6 +26,7 @@ La base de datos PostgreSQL en Supabase ya existe y está poblada con datos real
 2. El trigger `fn_procesar_nota_inventario` ejecuta los cambios de stock cuando una nota cambia a estado `CONF`.
 3. El inventario se trackea a nivel producto, no variante. `inventario_stock.producto_id` es la unidad de stock.
 4. Los precios públicos viven en `productos_web` (`precio_publico`, `precio_oferta`), separados del costo en `variantes_producto` (`costo_promedio`).
+5. **SEO de imágenes**: Cuando se suba una imagen como `es_principal=true`, siempre crear una copia OG (1200x630 JPEG) con nombre `{sku}_seo.jpg` en la misma carpeta del producto. Guardar la URL en la columna `url_og` de `producto_imagenes`.
 
 ### 3.2 Reglas de Código
 1. Tipar siempre el retorno de las llamadas a Supabase con genéricos.

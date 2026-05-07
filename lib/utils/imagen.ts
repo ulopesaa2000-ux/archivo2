@@ -101,7 +101,7 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
  * URL inteligente: aplica imgproxy solo a URLs del bucket propio.
  * URLs externas (url_externa) se devuelven sin modificar.
  *
- * ✅ Usar siempre este en componentes (en vez de getImagenUrl directamente)
+ * Para OG (WhatsApp, Telegram, Facebook): detecta imagen _seo.jpg y la usa directamente.
  *
  * @param url    - URL de la imagen (puede ser del bucket o URL externa)
  * @param preset - Contexto de visualización
@@ -109,14 +109,33 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
 export function getSmartImagenUrl(url: string | null | undefined, preset: ImagenPreset): string {
   if (!url) return '/placeholder-product.webp'
 
-  // Para OpenGraph (Facebook, WhatsApp) siempre pasamos la URL original sin transformaciones.
-  // Los bots de Meta suelen fallar si la URL tiene parámetros complejos, extensión .webp (aunque cambies el format),
-  // o si el servidor de imgproxy tarda unos milisegundos de más. Meta recorta y procesa la imagen por su cuenta.
+  // Para OpenGraph (Facebook, WhatsApp, Telegram)
+  // Buscar automáticamente la versión _seo.jpg si existe
   if (preset === 'og') {
+    // Si la URL ya es una imagen OG (_seo.jpg), usarla directamente
+    if (url.includes('_seo.jpg')) {
+      return url.split('?')[0]
+    }
+
+    // Si es WordPress, buscar versión OG
     if (isWordPressUrl(url)) {
       return url.replace(/-\d+x\d+(\.\w+)$/, '$1') // Limpiamos cualquier tamaño pequeño
     }
-    // Para Supabase, devolvemos el /object/public/ tal cual sin parámetros
+
+    // Para Supabase Storage: construir URL de la imagen OG
+    // Cambiar: .../uuid.webp → .../sku_seo.jpg
+    if (isStorageUrl(url)) {
+      const baseUrl = url.split('?')[0]
+      // Extraer SKU del path: Productos/SKU/...
+      const match = baseUrl.match(/Productos\/([^/]+)\//)
+      if (match) {
+        const skuSafe = match[1]
+        const ogUrl = baseUrl.replace(/\/[^/]+\.webp$/, `/${skuSafe}_seo.jpg`)
+        return ogUrl
+      }
+    }
+
+    // Si no encontramos OG, devolver URL original sin parámetros
     return url.split('?')[0]
   }
 

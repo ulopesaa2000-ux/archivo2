@@ -1,17 +1,16 @@
 // app/(admin)/catalogo/CatalogoFilters.tsx
 'use client'
 
-import { useDebouncedCallback } from 'use-debounce'
-import { Input } from '@/components/ui/input'
+import { useFilterParams } from '@/components/admin/useFilterParams'
+import { SearchInput } from '@/components/admin/SearchInput'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select'
-import { Search, Loader2, X, Star, EyeOff, ArrowUpDown } from 'lucide-react'
+import { Loader2, X, Star, EyeOff, ArrowUpDown } from 'lucide-react'
 import { ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
-import { useFilterParams } from '@/components/admin/useFilterParams'
 import type { CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
 
 const SORT_OPTIONS: { value: CatalogoSortBy; label: string }[] = [
@@ -43,11 +42,6 @@ export function CatalogoFilters({
 }) {
   const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
 
-  // Buscador con debounce
-  const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term || null)
-  }, 300)
-
   const currentQ         = searchParam('q')
   const currentEstado    = searchParam('estado', '_all')
   const currentMarca     = searchParam('marca_id', '_all')
@@ -58,20 +52,14 @@ export function CatalogoFilters({
   return (
     <div className={`space-y-4 ${isPending ? 'opacity-70' : ''}`}>
       {/* ── Fila 1: Buscador ─────────────────────────────── */}
-      <div className="relative flex-1">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          key={currentQ}
-          id="catalogo-search"
-          placeholder="Buscar por SKU o descripción..."
-          defaultValue={currentQ}
-          onChange={(e) => handleSearch(e.target.value)}
-          className="pl-10 pr-10"
-        />
-        {isPending && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-        )}
-      </div>
+      <SearchInput
+        id="catalogo-search"
+        placeholder="Buscar por SKU o descripción..."
+        currentValue={currentQ}
+        onSearch={(term) => updateParam('q', term)}
+        delay={500}
+        controlled
+      />
 
       {/* ── Fila 2: Selects + Checkboxes ─────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
