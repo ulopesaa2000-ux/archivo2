@@ -2,15 +2,17 @@
 'use client'
 
 import { useState, useRef, useTransition, useEffect } from 'react'
-import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight } from 'lucide-react'
+import Papa from 'papaparse'
+import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useDebouncedCallback } from 'use-debounce'
 import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
-import { uploadImagenesConSkuAction } from '@/modules/catalogo/imagenes/actions'
+import { importarImagenesDesdeExcelAction, uploadImagenesConSkuAction } from '@/modules/catalogo/imagenes/actions'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -185,6 +187,21 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   // Cache de todos los SKUs: se carga UNA sola vez (1 query) al entrar al paso 2
   const allSkusRef = useRef<SkuRecord[]>([])
 
+  // ── Estado para modo Excel/CSV ──────────────────────────────────────
+  const [csvText, setCsvText] = useState('')
+  const csvInputRef = useRef<HTMLInputElement>(null)
+  const [csvRows, setCsvRows] = useState<{
+    sku: string
+    url: string
+    es_principal: boolean
+    alt_text: string
+    uso: string
+    orden: number
+    productoId?: number
+    productoNombre?: string
+    status: 'pending' | 'found' | 'not_found'
+  }[]>([])
+
   const loadAllSkus = async (): Promise<SkuRecord[]> => {
     if (allSkusRef.current.length > 0) return allSkusRef.current
     const supabase = createClient()
@@ -255,6 +272,87 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  // ── Handlers para modo Excel/CSV ────────────────────────────────────────
+
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = (results.data as any[]).filter((r: any) => r.sku && r.url)
+        if (rows.length === 0) {
+          setError('El CSV debe tener columnas "sku" y "url" con datos')
+          return
+        }
+        setCsvText(rows.map(r => `${r.sku},${r.url}`).join('\n'))
+        parseCsvRowsFromText()
+      },
+      error: (err) => setError(err.message),
+    })
+    if (csvInputRef.current) csvInputRef.current.value = ''
+  }
+
+  const downloadCsvTemplate = () => {
+    const template = 'sku,url,es_principal,alt_text,uso\nAND250016,https://ejemplo.com/imagen.jpg,true,Imagen principal,principal_ecommerce\nJA2517HC,https://ejemplo.com/otra.jpg,false,,galeria_secundaria\n'
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'plantilla_imagenes.csv'
+    link.click()
+  }
+
+  const parseCsvRowsFromText = () => {
+    const lines = csvText.split('\n').filter(l => l.trim())
+    const parsed: typeof csvRows = lines.map(line => {
+      const [sku = '', url = ''] = line.split(',').map(s => s.trim())
+      return { sku, url, es_principal: false, alt_text: '', uso: 'galeria_secundaria', orden: 0, status: 'pending' as const }
+    }).filter(r => r.sku && r.url)
+    setCsvRows(parsed)
+  }
+
+  const resolveCsvSkus = async () => {
+    const supabase = createClient()
+    const skus = csvRows.map(r => r.sku.toUpperCase()).filter(Boolean)
+    if (skus.length === 0) return
+    const { data } = await (supabase.from('productos') as any)
+      .select('id, sku_base, nombre')
+      .in('sku_base', skus)
+    const map = new Map((data ?? []).map((p: any) => [p.sku_base.toUpperCase(), p]))
+    const updated = csvRows.map(r => {
+      const match = map.get(r.sku.toUpperCase()) as { id: number; sku_base: string; nombre: string } | undefined
+      return {
+        ...r,
+        productoId: match?.id,
+        productoNombre: match?.nombre,
+        status: match ? 'found' as const : 'not_found' as const,
+        alt_text: match ? `Imagen de ${match.nombre}` : '',
+      }
+    })
+    setCsvRows(updated)
+  }
+
+  const handleCsvImport = () => {
+    const validRows = csvRows.filter(r => r.status === 'found')
+    if (validRows.length === 0) { setError('No hay filas con SKU válido'); return }
+    startTransition(async () => {
+      const result = await importarImagenesDesdeExcelAction(
+        validRows.map(r => ({
+          sku: r.sku,
+          url: r.url,
+          es_principal: r.es_principal,
+          alt_text: r.alt_text,
+          uso: r.uso,
+          orden: r.orden,
+        }))
+      )
+      if (result.success > 0) toast.success(`${result.success} imagen${result.success > 1 ? 'es' : ''} importada${result.success > 1 ? 's' : ''}`)
+      if (result.failed > 0) toast.error(`${result.failed} fallaron`)
+      handleClose()
+    })
+  }
+
   const removeFile = (index: number) => {
     setFiles(prev => {
       const next = [...prev]
@@ -267,6 +365,8 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const handleClose = () => {
     files.forEach(f => URL.revokeObjectURL(f.preview))
     setFiles([])
+    setCsvRows([])
+    setCsvText('')
     setStep(1)
     setError(null)
     onOpenChange(false)
@@ -309,7 +409,9 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
             <X className="h-5 w-5" />
           </button>
           <DialogTitle className="text-lg font-bold flex-1">
-            {step === 1 ? 'Paso 1 — Seleccionar imágenes' : `Paso 2 — Asignar SKUs (${files.length})`}
+            {mode === 'files'
+              ? step === 1 ? 'Paso 1 — Seleccionar imágenes' : `Paso 2 — Asignar SKUs (${files.length})`
+              : step === 1 ? 'Paso 1 — Pegar CSV con URLs' : `Paso 2 — Revisar (${csvRows.length} filas)`}
           </DialogTitle>
           {/* Indicador de pasos */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
@@ -331,7 +433,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
         <div className="flex-1 min-h-0 overflow-hidden">
 
           {/* PASO 1 */}
-          {step === 1 && (
+          {step === 1 && mode === 'files' && (
             <div className="h-full flex flex-col p-6 gap-4 overflow-y-auto">
               <div className="bg-muted/40 rounded-lg p-4 text-sm space-y-1">
                 <p className="font-semibold">¿Cómo funciona?</p>
@@ -387,8 +489,64 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
             </div>
           )}
 
-          {/* PASO 2 */}
-          {step === 2 && (
+          {/* PASO 1 — Excel/CSV */}
+          {step === 1 && mode === 'excel' && (
+            <div className="h-full flex flex-col p-6 gap-4">
+              {/* Encabezado tipo tarjeta */}
+              <div className="bg-primary/5 border border-primary/10 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-primary/10 p-2.5 rounded-lg">
+                    <FileSpreadsheet className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm">Importar imágenes desde URLs</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Pegá un CSV con <strong>sku,url</strong> por línea o subí un archivo
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={downloadCsvTemplate}>
+                    <Download className="h-4 w-4 mr-1.5" /> Plantilla
+                  </Button>
+                </div>
+              </div>
+
+              {/* Botón subir CSV grande */}
+              <div className="flex justify-center">
+                <Button
+                  variant="secondary"
+                  className="h-12 px-8 text-base gap-3"
+                  onClick={() => csvInputRef.current?.click()}
+                >
+                  <FileSpreadsheet className="h-5 w-5" />
+                  Subir archivo CSV
+                </Button>
+                <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFileChange} />
+              </div>
+
+              {/* Zona de pegado directo */}
+              <div className="flex-1 min-h-0 flex flex-col">
+                <div className="flex items-center justify-between shrink-0 mb-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    O pegalo directamente aquí:
+                  </span>
+                  {csvText.trim() && (
+                    <span className="text-xs text-muted-foreground">
+                      {csvText.split('\n').filter(l => l.trim()).length} líneas
+                    </span>
+                  )}
+                </div>
+                <Textarea
+                  placeholder={`sku,url\nAND250016,https://ejemplo.com/imagen.jpg\nJA2517HC,https://ejemplo.com/otra.jpg`}
+                  value={csvText}
+                  onChange={(e) => setCsvText(e.target.value)}
+                  className="flex-1 min-h-[120px] font-mono text-xs resize-none"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PASO 2 — Files */}
+          {step === 2 && mode === 'files' && (
             <div className="h-full flex flex-col">
               {/* Sub-header stats */}
               <div className="flex items-center gap-4 px-5 py-2 border-b bg-muted/20 shrink-0 text-xs flex-wrap">
@@ -501,6 +659,68 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
               </div>
             </div>
           )}
+
+          {/* PASO 2 — Excel/CSV */}
+          {step === 2 && mode === 'excel' && (
+            <div className="h-full flex flex-col">
+              <div className="flex items-center gap-4 px-5 py-2 border-b bg-muted/20 shrink-0 text-xs flex-wrap">
+                <span className="flex items-center gap-1 text-green-600"><Check className="h-3 w-3" />{csvRows.filter(r => r.status === 'found').length} encontrados</span>
+                <span className="flex items-center gap-1 text-red-500"><AlertCircle className="h-3 w-3" />{csvRows.filter(r => r.status === 'not_found').length} sin SKU</span>
+                {csvRows.filter(r => r.status === 'pending').length > 0 && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs ml-auto" onClick={resolveCsvSkus}>
+                    <Search className="h-3 w-3 mr-1" />Resolver SKUs
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-auto p-4">
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left">SKU</th>
+                        <th className="px-3 py-2.5 text-left">URL</th>
+                        <th className="px-3 py-2.5 text-left">Producto</th>
+                        <th className="px-3 py-2.5 text-center w-20">Principal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {csvRows.map((r, i) => (
+                        <tr key={i} className={cn(
+                          'hover:bg-muted/30 transition-colors',
+                          r.status === 'found' ? '' : 'opacity-50'
+                        )}>
+                          <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground truncate max-w-[300px]" title={r.url}>{r.url}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {r.status === 'found' ? (
+                              <span className="text-green-600 font-medium">{r.productoNombre}</span>
+                            ) : r.status === 'not_found' ? (
+                              <span className="text-red-500">SKU no encontrado</span>
+                            ) : (
+                              <span className="text-muted-foreground">Pendiente</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={r.es_principal}
+                              onChange={() => {
+                                const updated = [...csvRows]
+                                updated[i] = { ...updated[i], es_principal: !updated[i].es_principal }
+                                setCsvRows(updated)
+                              }}
+                              className="h-3.5 w-3.5"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Footer ── */}
@@ -509,16 +729,29 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
             {step === 1 ? 'Cancelar' : '← Volver'}
           </Button>
           <div className="flex items-center gap-2">
-            {step === 1 && (
+            {step === 1 && mode === 'files' && (
               <Button onClick={() => { if (files.length === 0) { fileInputRef.current?.click() } else setStep(2) }} disabled={false}>
                 {files.length === 0 ? 'Seleccionar imágenes' : `Continuar con ${files.length} imagen${files.length !== 1 ? 'es' : ''} →`}
               </Button>
             )}
-            {step === 2 && (
+            {step === 1 && mode === 'excel' && (
+              <Button onClick={() => { parseCsvRowsFromText(); setStep(2) }} disabled={!csvText.trim()}>
+                {`Revisar ${csvText.split('\n').filter(l => l.trim()).length} filas →`}
+              </Button>
+            )}
+            {step === 2 && mode === 'files' && (
               <Button onClick={handleUpload} disabled={isPending || !allValid || files.length === 0}>
                 {isPending
                   ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Subiendo...</>
                   : <><Upload className="h-4 w-4 mr-2" />Subir {files.length} imagen{files.length !== 1 ? 'es' : ''}</>
+                }
+              </Button>
+            )}
+            {step === 2 && mode === 'excel' && (
+              <Button onClick={handleCsvImport} disabled={isPending || csvRows.filter(r => r.status === 'found').length === 0}>
+                {isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
+                  : <><Upload className="h-4 w-4 mr-2" />Importar {csvRows.filter(r => r.status === 'found').length} imagen{ csvRows.filter(r => r.status === 'found').length !== 1 ? 'es' : ''}</>
                 }
               </Button>
             )}

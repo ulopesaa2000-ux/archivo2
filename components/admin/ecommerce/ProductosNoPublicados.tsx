@@ -116,7 +116,7 @@ export function ProductosNoPublicados({ productos }: ProductosNoPublicadosProps)
                         <div className="relative w-12 h-12 rounded overflow-hidden">
                           <Image
                             src={producto.imagen_principal}
-                            alt={producto.nombre}
+                            alt={producto.nombre ?? `Imagen de ${producto.sku_base}`}
                             fill
                             className="object-cover"
                             sizes="48px"

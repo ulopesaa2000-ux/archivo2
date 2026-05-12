@@ -12,6 +12,9 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { Suspense } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ImportCsvButton } from './components/ImportCsvButton'
+import { CatalogoVistaToggle } from './components/CatalogoVistaToggle'
+import { CatalogoGrid } from './components/CatalogoGrid'
 
 export const metadata: Metadata = {
   title: 'Catálogo de Productos',
@@ -32,6 +35,7 @@ type CatalogoSearchParams = {
   modal?: string
   edit_id?: string
   delete_id?: string
+  vista?: string
 }
 
 function parseOptionalInt(value?: string) {
@@ -52,11 +56,13 @@ function parseOptionalInt(value?: string) {
 async function CatalogoData({ 
   filtros, 
   sortBy, 
-  order 
+  order,
+  vista,
 }: { 
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
+  vista: 'grid' | 'tabla'
 }) {
   const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
     fetchProductosCatalogo(filtros),
@@ -81,20 +87,28 @@ async function CatalogoData({
           </p>
         </div>
 
-        <Link 
-          href="/catalogo?modal=create" 
-          scroll={false} 
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Nuevo Producto
-        </Link>
+        <div className="flex items-center gap-2">
+          <CatalogoVistaToggle />
+          <Link 
+            href="/catalogo?modal=create" 
+            scroll={false} 
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo Producto
+          </Link>
+          <ImportCsvButton />
+        </div>
       </div>
 
       <CatalogoCreateDialog catalogos={catalogos} />
 
       <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
-      <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} initialFeatures={features} />
+      {vista === 'grid' ? (
+        <CatalogoGrid productos={productos} />
+      ) : (
+        <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} initialFeatures={features} />
+      )}
       <Pagination total={total} />
     </>
   )
@@ -140,10 +154,12 @@ export default async function CatalogoPage({
     order,
   }
 
+  const vista = params.vista === 'grid' ? 'grid' : 'tabla'
+
   return (
     <div className="space-y-4">
       <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} />
+        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} vista={vista} />
       </Suspense>
     </div>
   )

@@ -86,8 +86,28 @@ export async function fetchProductosCatalogo(
     return { productos: [], total: 0, catalogos }
   }
 
+  // Obtener imágenes principales
+  const productoIds = (data || []).map((p: any) => p.id)
+  let imagenesMap: Record<number, string> = {}
+  if (productoIds.length > 0) {
+    const { data: imagenes } = await supabase
+      .from('producto_imagenes')
+      .select('producto_id, url')
+      .eq('es_principal', true)
+      .in('producto_id', productoIds)
+    imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
+      acc[img.producto_id] = img.url
+      return acc
+    }, {})
+  }
+
+  const productos = (data ?? []).map((p: any) => ({
+    ...p,
+    imagen_principal: imagenesMap[p.id] || null,
+  }))
+
   return {
-    productos: data ?? [],
+    productos,
     total: count ?? 0,
     catalogos,
   }

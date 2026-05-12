@@ -45,6 +45,7 @@ export type ProductoListItem = {
   marca_id: number | null
   genero_id: number | null
   tela_ext_id: number | null
+  imagen_principal: string | null
 }
 
 // ── Catálogos para filtros (listado) ───────────────────────

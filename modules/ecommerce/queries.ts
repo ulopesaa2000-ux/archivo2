@@ -119,6 +119,21 @@ export async function fetchProductosWebAdmin(
     return { productos: [], total: 0 }
   }
 
+  // Obtener imágenes principales
+  const productoIds = (data || []).map((p: any) => p.producto_id)
+  let imagenesMap: Record<number, string> = {}
+  if (productoIds.length > 0) {
+    const { data: imagenes } = await supabase
+      .from('producto_imagenes')
+      .select('producto_id, url')
+      .eq('es_principal', true)
+      .in('producto_id', productoIds)
+    imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
+      acc[img.producto_id] = img.url
+      return acc
+    }, {})
+  }
+
   // Transformar datos
   const productos: ProductoWebExtendido[] = (data || []).map((item: any) => ({
     ...item,
@@ -133,6 +148,7 @@ export async function fetchProductosWebAdmin(
     marca_nombre: item.cat_marcas?.nombre,
     tipo_prenda_nombre: item.cat_tipo_prenda?.nombre,
     genero_nombre: item.cat_generos?.nombre,
+    imagen_principal: imagenesMap[item.producto_id] || null,
   }))
 
   return {
