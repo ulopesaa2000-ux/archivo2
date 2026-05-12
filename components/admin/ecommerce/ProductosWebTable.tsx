@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Pagination } from '@/components/admin/Pagination'
+import { Package } from 'lucide-react'
 import type { ProductoWebExtendido } from '@/modules/ecommerce/types'
 
 interface ProductosWebTableProps {
@@ -44,17 +45,19 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
               <TableRow key={producto.id}>
                 <TableCell>
                   {producto.imagen_principal ? (
-                    <div className="relative w-12 h-12">
+                    <div className="relative w-12 h-12 rounded overflow-hidden">
                       <Image
                         src={producto.imagen_principal}
-                        alt={producto.nombre}
+                        alt={producto.nombre ?? `Imagen de ${producto.sku_base}`}
                         fill
-                        className="object-cover rounded"
+                        className="object-cover"
                         sizes="48px"
                       />
                     </div>
                   ) : (
-                    <div className="w-12 h-12 bg-muted rounded" />
+                    <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                      <Package className="h-5 w-5 text-muted-foreground" />
+                    </div>
                   )}
                 </TableCell>
                 <TableCell className="font-mono text-sm">
