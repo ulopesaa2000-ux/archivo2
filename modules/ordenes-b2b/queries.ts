@@ -165,7 +165,7 @@ export async function fetchOrdenDetalles(
       piezas_pedidas, cajas_pedidas, cbm_detalle, peso_bruto_kg,
       estado_producto,
       producto:productos!ordenes_b2b_detalles_producto_id_fkey (
-        sku_base, nombre
+        sku_base, nombre, descripcion, precio_ec
       )
     `)
     .eq('orden_id', ordenId)
@@ -179,6 +179,8 @@ export async function fetchOrdenDetalles(
       id: d.id, orden_id: d.orden_id, producto_id: d.producto_id,
       producto_sku: prod?.sku_base ?? null,
       producto_nombre: prod?.nombre ?? null,
+      producto_descripcion: prod?.descripcion ?? null,
+      producto_precio_ec: prod?.precio_ec ?? null,
       cantidad_solicitada: d.cantidad_solicitada,
       cantidad_aprobada: d.cantidad_aprobada,
       precio_acordado: d.precio_acordado,
@@ -204,8 +206,9 @@ export async function fetchOrdenCajas(
       id, orden_id, caja_id, cantidad_cajas,
       caja:cajas_producto!orden_cajas_caja_id_fkey (
         codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg,
+        largo_cm, ancho_cm, alto_cm, costo_total_caja,
         tallas, colores,
-        producto:productos!cajas_producto_producto_id_fkey ( sku_base ),
+        producto:productos!cajas_producto_producto_id_fkey ( sku_base, precio_ec ),
         caja_detalles (
           cantidad,
           talla:cat_tallas!caja_detalles_talla_id_fkey (codigo, nombre),
@@ -262,7 +265,12 @@ export async function fetchOrdenCajas(
       caja_piezas_por_caja: c?.piezas_por_caja ?? null,
       caja_cbm: c?.cbm ?? null,
       caja_peso_bruto_kg: c?.peso_bruto_kg ?? null,
+      caja_largo_cm: c?.largo_cm ?? null,
+      caja_ancho_cm: c?.ancho_cm ?? null,
+      caja_alto_cm: c?.alto_cm ?? null,
+      caja_costo_total_caja: c?.costo_total_caja ?? null,
       producto_sku: p?.sku_base ?? null,
+      producto_precio_ec: p?.precio_ec ?? null,
       caja_tallas: c?.tallas ?? null,
       caja_colores: c?.colores ?? null,
       caja_contenidoMap: contenidoMap,
@@ -467,5 +475,50 @@ export async function fetchCajaDetalle(
     largo_cm: c.largo_cm, ancho_cm: c.ancho_cm, alto_cm: c.alto_cm,
     costo_total_caja: c.costo_total_caja,
     detalles_talla_color, ordenes_vinculadas,
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// BÚSQUEDA DE PRODUCTOS (para agregar a orden)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchProductosBusqueda(
+  q?: string,
+  limit = 20,
+): Promise<{ id: number; sku_base: string; nombre: string; descripcion: string | null }[]> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('productos')
+    .select('id, sku_base, nombre, descripcion')
+    .limit(limit)
+
+  if (q) {
+    const term = `%${q}%`
+    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term}`)
+  }
+
+  const { data } = await query.order('sku_base')
+  return (data ?? []) as { id: number; sku_base: string; nombre: string; descripcion: string | null }[]
+}
+
+// ════════════════════════════════════════════════════════════
+// CATÁLOGO TALLAS Y COLORES (para CajaCard edit)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchCatalogoTallasColores(): Promise<{
+  tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
+  colores: { id: number; nombre: string; hex_code: string | null }[]
+}> {
+  const supabase = await createClient()
+
+  const [tallasRes, coloresRes] = await Promise.all([
+    supabase.from('cat_tallas').select('id, codigo, nombre, categoria').order('codigo'),
+    supabase.from('cat_colores').select('id, nombre, hex_code').order('nombre'),
+  ])
+
+  return {
+    tallas: (tallasRes.data ?? []).map(t => ({ id: t.id, codigo: t.codigo, nombre: t.nombre ?? '', categoria: t.categoria ?? '' })),
+    colores: (coloresRes.data ?? []).map(c => ({ id: c.id, nombre: c.nombre, hex_code: c.hex_code })),
   }
 }

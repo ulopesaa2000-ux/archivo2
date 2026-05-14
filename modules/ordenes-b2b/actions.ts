@@ -161,6 +161,39 @@ export async function eliminarDetalleOrdenAction(
   return { success: true }
 }
 
+export async function actualizarDetalleOrdenAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  const id = parseInt(formData.get('detalle_id') as string)
+  if (!id) return { success: false, error: 'ID de detalle requerido.' }
+
+  const orden_id = parseInt(formData.get('orden_id') as string)
+  if (!orden_id) return { success: false, error: 'ID de orden requerido.' }
+
+  const { error } = await supabase
+    .from('ordenes_b2b_detalles')
+    .update({
+      cantidad_solicitada: parseInt(formData.get('cantidad_solicitada') as string) || 0,
+      piezas_pedidas: parseInt(formData.get('piezas_pedidas') as string) || 0,
+      cajas_pedidas: parseFloat(formData.get('cajas_pedidas') as string) || 0,
+      precio_unitario: parseFloat(formData.get('precio_unitario') as string) || null,
+      precio_yuan: parseFloat(formData.get('precio_yuan') as string) || null,
+      cbm_detalle: parseFloat(formData.get('cbm_detalle') as string) || null,
+      peso_bruto_kg: parseFloat(formData.get('peso_bruto_kg') as string) || null,
+    })
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(orden_id)
+  revalidatePath(`/ordenes-b2b/${orden_id}`)
+  return { success: true }
+}
+
 // ════════════════════════════════════════════════════════════
 // VINCULAR/DESVINCULAR CAJAS
 // ════════════════════════════════════════════════════════════
@@ -183,6 +216,32 @@ export async function vincularCajaOrdenAction(
     )
 
   if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(ordenId)
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+export async function actualizarCantidadCajasOrdenAction(
+  ordenId: number,
+  cajaId: number,
+  cantidadCajas: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('orden_cajas')
+    .update({ cantidad_cajas: cantidadCajas })
+    .match({ orden_id: ordenId, caja_id: cajaId })
+    .select()
+
+  if (error) return { success: false, error: error.message }
+  if (!data || data.length === 0) {
+    return { success: false, error: 'No se encontró el vínculo caja-orden para actualizar.' }
+  }
 
   await recalcularTotalesOrden(ordenId)
   revalidatePath(`/ordenes-b2b/${ordenId}`)

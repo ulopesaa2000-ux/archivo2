@@ -88,6 +88,15 @@ export const ADMIN_ROUTES = {
     auditoriaProductos: '/configuracion/auditoria_producto',
     tablas: '/configuracion/tablas',
   },
+  despachos: {
+    lista: '/despachos',
+    nuevo: '/despachos/nuevo',
+    detalle: (id: number) => `/despachos/${id}`,
+  },
+  inventarioVirtual: {
+    lista: '/inventario-virtual',
+    detalle: (id: number) => `/inventario-virtual/${id}`,
+  },
 } as const
 
 // ── Paginación ──────────────────────────────────────────────
@@ -96,7 +105,7 @@ export const PAGE_SIZE = 20 as const
 // ── Estados de contenedor (CHECK constraint en BD) ──────────
 export const ESTADOS_CONTENEDOR = [
   'borrador', 'en_transito', 'en_aduana', 'en_bodega',
-  'completo', 'cerrado', 'cancelado',
+  'surtido', 'completo', 'cerrado', 'cancelado',
 ] as const
 
 export type EstadoContenedor = typeof ESTADOS_CONTENEDOR[number]
@@ -106,6 +115,7 @@ export const ESTADO_CONTENEDOR_COLORS: Record<string, string> = {
   en_transito: 'bg-blue-100 text-blue-800',
   en_aduana: 'bg-amber-100 text-amber-800',
   en_bodega: 'bg-emerald-100 text-emerald-800',
+  surtido: 'bg-indigo-100 text-indigo-800',
   completo: 'bg-green-100 text-green-800',
   cerrado: 'bg-slate-100 text-slate-800',
   cancelado: 'bg-red-100 text-red-800',
@@ -116,6 +126,7 @@ export const ESTADO_CONTENEDOR_LABELS: Record<string, string> = {
   en_transito: 'En Tránsito',
   en_aduana: 'En Aduana',
   en_bodega: 'En Bodega',
+  surtido: 'Surtido',
   completo: 'Completo',
   cerrado: 'Cerrado',
   cancelado: 'Cancelado',
@@ -127,6 +138,7 @@ export const TRANSICIONES_CONTENEDOR: Record<string, string[]> = {
   en_transito: ['en_aduana', 'cancelado'],
   en_aduana: ['en_bodega', 'cancelado'],
   en_bodega: ['completo', 'cancelado'],
+  surtido: ['completo', 'cancelado'],
   completo: ['cerrado'],
   cerrado: [],
   cancelado: [],

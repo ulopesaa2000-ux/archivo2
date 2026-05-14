@@ -24,6 +24,8 @@ import {
   LayoutGrid,
   History,
   ImageIcon,
+  Truck,
+  Container,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -123,6 +125,23 @@ export function SidebarContent({
           label: 'Contenedores',
           href: ADMIN_ROUTES.contenedores.lista,
           icon: Ship,
+        },
+        {
+          label: 'Despachos',
+          href: ADMIN_ROUTES.despachos.lista,
+          icon: Truck,
+        },
+      ],
+    },
+    {
+      label: 'Bodegas Virtuales',
+      icon: Container,
+      visible: nivel <= 2 || !!permisos?.puede_ver_inventario,
+      items: [
+        {
+          label: 'Virtuales',
+          href: ADMIN_ROUTES.inventarioVirtual.lista,
+          icon: Container,
         },
       ],
     },

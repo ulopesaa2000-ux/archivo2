@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { LayoutGrid, Table, Upload, FileSpreadsheet, HardDrive } from 'lucide-react'
+import { LayoutGrid, Table, Upload, FileSpreadsheet, HardDrive, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ImportarMasivoModal } from './ImportarMasivoModal'
 
@@ -16,7 +16,7 @@ export function ImagenesToolbar({ total }: { total: number }) {
 
   const currentVista = searchParams.get('vista') ?? 'grid'
 
-  const setVista = (vista: 'grid' | 'tabla') => {
+  const setVista = (vista: 'grid' | 'agrupado' | 'tabla') => {
     const params = new URLSearchParams(searchParams.toString())
     if (vista === 'grid') {
       params.delete('vista')
@@ -42,10 +42,21 @@ export function ImagenesToolbar({ total }: { total: number }) {
             currentVista === 'grid' ? 'bg-muted font-medium' : 'hover:bg-muted/50'
           }`}
           onClick={() => setVista('grid')}
-          title="Vista grid"
+          title="Vista individual"
         >
           <LayoutGrid className="h-4 w-4" />
-          <span className="hidden sm:inline">Grid</span>
+          <span className="hidden sm:inline">Individual</span>
+        </button>
+        <button
+          type="button"
+          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm border-l ${
+            currentVista === 'agrupado' ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+          }`}
+          onClick={() => setVista('agrupado')}
+          title="Vista agrupada por producto"
+        >
+          <FolderOpen className="h-4 w-4" />
+          <span className="hidden sm:inline">Agrupado</span>
         </button>
         <button
           type="button"

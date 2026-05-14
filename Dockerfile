@@ -2,12 +2,14 @@
 FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat ca-certificates && update-ca-certificates
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+RUN corepack enable pnpm
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Fase 2: Construcción (Build)
 FROM node:20-alpine AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates
+RUN corepack enable pnpm
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -22,7 +24,7 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 RUN test -n "$NEXT_PUBLIC_SUPABASE_URL" || (echo "Missing build arg: NEXT_PUBLIC_SUPABASE_URL" && exit 1)
 RUN test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || (echo "Missing build arg: NEXT_PUBLIC_SUPABASE_ANON_KEY" && exit 1)
-RUN npm run build
+RUN pnpm run build
 
 # Fase 3: Ejecución (Runner)
 FROM node:20-alpine AS runner

@@ -37,18 +37,41 @@ export function OrdenFormDialog(props: Props) {
 
   const orden = mode === 'edit' ? props.orden : undefined
 
-  const proveedorDefaultId = orden
-    ? String(catalogos.proveedores.find(p => p.nombre_completo === orden.proveedor_nombre)?.id ?? '')
-    : ''
-  const clienteDefaultId = orden
-    ? String(catalogos.clientesB2B.find(c => c.nombre_completo === orden.cliente_nombre)?.id ?? '')
-    : ''
-  const clienteSelectDefaultValue = clienteDefaultId || '_none'
+  // ── Estado para selects con nombre visible / ID oculto ──
+  const defaultProv = orden
+    ? catalogos.proveedores.find(p => p.nombre_completo === orden.proveedor_nombre)
+    : undefined
+  const defaultCli = orden
+    ? catalogos.clientesB2B.find(c => c.nombre_completo === orden.cliente_nombre)
+    : undefined
+
+  const [provNombre, setProvNombre] = useState(defaultProv?.nombre_completo ?? '')
+  const [provId, setProvId] = useState(String(defaultProv?.id ?? ''))
+  const [cliNombre, setCliNombre] = useState(defaultCli?.nombre_completo ?? '')
+  const [cliId, setCliId] = useState(String(defaultCli?.id ?? ''))
+
+  // Reset state when dialog opens in edit mode with a different orden
+  useEffect(() => {
+    if (mode === 'edit' && orden) {
+      const p = catalogos.proveedores.find(x => x.nombre_completo === orden.proveedor_nombre)
+      const c = catalogos.clientesB2B.find(x => x.nombre_completo === orden.cliente_nombre)
+      setProvNombre(p?.nombre_completo ?? '')
+      setProvId(String(p?.id ?? ''))
+      setCliNombre(c?.nombre_completo ?? '')
+      setCliId(String(c?.id ?? ''))
+    }
+  }, [mode, orden, catalogos])
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
-    const fd = new FormData(e.currentTarget)
+    const fd = new FormData()
+    fd.set('proveedor_id', provId)
+    fd.set('cliente_b2b_id', cliId || '')
+    fd.set('folio_proveedor', (e.currentTarget.querySelector<HTMLInputElement>('[name=folio_proveedor]')?.value ?? ''))
+    fd.set('moneda', (e.currentTarget.querySelector<HTMLSelectElement>('[name=moneda]')?.value ?? 'USD'))
+    fd.set('tipo_cambio', (e.currentTarget.querySelector<HTMLInputElement>('[name=tipo_cambio]')?.value ?? ''))
+    fd.set('observaciones', (e.currentTarget.querySelector<HTMLTextAreaElement>('[name=observaciones]')?.value ?? ''))
     if (mode === 'edit') fd.set('orden_id', String(orden!.id))
 
     startTransition(async () => {
@@ -96,26 +119,23 @@ export function OrdenFormDialog(props: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Proveedor *</Label>
-              <Select name="proveedor_id" defaultValue={proveedorDefaultId} required>
-                <SelectTrigger data-testid="orden-proveedor-trigger"><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+              <Select value={provNombre} onValueChange={(val) => { const v = val ?? ''; setProvNombre(v); const p = catalogos.proveedores.find(x => x.nombre_completo === v); setProvId(p?.id ? String(p.id) : '') }} required>
+                <SelectTrigger data-testid="orden-proveedor-trigger" className="w-full"><SelectValue placeholder="Seleccionar..." className="truncate" /></SelectTrigger>
                 <SelectContent>
                   {catalogos.proveedores.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.nombre_completo}</SelectItem>
+                    <SelectItem key={p.id} value={p.nombre_completo}>{p.nombre_completo}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label>Cliente destino (opcional)</Label>
-              <Select
-                name="cliente_b2b_id"
-                defaultValue={clienteSelectDefaultValue}
-              >
-                <SelectTrigger data-testid="orden-cliente-trigger"><SelectValue placeholder="Ninguno" /></SelectTrigger>
+              <Select value={cliNombre || '_none'} onValueChange={(val) => { const v = val ?? ''; const isNone = v === '_none'; setCliNombre(isNone ? '' : v); const c = catalogos.clientesB2B.find(x => x.nombre_completo === v); setCliId(isNone ? '' : (c?.id ? String(c.id) : '')) }}>
+                <SelectTrigger data-testid="orden-cliente-trigger" className="w-full"><SelectValue placeholder="Ninguno" className="truncate" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none">Ninguno</SelectItem>
                   {catalogos.clientesB2B.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.nombre_completo}</SelectItem>
+                    <SelectItem key={c.id} value={c.nombre_completo}>{c.nombre_completo}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -127,7 +147,7 @@ export function OrdenFormDialog(props: Props) {
             <div className="space-y-2">
               <Label>Moneda</Label>
               <Select name="moneda" defaultValue={orden?.moneda ?? 'USD'}>
-                <SelectTrigger data-testid="orden-moneda-trigger"><SelectValue /></SelectTrigger>
+                  <SelectTrigger data-testid="orden-moneda-trigger" className="w-full"><SelectValue className="truncate" /></SelectTrigger>
                 <SelectContent>
                   {MONEDAS.map((m) => (<SelectItem key={m} value={m}>{m}</SelectItem>))}
                 </SelectContent>

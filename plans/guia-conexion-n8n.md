@@ -528,7 +528,7 @@ Usuario                    Next.js                  n8n                    Supab
    │                         │                       │                       │
    │                         │ POST /api/n8n/webhook │                       │
    │                         │ body: FormData        │                       │
-   │                         │ (archivo, tipo_flujo)│                       │
+   │                         │ (archivo, tipo_flujo) │                       │
    │                         │──────────────────────>│                       │
    │                         │                       │                       │
    │                         │  jobId: uuid          │ Recibe archivo        │

@@ -1,0 +1,246 @@
+// modules/despachos/queries.ts
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { PAGE_SIZE } from '@/lib/constants'
+import type { FiltrosDespacho, DespachoListaItem, StockVirtualItem } from './types'
+
+// ════════════════════════════════════════════════════════════
+// BODEGAS VIRTUALES
+// ════════════════════════════════════════════════════════════
+
+export async function fetchBodegasVirtuales() {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('bodegas')
+    .select('*')
+    .eq('es_virtual', true)
+    .eq('activa', true)
+    .order('nombre')
+
+  if (error) {
+    console.error('Error fetchBodegasVirtuales:', error)
+    return []
+  }
+  return data ?? []
+}
+
+// ════════════════════════════════════════════════════════════
+// STOCK EN BODEGA VIRTUAL (para seleccionar qué enviar)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchStockVirtual(
+  bodegaId: number
+): Promise<StockVirtualItem[]> {
+  const supabase = await createClient()
+
+  // Obtenemos inventario_stock por producto sumando cajas
+  const { data, error } = await supabase
+    .from('inventario_stock')
+    .select(`
+      producto_id,
+      cajas,
+      piezas_sueltas,
+      bodega_id,
+      bodega:bodegas!inventario_stock_bodega_id_fkey (nombre),
+      producto:productos!inventario_stock_producto_id_fkey (sku_base, nombre)
+    `)
+    .eq('bodega_id', bodegaId)
+    .gt('cajas', 0)
+
+  if (error || !data) {
+    console.error('Error fetchStockVirtual:', error)
+    return []
+  }
+
+  // Agrupar por producto (pueden haber múltiples registros por producto si tienen caja_id distinto)
+  const map = new Map<number, StockVirtualItem>()
+  for (const row of data as any[]) {
+    const prod = row.producto
+      ? (Array.isArray(row.producto) ? row.producto[0] : row.producto)
+      : null
+    const bodega = row.bodega
+      ? (Array.isArray(row.bodega) ? row.bodega[0] : row.bodega)
+      : null
+
+    const existing = map.get(row.producto_id)
+    if (existing) {
+      existing.cajas_disponibles += Number(row.cajas ?? 0)
+      existing.piezas_sueltas += Number(row.piezas_sueltas ?? 0)
+    } else {
+      map.set(row.producto_id, {
+        producto_id: row.producto_id,
+        sku_base: prod?.sku_base ?? null,
+        producto_nombre: prod?.nombre ?? null,
+        cajas_disponibles: Number(row.cajas ?? 0),
+        piezas_sueltas: Number(row.piezas_sueltas ?? 0),
+        bodega_id: row.bodega_id,
+        bodega_nombre: bodega?.nombre ?? '',
+      })
+    }
+  }
+
+  return Array.from(map.values())
+}
+
+// ════════════════════════════════════════════════════════════
+// LISTADO DE DESPACHOS CON PAGINACIÓN
+// ════════════════════════════════════════════════════════════
+
+export async function fetchDespachos(
+  filtros: FiltrosDespacho
+): Promise<{ items: DespachoListaItem[]; total: number }> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  let query = supabase
+    .from('despachos')
+    .select(
+      `*,
+      bodega_origen:bodegas!despachos_bodega_origen_id_fkey (id, codigo, nombre, es_virtual, activa),
+      bodega_destino:bodegas!despachos_bodega_destino_id_fkey (id, codigo, nombre, es_virtual, activa),
+      detalles:despachos_detalles (cantidad_cajas_solicitadas, cantidad_cajas_cargadas, cantidad_cajas_recibidas)
+      `,
+      { count: 'exact' }
+    )
+
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado)
+  }
+  if (filtros.bodega_origen_id) {
+    query = query.eq('bodega_origen_id', filtros.bodega_origen_id)
+  }
+  if (filtros.bodega_destino_id) {
+    query = query.eq('bodega_destino_id', filtros.bodega_destino_id)
+  }
+  if (filtros.fecha_desde) {
+    query = query.gte('fecha_programada', filtros.fecha_desde)
+  }
+  if (filtros.fecha_hasta) {
+    query = query.lte('fecha_programada', filtros.fecha_hasta)
+  }
+
+  // Ordenar por fecha descendente (más recientes primero)
+  query = query
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  const { data, count, error } = await query
+
+  if (error) {
+    console.error('Error fetchDespachos:', error)
+    return { items: [], total: 0 }
+  }
+
+  const items: DespachoListaItem[] = (data ?? []).map((d: any) => {
+    const detalles = Array.isArray(d.detalles) ? d.detalles : []
+    const totSolicitadas = detalles.reduce(
+      (acc: number, det: any) => acc + (det.cantidad_cajas_solicitadas ?? 0),
+      0
+    )
+    const totCargadas = detalles.reduce(
+      (acc: number, det: any) => acc + (det.cantidad_cajas_cargadas ?? 0),
+      0
+    )
+    const totRecibidas = detalles.reduce(
+      (acc: number, det: any) => acc + (det.cantidad_cajas_recibidas ?? 0),
+      0
+    )
+
+    const bodegaOrigen = d.bodega_origen
+      ? Array.isArray(d.bodega_origen)
+        ? d.bodega_origen[0]
+        : d.bodega_origen
+      : null
+    const bodegaDestino = d.bodega_destino
+      ? Array.isArray(d.bodega_destino)
+        ? d.bodega_destino[0]
+        : d.bodega_destino
+      : null
+
+    return {
+      id: d.id,
+      estado: d.estado,
+      fecha_programada: d.fecha_programada,
+      fecha_real_salida: d.fecha_real_salida,
+      fecha_recepcion: d.fecha_recepcion,
+      chofer: d.chofer,
+      vehiculo_info: d.vehiculo_info,
+      bodega_origen: bodegaOrigen,
+      bodega_destino: bodegaDestino,
+      total_cajas_solicitadas: totSolicitadas,
+      total_cajas_cargadas: totCargadas,
+      total_cajas_recibidas: totRecibidas,
+      created_at: d.created_at,
+    }
+  })
+
+  return { items, total: count ?? 0 }
+}
+
+// ════════════════════════════════════════════════════════════
+// DETALLE DE DESPACHO CON PRODUCTOS
+// ════════════════════════════════════════════════════════════
+
+export async function fetchDespachoById(despachoId: number) {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('despachos')
+    .select(
+      `*,
+      bodega_origen:bodegas!despachos_bodega_origen_id_fkey (id, codigo, nombre, es_virtual, activa),
+      bodega_destino:bodegas!despachos_bodega_destino_id_fkey (id, codigo, nombre, es_virtual, activa),
+      detalles:despachos_detalles (
+        id, caja_id, producto_id,
+        cantidad_cajas_solicitadas, cantidad_cajas_cargadas, cantidad_cajas_recibidas,
+        caja:cajas_producto!despachos_detalles_caja_id_fkey (codigo_caja),
+        producto:productos!despachos_detalles_producto_id_fkey (sku_base, nombre)
+      )
+      `
+    )
+    .eq('id', despachoId)
+    .single()
+
+  if (error || !data) {
+    console.error('Error fetchDespachoById:', error)
+    return null
+  }
+
+  const detalles = Array.isArray(data.detalles) ? data.detalles : []
+  const detallesProcesados = detalles.map((det: any) => {
+    const caja = det.caja
+      ? Array.isArray(det.caja)
+        ? det.caja[0]
+        : det.caja
+      : null
+    const prod = det.producto
+      ? Array.isArray(det.producto)
+        ? det.producto[0]
+        : det.producto
+      : null
+    return {
+      ...det,
+      caja_codigo: caja?.codigo_caja ?? null,
+      producto_sku: prod?.sku_base ?? null,
+      producto_nombre: prod?.nombre ?? null,
+    }
+  })
+
+  return {
+    ...data,
+    bodega_origen: data.bodega_origen
+      ? Array.isArray(data.bodega_origen)
+        ? data.bodega_origen[0]
+        : data.bodega_origen
+      : null,
+    bodega_destino: data.bodega_destino
+      ? Array.isArray(data.bodega_destino)
+        ? data.bodega_destino[0]
+        : data.bodega_destino
+      : null,
+    detalles: detallesProcesados,
+  }
+}

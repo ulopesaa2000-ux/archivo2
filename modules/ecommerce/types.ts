@@ -113,6 +113,7 @@ export interface FiltrosOrdenesVenta {
 // ═══════════════════════════════════════════════════════════════
 
 export type OrdenVentaRow = Tables['ordenes_venta']['Row']
+export type OrdenVentaUpdate = Tables['ordenes_venta']['Update']
 export type OrdenItemRow = Tables['orden_items']['Row']
 
 export interface OrdenVentaResumen extends OrdenVentaRow {

@@ -5,6 +5,7 @@ import { fetchImagenesGlobales } from '@/modules/catalogo/imagenes/queries'
 import { ImagenesFilters } from './components/ImagenesFilters'
 import { ImagenesToolbar } from './components/ImagenesToolbar'
 import { VistaGrid } from './components/VistaGrid'
+import { VistaAgrupada } from './components/VistaAgrupada'
 import { VistaTabla } from './components/VistaTabla'
 import { Suspense } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -60,7 +61,7 @@ async function ImagenesContent({
     es_principal?: boolean
     page?: number
   }
-  vista: 'grid' | 'tabla'
+  vista: 'grid' | 'agrupado' | 'tabla'
 }) {
   const { imagenes, total, page, totalPages } = await fetchImagenesGlobales(filtros)
 
@@ -80,7 +81,9 @@ async function ImagenesContent({
 
       <ImagenesFilters />
 
-      {vista === 'grid' ? (
+      {vista === 'agrupado' ? (
+        <VistaAgrupada imagenes={imagenes} />
+      ) : vista === 'grid' ? (
         <VistaGrid imagenes={imagenes} />
       ) : (
         <VistaTabla imagenes={imagenes} />
@@ -106,7 +109,7 @@ export default async function ImagenesPage({
     page: parseOptionalInt(params.page) ?? 1,
   }
 
-  const vista = params.vista === 'tabla' ? 'tabla' : 'grid'
+  const vista = params.vista === 'agrupado' ? 'agrupado' : params.vista === 'tabla' ? 'tabla' : 'grid'
 
   return (
     <div className="space-y-4">

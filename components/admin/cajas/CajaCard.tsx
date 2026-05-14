@@ -50,6 +50,8 @@ interface CajaCardProps {
   esPrincipal?: boolean
   onMarcarPrincipal?: (cajaId: number, productoId: number) => Promise<void | { success: boolean; error?: string }>
   productoId?: number
+  precioUnitarioUsd?: number | null
+  precioEcMxn?: number | null
 }
 
 
@@ -69,6 +71,8 @@ export function CajaCard({
   esPrincipal = false,
   onMarcarPrincipal,
   productoId,
+  precioUnitarioUsd,
+  precioEcMxn,
 }: CajaCardProps) {
   const [isEditing, setIsEditing] = useState(isNew)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
@@ -81,6 +85,7 @@ export function CajaCard({
   const [editData, setEditData] = useState<any>({
     codigo_caja: caja.codigo_caja || '',
     nombre_pack: caja.nombre_pack || '',
+    cantidad_cajas: caja.cantidad_cajas ?? '',
     piezas_por_caja: caja.piezas_por_caja || 1,
     cbm: caja.cbm || '',
     peso_bruto_kg: caja.peso_bruto_kg || '',
@@ -165,6 +170,7 @@ export function CajaCard({
       setEditData({
         codigo_caja: caja.codigo_caja || '',
         nombre_pack: caja.nombre_pack || '',
+        cantidad_cajas: caja.cantidad_cajas ?? '',
         piezas_por_caja: caja.piezas_por_caja || 1,
         cbm: caja.cbm || '',
         peso_bruto_kg: caja.peso_bruto_kg || '',
@@ -518,6 +524,19 @@ export function CajaCard({
         {isEditing ? (
           <div className="space-y-4">
             <div className={cn("grid gap-4", isVertical ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4")}>
+              {caja.cantidad_cajas !== undefined && (
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Cantidad cajas</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editData.cantidad_cajas}
+                    onChange={(e) => setEditData({ ...editData, cantidad_cajas: e.target.value ? parseInt(e.target.value) : '' })}
+                    className="h-9 text-sm tabular-nums"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Piezas por caja </Label>
                 <Input
@@ -568,13 +587,68 @@ export function CajaCard({
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Costo ($)</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={editData.costo_total_caja}
-                  onChange={(e) => setEditData({ ...editData, costo_total_caja: e.target.value ? parseFloat(e.target.value) : '' })}
-                  className="h-9 text-sm tabular-nums"
-                />
+                <div className="relative">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={editData.costo_total_caja}
+                    onChange={(e) => setEditData({ ...editData, costo_total_caja: e.target.value ? parseFloat(e.target.value) : '' })}
+                    className="h-9 text-sm tabular-nums pr-8"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0.5 top-0.5 h-8 w-8 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={() => {
+                      if (!editData.piezas_por_caja || Number(editData.piezas_por_caja) <= 0) {
+                        alert("Por favor ingresa primero las Piezas por Caja.")
+                        return
+                      }
+                      
+                      const tieneUsd = precioUnitarioUsd != null && precioUnitarioUsd > 0
+                      const tieneMxn = precioEcMxn != null && precioEcMxn > 0
+
+                      if (!tieneUsd && !tieneMxn) {
+                        alert("Esta línea de producto no tiene un Precio Unitario (P.Unit) registrado en la orden ni un Precio EC en el catálogo base.")
+                        return
+                      }
+
+                      const pz = Number(editData.piezas_por_caja)
+                      let costoCalculado = 0
+
+                      if (tieneUsd) {
+                        // ESCENARIO A: Cálculo basado en COSTO USD
+                        const tcInput = window.prompt("Se detectó COSTO USD. Ingresa el Tipo de Cambio (MXN por USD):", "17.5")
+                        if (!tcInput) return
+                        const tc = parseFloat(tcInput)
+                        if (isNaN(tc) || tc <= 0) {
+                          alert("Tipo de cambio inválido.")
+                          return
+                        }
+
+                        const gananciaInput = window.prompt("Ingresa el % de ganancia extra (ej. 20 para 20%):", "20")
+                        if (!gananciaInput) return
+                        const ganancia = parseFloat(gananciaInput)
+                        if (isNaN(ganancia) || ganancia < 0) {
+                          alert("Porcentaje de ganancia inválido.")
+                          return
+                        }
+                        
+                        costoCalculado = (precioUnitarioUsd * pz * tc) * (1 + (ganancia / 100))
+                      } else {
+                        // ESCENARIO B: Cálculo basado en PRECIO EC (Venta MXN)
+                        alert(`Se utilizará el Precio EC ($${precioEcMxn} MXN) como referencia directa. Al ser precio de venta, no se aplicará margen de ganancia adicional.`)
+                        costoCalculado = precioEcMxn! * pz
+                      }
+
+                      setEditData({ ...editData, costo_total_caja: Number(costoCalculado.toFixed(2)) })
+                    }}
+                    title="Auto-calcular Costo: (Precio USD × Pz × TC) + Ganancia"
+                  >
+                    <Calculator className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
