@@ -1,6 +1,7 @@
 // modules/contenedores/types.ts
 
 import type { ContenedorRow } from '@/lib/types/tables'
+import type { SharedCajaData } from '@/modules/cajas/types'
 
 // ── Filtros ─────────────────────────────────────────────────
 export type FiltrosContenedores = {
@@ -34,7 +35,7 @@ export type ContenedorResumen = {
   valor_total_usd: number | null
 }
 
-// ── Packing list (desde v_contenedor_packing) ───────────────
+// ── Packing list (desde v_contenedor_packing, una fila por caja) ──
 export type ContenedorPackingItem = {
   codigo_contenedor: string
   numero_contenedor: string | null
@@ -50,6 +51,7 @@ export type ContenedorPackingItem = {
   producto_id: number | null
   sku_base: string | null
   producto_nombre: string | null
+  producto_descripcion: string | null
   marca: string | null
   composicion: string | null
   piezas_solicitadas: number | null
@@ -63,8 +65,6 @@ export type ContenedorPackingItem = {
   nombre_pack: string | null
   cantidad_cajas: number | null
   piezas_por_caja: number | null
-  tallas_caja: string | null
-  colores_caja: string | null
   cbm_por_caja: number | null
   cbm_subtotal_caja: number | null
   peso_bruto_caja: number | null
@@ -86,5 +86,25 @@ export type OrdenEnContenedor = {
   tipo_cambio: number | null
   cliente_nombre: string | null
   contenedor_codigo?: string | null
+}
+
+// ── Orden disponible para vincular ───────────────────────────
+export type OrdenDisponible = {
+  id: number
+  folio_proveedor: string | null
+  estado: string | null
+  moneda: string
+  proveedor_nombre: string | null
+  total_cajas: number | null
+  total_piezas: number | null
+  fecha_orden: string | null
+  contenedor_id: number | null
+}
+
+// ── Caja dentro de contenedor (compatible con CajaCard) ────
+export type CajaEnContenedor = SharedCajaData & {
+  ordenCajaId: number
+  ordenId: number
+  ordenFolio: string | null
 }
 

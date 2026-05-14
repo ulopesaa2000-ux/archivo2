@@ -8,7 +8,7 @@
 La base de datos PostgreSQL en Supabase ya existe y está poblada con datos reales. No se debe crear, modificar ni migrar la base de datos. El trabajo es frontend más lógica de integración con Supabase.
 
 ## Stack Objetivo
-- Frontend: Next.js 14+ con App Router
+- Frontend: Next.js 16+ con App Router
 - Lenguaje: TypeScript estricto
 - Estilos: Tailwind CSS 3+
 - UI Kit: shadcn/ui

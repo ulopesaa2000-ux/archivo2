@@ -681,3 +681,64 @@ export async function fetchUsuariosBodega(
     }
   })
 }
+
+// ════════════════════════════════════════════════════════════
+// NOTAS PENDIENTES POR BODEGA (para panel en stock)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchNotasPendientesPorBodega(
+  bodegaId: number,
+  limit: number = 5
+): Promise<NotaListItem[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, fecha_confirmacion, total_cajas, nota_referencia, observaciones,
+      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
+        codigo, nombre, afecta_inventario
+      ),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey (
+        codigo, nombre, color
+      ),
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (nombre, codigo),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (nombre, codigo)
+    `)
+    .eq('estado_id', 1) // PEND
+    .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
+    .order('fecha_nota', { ascending: false })
+    .limit(limit)
+
+  if (error || !data) {
+    console.error('Error fetchNotasPendientesPorBodega:', error)
+    return []
+  }
+
+  return (data ?? []).map((n: any) => {
+    const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
+    const estado = Array.isArray(n.estado) ? n.estado[0] : n.estado
+    const origen = Array.isArray(n.bodega_origen) ? n.bodega_origen[0] : n.bodega_origen
+    const destino = Array.isArray(n.bodega_destino) ? n.bodega_destino[0] : n.bodega_destino
+    return {
+      id: n.id,
+      numero_nota: n.numero_nota,
+      fecha_nota: n.fecha_nota,
+      fecha_confirmacion: n.fecha_confirmacion,
+      total_cajas: n.total_cajas,
+      nota_referencia: n.nota_referencia,
+      observaciones: n.observaciones,
+      tipo_codigo: tipo?.codigo ?? '',
+      tipo_nombre: tipo?.nombre ?? '',
+      afecta_inventario: tipo?.afecta_inventario ?? 0,
+      estado_codigo: estado?.codigo ?? '',
+      estado_nombre: estado?.nombre ?? '',
+      estado_color: estado?.color ?? null,
+      bodega_origen_nombre: origen?.nombre ?? '',
+      bodega_origen_codigo: '',
+      bodega_destino_nombre: destino?.nombre ?? null,
+      bodega_destino_codigo: null,
+      usuario_nombre: '',
+    }
+  })
+}

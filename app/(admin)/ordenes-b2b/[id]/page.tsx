@@ -1,7 +1,7 @@
 // app/(admin)/ordenes-b2b/[id]/page.tsx
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { fetchOrdenB2BById, fetchOrdenDetalles, fetchOrdenCajas, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { fetchOrdenB2BById, fetchOrdenDetalles, fetchOrdenCajas, fetchCatalogosB2B, fetchCatalogoTallasColores } from '@/modules/ordenes-b2b/queries'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OrdenCabecera } from './components/OrdenCabecera'
 import { OrdenProductos } from './components/OrdenProductos'
@@ -27,10 +27,11 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
   const orden = await fetchOrdenB2BById(id)
   if (!orden) notFound()
 
-  const [detalles, cajas, catalogos] = await Promise.all([
+  const [detalles, cajas, catalogos, catalogoCajas] = await Promise.all([
     fetchOrdenDetalles(id),
     fetchOrdenCajas(id),
     fetchCatalogosB2B(),
+    fetchCatalogoTallasColores(),
   ])
 
   return (
@@ -58,7 +59,7 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
         </TabsList>
 
         <TabsContent value="cajas" className="mt-4">
-          <OrdenCajas cajas={cajas} ordenId={id} />
+          <OrdenCajas cajas={cajas} ordenId={id} catalogoCajas={catalogoCajas} detalles={detalles} />
         </TabsContent>
 
         <TabsContent value="productos" className="mt-4">

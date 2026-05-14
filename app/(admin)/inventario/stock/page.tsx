@@ -1,7 +1,7 @@
 // app/(admin)/inventario/stock/page.tsx
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
-import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix } from '@/modules/inventario/queries'
+import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix, fetchNotasPendientesPorBodega } from '@/modules/inventario/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { StockFilters } from '@/app/(admin)/inventario/stock/StockFilters'
@@ -10,11 +10,13 @@ import { StockMatrixFilters } from '@/app/(admin)/inventario/stock/StockMatrixFi
 import { StockMatrixTable } from '@/app/(admin)/inventario/stock/StockMatrixTable'
 import { StockPageHeader } from '@/app/(admin)/inventario/stock/StockPageHeader'
 import { Pagination } from '@/components/admin/Pagination'
-import { Warehouse, Loader2 } from 'lucide-react'
+import { Warehouse, Loader2, AlertCircle, ChevronRight } from 'lucide-react'
 import { Suspense } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 import type { FiltrosStock, FiltrosStockMatrix, StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
+import { ADMIN_ROUTES } from '@/lib/constants'
 
 export const metadata: Metadata = {
   title: 'Stock por Bodega',
@@ -109,6 +111,7 @@ async function StockNormalData({
 
   return (
     <div className="space-y-4">
+      <NotasPendientesPanel bodegaId={bodegaActivaId} />
       <StockPageHeader
         title="Stock por Bodega"
         subtitle={`${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`}
@@ -136,6 +139,40 @@ function StockSkeleton() {
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
         <Loader2 className="h-4 w-4 animate-spin" />
         Cargando stock...
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Panel de notas pendientes por aprobar, filtrado por bodega.
+ */
+async function NotasPendientesPanel({ bodegaId }: { bodegaId: number }) {
+  const notas = await fetchNotasPendientesPorBodega(bodegaId, 5)
+  if (notas.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/50 dark:bg-amber-950/10 dark:border-amber-900 p-3 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+        <AlertCircle className="h-4 w-4" />
+        Notas pendientes por aprobar ({notas.length})
+      </div>
+      <div className="space-y-1">
+        {notas.map((n) => (
+          <a
+            key={n.id}
+            href={ADMIN_ROUTES.inventario.notaDetalle(n.id)}
+            className="flex items-center gap-2 text-xs py-1 px-2 rounded hover:bg-amber-100/50 dark:hover:bg-amber-950/20 transition-colors group"
+          >
+            <span className="font-mono text-amber-700 dark:text-amber-400">{n.numero_nota}</span>
+            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+              {n.tipo_codigo}
+            </Badge>
+            <span className="flex-1 text-muted-foreground truncate">{n.observaciones ?? '—'}</span>
+            <span className="text-muted-foreground">{n.total_cajas} cajas</span>
+            <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </a>
+        ))}
       </div>
     </div>
   )

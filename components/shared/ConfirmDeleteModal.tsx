@@ -53,10 +53,10 @@ export function ConfirmDeleteModal({
             {title}
           </AlertDialogTitle>
           <AlertDialogDescription className="space-y-3">
-            <p>{description}</p>
-            <p className="bg-muted p-2 rounded-md font-mono text-foreground font-medium text-sm border">
+            <span>{description}</span>
+            <div className="bg-muted p-2 rounded-md font-mono text-foreground font-medium text-sm border">
               {elementName}
-            </p>
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

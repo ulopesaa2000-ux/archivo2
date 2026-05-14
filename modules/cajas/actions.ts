@@ -304,6 +304,8 @@ export async function updateCajaBaseAction(
       ancho_cm: data.ancho_cm,
       alto_cm: data.alto_cm,
       costo_total_caja: data.costo_total_caja,
+      tallas: data.tallas,
+      colores: data.colores,
     })
     .eq('id', cajaId)
 
@@ -359,38 +361,39 @@ export async function updateCajaDetallesAction(
     }
   }
 
-  // 3. Actualizar los campos resumen en cajas_producto
-  // Calcular totales para actualizar tallas, colores y piezas_por_caja
-  const tallasUnicas = new Set(detallesValidos.map(d => d.talla_id))
-  const coloresUnicos = new Set(detallesValidos.map(d => d.color_id))
+  // 3. Actualizar campos resumen solo si la matriz contiene detalles válidos
+  // Si no hay detalles (totalPiezas = 0), respetamos lo que el usuario guardó manualmente
   const totalPiezas = detallesValidos.reduce((sum, d) => sum + d.cantidad, 0)
 
-  // Obtener nombres de tallas y colores para el campo texto
-  const { data: tallasData } = await supabase
-    .from('cat_tallas')
-    .select('id, nombre, codigo')
-    .in('id', Array.from(tallasUnicas))
+  if (totalPiezas > 0) {
+    const tallasUnicas = new Set(detallesValidos.map(d => d.talla_id))
+    const coloresUnicos = new Set(detallesValidos.map(d => d.color_id))
 
-  const { data: coloresData } = await supabase
-    .from('cat_colores')
-    .select('id, nombre')
-    .in('id', Array.from(coloresUnicos))
+    const { data: tallasData } = await supabase
+      .from('cat_tallas')
+      .select('id, nombre, codigo')
+      .in('id', Array.from(tallasUnicas))
 
-  // El usuario solicitó guardar el código de las tallas y concatenar con "|"
-  const tallasTexto = tallasData?.map(t => t.codigo || t.nombre).join('|') || ''
-  const coloresTexto = coloresData?.map(c => c.nombre).join('|') || ''
+    const { data: coloresData } = await supabase
+      .from('cat_colores')
+      .select('id, nombre')
+      .in('id', Array.from(coloresUnicos))
 
-  const { error: updateError } = await supabase
-    .from('cajas_producto')
-    .update({
-      tallas: tallasTexto,
-      colores: coloresTexto,
-      piezas_por_caja: totalPiezas,
-    })
-    .eq('id', cajaId)
+    const tallasTexto = tallasData?.map(t => t.codigo || t.nombre).join('|') || ''
+    const coloresTexto = coloresData?.map(c => c.nombre).join('|') || ''
 
-  if (updateError) {
-    console.error('Error actualizando resumen de caja:', updateError)
+    const { error: updateError } = await supabase
+      .from('cajas_producto')
+      .update({
+        tallas: tallasTexto,
+        colores: coloresTexto,
+        piezas_por_caja: totalPiezas,
+      })
+      .eq('id', cajaId)
+
+    if (updateError) {
+      console.error('Error actualizando resumen de caja:', updateError)
+    }
   }
 
   // Refrescar rutas
@@ -449,6 +452,8 @@ export async function createCajaAction(
       ancho_cm: data.base.ancho_cm,
       alto_cm: data.base.alto_cm,
       costo_total_caja: data.base.costo_total_caja,
+      tallas: data.base.tallas,
+      colores: data.base.colores,
       activo: true,
     } as any)
     .select('id')

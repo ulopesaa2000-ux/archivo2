@@ -48,6 +48,8 @@ export type OrdenDetalleResuelto = {
   producto_id: number | null
   producto_sku: string | null
   producto_nombre: string | null
+  producto_descripcion: string | null
+  producto_precio_ec: number | null
   cantidad_solicitada: number
   cantidad_aprobada: number | null
   precio_acordado: number | null
@@ -72,7 +74,12 @@ export type OrdenCajaResuelta = {
   caja_piezas_por_caja: number | null
   caja_cbm: number | null
   caja_peso_bruto_kg: number | null
+  caja_largo_cm: number | null
+  caja_ancho_cm: number | null
+  caja_alto_cm: number | null
+  caja_costo_total_caja: number | null
   producto_sku: string | null
+  producto_precio_ec: number | null
   caja_tallas: string | null
   caja_colores: string | null
   caja_contenidoMap?: {

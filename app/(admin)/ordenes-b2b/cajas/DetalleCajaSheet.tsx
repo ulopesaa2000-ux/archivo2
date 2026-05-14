@@ -68,6 +68,15 @@ export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
         onDeactivate={async (id) => {
           await import('@/modules/cajas/actions').then(m => m.desactivarCajaAction(id));
         }}
+        onEdit={async (id, data) => {
+          await import('@/modules/cajas/actions').then(m => m.updateCajaCompletaAction(id, data));
+          // Refrescar los datos localmente
+          const res = await fetch(`/api/ordenes-b2b/caja-detalle?id=${id}`);
+          if (res.ok) {
+            const newData = await res.json();
+            setData(newData);
+          }
+        }}
       />
 
       {/* Secciones extra específicas del Sheet */}

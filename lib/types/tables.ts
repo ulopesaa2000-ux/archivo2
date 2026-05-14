@@ -75,6 +75,12 @@ export type UsuarioConRol = UsuarioRow & {
   permisos: UsuarioPermisoRow | null
 }
 
+// ── Despachos ───────────────────────────────────────────────
+export type DespachoRow = Tables['despachos']['Row']
+export type DespachoDetalleRow = Tables['despachos_detalles']['Row']
+export type DespachoInsert = Tables['despachos']['Insert']
+export type DespachoUpdate = Tables['despachos']['Update']
+
 // ── Enums ───────────────────────────────────────────────────
 export type EstadoNotaCodigo = 'PEND' | 'PROC' | 'CONF' | 'CANC'
 export type AfectaInventario = 1 | -1 | 0

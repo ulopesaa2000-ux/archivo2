@@ -12,27 +12,37 @@ import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { ArrowLeft, Pencil, Save, X, Loader2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Pencil, Save, X, Loader2, AlertCircle, Warehouse, Check } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { formatCurrency } from '@/lib/utils'
 import {
   ADMIN_ROUTES, ESTADO_CONTENEDOR_COLORS, ESTADO_CONTENEDOR_LABELS,
   TRANSICIONES_CONTENEDOR,
 } from '@/lib/constants'
-import { actualizarContenedorAction, cambiarEstadoContenedorAction } from '@/modules/contenedores/actions'
-import type { ContenedorRow } from '@/lib/types/tables'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import {
+  actualizarContenedorAction, cambiarEstadoContenedorAction,
+  surtirContenedorAction,
+} from '@/modules/contenedores/actions'
+import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
 import type { ContenedorResumen } from '@/modules/contenedores/types'
 
 export function ContenedorCabecera({
-  contenedor, resumen,
+  contenedor, resumen, bodegasVirtuales = [],
 }: {
   contenedor: ContenedorRow
   resumen: ContenedorResumen | null
+  bodegasVirtuales?: BodegaRow[]
 }) {
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+
+  // Surtir dialog
+  const [surtirOpen, setSurtirOpen] = useState(false)
+  const [bodegaVirtualId, setBodegaVirtualId] = useState<number | null>(null)
+  const [surtiendo, setSurtiendo] = useState(false)
 
   const estadoColor = ESTADO_CONTENEDOR_COLORS[contenedor.estado ?? ''] ?? ''
   const transicionesPermitidas = TRANSICIONES_CONTENEDOR[contenedor.estado ?? ''] ?? []
@@ -55,6 +65,21 @@ export function ContenedorCabecera({
     startTransition(async () => {
       const result = await cambiarEstadoContenedorAction(contenedor.id, nuevoEstado)
       if (!result.success) { setError(result.error ?? 'Error.'); return }
+      router.refresh()
+    })
+  }
+
+  const handleSurtir = () => {
+    if (!bodegaVirtualId) { setError('Selecciona una bodega virtual.'); return }
+    setSurtiendo(true)
+    setError(null)
+
+    startTransition(async () => {
+      const result = await surtirContenedorAction(contenedor.id, bodegaVirtualId)
+      setSurtiendo(false)
+      setSurtirOpen(false)
+
+      if (!result.success) { setError(result.error ?? 'Error al surtir.'); return }
       router.refresh()
     })
   }
@@ -88,6 +113,16 @@ export function ContenedorCabecera({
             </Select>
           )}
 
+          {contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && (
+            <Button
+              variant="default" size="sm"
+              onClick={() => { setBodegaVirtualId(bodegasVirtuales[0]?.id ?? null); setSurtirOpen(true) }}
+              disabled={isPending}
+            >
+              <Warehouse className="h-3.5 w-3.5 mr-1" /> Surtir a bodega virtual
+            </Button>
+          )}
+
           {!isEditing && (
             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
               <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
@@ -95,6 +130,50 @@ export function ContenedorCabecera({
           )}
         </div>
       </div>
+
+      {/* Dialog: Surtir a bodega virtual */}
+      <Dialog open={surtirOpen} onOpenChange={setSurtirOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Surtir contenedor a bodega virtual</DialogTitle>
+            <DialogDescription>
+              Se creará una nota de entrada para convertir las cajas del contenedor
+              en stock de la bodega virtual. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <Label htmlFor="bodega-virtual" className="text-sm font-medium">
+              Bodega virtual destino
+            </Label>
+            <Select
+              value={bodegaVirtualId ? String(bodegaVirtualId) : ''}
+              onValueChange={(v) => setBodegaVirtualId(v ? parseInt(v) : null)}
+            >
+              <SelectTrigger id="bodega-virtual">
+                <SelectValue placeholder="Seleccionar bodega virtual..." />
+              </SelectTrigger>
+              <SelectContent>
+                {bodegasVirtuales.map((b) => (
+                  <SelectItem key={b.id} value={String(b.id)}>
+                    {b.nombre} ({b.codigo})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setSurtirOpen(false)} disabled={surtiendo}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSurtir} disabled={!bodegaVirtualId || surtiendo}>
+              {surtiendo && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              <Check className="h-3.5 w-3.5 mr-1" /> Confirmar surtido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {error && (
         <div

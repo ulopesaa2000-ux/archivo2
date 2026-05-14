@@ -5,12 +5,16 @@ import type { Metadata } from 'next'
 import {
   fetchContenedorById, fetchContenedorResumen,
   fetchOrdenesDeContenedor, fetchContenedorPacking,
+  fetchCajasDeContenedor,
 } from '@/modules/contenedores/queries'
+import { fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { fetchBodegasVirtuales } from '@/modules/despachos/queries'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { ContenedorCabecera } from './components/ContenedorCabecera'
 import { ContenedorOrdenes } from './components/ContenedorOrdenes'
 import { ContenedorPacking } from './components/ContenedorPacking'
+import { ContenedorCajas } from './components/ContenedorCajas'
 import { Separator } from '@/components/ui/separator'
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -32,22 +36,31 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
   ])
   if (!contenedor) notFound()
 
-  const [ordenes, packing] = await Promise.all([
+  const [ordenes, packing, cajas, catalogos, bodegasVirtuales] = await Promise.all([
     fetchOrdenesDeContenedor(id),
     fetchContenedorPacking(id),
+    fetchCajasDeContenedor(id),
+    fetchCatalogosB2B(),
+    fetchBodegasVirtuales(),
   ])
 
   return (
     <div className="space-y-6">
-      <ContenedorCabecera contenedor={contenedor} resumen={resumen} />
+      <ContenedorCabecera contenedor={contenedor} resumen={resumen} bodegasVirtuales={bodegasVirtuales} />
       <Separator />
       <Tabs defaultValue="ordenes">
         <TabsList>
           <TabsTrigger value="ordenes">Órdenes ({ordenes.length})</TabsTrigger>
+          <TabsTrigger value="cajas">Cajas ({cajas.length})</TabsTrigger>
           <TabsTrigger value="packing">Packing List ({packing.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="ordenes">
-          <ContenedorOrdenes ordenes={ordenes} />
+          <ContenedorOrdenes ordenes={ordenes} contenedorId={id} catalogos={catalogos} />
+        </TabsContent>
+        <TabsContent value="cajas">
+          <Suspense fallback={<TabSkeleton />}>
+            <ContenedorCajas cajas={cajas} />
+          </Suspense>
         </TabsContent>
         <TabsContent value="packing">
           <ContenedorPacking items={packing} />
