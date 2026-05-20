@@ -1,6 +1,6 @@
 // app/(admin)/ordenes-b2b/cajas/page.tsx
 import type { Metadata } from 'next'
-import { fetchCajasListado, fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
+import { fetchCajasListado, fetchCatalogosB2B, fetchCatalogoTallasColores } from '@/modules/ordenes-b2b/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { CajasFilters } from './CajasFilters'
@@ -25,10 +25,11 @@ export default async function CajasPage({
     order: (params as any).order,
   }
 
-  const [{ items, total }, catalogos, tableConfig] = await Promise.all([
+  const [{ items, total }, catalogos, tableConfig, catalogoCajas] = await Promise.all([
     fetchCajasListado(filtros),
     fetchCatalogosB2B(),
     fetchUserTableConfig('/ordenes-b2b/cajas'),
+    fetchCatalogoTallasColores(),
   ])
 
   const features = {
@@ -42,7 +43,7 @@ export default async function CajasPage({
         <h1 className="text-2xl font-bold tracking-tight">Cajas de Producto</h1>
         <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
       </div>
-      <CajasFilters catalogos={catalogos} />
+      <CajasFilters catalogos={catalogos} catalogoCajas={catalogoCajas} />
       <CajasTable 
         items={items} 
         initialFeatures={features} 

@@ -39,36 +39,25 @@ export type ContenedorResumen = {
 export type ContenedorPackingItem = {
   codigo_contenedor: string
   numero_contenedor: string | null
-  numero_bl: string | null
   estado_contenedor: string
-  fecha_etd: string | null
-  fecha_eta: string | null
   orden_id: number
   folio_proveedor: string | null
   estado_orden: string | null
-  moneda: string | null
-  proveedor: string | null
-  producto_id: number | null
-  sku_base: string | null
-  producto_nombre: string | null
-  producto_descripcion: string | null
-  marca: string | null
-  composicion: string | null
-  piezas_solicitadas: number | null
-  piezas_pedidas: number | null
-  cajas_pedidas: number | null
-  precio_unitario: number | null
-  precio_yuan: number | null
-  importe_total: number | null
-  cbm_detalle: number | null
   codigo_caja: string | null
   nombre_pack: string | null
   cantidad_cajas: number | null
   piezas_por_caja: number | null
-  cbm_por_caja: number | null
-  cbm_subtotal_caja: number | null
-  peso_bruto_caja: number | null
-  peso_total_caja: number | null
+  piezas_reales: number | null
+  cajas_planeadas: number | null
+  piezas_planeadas: number | null
+  precio_unitario: number | null
+  precio_yuan: number | null
+  importe_total: number | null
+  cbm_detalle: number | null
+  producto_id: number | null
+  sku_base: string | null
+  producto_nombre: string | null
+  producto_descripcion: string | null
 }
 
 // ── Orden vinculada a contenedor ────────────────────────────

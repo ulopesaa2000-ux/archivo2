@@ -2,20 +2,38 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useTransition } from 'react'
+import { useCallback, useTransition, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Loader2, X } from 'lucide-react'
+import { Search, Loader2, X, Plus } from 'lucide-react'
 import { AÑOS_DISPONIBLES } from '@/lib/constants'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
+import { CrearCajaDialog } from '@/components/admin/cajas/CrearCajaDialog'
 
-export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
+export function CajasFilters({
+  catalogos,
+  catalogoCajas,
+}: {
+  catalogos: CatalogosB2B
+  catalogoCajas?: {
+    tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
+    colores: { id: number; nombre: string; hex_code: string | null }[]
+  }
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const [crearOpen, setCrearOpen] = useState(false)
+
+  const tallasDisponibles = (catalogoCajas?.tallas ?? []).map(t => ({
+    id: t.id, nombre: t.nombre, codigo: t.codigo,
+  }))
+  const coloresDisponibles = (catalogoCajas?.colores ?? []).map(c => ({
+    id: c.id, nombre: c.nombre,
+  }))
   
   const currentQuery = searchParams.get('q') ?? ''
 
@@ -113,6 +131,20 @@ export function CajasFilters({ catalogos }: { catalogos: CatalogosB2B }) {
           <X className="h-3 w-3 mr-1" /> Limpiar
         </Button>
       )}
+
+      <Button
+        className="ml-auto h-9"
+        onClick={() => setCrearOpen(true)}
+      >
+        <Plus className="h-4 w-4 mr-2" /> Nueva Caja
+      </Button>
+
+      <CrearCajaDialog
+        open={crearOpen}
+        onOpenChange={setCrearOpen}
+        tallasDisponibles={tallasDisponibles}
+        coloresDisponibles={coloresDisponibles}
+      />
     </div>
   )
 }

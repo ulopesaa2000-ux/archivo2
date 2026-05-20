@@ -10,7 +10,7 @@ type GrupoOrden = {
   folio: string | null
   estado: string | null
   items: ContenedorPackingItem[]
-  subtotal: { cajas: number; piezas: number; importe: number }
+  subtotal: { cajas: number; piezas_reales: number; piezas_planeadas: number; importe: number }
 }
 
 function agrupar(items: ContenedorPackingItem[]): GrupoOrden[] {
@@ -23,13 +23,14 @@ function agrupar(items: ContenedorPackingItem[]): GrupoOrden[] {
         folio: item.folio_proveedor,
         estado: item.estado_orden,
         items: [],
-        subtotal: { cajas: 0, piezas: 0, importe: 0 },
+        subtotal: { cajas: 0, piezas_reales: 0, piezas_planeadas: 0, importe: 0 },
       })
     }
     const g = map.get(oid)!
     g.items.push(item)
     g.subtotal.cajas += item.cantidad_cajas ?? 0
-    g.subtotal.piezas += item.piezas_pedidas ?? 0
+    g.subtotal.piezas_reales += item.piezas_reales ?? 0
+    g.subtotal.piezas_planeadas += item.piezas_planeadas ?? 0
     g.subtotal.importe += item.importe_total ?? 0
   }
   return Array.from(map.values())
@@ -48,10 +49,11 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
   const granTotal = grupos.reduce(
     (acc, g) => ({
       cajas: acc.cajas + g.subtotal.cajas,
-      piezas: acc.piezas + g.subtotal.piezas,
+      piezas_reales: acc.piezas_reales + g.subtotal.piezas_reales,
+      piezas_planeadas: acc.piezas_planeadas + g.subtotal.piezas_planeadas,
       importe: acc.importe + g.subtotal.importe,
     }),
-    { cajas: 0, piezas: 0, importe: 0 },
+    { cajas: 0, piezas_reales: 0, piezas_planeadas: 0, importe: 0 },
   )
 
   return (
@@ -78,34 +80,53 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
                 <th className="px-3 py-2 text-left">Producto</th>
                 <th className="px-3 py-2 text-left">Caja</th>
                 <th className="px-3 py-2 text-center">Cajas</th>
-                <th className="px-3 py-2 text-center">Pz</th>
+                <th className="px-3 py-2 text-right">Pz Reales</th>
+                <th className="px-3 py-2 text-right">Pz Pedidas</th>
+                <th className="px-3 py-2 text-right">Dif</th>
                 <th className="px-3 py-2 text-right">P.Unit</th>
                 <th className="px-3 py-2 text-right">Importe</th>
               </tr>
             </thead>
             <tbody>
-              {grupo.items.map((item, i) => (
-                <tr key={i} className="border-t hover:bg-muted/10">
-                  <td className="px-3 py-2 font-mono">{item.sku_base ?? '—'}</td>
-                  <td className="px-3 py-2 max-w-[200px]">
-                    <div className="truncate text-xs font-medium">{item.producto_descripcion ?? item.producto_nombre ?? '—'}</div>
-                    {item.producto_nombre && item.producto_descripcion && (
-                      <div className="text-[10px] text-muted-foreground truncate leading-tight">{item.producto_nombre}</div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 font-mono">{item.codigo_caja ?? '—'}</td>
-                  <td className="px-3 py-2 text-center tabular-nums">{item.cantidad_cajas ?? 0}</td>
-                  <td className="px-3 py-2 text-center tabular-nums">{item.piezas_pedidas ?? 0}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{item.precio_unitario ? formatCurrency(item.precio_unitario, 'USD') : '—'}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-medium">{item.importe_total ? formatCurrency(item.importe_total, 'USD') : '—'}</td>
-                </tr>
-              ))}
+              {grupo.items.map((item, i) => {
+                const real = item.piezas_reales ?? 0
+                const plan = item.piezas_planeadas ?? 0
+                const dif = real - plan
+                return (
+                  <tr key={i} className="border-t hover:bg-muted/10">
+                    <td className="px-3 py-2 font-mono">{item.sku_base ?? '—'}</td>
+                    <td className="px-3 py-2 max-w-[200px]">
+                      <div className="truncate text-xs font-medium">{item.producto_descripcion ?? item.producto_nombre ?? '—'}</div>
+                      {item.producto_nombre && item.producto_descripcion && (
+                        <div className="text-[10px] text-muted-foreground truncate leading-tight">{item.producto_nombre}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono">{item.codigo_caja ?? '—'}</td>
+                    <td className="px-3 py-2 text-center tabular-nums">{item.cantidad_cajas ?? 0}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{real}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{plan || '—'}</td>
+                    <td className={cn('px-3 py-2 text-right tabular-nums', dif !== 0 ? 'text-amber-600 font-semibold' : 'text-muted-foreground')}>
+                      {dif !== 0 ? (dif > 0 ? `+${dif}` : dif) : '0'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{item.precio_unitario ? formatCurrency(item.precio_unitario, 'USD') : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium">{item.importe_total ? formatCurrency(item.importe_total, 'USD') : '—'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t bg-muted/20 font-semibold text-xs">
                 <td colSpan={3} className="px-3 py-2 text-muted-foreground">Subtotal</td>
                 <td className="px-3 py-2 text-center tabular-nums">{grupo.subtotal.cajas}</td>
-                <td className="px-3 py-2 text-center tabular-nums">{grupo.subtotal.piezas}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{grupo.subtotal.piezas_reales}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{grupo.subtotal.piezas_planeadas}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-amber-600 font-semibold">
+                  {grupo.subtotal.piezas_reales - grupo.subtotal.piezas_planeadas !== 0
+                    ? (grupo.subtotal.piezas_reales - grupo.subtotal.piezas_planeadas > 0
+                      ? `+${grupo.subtotal.piezas_reales - grupo.subtotal.piezas_planeadas}`
+                      : grupo.subtotal.piezas_reales - grupo.subtotal.piezas_planeadas)
+                    : '0'}
+                </td>
                 <td></td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(grupo.subtotal.importe, 'USD')}</td>
               </tr>
@@ -119,7 +140,13 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
           <span>Total General</span>
           <div className="flex items-center gap-6 tabular-nums">
             <span>{granTotal.cajas} cajas</span>
-            <span>{granTotal.piezas} pz</span>
+            <span>{granTotal.piezas_reales} pz reales</span>
+            <span>{granTotal.piezas_planeadas} pz pedidas</span>
+            <span className={granTotal.piezas_reales - granTotal.piezas_planeadas !== 0 ? 'text-amber-600' : ''}>
+              {granTotal.piezas_reales - granTotal.piezas_planeadas !== 0
+                ? `Dif: ${granTotal.piezas_reales - granTotal.piezas_planeadas > 0 ? '+' : ''}${granTotal.piezas_reales - granTotal.piezas_planeadas}`
+                : 'Sin diferencia'}
+            </span>
             <span>{formatCurrency(granTotal.importe, 'USD')}</span>
           </div>
         </div>
