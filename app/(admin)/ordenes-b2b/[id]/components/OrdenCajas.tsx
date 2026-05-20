@@ -28,6 +28,7 @@ import type { OrdenCajaResuelta } from '@/modules/ordenes-b2b/types'
 import type { OrdenDetalleResuelto } from '@/modules/ordenes-b2b/types'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import type { SharedCajaData } from '@/modules/cajas/types'
+import { CrearCajaDialog } from '@/components/admin/cajas/CrearCajaDialog'
 
 type CatalogoItem = { id: number; nombre: string; codigo?: string }
 
@@ -127,81 +128,7 @@ function VincularCajaDialog({
 }
 
 // ════════════════════════════════════════════════════════════
-// C R E A R   C A J A   D I A L O G
-// ════════════════════════════════════════════════════════════
-
-function CrearCajaDialog({
-  open, onOpenChange, ordenId, detalles, tallasDisponibles, coloresDisponibles,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  ordenId: number
-  detalles: OrdenDetalleResuelto[]
-  tallasDisponibles: CatalogoItem[]
-  coloresDisponibles: CatalogoItem[]
-}) {
-  const router = useRouter()
-  const [selectedProductoId, setSelectedProductoId] = useState<string>('')
-
-  const productoOptions = detalles
-    .filter(d => d.producto_id)
-    .map(d => ({ id: d.producto_id!, sku: d.producto_sku }))
-    .filter((v, i, a) => a.findIndex(x => x.id === v.id) === i) // unique
-
-  useEffect(() => {
-    if (open && productoOptions.length > 0 && !selectedProductoId) {
-      setSelectedProductoId(String(productoOptions[0].id))
-    }
-  }, [open, productoOptions])
-
-  const handleCreate = async (data: {
-    base: Partial<SharedCajaData>
-    detalles: CajaDetalleInput[]
-  }) => {
-    const prodId = parseInt(selectedProductoId)
-    if (!prodId) return
-
-    const newCajaId = await createCajaAction(prodId, data)
-    if (newCajaId) {
-      const cantidad = data.base.cantidad_cajas ? Number(data.base.cantidad_cajas) : 1
-      await vincularCajaOrdenAction(ordenId, newCajaId, cantidad)
-      onOpenChange(false)
-      router.refresh()
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Crear Nueva Caja</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          {productoOptions.length > 1 && (
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold">Producto</Label>
-              <Select value={selectedProductoId} onValueChange={(val) => { const v = val ?? ''; setSelectedProductoId(v) }}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {productoOptions.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.sku ?? `#${p.id}`}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <CajaCard
-            caja={{ id: 0, codigo_caja: '', nombre_pack: null, piezas_por_caja: null, cbm: null, peso_bruto_kg: null, tallas: null, colores: null, contenidoMap: null, cantidad_cajas: null }}
-            layout="horizontal"
-            isNew
-            onCreate={handleCreate}
-            tallasDisponibles={tallasDisponibles}
-            coloresDisponibles={coloresDisponibles}
-            productoId={parseInt(selectedProductoId) || undefined}
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
+// CrearCajaDialog ahora se importa de '@/components/admin/cajas/CrearCajaDialog'
 
 // ════════════════════════════════════════════════════════════
 // O R D E N   C A J A S

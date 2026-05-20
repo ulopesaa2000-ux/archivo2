@@ -65,9 +65,10 @@ async function OrdenesB2BToolbar() {
 
 async function OrdenesB2BTable({ searchParams }: { searchParams: SearchParams }) {
   const filtros = await buildFiltros(searchParams)
-  const [tableConfig, { items, total }] = await Promise.all([
+  const [tableConfig, { items, total }, catalogos] = await Promise.all([
     fetchUserTableConfig('/ordenes-b2b'),
     fetchOrdenesB2B(filtros),
+    fetchCatalogosB2B(),
   ])
 
   const { config: userFeatures } = tableConfig
@@ -83,6 +84,7 @@ async function OrdenesB2BTable({ searchParams }: { searchParams: SearchParams })
       </p>
       <OrdenesTable 
         items={items} 
+        catalogos={catalogos}
         initialFeatures={features} 
         sortKey={filtros.sort_by}
         sortOrder={filtros.order}

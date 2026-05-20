@@ -21,6 +21,28 @@ Lo que hoy mas limita escalabilidad y mantenibilidad no es el stack, sino cuatro
 - La categoria dominante es `react-hooks/set-state-in-effect`.
 - Tambien hay problemas de `exhaustive-deps`, `error-boundaries`, `immutability`, `incompatible-library` y uso de `<img>` en lugar de `next/image`.
 
+### Acciones1.1 tiempos de compilado
+Compilación: 23.1s
+TypeScript: 42s
+Generación estática: 18.7s
+Ahora sí medí aperturas reales en http://127.0.0.1:3000, con 3 intentos por ruta:
+
+ura hasta domcontentloaded en 3 intentos por ruta:
+
+/dashboard: primer intento 2329 ms, promedio 1874 ms
+/ecommerce/config: primer intento 1783 ms, promedio 1732 ms
+/ecommerce/ordenes-venta: primer intento 7161 ms, promedio 3481 ms
+/ecommerce/productos-web: primer intento 5667 ms, promedio 3459 ms
+/ordenes-b2b: primer intento 3014 ms, promedio 2694 ms
+/ordenes-b2b/cajas: primer intento 4679 ms, promedio 3236 ms
+Las más lentas del admin quedaron así:
+
+/ecommerce/ordenes-venta
+/ecommerce/productos-web
+/ordenes-b2b/cajas
+
+
+
 ### 2. TypeScript y dependencias
 
 `pnpm exec tsc --noEmit` falla por dos razones distintas:
@@ -28,7 +50,7 @@ Lo que hoy mas limita escalabilidad y mantenibilidad no es el stack, sino cuatro
 - Faltan dependencias directas declaradas:
   - `react-hook-form`
   - `zod`
-  - `@radix-ui/react-slot`
+  - `@radix-ui/react-slot` #dio error y se hizo la instalacion revizar si se hizo correctamente
   - `dotenv`
 - Hay acciones/query payloads que no cumplen con los tipos generados de Supabase, especialmente en `modules/ecommerce/actions.ts`.
 

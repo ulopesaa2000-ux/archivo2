@@ -37,6 +37,7 @@ import { crearOrdenB2BAction } from '@/modules/ordenes-b2b/actions'
 import { fetchOrdenesDisponibles } from '@/modules/contenedores/queries'
 import type { OrdenEnContenedor, OrdenDisponible } from '@/modules/contenedores/types'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
+import { OrdenFormDialog } from '../../../ordenes-b2b/OrdenFormDialog'
 
 // ════════════════════════════════════════════════════════════
 // A G R E G A R   O R D E N   D I A L O G
@@ -395,6 +396,7 @@ export function ContenedorOrdenes({
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [dialogOpen, setDialogOpen] = useState(false)
   const [removingId, setRemovingId] = useState<number | null>(null)
+  const [editingOrden, setEditingOrden] = useState<OrdenEnContenedor | null>(null)
 
   const toggle = (id: number) => {
     setExpanded((prev) => {
@@ -468,6 +470,10 @@ export function ContenedorOrdenes({
                 isExpanded={expanded.has(o.id)}
                 onToggle={toggle}
                 showContenedor={false}
+                onEdit={(id) => {
+                  const found = ordenes.find((x) => x.id === id)
+                  if (found) setEditingOrden(found)
+                }}
                 onDelete={(id) => setRemovingId(id)}
               />
             ))}
@@ -493,6 +499,18 @@ export function ContenedorOrdenes({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {editingOrden && catalogos && (
+        <OrdenFormDialog
+          mode="edit"
+          catalogos={catalogos}
+          orden={editingOrden as any}
+          open={!!editingOrden}
+          onOpenChange={(open) => {
+            if (!open) setEditingOrden(null)
+          }}
+        />
+      )}
     </div>
   )
 }

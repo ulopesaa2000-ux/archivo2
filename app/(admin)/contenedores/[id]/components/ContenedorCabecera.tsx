@@ -151,7 +151,14 @@ export function ContenedorCabecera({
               onValueChange={(v) => setBodegaVirtualId(v ? parseInt(v) : null)}
             >
               <SelectTrigger id="bodega-virtual">
-                <SelectValue placeholder="Seleccionar bodega virtual..." />
+                <SelectValue>
+                  {bodegaVirtualId
+                    ? (() => {
+                        const selected = bodegasVirtuales.find((b) => b.id === bodegaVirtualId)
+                        return selected ? `${selected.nombre} (${selected.codigo})` : 'Seleccionar bodega virtual...'
+                      })()
+                    : 'Seleccionar bodega virtual...'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {bodegasVirtuales.map((b) => (

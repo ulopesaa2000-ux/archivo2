@@ -295,3 +295,26 @@ async function recalcularTotalesOrden(ordenId: number): Promise<void> {
     })
     .eq('id', ordenId)
 }
+
+export async function eliminarOrdenB2BAction(
+  id: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // Eliminar detalles y cajas vinculadas para evitar errores de integridad referencial
+  await supabase.from('ordenes_b2b_detalles').delete().eq('orden_id', id)
+  await supabase.from('orden_cajas').delete().eq('orden_id', id)
+
+  const { error } = await supabase
+    .from('ordenes_b2b')
+    .delete()
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/ordenes-b2b')
+  return { success: true }
+}
