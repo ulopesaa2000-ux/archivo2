@@ -507,18 +507,18 @@ export async function fetchProductosBusqueda(
 // ════════════════════════════════════════════════════════════
 
 export async function fetchCatalogoTallasColores(): Promise<{
-  tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
-  colores: { id: number; nombre: string; hex_code: string | null }[]
+  tallas: { id: number; codigo: string; nombre: string; categoria: string; talla_us: string | null }[]
+  colores: { id: number; nombre: string; codigo: string | null; hex_code: string | null }[]
 }> {
   const supabase = await createClient()
 
   const [tallasRes, coloresRes] = await Promise.all([
-    supabase.from('cat_tallas').select('id, codigo, nombre, categoria').order('codigo'),
-    supabase.from('cat_colores').select('id, nombre, hex_code').order('nombre'),
+    supabase.from('cat_tallas').select('id, codigo, nombre, categoria, talla_us').order('codigo'),
+    supabase.from('cat_colores').select('id, nombre, codigo, hex_code').order('nombre'),
   ])
 
   return {
-    tallas: (tallasRes.data ?? []).map(t => ({ id: t.id, codigo: t.codigo, nombre: t.nombre ?? '', categoria: t.categoria ?? '' })),
-    colores: (coloresRes.data ?? []).map(c => ({ id: c.id, nombre: c.nombre, hex_code: c.hex_code })),
+    tallas: (tallasRes.data ?? []).map(t => ({ id: t.id, codigo: t.codigo, nombre: t.nombre ?? '', categoria: t.categoria ?? '', talla_us: t.talla_us })),
+    colores: (coloresRes.data ?? []).map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, hex_code: c.hex_code })),
   }
 }

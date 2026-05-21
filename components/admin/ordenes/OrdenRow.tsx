@@ -95,7 +95,7 @@ export function OrdenRow({
         </td>
 
         {/* Estado */}
-        <td className="px-4 py-2">
+        <td className="px-4 py-2 text-center">
           <Badge variant="secondary" className={cn("text-[10px]", estadoColor)}>
             {item.estado}
           </Badge>

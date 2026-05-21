@@ -37,6 +37,7 @@ interface ColorComboboxProps {
   selectedColorId: string
   onSelect: (val: string) => void
   disabledFilas: number[] // IDs ya agregados
+  onCreateColor?: (color: CatalogoItem) => void
 }
 
 // Algoritmo de sugerencia
@@ -107,7 +108,7 @@ function inferirHexYCodigo(nombre: string) {
 }
 
 
-export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, disabledFilas }: ColorComboboxProps) {
+export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, disabledFilas, onCreateColor }: ColorComboboxProps) {
   const router = useRouter()
   const [openCombobox, setOpenCombobox] = useState(false)
   const [openModal, setOpenModal] = useState(false)
@@ -155,6 +156,7 @@ export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, d
       if (res.success && res.id) {
         toast.success(`Color "${nuevoNombre}" creado exitosamente`)
         setOpenModal(false)
+        onCreateColor?.({ id: res.id, nombre: nuevoNombre.toUpperCase(), codigo: nuevoCodigo.toUpperCase() })
         onSelect(res.id.toString())
         router.refresh()
       } else {

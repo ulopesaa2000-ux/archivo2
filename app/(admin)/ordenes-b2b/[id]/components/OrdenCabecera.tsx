@@ -1,7 +1,7 @@
 // app/(admin)/ordenes-b2b/[id]/components/OrdenCabecera.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
@@ -31,6 +31,12 @@ export function OrdenCabecera({
   const [isEditing, setIsEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+
+  // Resetear edición al cambiar de orden (evita que persista al navegar)
+  useEffect(() => {
+    setIsEditing(false)
+    setError(null)
+  }, [orden.id])
 
   const estadoColor = ESTADO_ORDEN_B2B_COLORS[orden.estado ?? ''] ?? ''
   const esTerminal = orden.estado === 'Cerrada' || orden.estado === 'Cancelada'
@@ -100,9 +106,18 @@ export function OrdenCabecera({
       <Card>
         <CardContent className="pt-6">
           {isEditing ? (
-            <form key={orden.id} onSubmit={handleSave} className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                <div className="space-y-1"><Label className="text-xs">Proveedor</Label>
+            <form key={orden.id} onSubmit={handleSave} className="space-y-5">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Editando Orden #{orden.id}</h3>
+                  <p className="text-xs text-muted-foreground">Modifica los campos que necesites</p>
+                </div>
+                <Badge variant="outline" className="text-xs">{orden.estado}</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Proveedor</Label>
                   <Select name="proveedor_id" defaultValue={String(catalogos.proveedores.find(p => p.nombre_completo === orden.proveedor_nombre)?.id ?? '')}>
                     <SelectTrigger data-testid="orden-edit-proveedor-trigger" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -110,25 +125,52 @@ export function OrdenCabecera({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1"><Label className="text-xs">Folio</Label>
-                  <Input name="folio_proveedor" defaultValue={orden.folio_proveedor ?? ''} className="h-9" /></div>
-                <div className="space-y-1"><Label className="text-xs">Moneda</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Folio proveedor</Label>
+                  <Input name="folio_proveedor" defaultValue={orden.folio_proveedor ?? ''} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Moneda</Label>
                   <Select name="moneda" defaultValue={orden.moneda}>
                     <SelectTrigger data-testid="orden-edit-moneda-trigger" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>{MONEDAS.map(m => (<SelectItem key={m} value={m}>{m}</SelectItem>))}</SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1"><Label className="text-xs">Tipo de cambio</Label>
-                  <Input type="number" step="0.01" name="tipo_cambio" defaultValue={orden.tipo_cambio ?? ''} className="h-9" /></div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Tipo de cambio</Label>
+                  <Input type="number" step="0.01" name="tipo_cambio" defaultValue={orden.tipo_cambio ?? ''} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Fecha de finalización</Label>
+                  <Input
+                    type="datetime-local"
+                    name="fecha_orden"
+                    defaultValue={orden.fecha_orden ? orden.fecha_orden.slice(0, 16) : ''}
+                    className="h-9"
+                  />
+                </div>
               </div>
-              <div className="space-y-1"><Label className="text-xs">Observaciones</Label>
-                <Textarea name="observaciones" defaultValue={orden.observaciones ?? ''} rows={2} /></div>
-              <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isPending}>
-                  <X className="h-3.5 w-3.5 mr-1" /> Cancelar</Button>
-                <Button type="submit" size="sm" disabled={isPending}>
-                  {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                  <Save className="h-3.5 w-3.5 mr-1" /> Guardar</Button>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Observaciones</Label>
+                <Textarea name="observaciones" defaultValue={orden.observaciones ?? ''} rows={2} className="resize-y min-h-[60px]" />
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                {error ? (
+                  <div className="flex items-center gap-2 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4 shrink-0" /><span>{error}</span>
+                  </div>
+                ) : <div />}
+                <div className="flex items-center gap-2 ml-auto">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setIsEditing(false); setError(null) }} disabled={isPending}>
+                    <X className="h-3.5 w-3.5 mr-1" /> Cancelar
+                  </Button>
+                  <Button type="submit" size="sm" disabled={isPending}>
+                    {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                    <Save className="h-3.5 w-3.5 mr-1" /> Guardar cambios
+                  </Button>
+                </div>
               </div>
             </form>
           ) : (

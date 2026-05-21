@@ -7,10 +7,11 @@ import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Loader2, X, Plus } from 'lucide-react'
+import { Search, Loader2, X, Plus, Upload } from 'lucide-react'
 import { AÑOS_DISPONIBLES } from '@/lib/constants'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
 import { CrearCajaDialog } from '@/components/admin/cajas/CrearCajaDialog'
+import { ImportCajasModal } from './components/ImportCajasModal'
 
 export function CajasFilters({
   catalogos,
@@ -18,8 +19,8 @@ export function CajasFilters({
 }: {
   catalogos: CatalogosB2B
   catalogoCajas?: {
-    tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
-    colores: { id: number; nombre: string; hex_code: string | null }[]
+    tallas: { id: number; codigo: string; nombre: string; categoria: string; talla_us?: string | null }[]
+    colores: { id: number; nombre: string; codigo?: string | null; hex_code: string | null }[]
   }
 }) {
   const router = useRouter()
@@ -27,6 +28,7 @@ export function CajasFilters({
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const [crearOpen, setCrearOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const tallasDisponibles = (catalogoCajas?.tallas ?? []).map(t => ({
     id: t.id, nombre: t.nombre, codigo: t.codigo,
@@ -133,7 +135,15 @@ export function CajasFilters({
       )}
 
       <Button
+        variant="outline"
         className="ml-auto h-9"
+        onClick={() => setImportOpen(true)}
+      >
+        <Upload className="h-4 w-4 mr-2" /> Importar Excel
+      </Button>
+
+      <Button
+        className="h-9"
         onClick={() => setCrearOpen(true)}
       >
         <Plus className="h-4 w-4 mr-2" /> Nueva Caja
@@ -144,6 +154,12 @@ export function CajasFilters({
         onOpenChange={setCrearOpen}
         tallasDisponibles={tallasDisponibles}
         coloresDisponibles={coloresDisponibles}
+      />
+
+      <ImportCajasModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        catalogoCajas={catalogoCajas}
       />
     </div>
   )
