@@ -1,5 +1,5 @@
 # Fase 1: Dependencias
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat ca-certificates && update-ca-certificates
 WORKDIR /app
 RUN corepack enable pnpm
@@ -7,7 +7,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Fase 2: Construcción (Build)
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates
 RUN corepack enable pnpm
 WORKDIR /app
@@ -27,7 +27,7 @@ RUN test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || (echo "Missing build arg: NEXT_P
 RUN pnpm run build
 
 # Fase 3: Ejecución (Runner)
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
