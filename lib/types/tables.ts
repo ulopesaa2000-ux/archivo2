@@ -54,6 +54,7 @@ export type CarritoItemRow = Tables['carrito_items']['Row']
 
 // ── B2B ─────────────────────────────────────────────────────
 export type OrdenB2BRow = Tables['ordenes_b2b']['Row']
+export type OrdenB2BUpdate = Tables['ordenes_b2b']['Update']
 export type OrdenB2BDetalleRow = Tables['ordenes_b2b_detalles']['Row']
 export type OrdenCajaRow = Tables['orden_cajas']['Row']
 export type OrdenCompraRow = Tables['ordenes_compra']['Row']
