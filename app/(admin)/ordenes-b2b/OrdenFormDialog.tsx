@@ -71,6 +71,7 @@ export function OrdenFormDialog(props: Props) {
     fd.set('folio_proveedor', (e.currentTarget.querySelector<HTMLInputElement>('[name=folio_proveedor]')?.value ?? ''))
     fd.set('moneda', (e.currentTarget.querySelector<HTMLSelectElement>('[name=moneda]')?.value ?? 'USD'))
     fd.set('tipo_cambio', (e.currentTarget.querySelector<HTMLInputElement>('[name=tipo_cambio]')?.value ?? ''))
+    fd.set('fecha_orden', (e.currentTarget.querySelector<HTMLInputElement>('[name=fecha_orden]')?.value ?? ''))
     fd.set('observaciones', (e.currentTarget.querySelector<HTMLTextAreaElement>('[name=observaciones]')?.value ?? ''))
     if (mode === 'edit') fd.set('orden_id', String(orden!.id))
 
@@ -156,6 +157,14 @@ export function OrdenFormDialog(props: Props) {
             <div className="space-y-2">
               <Label>Tipo de cambio</Label>
               <Input type="number" step="0.01" name="tipo_cambio" defaultValue={orden?.tipo_cambio ?? ''} />
+            </div>
+            <div className="space-y-2">
+              <Label>Fecha de finalización de orden</Label>
+              <Input
+                type="datetime-local"
+                name="fecha_orden"
+                defaultValue={orden?.fecha_orden ? orden.fecha_orden.slice(0, 16) : ''}
+              />
             </div>
           </div>
           <div className="space-y-2">

@@ -458,7 +458,7 @@ export function ContenedorOrdenes({
               <th className="px-4 py-2 text-center">Cajas</th>
               <th className="px-4 py-2 text-center">Piezas</th>
               <th className="px-4 py-2 text-left">Fecha</th>
-              <th className="px-4 py-2">Estado</th>
+              <th className="px-4 py-2 text-center">Estado</th>
               <th className="px-4 py-2 w-[60px]"></th>
             </tr>
           </thead>

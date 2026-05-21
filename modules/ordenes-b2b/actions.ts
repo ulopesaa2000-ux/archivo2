@@ -35,6 +35,7 @@ export async function crearOrdenB2BAction(
       moneda: (formData.get('moneda') as string) || 'USD',
       tipo_cambio: parseFloat(formData.get('tipo_cambio') as string) || null,
       observaciones: (formData.get('observaciones') as string)?.trim() || null,
+      fecha_orden: (formData.get('fecha_orden') as string)?.trim() || null,
       estado: 'Borrador',
     })
     .select('id')
@@ -56,23 +57,32 @@ export async function actualizarOrdenB2BAction(
   const id = parseInt(formData.get('orden_id') as string)
   if (!id) return { success: false, error: 'ID requerido.' }
 
+  // Solo tocar contenedor_id si viene explícitamente en el formulario
+  const contenedorIdRaw = formData.get('contenedor_id')
+  const payload: Record<string, unknown> = {
+    proveedor_id: parseInt(formData.get('proveedor_id') as string) || null,
+    cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
+    folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
+    moneda: (formData.get('moneda') as string) || 'USD',
+    tipo_cambio: parseFloat(formData.get('tipo_cambio') as string) || null,
+    observaciones: (formData.get('observaciones') as string)?.trim() || null,
+    fecha_orden: (formData.get('fecha_orden') as string)?.trim() || null,
+  }
+
+  if (contenedorIdRaw !== null && contenedorIdRaw !== undefined && (contenedorIdRaw as string) !== '') {
+    payload.contenedor_id = parseInt(contenedorIdRaw as string) || null
+  }
+
   const { error } = await supabase
     .from('ordenes_b2b')
-    .update({
-      proveedor_id: parseInt(formData.get('proveedor_id') as string) || null,
-      cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
-      contenedor_id: parseInt(formData.get('contenedor_id') as string) || null,
-      folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
-      moneda: (formData.get('moneda') as string) || 'USD',
-      tipo_cambio: parseFloat(formData.get('tipo_cambio') as string) || null,
-      observaciones: (formData.get('observaciones') as string)?.trim() || null,
-    })
+    .update(payload)
     .eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/ordenes-b2b')
   revalidatePath(`/ordenes-b2b/${id}`)
+  revalidatePath('/contenedores')
   return { success: true }
 }
 
@@ -214,6 +224,38 @@ export async function vincularCajaOrdenAction(
       { orden_id: ordenId, caja_id: cajaId, cantidad_cajas: cantidadCajas },
       { onConflict: 'orden_id,caja_id', ignoreDuplicates: false }
     )
+
+  if (error) return { success: false, error: error.message }
+
+  await recalcularTotalesOrden(ordenId)
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  return { success: true }
+}
+
+export async function vincularMultiplesCajasOrdenAction(
+  ordenId: number,
+  cajas: { caja_id: number; cantidad_cajas: number }[]
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const payload = cajas
+    .filter((item) => item.caja_id > 0 && item.cantidad_cajas > 0)
+    .map((item) => ({
+      orden_id: ordenId,
+      caja_id: item.caja_id,
+      cantidad_cajas: item.cantidad_cajas,
+    }))
+
+  if (payload.length === 0) {
+    return { success: false, error: 'Selecciona al menos una caja con cantidad mayor a 0.' }
+  }
+
+  const { error } = await supabase
+    .from('orden_cajas')
+    .upsert(payload, { onConflict: 'orden_id,caja_id', ignoreDuplicates: false })
 
   if (error) return { success: false, error: error.message }
 
