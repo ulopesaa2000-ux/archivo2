@@ -3,7 +3,7 @@ FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat ca-certificates && update-ca-certificates
 WORKDIR /app
 RUN corepack enable pnpm
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 
 # Fase 2: Construcción (Build)
