@@ -4,6 +4,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
+import type { OrdenB2BUpdate } from '@/lib/types/tables'
 
 export type ActionResult = {
   success: boolean
@@ -59,7 +60,7 @@ export async function actualizarOrdenB2BAction(
 
   // Solo tocar contenedor_id si viene explícitamente en el formulario
   const contenedorIdRaw = formData.get('contenedor_id')
-  const payload: Record<string, unknown> = {
+  const payload: OrdenB2BUpdate = {
     proveedor_id: parseInt(formData.get('proveedor_id') as string) || null,
     cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
     folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
