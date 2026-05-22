@@ -12,9 +12,8 @@ import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
 import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://wear.sistemaindumentaria.com'
+import { SITE_URL, SITE_NAME, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
 const PRICE_VALID_UNTIL = '2027-12-31'
-const SITE_NAME = 'Sistema Indumentaria'
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>
@@ -22,7 +21,7 @@ interface ProductPageProps {
 
 // Helper para garantizar URLs absolutas (Meta/Facebook las requiere)
 function toAbsolute(url: string, base: string): string {
-  if (!url) return `${base}/og-image.jpg`
+  if (!url) return DEFAULT_OG_IMAGE
   return url.startsWith('http') ? url : `${base}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
@@ -61,14 +60,14 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     ? producto.url_og
     : producto.imagen_principal
       ? getSmartImagenUrl(producto.imagen_principal, 'og')
-      : '/og-image.jpg'
+      : DEFAULT_OG_IMAGE
   const ogImageUrl = toAbsolute(rawOgImage, dynamicSiteUrl)
 
   // URL canónica: misma lógica que sitemap.ts (slugify elimina espacios/mayúsculas)
   const productUrl = `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`
 
   return {
-    title: `${productTitle} | ${SITE_NAME}`,
+    title: productTitle, // ✅ CORREGIDO: Evita duplicación de marca al heredar de layout global
     description: productDescription,
     keywords: producto.keywords || undefined,
     openGraph: {
@@ -77,10 +76,13 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       type: 'website',
       url: productUrl,
       siteName: SITE_NAME,
-      locale: 'es_AR',
+      locale: LOCALE,
       images: [
         {
           url: ogImageUrl,
+          width: 1200,
+          height: 630,
+          type: ogImageUrl.toLowerCase().endsWith('.png') ? 'image/png' : ogImageUrl.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg',
           alt: productTitle,
         }
       ],
@@ -97,7 +99,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     // ✅ NUEVO: Meta tags de producto para catálogo de Meta/Instagram
     other: {
       'product:price:amount': String(producto.precio_oferta || producto.precio_publico || 0),
-      'product:price:currency': 'ARS', // Cambiá a 'USD' si corresponde
+      'product:price:currency': CURRENCY,
       'product:availability': producto.activo ? 'instock' : 'out of stock',
       'product:condition': 'new',
       'product:retailer_item_id': producto.sku_base || producto.slug,
@@ -169,7 +171,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       offers: {
         "@type": "Offer",
         url: `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`,
-        priceCurrency: 'ARS',
+        priceCurrency: CURRENCY,
         price: producto.precio_oferta || producto.precio_publico,
         priceValidUntil: PRICE_VALID_UNTIL,
         itemCondition: "https://schema.org/NewCondition",
