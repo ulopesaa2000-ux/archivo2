@@ -311,11 +311,11 @@ export async function fetchProductosWebPublicos(
 
   let imagenesMap: Record<number, { url: string; url_og: string | null }> = {}
   if (productoIds.length > 0) {
-    const { data: imagenes } = await (supabase
-      .from('producto_imagenes') as any)
+    const { data: imagenes } = (await supabase
+      .from('producto_imagenes')
       .select('producto_id, url, url_og')
       .eq('es_principal', true)
-      .in('producto_id', productoIds)
+      .in('producto_id', productoIds)) as any
 
     imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
       acc[img.producto_id] = { url: img.url, url_og: img.url_og }
@@ -398,12 +398,12 @@ export async function fetchProductoWebBySlug(
   }
 
   // Obtener imagen principal
-  const { data: imagen } = await (supabase
-    .from('producto_imagenes') as any)
+  const { data: imagen } = (await supabase
+    .from('producto_imagenes')
     .select('url, url_og')
     .eq('producto_id', data.producto_id)
     .eq('es_principal', true)
-    .single()
+    .single()) as any
 
   // Incrementar visitas
   await supabase
