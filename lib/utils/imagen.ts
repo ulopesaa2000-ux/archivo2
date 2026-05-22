@@ -106,50 +106,40 @@ export function getImagenUrl(url: string | null | undefined, preset: ImagenPrese
  * @param url    - URL de la imagen (puede ser del bucket o URL externa)
  * @param preset - Contexto de visualización
  */
-export function getSmartImagenUrl(url: string | null | undefined, preset: ImagenPreset): string {
+export function getSmartImagenUrl(
+  url: string | null | undefined,
+  preset: ImagenPreset
+): string {
   if (!url) return '/placeholder-product.webp'
 
-  // Para OpenGraph (Facebook, WhatsApp, Telegram)
-  // Buscar automáticamente la versión _seo.jpg si existe
+  const cleanUrl = url
+    .replace('/storage/v1/render/image/public/', '/storage/v1/object/public/')
+    .split('?')[0]
+
+  // Para OpenGraph / WhatsApp / Telegram:
+  // siempre usar una URL directa, pública y sin transformaciones.
   if (preset === 'og') {
-    // Si la URL ya es una imagen OG (_seo.jpg), usarla directamente
-    if (url.includes('_seo.jpg')) {
-      return url.split('?')[0]
+    if (isWordPressUrl(cleanUrl)) {
+      return cleanUrl.replace(/-\d+x\d+(\.\w+)$/, '$1')
     }
 
-    // Si es WordPress, buscar versión OG
-    if (isWordPressUrl(url)) {
-      return url.replace(/-\d+x\d+(\.\w+)$/, '$1') // Limpiamos cualquier tamaño pequeño
+    if (isStorageUrl(cleanUrl)) {
+      return cleanUrl
     }
 
-    // Para Supabase Storage: construir URL de la imagen OG
-    // Cambiar: .../Productos/sku/principal/uuid.webp → .../Productos/sku/sku_seo.jpg
-    if (isStorageUrl(url)) {
-      const baseUrl = url.split('?')[0]
-      // Encontrar la parte "Productos/{sku}/" incluyendo todo lo anterior
-      const match = baseUrl.match(/(.*\/Productos\/[^/]+\/)/)
-      if (match) {
-        const productBaseUrl = match[1]
-        const skuSafe = baseUrl.match(/Productos\/([^/]+)\//)?.[1]
-        if (skuSafe) {
-          return `${productBaseUrl}${skuSafe}_seo.jpg`
-        }
-      }
-    }
-
-    // Si no encontramos OG, devolver URL original sin parámetros
-    return url.split('?')[0]
+    return cleanUrl
   }
 
-  // Si no es OG, y es de WordPress, devolvemos tal cual
+  // WordPress externo: dejar directo
   if (isWordPressUrl(url)) {
     return url
   }
 
-  // Imagen de Supabase Storage (no OG): aplicar imgproxy
-  if (isStorageUrl(url)) return getImagenUrl(url, preset)
+  // Supabase en vistas normales: sí puedes usar render/image
+  if (isStorageUrl(url)) {
+    return getImagenUrl(url, preset)
+  }
 
-  // URL externa desconocida
   return url
 }
 

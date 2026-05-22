@@ -7,15 +7,16 @@ import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { ProductGrid } from '@/components/store/catalogo/ProductGrid'
 import { FilterSidebar } from '@/components/store/catalogo/FilterSidebar'
 import { CatalogSkeleton } from '@/components/store/catalogo/CatalogSkeleton'
+import { SITE_URL, SITE_NAME, CURRENCY } from '@/lib/seo/site'
 
 export const metadata: Metadata = {
-  title: 'Catálogo de Productos | inv-tienda',
+  title: `Catálogo de Productos | ${SITE_NAME}`,
   description: 'Explora nuestra completa colección de moda. Chamarras, pants, gorros y accesorios de calidad. Filtra por categorías, marcas y ofertas.',
   keywords: 'catálogo productos, moda online, ropa, chamarras, pants, gorros, ofertas, descuentos',
   openGraph: {
-    title: 'Catálogo de Productos | inv-tienda',
+    title: `Catálogo de Productos | ${SITE_NAME}`,
     description: 'Explora nuestra completa colección de moda 2026',
-    url: 'https://inv-tienda.com/shop'
+    url: `${SITE_URL}/shop`
   }
 }
 
@@ -56,13 +57,13 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
         "@type": "ListItem",
         position: 1,
         name: "Inicio",
-        item: "https://inv-tienda.com/"
+        item: `${SITE_URL}/`
       },
       {
         "@type": "ListItem",
         position: 2,
         name: "Catálogo",
-        item: "https://inv-tienda.com/shop"
+        item: `${SITE_URL}/shop`
       }
     ]
   }
@@ -75,13 +76,13 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     itemListElement: productos.map((producto, index) => ({
       "@type": "ListItem",
       position: index + 1,
-      url: `https://inv-tienda.com/shop/${producto.slug}`,
+      url: `${SITE_URL}/shop/${producto.slug}`,
       name: producto.nombre,
       image: producto.imagen_principal,
       offers: {
         "@type": "Offer",
         price: producto.precio_oferta || producto.precio_publico,
-        priceCurrency: "USD"
+        priceCurrency: CURRENCY
       }
     }))
   }

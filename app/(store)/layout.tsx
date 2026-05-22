@@ -5,16 +5,18 @@ import { StoreHeader } from '@/components/store/layout/StoreHeader'
 import { StoreFooter } from '@/components/store/layout/StoreFooter'
 import { verifySessionOptional } from '@/lib/dal'
 
+import { SITE_URL, SITE_NAME, LOCALE } from '@/lib/seo/site';
+
 export const metadata: Metadata = {
   title: {
-    default: 'inv-tienda | Moda que te define',
-    template: '%s | inv-tienda'
+    default: `${SITE_NAME} | Moda que te define`,
+    template: `%s | ${SITE_NAME}`
   },
   description: 'Descubre nuestra colección de moda 2026. Prendas de calidad con materiales exclusivos. Envío rápido y cotización online.',
   keywords: 'moda, ropa, tienda online, chamarras, pants, gorros, accesorios',
-  authors: [{ name: 'inv-tienda' }],
-  creator: 'inv-tienda',
-  publisher: 'inv-tienda',
+  authors: [{ name: SITE_NAME }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
   robots: {
     index: true,
     follow: true,
@@ -28,28 +30,27 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: 'website',
-    locale: 'es_ES',
-    url: 'https://inv-tienda.com',
-    siteName: 'inv-tienda',
-    title: 'inv-tienda | Moda que te define',
+    locale: LOCALE,
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} | Moda que te define`,
     description: 'Descubre nuestra colección de moda 2026 con prendas de calidad y materiales exclusivos',
     images: [
       {
         url: '/og-image.jpg',
         width: 1200,
         height: 630,
-        alt: 'inv-tienda Moda 2026'
+        alt: `${SITE_NAME} Moda 2026`
       }
     ]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'inv-tienda | Moda que te define',
+    title: `${SITE_NAME} | Moda que te define`,
     description: 'Descubre nuestra colección de moda 2026',
     images: ['/og-image.jpg'],
-    creator: '@inv-tienda'
+    creator: `@${SITE_NAME.toLowerCase().replace(/\s+/g, '')}`
   },
-  // metadataBase is not needed here as it inherits from root layout
 };
 
 export const viewport = 'width=device-width, initial-scale=1';
