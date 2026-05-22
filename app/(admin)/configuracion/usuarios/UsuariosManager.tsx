@@ -67,33 +67,37 @@ function NivelBadge({ nivel, nombre }: { nivel: number; nombre: string }) {
   )
 }
 
-// ─────────────────────────────────────────────────
-// PERMISO CELL — toggle individual por tipo
 function PermisoCell({
   rolId,
   modulo,
   tipo,
   valor,
   isSuperAdmin,
+  currentUserLevel,
 }: {
   rolId: number
   modulo: ModuloPermiso
   tipo: TipoPermiso
   valor: boolean
   isSuperAdmin: boolean
+  currentUserLevel: number
 }) {
   const [isPending, startTransition] = useTransition()
   const [optimistic, setOptimistic] = useState(valor)
 
-  if (isSuperAdmin) {
+  const canEdit = currentUserLevel === 1
+
+  if (!canEdit || isSuperAdmin) {
     return (
       <Tooltip>
         <TooltipTrigger>
           <span className="flex items-center justify-center cursor-not-allowed">
-            <CheckSquare className="h-4 w-4 text-emerald-500" />
+            <CheckSquare className={cn("h-4 w-4", optimistic ? "text-emerald-500" : "text-muted-foreground/30")} />
           </span>
         </TooltipTrigger>
-        <TooltipContent>Super Admin tiene acceso total</TooltipContent>
+        <TooltipContent>
+          {isSuperAdmin ? "Super Admin tiene acceso total" : "No tienes permisos para modificar permisos de roles"}
+        </TooltipContent>
       </Tooltip>
     )
   }
@@ -130,7 +134,13 @@ function PermisoCell({
 
 // ─────────────────────────────────────────────────
 // ROL CARD CON PERMISOS EXPANDIBLES
-function RolPermisoCard({ rol }: { rol: RolConPermisos }) {
+function RolPermisoCard({
+  rol,
+  currentUserLevel,
+}: {
+  rol: RolConPermisos
+  currentUserLevel: number
+}) {
   const [expanded, setExpanded] = useState(false)
   const isSuperAdmin = rol.nivel_acceso === 1
   const permisos = buildPermisosCompletos(rol.permisos)
@@ -163,7 +173,7 @@ function RolPermisoCard({ rol }: { rol: RolConPermisos }) {
             </span>
           )}
 
-          {!isSuperAdmin && (
+          {!isSuperAdmin && currentUserLevel === 1 && (
             <Button
               variant="ghost"
               size="icon"
@@ -232,6 +242,7 @@ function RolPermisoCard({ rol }: { rol: RolConPermisos }) {
                                 tipo={col.key}
                                 valor={isSuperAdmin ? true : p[col.key]}
                                 isSuperAdmin={isSuperAdmin}
+                                currentUserLevel={currentUserLevel}
                               />
                             </td>
                           ))}
@@ -399,8 +410,6 @@ function UsuarioRow({
   )
 }
 
-// ─────────────────────────────────────────────────
-// MAIN EXPORT
 export function UsuariosManager({
   usuarios,
   roles,
@@ -412,6 +421,18 @@ export function UsuariosManager({
 }) {
   const [tab, setTab] = useState<'usuarios' | 'roles'>('usuarios')
   const isCurrentUserSuperAdmin = currentUser?.rol?.nivel_acceso === 1
+  const currentUserLevel = currentUser?.rol?.nivel_acceso ?? 99
+
+  // Filtrar usuarios visibles (solo nivel >= del usuario logueado)
+  const visibleUsuarios = usuarios.filter((u) => {
+    const userNivel = u.rol?.nivel_acceso ?? 99
+    return userNivel >= currentUserLevel
+  })
+
+  // Filtrar roles asignables (solo nivel >= del usuario logueado)
+  const visibleRoles = roles.filter((r) => {
+    return r.nivel_acceso >= currentUserLevel
+  })
 
   return (
     <div className="space-y-6">
@@ -442,8 +463,8 @@ export function UsuariosManager({
           </button>
         </div>
 
-        {tab === 'roles' && <NuevoRolModal />}
-        {tab === 'usuarios' && <NuevoUsuarioModal roles={roles} />}
+        {tab === 'roles' && isCurrentUserSuperAdmin && <NuevoRolModal />}
+        {tab === 'usuarios' && <NuevoUsuarioModal roles={visibleRoles} />}
       </div>
 
       {/* TAB: USUARIOS */}
@@ -462,18 +483,18 @@ export function UsuariosManager({
             <span className="text-muted-foreground/60">· El rol determina los permisos base del usuario.</span>
           </div>
 
-          {usuarios.length === 0 ? (
+          {visibleUsuarios.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-muted-foreground">
               <ShieldOff className="h-10 w-10 mb-3 opacity-30" />
               <p className="text-sm">No hay usuarios registrados</p>
             </div>
           ) : (
             <div>
-              {usuarios.map((u) => (
+              {visibleUsuarios.map((u) => (
                 <UsuarioRow
                   key={u.id}
                   usuario={u}
-                  roles={roles}
+                  roles={visibleRoles}
                   isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
                 />
               ))}
@@ -497,7 +518,7 @@ export function UsuariosManager({
           </div>
 
           {roles.map((rol) => (
-            <RolPermisoCard key={rol.id} rol={rol} />
+            <RolPermisoCard key={rol.id} rol={rol} currentUserLevel={currentUserLevel} />
           ))}
         </div>
       )}

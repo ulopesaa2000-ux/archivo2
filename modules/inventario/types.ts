@@ -21,6 +21,8 @@ export type FiltrosNotas = {
   fecha_desde?: string
   fecha_hasta?: string
   page?: number
+  limit_bodega_ids?: number[]
+  limit_usuario_id?: number
 }
 
 // ── Nota en el listado ──────────────────────────────────────

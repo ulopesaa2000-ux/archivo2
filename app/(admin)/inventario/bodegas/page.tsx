@@ -10,7 +10,7 @@ import { BodegaForm } from './BodegaForm'
 import { BodegaUsuarios } from './BodegaUsuarios'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Check, X, Loader2 } from 'lucide-react'
+import { Building2, Check, X, Loader2, ShieldCheck } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Bodegas',
@@ -188,6 +188,12 @@ export default async function BodegasPage(props: {
           <Button variant="outline" size="sm" asChild>
             <Link href={agruparPorCiudad ? "?agrupar=no" : "/inventario/bodegas"}>
               {agruparPorCiudad ? "Quitar agrupación" : "Agrupar por ciudad"}
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild className="border-primary/20 hover:border-primary/40 hover:bg-primary/5">
+            <Link href="/inventario/bodegas/matriz" className="flex items-center gap-1">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Matriz de Permisos
             </Link>
           </Button>
           <BodegaForm mode="create" />

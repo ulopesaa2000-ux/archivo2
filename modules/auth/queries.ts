@@ -50,6 +50,41 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
 
     if (authError || !authUser) return null
 
+    // ── OPTIMIZACIÓN: Leer claims del JWT (app_metadata) ──
+    const meta = authUser.app_metadata
+    if (meta && meta.inv_tienda_claims) {
+      const claims = meta.inv_tienda_claims
+      
+      // Actualizar último acceso (fire and forget)
+      ;(supabase as any)
+        .from('usuarios')
+        .update({ ultimo_acceso: new Date().toISOString() })
+        .eq('id', claims.usuario_id)
+        .then(() => {})
+
+      return {
+        id: claims.usuario_id,
+        auth_user_id: authUser.id,
+        username: claims.username,
+        nombre_completo: claims.nombre_completo,
+        email: authUser.email,
+        rol_id: claims.rol_id,
+        activo: true,
+        tenant: 'inv-tienda',
+        ultimo_acceso: new Date().toISOString(),
+        rol: {
+          id: claims.rol_id,
+          nombre: claims.rol_nombre,
+          nivel_acceso: claims.nivel_acceso,
+          descripcion: claims.rol_descripcion
+        },
+        permisos: claims.permisos
+      } as UsuarioConRol
+    }
+
+    // ── FALLBACK A BASE DE DATOS Y AUTOCURACIÓN ──
+    console.log(`[getCurrentUser] Claims no encontrados en JWT para ${authUser.email}. Cargando de DB y autocurando...`)
+
     // 2. Traer usuario del esquema inv-tienda
     const { data: usuarioData, error: userError } = await supabase
       .from('usuarios')
@@ -78,7 +113,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
       .eq('id', usuario.rol_id)
       .single()
 
-    // 2.6 Intentar traer permisos (puede fallar por RLS si no tiene permisos específicos)
+    // 2.6 Intentar traer permisos
     let permisos = null;
     const permisosPromise = supabase
       .from('usuario_permisos')
@@ -112,6 +147,12 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
       .update({ ultimo_acceso: new Date().toISOString() })
       .eq('id', usuario.id)
       .then(() => {})
+
+    // Autocuración: Disparar sincronización asíncrona de claims para guardar en JWT para la próxima visita
+    const { syncUserClaims } = await import('./actions')
+    syncUserClaims(authUser.id).catch((err) => {
+      console.error('[getCurrentUser] Error al autocurar claims:', err)
+    })
 
     return {
       ...usuario,

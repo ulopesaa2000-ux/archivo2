@@ -130,11 +130,21 @@ function CatalogoSkeleton() {
   )
 }
 
+import { getCurrentUser } from '@/modules/auth/queries'
+import { redirect } from 'next/navigation'
+
 export default async function CatalogoPage({
   searchParams,
 }: {
   searchParams: Promise<CatalogoSearchParams>
 }) {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
+  if ((user.rol?.nivel_acceso ?? 99) >= 3) {
+    redirect('/catalogo/catalogos')
+  }
+
   const params = await searchParams
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as CatalogoSortBy)

@@ -113,3 +113,54 @@ export const getUserDTO = cache(async (): Promise<SafeUserDTO | null> => {
       : null,
   }
 })
+
+/**
+ * Verifica si el usuario tiene acceso a un módulo específico del panel de administración.
+ * Si no tiene acceso, lo redirige al dashboard principal con un query param '?unauthorized=true'.
+ *
+ * @param modulo - El identificador del módulo a proteger.
+ * @throws {redirect} - Redirige si el usuario no tiene permisos suficientes.
+ */
+export const verifyModuleAccess = cache(async (
+  modulo: 'configuracion' | 'inventario' | 'inventario-virtual' | 'ordenes-b2b' | 'contenedores' | 'despachos' | 'ecommerce'
+): Promise<{ isAuth: true; user: UsuarioConRol }> => {
+  const session = await verifySession()
+  const user = session.user
+  const nivel = user.rol?.nivel_acceso ?? 99
+  const permisos = user.permisos
+
+  // Si es super admin (tanto por flag como por nivel <= 1 de rol o es_super_admin), tiene acceso total
+  if (permisos?.es_super_admin === true || nivel <= 1) {
+    return session
+  }
+
+  let hasAccess = false
+
+  switch (modulo) {
+    case 'configuracion':
+      // Permitimos nivel <= 2 (Jefe General, Admin Operativo) para gestionar operarios y roles restringidos
+      hasAccess = nivel <= 2
+      break
+    case 'inventario':
+    case 'inventario-virtual':
+      hasAccess = nivel <= 2 || !!permisos?.puede_ver_inventario
+      break
+    case 'ordenes-b2b':
+      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_compras_b2b
+      break
+    case 'contenedores':
+    case 'despachos':
+      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_contenedores
+      break
+    case 'ecommerce':
+      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_ecommerce
+      break
+  }
+
+  if (!hasAccess) {
+    redirect('/dashboard?unauthorized=true')
+  }
+
+  return session
+})
+

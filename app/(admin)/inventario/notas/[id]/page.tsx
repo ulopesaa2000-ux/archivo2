@@ -3,7 +3,7 @@ import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { fetchNotaById, fetchCatalogosInventario } from '@/modules/inventario/queries'
-import { getCurrentUser } from '@/modules/auth/queries'
+import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { NotaCabecera } from '@/app/(admin)/inventario/notas/[id]/components/NotaCabecera'
@@ -53,7 +53,12 @@ export default async function NotaDetallePage({
 
   // Si es editable, cargar catálogos para el draft builder
   if (esEditable) {
-    const catalogos = await fetchCatalogosInventario()
+    const catalogosPromise = fetchCatalogosInventario()
+    const userBodegasPromise = fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 3)
+    const [catalogos, userBodegas] = await Promise.all([
+      catalogosPromise,
+      userBodegasPromise,
+    ])
 
     return (
       <div className="space-y-4">
@@ -72,6 +77,8 @@ export default async function NotaDetallePage({
           mode="edit"
           notaId={id}
           initialData={nota}
+          currentUserLevel={user.rol?.nivel_acceso ?? 3}
+          userBodegas={userBodegas}
         />
 
         <Separator className="my-6" />

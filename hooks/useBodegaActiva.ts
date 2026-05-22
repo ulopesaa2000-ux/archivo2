@@ -1,3 +1,4 @@
+// hooks/useBodegaActiva.ts
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -12,7 +13,7 @@ const COOKIE_NAME = 'bodega_activa_id'
  * el header atrapado en "Cargando..." mientras la pagina ya esta lista.
  * Luego sincroniza la cookie del navegador y corrige el valor si hace falta.
  */
-export function useBodegaActiva(bodegas: BodegaRow[]) {
+export function useBodegaActiva(bodegas: BodegaRow[], showAllOption = true) {
   const [bodegaActivaId, setBodegaActivaId] = useState<number | null>(
     bodegas[0]?.id ?? null
   )
@@ -25,10 +26,13 @@ export function useBodegaActiva(bodegas: BodegaRow[]) {
 
     const savedId = cookieValue ? parseInt(cookieValue, 10) : null
 
-    if (
-      savedId !== null &&
-      (savedId === 0 || bodegas.some((bodega) => bodega.id === savedId))
-    ) {
+    // Si showAllOption es false, el valor 0 no es válido.
+    const isValidId = savedId !== null && (
+      (showAllOption && savedId === 0) ||
+      bodegas.some((bodega) => bodega.id === savedId)
+    )
+
+    if (isValidId) {
       setBodegaActivaId(savedId)
       return
     }
@@ -41,7 +45,7 @@ export function useBodegaActiva(bodegas: BodegaRow[]) {
     }
 
     setBodegaActivaId(null)
-  }, [bodegas])
+  }, [bodegas, showAllOption])
 
   const setBodegaActiva = useCallback((id: number) => {
     setBodegaActivaId(id)

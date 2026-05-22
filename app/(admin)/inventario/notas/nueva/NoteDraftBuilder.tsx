@@ -31,6 +31,7 @@ import type {
   CatalogosInventario, DraftNota, DraftProducto,
   ProductoBusqueda, CajaParaSelector, NotaCompleta,
 } from '@/modules/inventario/types'
+import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 
 const NO_CAJA_VALUE = '_none'
 
@@ -40,12 +41,20 @@ type Props = {
   mode: 'create' | 'edit'
   notaId?: number
   initialData?: NotaCompleta
+  currentUserLevel: number
+  userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
 }
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
+  currentUserLevel, userBodegas,
 }: Props) {
   const router = useRouter()
+
+  // Bodegas permitidas según el nivel de acceso del usuario
+  const allowedBodegas = currentUserLevel <= 2
+    ? catalogos.bodegas
+    : catalogos.bodegas.filter((b) => userBodegas.some((ub) => ub.id === b.id))
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -90,6 +99,10 @@ export function NoteDraftBuilder({
       productos: [],
     }
   })
+
+  // Verificar si puede confirmar en la bodega origen seleccionada
+  const selectedBodegaObj = userBodegas.find((b) => b.id === draft.bodega_origen_id)
+  const puedeConfirmar = currentUserLevel <= 2 || !!selectedBodegaObj?.permisos_bodega?.puede_confirmar_notas
 
   // ── Búsqueda de productos ───────────────────────────────
   const [searchTerm, setSearchTerm] = useState('')
@@ -333,7 +346,7 @@ export function NoteDraftBuilder({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {catalogos.bodegas.map((b) => (
+                  {allowedBodegas.map((b) => (
                     <SelectItem key={b.id} value={String(b.id)}>
                       {b.nombre}
                       {b.es_virtual && (
@@ -362,7 +375,7 @@ export function NoteDraftBuilder({
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {catalogos.bodegas
+                    {allowedBodegas
                       .filter((b) => b.id !== draft.bodega_origen_id)
                       .map((b) => (
                         <SelectItem key={b.id} value={String(b.id)}>
@@ -602,9 +615,16 @@ export function NoteDraftBuilder({
             Guardar Borrador
           </Button>
 
+          {currentUserLevel >= 3 && !puedeConfirmar && draft.bodega_origen_id && (
+            <span className="text-xs text-amber-600 font-medium">
+              * Sin permiso de confirmación en esta bodega
+            </span>
+          )}
+
           <Button
-            disabled={isPending || draft.productos.length === 0}
+            disabled={isPending || draft.productos.length === 0 || !puedeConfirmar}
             onClick={() => handleSave(true)}
+            variant={puedeConfirmar ? 'default' : 'secondary'}
           >
             {isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

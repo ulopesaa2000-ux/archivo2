@@ -47,7 +47,10 @@ export function Header({
         <MobileSidebar user={user} />
 
         {/* ── Bodega selector ─────────────────────────────── */}
-        <BodegaSelector bodegas={bodegas} />
+        <BodegaSelector 
+          bodegas={bodegas} 
+          showAllOption={user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso <= 2} 
+        />
 
         {/* ── Spacer ──────────────────────────────────────── */}
         <div className="flex-1" />

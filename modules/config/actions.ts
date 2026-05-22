@@ -14,6 +14,13 @@ export async function toggleUsuarioActivo(
 ): Promise<ActionResult> {
   const supabase = await createClient()
 
+  // Obtener auth_user_id antes de cambiar
+  const { data: userRow } = await supabase
+    .from('usuarios')
+    .select('auth_user_id')
+    .eq('id', usuarioId)
+    .single()
+
   const { error } = await supabase
     .from('usuarios')
     .update({ activo })
@@ -22,6 +29,14 @@ export async function toggleUsuarioActivo(
   if (error) {
     console.error('toggleUsuarioActivo error:', error.message)
     return { success: false, error: 'No se pudo actualizar el estado del usuario.' }
+  }
+
+  // Sincronizar claims para el usuario modificado
+  if (userRow?.auth_user_id) {
+    const { syncUserClaims } = await import('../auth/actions')
+    await syncUserClaims(userRow.auth_user_id).catch(err => {
+      console.error('[toggleUsuarioActivo] Error syncing claims:', err)
+    })
   }
 
   revalidatePath('/configuracion/usuarios')
@@ -35,6 +50,13 @@ export async function cambiarRolUsuario(
 ): Promise<ActionResult> {
   const supabase = await createClient()
 
+  // Obtener auth_user_id antes de cambiar
+  const { data: userRow } = await supabase
+    .from('usuarios')
+    .select('auth_user_id')
+    .eq('id', usuarioId)
+    .single()
+
   const { error } = await supabase
     .from('usuarios')
     .update({ rol_id: rolId })
@@ -43,6 +65,14 @@ export async function cambiarRolUsuario(
   if (error) {
     console.error('cambiarRolUsuario error:', error.message)
     return { success: false, error: 'No se pudo cambiar el rol del usuario.' }
+  }
+
+  // Sincronizar claims para el usuario modificado
+  if (userRow?.auth_user_id) {
+    const { syncUserClaims } = await import('../auth/actions')
+    await syncUserClaims(userRow.auth_user_id).catch(err => {
+      console.error('[cambiarRolUsuario] Error syncing claims:', err)
+    })
   }
 
   revalidatePath('/configuracion/usuarios')
@@ -100,6 +130,24 @@ export async function toggleRolPermiso(
     if (error) {
       console.error('toggleRolPermiso INSERT error:', error.message)
       return { success: false, error: 'No se pudo crear el permiso.' }
+    }
+  }
+
+  // Sincronizar claims para todos los usuarios que tengan este rol y estén activos
+  const { data: usersToSync } = await supabase
+    .from('usuarios')
+    .select('auth_user_id')
+    .eq('rol_id', rolId)
+    .eq('activo', true)
+
+  if (usersToSync && usersToSync.length > 0) {
+    const { syncUserClaims } = await import('../auth/actions')
+    for (const u of usersToSync) {
+      if (u.auth_user_id) {
+        await syncUserClaims(u.auth_user_id).catch(err => {
+          console.error('[toggleRolPermiso] Error syncing claims for user:', u.auth_user_id, err)
+        })
+      }
     }
   }
 
@@ -316,6 +364,12 @@ export async function crearUsuarioAction(payload: {
     return { success: false, error: 'No se pudo crear el registro del usuario en la base de datos.' }
   }
 
+  // Sincronizar claims para el nuevo usuario
+  const { syncUserClaims } = await import('../auth/actions')
+  await syncUserClaims(authData.user.id).catch(err => {
+    console.error('[crearUsuarioAction] Error syncing claims:', err)
+  })
+
   revalidatePath('/configuracion/usuarios')
   return { success: true }
 }
@@ -366,6 +420,12 @@ export async function sincronizarUsuarioAction(payload: {
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
     return { success: false, error: 'No se pudo actualizar el registro del usuario.' }
   }
+
+  // Sincronizar claims para el usuario sincronizado
+  const { syncUserClaims } = await import('../auth/actions')
+  await syncUserClaims(authData.user.id).catch(err => {
+    console.error('[sincronizarUsuarioAction] Error syncing claims:', err)
+  })
 
   revalidatePath('/configuracion/usuarios')
   return { success: true }

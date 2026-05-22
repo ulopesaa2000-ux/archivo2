@@ -17,6 +17,8 @@ import { Badge } from '@/components/ui/badge'
 import type { FiltrosStock, FiltrosStockMatrix, StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
 import { ADMIN_ROUTES } from '@/lib/constants'
+import { verifySession } from '@/lib/dal'
+import { fetchBodegasUsuario } from '@/modules/auth/queries'
 
 export const metadata: Metadata = {
   title: 'Stock por Bodega',
@@ -183,22 +185,40 @@ async function StockPageContent({
 }: {
   searchParams: Promise<StockPageSearchParams>
 }) {
+  const { user } = await verifySession()
+  const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+
   const cookieStore = await cookies()
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
-  const bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
+  let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
+
+  // Restricciones para Bodeguero (nivel > 2)
+  if (user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2) {
+    if (
+      bodegaActivaId === null || 
+      bodegaActivaId === 0 || 
+      !userBodegas.some(b => b.id === bodegaActivaId)
+    ) {
+      bodegaActivaId = userBodegas[0]?.id ?? null
+    }
+  }
 
   if (bodegaActivaId === null || isNaN(bodegaActivaId)) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
         <Warehouse className="h-12 w-12" />
-        <p className="text-sm mt-4">Selecciona una bodega en el header para ver el stock.</p>
+        <p className="text-sm mt-4">Sin bodegas asignadas o no seleccionada.</p>
       </div>
     )
   }
 
   const sp = await searchParams
-  // catalogos loads from cache
   const catalogos = await fetchCatalogosInventario()
+
+  // Si es nivel 3, limitar bodegas permitidas a las suyas
+  const bodegasPermitidas = user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
+    ? userBodegas
+    : catalogos.bodegas
 
   if (bodegaActivaId === 0) {
     const rawBodegas = parseArray(sp.bodegas)
@@ -220,7 +240,7 @@ async function StockPageContent({
         <StockMatrixData 
           filtros={filtros} 
           isNone={isNone} 
-          bodegas={catalogos.bodegas} 
+          bodegas={bodegasPermitidas} 
           bodegaActivaId={bodegaActivaId} 
           agruparPor={sp.agrupar_por}
         />
@@ -238,7 +258,7 @@ async function StockPageContent({
     <Suspense fallback={<StockSkeleton />}>
       <StockNormalData 
         filtros={filtros} 
-        bodegas={catalogos.bodegas} 
+        bodegas={bodegasPermitidas} 
         bodegaActivaId={bodegaActivaId} 
         agruparPor={sp.agrupar_por}
       />

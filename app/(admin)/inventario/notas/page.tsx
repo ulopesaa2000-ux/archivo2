@@ -13,6 +13,9 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import type { FiltrosNotas } from '@/modules/inventario/types'
 import { Card, CardContent } from '@/components/ui/card'
 
+import { verifySession } from '@/lib/dal'
+import { fetchBodegasUsuario } from '@/modules/auth/queries'
+
 export const metadata: Metadata = {
   title: 'Notas de Inventario',
 }
@@ -30,6 +33,9 @@ export default async function NotasPage({
     page?: string
   }>
 }) {
+  const { user } = await verifySession()
+  const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+
   const sp = await searchParams
   
   const filtros: FiltrosNotas = {
@@ -46,11 +52,25 @@ export default async function NotasPage({
     page: sp.page ? parseInt(sp.page) : 1,
   }
 
+  // Restricciones para Bodeguero (nivel > 2)
+  if (user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2) {
+    filtros.limit_bodega_ids = userBodegas.map(b => b.id)
+    filtros.limit_usuario_id = user.id
+  }
+
   const [{ notas, total }, catalogos, tableConfig] = await Promise.all([
     fetchNotas(filtros),
     fetchCatalogosInventario(),
     fetchUserTableConfig('/inventario/notas'),
   ])
+
+  // Filtrar catálogo de bodegas para nivel 3
+  const catalogosFiltrados = {
+    ...catalogos,
+    bodegas: user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
+      ? userBodegas
+      : catalogos.bodegas
+  }
 
   const features = {
     ...getDefaultFeatures('/inventario/notas'),
@@ -137,7 +157,7 @@ export default async function NotasPage({
       </div>
 
       {/* Filtros (Client, FIJOS) */}
-      <NotasFilters catalogos={catalogos} />
+      <NotasFilters catalogos={catalogosFiltrados} />
 
       {/* Tabla (Server, se re-renderiza) */}
       <NotasTable notas={notas} initialFeatures={features} />
