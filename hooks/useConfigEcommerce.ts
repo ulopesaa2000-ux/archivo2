@@ -6,11 +6,10 @@ import { createClient } from '@/lib/supabase/client'
 import type { ConfigEcommerce, ModoOperacion, TipoVenta, TipoPrecioVisible } from '@/modules/ecommerce/types'
 
 export function useConfigEcommerce() {
+  const [supabase] = useState(() => createClient())
   const [config, setConfig] = useState<ConfigEcommerce | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const supabase = createClient()
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -34,9 +33,12 @@ export function useConfigEcommerce() {
   useEffect(() => {
     fetchConfig()
 
+    // Generar un ID de canal único para evitar colisiones entre múltiples instancias del hook o en StrictMode
+    const uniqueChannelName = `config_ecommerce_changes_${Math.random().toString(36).substring(2, 10)}`
+
     // Suscribirse a cambios en tiempo real
     const channel = supabase
-      .channel('config_ecommerce_changes')
+      .channel(uniqueChannelName)
       .on(
         'postgres_changes',
         {
@@ -78,3 +80,4 @@ export function useConfigEcommerce() {
     ventaPorPiezas,
   }
 }
+
