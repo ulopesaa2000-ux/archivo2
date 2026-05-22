@@ -836,8 +836,10 @@ export async function uploadImagenAction(
     }
     publicUrl = urlData.publicUrl
 
+    /*
     // ── Crear imagen OG para SEO (WhatsApp, Telegram, etc.) ───
-    // Solo cuando es imagen principal
+    // DESHABILITADO: Para evitar la creación e inserción de imágenes sintéticas '_seo.jpg'
+    // que causan problemas cuando no existen físicamente. Ahora el SEO utiliza la imagen principal directa.
     if (esPrincipal) {
       try {
         // Detectar orientación de la imagen original
@@ -887,6 +889,7 @@ export async function uploadImagenAction(
         console.warn('[uploadImagenAction] Error creando imagen OG:', ogErr.message)
       }
     }
+    */
   }
 
   // ── Si es principal, quitar la anterior ───────────────────
