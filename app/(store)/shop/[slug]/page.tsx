@@ -57,9 +57,11 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   const productDescription = producto.descripcion_seo || producto.descripcion || `Descubre ${producto.sku_base} en ${SITE_NAME}`
 
   // ✅ CORREGIDO: Imagen OG absoluta obligatoria para Meta
-  const rawOgImage = producto.imagen_principal
-    ? getSmartImagenUrl(producto.imagen_principal, 'og')
-    : '/og-image.jpg'
+  const rawOgImage = producto.url_og
+    ? producto.url_og
+    : producto.imagen_principal
+      ? getSmartImagenUrl(producto.imagen_principal, 'og')
+      : '/og-image.jpg'
   const ogImageUrl = toAbsolute(rawOgImage, dynamicSiteUrl)
 
   // URL canónica: misma lógica que sitemap.ts (slugify elimina espacios/mayúsculas)

@@ -309,16 +309,16 @@ export async function fetchProductosWebPublicos(
   // Obtener imágenes principales
   const productoIds = (data || []).map((p: any) => p.producto_id)
 
-  let imagenesMap: Record<number, string> = {}
+  let imagenesMap: Record<number, { url: string; url_og: string | null }> = {}
   if (productoIds.length > 0) {
-    const { data: imagenes } = await supabase
-      .from('producto_imagenes')
-      .select('producto_id, url')
+    const { data: imagenes } = await (supabase
+      .from('producto_imagenes') as any)
+      .select('producto_id, url, url_og')
       .eq('es_principal', true)
       .in('producto_id', productoIds)
 
     imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-      acc[img.producto_id] = img.url
+      acc[img.producto_id] = { url: img.url, url_og: img.url_og }
       return acc
     }, {})
   }
@@ -344,7 +344,8 @@ export async function fetchProductosWebPublicos(
     tela_exterior: null,
     tela_forro: null,
     keywords: null,
-    imagen_principal: imagenesMap[item.producto_id] || null,
+    imagen_principal: imagenesMap[item.producto_id]?.url || null,
+    url_og: imagenesMap[item.producto_id]?.url_og || null,
     modo_override: item.modo_override,
     unidad_venta: item.unidad_venta,
     activo: item.activo,
@@ -397,9 +398,9 @@ export async function fetchProductoWebBySlug(
   }
 
   // Obtener imagen principal
-  const { data: imagen } = await supabase
-    .from('producto_imagenes')
-    .select('url')
+  const { data: imagen } = await (supabase
+    .from('producto_imagenes') as any)
+    .select('url, url_og')
     .eq('producto_id', data.producto_id)
     .eq('es_principal', true)
     .single()
@@ -434,6 +435,7 @@ export async function fetchProductoWebBySlug(
     tela_forro: prod?.tela_forro?.nombre ?? null,
     keywords: data.keywords ?? null,
     imagen_principal: imagen?.url || null,
+    url_og: imagen?.url_og || null,
     modo_override: data.modo_override,
     unidad_venta: data.unidad_venta,
     activo: data.activo,
