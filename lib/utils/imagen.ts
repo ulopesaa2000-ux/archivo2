@@ -123,15 +123,17 @@ export function getSmartImagenUrl(url: string | null | undefined, preset: Imagen
     }
 
     // Para Supabase Storage: construir URL de la imagen OG
-    // Cambiar: .../uuid.webp → .../sku_seo.jpg
+    // Cambiar: .../Productos/sku/principal/uuid.webp → .../Productos/sku/sku_seo.jpg
     if (isStorageUrl(url)) {
       const baseUrl = url.split('?')[0]
-      // Extraer SKU del path: Productos/SKU/...
-      const match = baseUrl.match(/Productos\/([^/]+)\//)
+      // Encontrar la parte "Productos/{sku}/" incluyendo todo lo anterior
+      const match = baseUrl.match(/(.*\/Productos\/[^/]+\/)/)
       if (match) {
-        const skuSafe = match[1]
-        const ogUrl = baseUrl.replace(/\/[^/]+\.webp$/, `/${skuSafe}_seo.jpg`)
-        return ogUrl
+        const productBaseUrl = match[1]
+        const skuSafe = baseUrl.match(/Productos\/([^/]+)\//)?.[1]
+        if (skuSafe) {
+          return `${productBaseUrl}${skuSafe}_seo.jpg`
+        }
       }
     }
 

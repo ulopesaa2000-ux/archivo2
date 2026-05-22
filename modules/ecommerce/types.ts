@@ -79,6 +79,7 @@ export interface ProductoWebPublico {
   tela_forro: string | null
   keywords: string | null
   imagen_principal: string | null
+  url_og: string | null
   // Modo override
   modo_override: 'default' | 'catalogo' | 'ecommerce' | null
   unidad_venta: 'pieza' | 'caja' | 'ambas' | null
