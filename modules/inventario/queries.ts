@@ -95,6 +95,18 @@ export async function fetchNotas(
     query = query.lte('fecha_nota', `${filtros.fecha_hasta}T23:59:59`)
   }
 
+  // ── Filtro: scoping por Bodegas y Usuario (para nivel 3) ──
+  if (filtros.limit_bodega_ids && filtros.limit_bodega_ids.length > 0) {
+    const idsStr = filtros.limit_bodega_ids.join(',')
+    if (filtros.limit_usuario_id) {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
+    } else {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+    }
+  } else if (filtros.limit_usuario_id) {
+    query = query.eq('usuario_id', filtros.limit_usuario_id)
+  }
+
   // ── Ordenamiento y paginación ───────────────────────────
   query = query
     .order('fecha_nota', { ascending: false })
@@ -741,4 +753,13 @@ export async function fetchNotasPendientesPorBodega(
       usuario_nombre: '',
     }
   })
+}
+
+export async function fetchTodasAsignacionesBodega(): Promise<UsuarioBodegaRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('usuario_bodegas')
+    .select('*')
+  if (error || !data) return []
+  return data as UsuarioBodegaRow[]
 }

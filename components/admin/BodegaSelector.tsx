@@ -24,8 +24,14 @@ import type { BodegaRow } from '@/lib/types/tables'
  * Las bodegas ya vienen filtradas por permisos del usuario
  * (se resolvió en el layout del server).
  */
-export function BodegaSelector({ bodegas }: { bodegas: BodegaRow[] }) {
-  const { bodegaActivaId, bodegaActiva, setBodegaActiva, isLoading } = useBodegaActiva(bodegas)
+export function BodegaSelector({ 
+  bodegas,
+  showAllOption = true
+}: { 
+  bodegas: BodegaRow[]
+  showAllOption?: boolean
+}) {
+  const { bodegaActivaId, bodegaActiva, setBodegaActiva, isLoading } = useBodegaActiva(bodegas, showAllOption)
   const pathname = usePathname()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -99,9 +105,11 @@ export function BodegaSelector({ bodegas }: { bodegas: BodegaRow[] }) {
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="0">
-              <span className="font-medium text-primary">Todas las bodegas</span>
-            </SelectItem>
+            {showAllOption && (
+              <SelectItem value="0">
+                <span className="font-medium text-primary">Todas las bodegas</span>
+              </SelectItem>
+            )}
             {bodegas.map((bodega) => (
               <SelectItem
                 key={bodega.id}

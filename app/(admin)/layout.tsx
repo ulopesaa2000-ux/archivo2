@@ -2,8 +2,7 @@
 import { Suspense } from 'react'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
-import { Sidebar } from '@/components/admin/Sidebar'
-import { Header } from '@/components/admin/Header'
+import { AdminLayoutClient } from '@/components/admin/AdminLayoutClient'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
 
 export type AdminContext = {
@@ -23,17 +22,9 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <div className="h-screen flex overflow-hidden bg-background">
-      <Sidebar user={user} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header user={user} bodegas={bodegas} />
-        <main className="flex-1 overflow-auto">
-          <div className="p-6 max-w-[1600px] mx-auto">
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
+    <AdminLayoutClient user={user} bodegas={bodegas}>
+      {children}
+    </AdminLayoutClient>
   )
 }
 
@@ -53,3 +44,4 @@ export default function AdminLayout({
     </Suspense>
   )
 }
+

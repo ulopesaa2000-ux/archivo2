@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import { fetchCatalogosInventario } from '@/modules/inventario/queries'
 import { verifySession } from '@/lib/dal'
+import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { NoteDraftBuilder } from './NoteDraftBuilder'
 
 export const metadata: Metadata = {
@@ -21,6 +22,8 @@ export default async function NuevaNotaPage() {
     catalogosPromise,
   ])
 
+  const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 3)
+
   return (
     <div className="space-y-4">
       <div>
@@ -36,6 +39,8 @@ export default async function NuevaNotaPage() {
         catalogos={catalogos}
         usuarioId={user.id}
         mode="create"
+        currentUserLevel={user.rol?.nivel_acceso ?? 3}
+        userBodegas={userBodegas}
       />
     </div>
   )

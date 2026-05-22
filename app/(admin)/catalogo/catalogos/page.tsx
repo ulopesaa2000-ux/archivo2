@@ -1,23 +1,17 @@
-// C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\page.tsx
+// app/(admin)/catalogo/catalogos/page.tsx
 import type { Metadata } from 'next'
 import { Pagination } from '@/components/admin/Pagination'
 import { fetchProductosCatalogo } from '@/modules/catalogo/queries'
 import type { FiltrosCatalogo, CatalogoSortBy } from '@/modules/catalogo/types'
-import { CatalogoCreateDialog } from './CatalogoCreateDialog'
-import { CatalogoFilters } from './CatalogoFilters'
-import { CatalogoTable } from './CatalogoTable'
-import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
-import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
-import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { CatalogoFilters } from '@/app/(admin)/catalogo/CatalogoFilters'
+import { CatalogosReadOnlyTable } from './components/CatalogosReadOnlyTable'
+import { CatalogosReadOnlyGrid } from './components/CatalogosReadOnlyGrid'
+import { CatalogosReadOnlyVistaToggle } from './components/CatalogosReadOnlyVistaToggle'
 import { Suspense } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ImportCsvButton } from './components/ImportCsvButton'
-import { CatalogoVistaToggle } from './components/CatalogoVistaToggle'
-import { CatalogoGrid } from './components/CatalogoGrid'
 
 export const metadata: Metadata = {
-  title: 'Catálogo de Productos',
+  title: 'Consulta de Catálogo',
 }
 
 const VALID_SORT_BY: CatalogoSortBy[] = ['id', 'sku_base', 'familia', 'marca_id', 'pz_en_caja', 'precio_ec', 'estado']
@@ -32,9 +26,6 @@ type CatalogoSearchParams = {
   page?: string
   sort_by?: string
   order?: string
-  modal?: string
-  edit_id?: string
-  delete_id?: string
   vista?: string
 }
 
@@ -45,70 +36,49 @@ function parseOptionalInt(value?: string) {
   return Number.isNaN(parsed) ? undefined : parsed
 }
 
-/**
- * Listado del catálogo.
- *
- * Arquitectura:
- * - `CatalogoFilters` es client y permanece montado entre cambios de filtro.
- * - `CatalogoTable` es server y se vuelve a resolver con los search params.
- * - `Pagination` actualiza la URL sin recargar el shell admin.
- */
-async function CatalogoData({ 
-  filtros, 
-  sortBy, 
+async function CatalogoData({
+  filtros,
+  sortBy,
   order,
   vista,
-}: { 
+}: {
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
   vista: 'grid' | 'tabla'
 }) {
-  const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
-    fetchProductosCatalogo(filtros),
-    fetchUserTableConfig('/catalogo')
-  ])
-
-  const userFeatures = tableConfig.config
-  const features = {
-    ...getDefaultFeatures('/catalogo'),
-    ...userFeatures,
-  }
+  const { productos, total, catalogos } = await fetchProductosCatalogo(filtros)
 
   return (
     <>
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Catálogo de Productos
+            Consulta de Catálogo
           </h1>
           <p className="text-sm text-muted-foreground">
-            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
+            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''} (Solo lectura)
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <CatalogoVistaToggle />
-          <Link 
-            href="/catalogo?modal=create" 
-            scroll={false} 
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Producto
-          </Link>
-          <ImportCsvButton />
+          <CatalogosReadOnlyVistaToggle />
         </div>
       </div>
 
-      <CatalogoCreateDialog catalogos={catalogos} />
-
       <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+
       {vista === 'grid' ? (
-        <CatalogoGrid productos={productos} />
+        <CatalogosReadOnlyGrid productos={productos} />
       ) : (
-        <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} initialFeatures={features} />
+        <CatalogosReadOnlyTable
+          productos={productos}
+          catalogos={catalogos}
+          sortBy={sortBy}
+          order={order}
+        />
       )}
+
       <Pagination total={total} />
     </>
   )
@@ -122,7 +92,7 @@ function CatalogoSkeleton() {
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-4 w-32 mt-1" />
         </div>
-        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-9 w-24" />
       </div>
       <Skeleton className="h-12 w-full" />
       <Skeleton className="h-[400px] w-full" />
@@ -130,21 +100,11 @@ function CatalogoSkeleton() {
   )
 }
 
-import { getCurrentUser } from '@/modules/auth/queries'
-import { redirect } from 'next/navigation'
-
-export default async function CatalogoPage({
+export default async function CatalogoReadOnlyPage({
   searchParams,
 }: {
   searchParams: Promise<CatalogoSearchParams>
 }) {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
-
-  if ((user.rol?.nivel_acceso ?? 99) >= 3) {
-    redirect('/catalogo/catalogos')
-  }
-
   const params = await searchParams
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as CatalogoSortBy)

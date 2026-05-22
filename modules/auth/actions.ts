@@ -116,6 +116,11 @@ export async function signIn(
     }
   }
 
+  // Sincronizar claims de forma asíncrona pero esperando para asegurar carga inicial
+  await syncUserClaims(authData.user.id).catch((err) => {
+    console.error('[Server] Error al sincronizar claims en signIn:', err)
+  })
+
   // 3. Todo bien → invalidar cache para que el layout cargue el usuario
   console.log('[Server] Login exitoso! Invalidando cache...')
   revalidatePath('/', 'layout')
@@ -159,3 +164,103 @@ export async function loginAction(
   // En Next.js, redirect() siempre debe tirarse DESPUÉS y fuera de los bloques catch que pueden tragar el error THE_REDIRECT
   redirect(redirectTo)
 }
+
+/**
+ * Sincroniza el rol y los permisos del usuario de PostgreSQL a app_metadata de Supabase Auth.
+ * Esto codifica los permisos directamente en el JWT firmado, logrando 0 DB hits en validación de páginas.
+ */
+export async function syncUserClaims(authUserId: string): Promise<boolean> {
+  console.log('[syncUserClaims] Sincronizando claims para authUserId:', authUserId)
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    console.warn('[syncUserClaims] No se encontró SUPABASE_SERVICE_ROLE_KEY. Omitiendo actualización de claims.')
+    return false
+  }
+
+  try {
+    const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+    const supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceRoleKey,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    // 1. Obtener usuario de inv-tienda.usuarios
+    const { data: usuario, error: userError } = await supabaseAdmin
+      .from('usuarios')
+      .select('*')
+      .eq('auth_user_id', authUserId)
+      .eq('activo', true)
+      .maybeSingle()
+
+    if (userError || !usuario) {
+      console.error('[syncUserClaims] Error al buscar usuario o inactivo:', userError)
+      return false
+    }
+
+    // 2. Obtener rol
+    const { data: rol, error: rolError } = await supabaseAdmin
+      .from('roles')
+      .select('*')
+      .eq('id', usuario.rol_id)
+      .maybeSingle()
+
+    if (rolError || !rol) {
+      console.error('[syncUserClaims] Error al buscar rol:', rolError)
+      return false
+    }
+
+    // 3. Obtener permisos individuales de usuario_permisos
+    const { data: permisos, error: permError } = await supabaseAdmin
+      .from('usuario_permisos')
+      .select('*')
+      .eq('usuario_id', usuario.id)
+      .maybeSingle()
+
+    if (permError) {
+      console.error('[syncUserClaims] Error al buscar permisos de usuario:', permError)
+    }
+
+    // 4. Armar el objeto de claims personalizado
+    const claims = {
+      usuario_id: usuario.id,
+      username: usuario.username,
+      nombre_completo: usuario.nombre_completo,
+      rol_id: usuario.rol_id,
+      rol_nombre: rol.nombre,
+      nivel_acceso: rol.nivel_acceso,
+      rol_descripcion: rol.descripcion,
+      permisos: permisos ? {
+        es_super_admin: permisos.es_super_admin,
+        puede_gestionar_compras_b2b: permisos.puede_gestionar_compras_b2b,
+        puede_gestionar_contenedores: permisos.puede_gestionar_contenedores,
+        puede_gestionar_ecommerce: permisos.puede_gestionar_ecommerce,
+        puede_ver_inventario: permisos.puede_ver_inventario,
+        puede_crear_notas_inventario: permisos.puede_crear_notas_inventario,
+        puede_aprobar_notas_inventario: permisos.puede_aprobar_notas_inventario,
+      } : null
+    }
+
+    // 5. Actualizar app_metadata en Supabase Auth
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      authUserId,
+      {
+        app_metadata: {
+          inv_tienda_claims: claims
+        }
+      }
+    )
+
+    if (updateError) {
+      console.error('[syncUserClaims] Error al actualizar app_metadata:', updateError.message)
+      return false
+    }
+
+    console.log(`[syncUserClaims] Claims sincronizados con éxito para: ${usuario.username}`)
+    return true
+  } catch (error) {
+    console.error('[syncUserClaims] Error inesperado en sincronización:', error)
+    return false
+  }
+}
+

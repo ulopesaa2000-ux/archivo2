@@ -42,6 +42,25 @@ export async function guardarNotaAction(
   if (!draft.bodega_origen_id) {
     return { success: false, error: 'Selecciona la bodega de origen.' }
   }
+
+  // ── Validar permisos de bodega si es nivel 3+ ───────────
+  if (user.rol && user.rol.nivel_acceso >= 3) {
+    const { data: perm } = await supabase
+      .from('usuario_bodegas')
+      .select('puede_crear_notas, puede_confirmar_notas')
+      .eq('usuario_id', user.id)
+      .eq('bodega_id', draft.bodega_origen_id)
+      .single()
+
+    if (!perm || !perm.puede_crear_notas) {
+      return { success: false, error: 'No tienes permiso para registrar notas en esta bodega de origen.' }
+    }
+
+    if (confirmar && !perm.puede_confirmar_notas) {
+      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega de origen.' }
+    }
+  }
+
   if (draft.productos.length === 0) {
     return { success: false, error: 'Agrega al menos un producto.' }
   }
@@ -160,13 +179,31 @@ export async function actualizarNotaAction(
   const { data: nota } = await supabase
     .from('notas_inventario')
     .select(`
-      id, estado_id,
+      id, estado_id, bodega_origen_id,
       estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
     `)
     .eq('id', notaId)
     .single()
 
   if (!nota) return { success: false, error: 'Nota no encontrada.' }
+
+  // ── Validar permisos de bodega si es nivel 3+ ───────────
+  if (user.rol && user.rol.nivel_acceso >= 3) {
+    const { data: perm } = await supabase
+      .from('usuario_bodegas')
+      .select('puede_crear_notas, puede_confirmar_notas')
+      .eq('usuario_id', user.id)
+      .eq('bodega_id', (nota as any).bodega_origen_id)
+      .single()
+
+    if (!perm || !perm.puede_crear_notas) {
+      return { success: false, error: 'No tienes permiso para editar notas en esta bodega.' }
+    }
+
+    if (confirmar && !perm.puede_confirmar_notas) {
+      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega.' }
+    }
+  }
 
   const estadoCodigo = Array.isArray((nota as any).estado)
     ? (nota as any).estado[0]?.codigo
@@ -253,7 +290,32 @@ export async function actualizarNotaAction(
 export async function confirmarNotaAction(
   notaId: number
 ): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
   const supabase = await createClient()
+
+  // ── Validar permisos de bodega si es nivel 3+ ───────────
+  if (user.rol && user.rol.nivel_acceso >= 3) {
+    const { data: nota } = await supabase
+      .from('notas_inventario')
+      .select('bodega_origen_id')
+      .eq('id', notaId)
+      .single()
+
+    if (!nota) return { success: false, error: 'Nota no encontrada.' }
+
+    const { data: perm } = await supabase
+      .from('usuario_bodegas')
+      .select('puede_confirmar_notas')
+      .eq('usuario_id', user.id)
+      .eq('bodega_id', nota.bodega_origen_id)
+      .single()
+
+    if (!perm || !perm.puede_confirmar_notas) {
+      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega.' }
+    }
+  }
 
   // Obtener ID del estado CONF
   const { data: estadoConf } = await supabase
@@ -469,6 +531,59 @@ export async function eliminarUsuarioBodegaAction(
     .from('usuario_bodegas')
     .delete()
     .eq('id', asignacionId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/inventario/bodegas')
+  return { success: true }
+}
+
+export async function guardarAsignacionBodegaJSONAction(payload: {
+  usuario_id: number
+  bodega_id: number
+  puede_consultar: boolean
+  puede_crear_notas: boolean
+  puede_confirmar_notas: boolean
+  puede_transferir: boolean
+}): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('usuario_bodegas')
+    .upsert({
+      usuario_id: payload.usuario_id,
+      bodega_id: payload.bodega_id,
+      puede_consultar: payload.puede_consultar,
+      puede_crear_notas: payload.puede_crear_notas,
+      puede_confirmar_notas: payload.puede_confirmar_notas,
+      puede_transferir: payload.puede_transferir,
+    }, {
+      onConflict: 'usuario_id,bodega_id',
+    })
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/inventario/bodegas')
+  return { success: true }
+}
+
+export async function eliminarAsignacionBodegaJSONAction(
+  usuarioId: number,
+  bodegaId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('usuario_bodegas')
+    .delete()
+    .eq('usuario_id', usuarioId)
+    .eq('bodega_id', bodegaId)
 
   if (error) return { success: false, error: error.message }
 
