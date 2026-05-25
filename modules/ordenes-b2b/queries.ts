@@ -369,6 +369,10 @@ export async function fetchCajasListado(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+
   // Query base desde cajas_producto con JOINs
   let query = supabase
     .from('cajas_producto')
@@ -384,6 +388,45 @@ export async function fetchCajasListado(
       )
     `, { count: 'exact' })
     .or('activo.is.null,activo.eq.true')
+
+  // AISLAMIENTO DE DATOS B2B
+  if (userNivel === 4 || userNivel === 5) {
+    if (!userPersona) {
+      return { items: [], total: 0 }
+    }
+
+    if (userNivel === 5) {
+      // Proveedor: cajas de su propiedad
+      query = query.eq('proveedor_id', userPersona.id)
+    } else {
+      // Cliente B2B: cajas vinculadas a sus órdenes
+      const { data: ordenes } = await supabase
+        .from('ordenes_b2b')
+        .select('id')
+        .eq('cliente_b2b_id', userPersona.id)
+
+      if (!ordenes || ordenes.length === 0) {
+        return { items: [], total: 0 }
+      }
+
+      const ordenIds = ordenes.map((o) => o.id)
+      const { data: ordenCajas } = await supabase
+        .from('orden_cajas')
+        .select('caja_id')
+        .in('orden_id', ordenIds)
+
+      if (!ordenCajas || ordenCajas.length === 0) {
+        return { items: [], total: 0 }
+      }
+
+      const cajaIds = Array.from(new Set(ordenCajas.map((oc) => oc.caja_id).filter(Boolean))) as number[]
+      if (cajaIds.length === 0) {
+        return { items: [], total: 0 }
+      }
+
+      query = query.in('id', cajaIds)
+    }
+  }
 
   if (filtros.q) {
     const term = `%${filtros.q}%`
@@ -436,6 +479,44 @@ export async function fetchCajaDetalle(
   cajaId: number
 ): Promise<CajaDetalle | null> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+
+  // AISLAMIENTO DE DATOS B2B
+  if (userNivel === 4 || userNivel === 5) {
+    if (!userPersona) return null
+
+    if (userNivel === 5) {
+      // Proveedor: la caja debe ser de este proveedor
+      const { data: check } = await supabase
+        .from('cajas_producto')
+        .select('id')
+        .eq('id', cajaId)
+        .eq('proveedor_id', userPersona.id)
+        .limit(1)
+
+      if (!check || check.length === 0) return null
+    } else {
+      // Cliente B2B: la caja debe estar en alguna de sus órdenes
+      const { data: ordenes } = await supabase
+        .from('ordenes_b2b')
+        .select('id')
+        .eq('cliente_b2b_id', userPersona.id)
+
+      if (!ordenes || ordenes.length === 0) return null
+
+      const ordenIds = ordenes.map((o) => o.id)
+      const { data: check } = await supabase
+        .from('orden_cajas')
+        .select('id')
+        .eq('caja_id', cajaId)
+        .in('orden_id', ordenIds)
+        .limit(1)
+
+      if (!check || check.length === 0) return null
+    }
+  }
 
   const { data: caja, error } = await supabase
     .from('cajas_producto')
