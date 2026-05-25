@@ -7,6 +7,13 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/modules/auth/queries'
 import type { UsuarioConRol } from '@/lib/types/tables'
+import {
+  can,
+  getEffectivePermissions,
+  isSuperAdmin,
+  type PermissionAction,
+  type PermissionModule,
+} from '@/lib/auth/permissions'
 
 /**
  * Verifica la sesión del usuario.
@@ -71,7 +78,7 @@ export const verifyRole = cache(async (minLevel: number): Promise<{ isAuth: true
   const session = await verifySession()
   const userLevel = session.user.rol?.nivel_acceso ?? 99
 
-  if (userLevel > minLevel) {
+  if (!isSuperAdmin(session.user) && userLevel > minLevel) {
     redirect('/dashboard')
   }
 
@@ -121,41 +128,38 @@ export const getUserDTO = cache(async (): Promise<SafeUserDTO | null> => {
  * @param modulo - El identificador del módulo a proteger.
  * @throws {redirect} - Redirige si el usuario no tiene permisos suficientes.
  */
+const LEGACY_MODULE_GROUPS: Record<string, PermissionModule[]> = {
+  configuracion: ['config_usuarios', 'config_roles', 'config_auditoria_productos', 'config_tablas'],
+  inventario: ['inventario_stock', 'inventario_notas', 'inventario_bodegas'],
+  'inventario-virtual': ['inventario_virtual'],
+  'ordenes-b2b': ['b2b_ordenes', 'b2b_cajas'],
+  contenedores: ['b2b_contenedores'],
+  despachos: ['despachos'],
+  ecommerce: ['ecommerce_catalogo', 'ecommerce_ordenes', 'ecommerce_config'],
+}
+
 export const verifyModuleAccess = cache(async (
-  modulo: 'configuracion' | 'inventario' | 'inventario-virtual' | 'ordenes-b2b' | 'contenedores' | 'despachos' | 'ecommerce'
+  modulo: PermissionModule | keyof typeof LEGACY_MODULE_GROUPS
 ): Promise<{ isAuth: true; user: UsuarioConRol }> => {
   const session = await verifySession()
   const user = session.user
-  const nivel = user.rol?.nivel_acceso ?? 99
-  const permisos = user.permisos
 
-  // Si es super admin (tanto por flag como por nivel <= 1 de rol o es_super_admin), tiene acceso total
-  if (permisos?.es_super_admin === true || nivel <= 1) {
+  const userLevel = user.rol?.nivel_acceso ?? 99
+
+  // Si es un rol B2B/Proveedor restringido (nivel 4 o 5)
+  if (userLevel === 4 || userLevel === 5) {
+    const allowed = ['ordenes-b2b', 'contenedores', 'b2b_ordenes', 'b2b_cajas', 'b2b_contenedores']
+    if (!allowed.includes(modulo as string)) {
+      redirect('/dashboard?unauthorized=true')
+    }
+  }
+
+  if (isSuperAdmin(user)) {
     return session
   }
 
-  let hasAccess = false
-
-  switch (modulo) {
-    case 'configuracion':
-      // Permitimos nivel <= 2 (Jefe General, Admin Operativo) para gestionar operarios y roles restringidos
-      hasAccess = nivel <= 2
-      break
-    case 'inventario':
-    case 'inventario-virtual':
-      hasAccess = nivel <= 2 || !!permisos?.puede_ver_inventario
-      break
-    case 'ordenes-b2b':
-      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_compras_b2b
-      break
-    case 'contenedores':
-    case 'despachos':
-      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_contenedores
-      break
-    case 'ecommerce':
-      hasAccess = nivel <= 2 || !!permisos?.puede_gestionar_ecommerce
-      break
-  }
+  const modules = LEGACY_MODULE_GROUPS[modulo] ?? [modulo as PermissionModule]
+  const hasAccess = modules.some((item) => can(user, item, 'puede_leer'))
 
   if (!hasAccess) {
     redirect('/dashboard?unauthorized=true')
@@ -164,3 +168,19 @@ export const verifyModuleAccess = cache(async (
   return session
 })
 
+export const requirePermission = cache(async (
+  modulo: PermissionModule,
+  action: PermissionAction = 'puede_leer'
+): Promise<{ isAuth: true; user: UsuarioConRol }> => {
+  const session = await verifySession()
+
+  if (!can(session.user, modulo, action)) {
+    redirect('/unauthorized')
+  }
+
+  return session
+})
+
+export function getSessionPermissions(user: UsuarioConRol) {
+  return getEffectivePermissions(user)
+}

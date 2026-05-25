@@ -38,6 +38,7 @@ import { Fecha } from '@/components/shared/Fecha'
 import { Separator } from '@/components/ui/separator'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
+import { requirePermission } from '@/lib/dal'
 
 export async function generateMetadata(props: {
   params: Promise<{ id: string }>
@@ -70,6 +71,8 @@ export async function generateMetadata(props: {
 export default async function CatalogoDetallePage(props: {
   params: Promise<{ id: string }>
 }) {
+  await requirePermission('catalogo_productos')
+
   const params = await props.params;
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()

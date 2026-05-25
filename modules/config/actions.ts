@@ -4,14 +4,37 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { ModuloPermiso, PermisoModulo, TipoPermiso } from './types'
+import { buildPermisosCompletos } from './types'
+import { can, isSuperAdmin } from '@/lib/auth/permissions'
+import { getCurrentUser } from '@/modules/auth/queries'
+import type { Database } from '@/lib/types/database.types'
 
 type ActionResult = { success: boolean; error?: string }
+
+async function requireConfigPermission(action: 'puede_crear' | 'puede_editar' | 'puede_eliminar'): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!user || !can(user, 'config_usuarios', action)) {
+    return { success: false, error: 'No tienes permisos para modificar usuarios o roles.' }
+  }
+  return null
+}
+
+async function requireSuperAdminAction(): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!isSuperAdmin(user)) {
+    return { success: false, error: 'Solo Super Admin puede modificar roles y permisos.' }
+  }
+  return null
+}
 
 /** Activa o desactiva un usuario */
 export async function toggleUsuarioActivo(
   usuarioId: number,
   activo: boolean
 ): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
   const supabase = await createClient()
 
   // Obtener auth_user_id antes de cambiar
@@ -48,7 +71,20 @@ export async function cambiarRolUsuario(
   usuarioId: number,
   rolId: number
 ): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
   const supabase = await createClient()
+
+  const { data: targetRole } = await supabase
+    .from('roles')
+    .select('nivel_acceso')
+    .eq('id', rolId)
+    .single()
+
+  if ((targetRole?.nivel_acceso ?? 99) <= 1) {
+    return { success: false, error: 'Super Admin no se puede asignar desde esta accion.' }
+  }
 
   // Obtener auth_user_id antes de cambiar
   const { data: userRow } = await supabase
@@ -89,6 +125,9 @@ export async function toggleRolPermiso(
   tipo: TipoPermiso,
   valor: boolean
 ): Promise<ActionResult> {
+  const denied = await requireSuperAdminAction()
+  if (denied) return denied
+
   const supabase = await createClient()
 
   const { data: existing, error: checkError } = await supabase
@@ -165,7 +204,11 @@ export async function crearRolAction(
   nivel_acceso: number,
   permisos: { modulo: ModuloPermiso; puede_leer: boolean; puede_crear: boolean; puede_editar: boolean; puede_eliminar: boolean }[]
 ): Promise<ActionResult> {
+  const denied = await requireSuperAdminAction()
+  if (denied) return denied
+
   const supabase = await createClient()
+  const permisosCompletos = Object.values(buildPermisosCompletos(permisos))
 
   // 1. Insertar el rol
   const { data: nuevoRol, error: rolError } = await supabase
@@ -184,11 +227,11 @@ export async function crearRolAction(
   }
 
   // 2. Insertar permisos
-  if (permisos.length > 0) {
+  if (permisosCompletos.length > 0) {
     const { error: permError } = await supabase
       .from('rol_permisos')
       .insert(
-        permisos.map((p) => ({
+        permisosCompletos.map((p) => ({
           rol_id: nuevoRol.id,
           modulo: p.modulo,
           puede_leer: p.puede_leer,
@@ -227,6 +270,9 @@ export async function crearRolAction(
  * Elimina un rol y sus permisos asociados
  */
 export async function eliminarRolAction(rolId: number): Promise<ActionResult> {
+  const denied = await requireSuperAdminAction()
+  if (denied) return denied
+
   const supabase = await createClient()
 
   // 1. Borrar permisos
@@ -263,6 +309,9 @@ export async function cambiarPasswordAction(
   usuarioId: number,
   nuevaPassword: string
 ): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
   const supabase = await createClient()
 
   // 1. Obtener el auth_user_id del usuario
@@ -287,10 +336,13 @@ export async function cambiarPasswordAction(
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-  const supabaseAdmin = createSupabaseClient(
+  const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceRoleKey,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'inv-tienda' },
+    }
   )
 
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -316,17 +368,34 @@ export async function crearUsuarioAction(payload: {
   password: string
   rolId: number
 }): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_crear')
+  if (denied) return denied
+
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para crear usuarios.' }
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-  const supabaseAdmin = createSupabaseClient(
+  const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceRoleKey,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'inv-tienda' },
+    }
   )
+
+  const supabase = await createClient()
+  const { data: role } = await supabase
+    .from('roles')
+    .select('nivel_acceso')
+    .eq('id', payload.rolId)
+    .single()
+
+  if ((role?.nivel_acceso ?? 99) <= 1) {
+    return { success: false, error: 'Super Admin no se puede asignar desde aqui.' }
+  }
 
   // 1. Crear en auth.users
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -343,8 +412,7 @@ export async function crearUsuarioAction(payload: {
   // 2. Crear en inv-tienda.usuarios usando el cliente normal (ya validado por el context actual o el mismo admin)
   // Pero el trigger trg_auto_slug o un trigger after_insert_auth_user podría ya crearlo si existe. 
   // Verificaremos si existe, y si no, lo insertamos.
-  const supabase = await createClient()
-  
+
   // Asumimos que no hay trigger automático creando todo completo, lo insertamos/actualizamos.
   const { error: dbError } = await supabase
     .from('usuarios')
@@ -383,16 +451,22 @@ export async function sincronizarUsuarioAction(payload: {
   email: string
   password: string
 }): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_crear')
+  if (denied) return denied
+
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY.' }
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-  const supabaseAdmin = createSupabaseClient(
+  const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceRoleKey,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'inv-tienda' },
+    }
   )
 
   // 1. Crear en auth.users
@@ -427,6 +501,159 @@ export async function sincronizarUsuarioAction(payload: {
     console.error('[sincronizarUsuarioAction] Error syncing claims:', err)
   })
 
+  revalidatePath('/configuracion/usuarios')
+  return { success: true }
+}
+
+/**
+ * Vincula o desvincula una persona comercial con un usuario del sistema.
+ */
+export async function vincularPersonaUsuarioAction(
+  personaId: number,
+  usuarioId: number | null
+): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
+  const supabase = await createClient()
+
+  if (usuarioId) {
+    const { data: existente } = await supabase
+      .from('personas')
+      .select('id, nombre_completo')
+      .eq('usuario_id', usuarioId)
+      .neq('id', personaId)
+      .maybeSingle()
+
+    if (existente) {
+      return { success: false, error: `El usuario ya está vinculado a la persona "${existente.nombre_completo}".` }
+    }
+  }
+
+  const { data: personaPrev } = await supabase
+    .from('personas')
+    .select('usuario_id')
+    .eq('id', personaId)
+    .single()
+
+  const { error } = await supabase
+    .from('personas')
+    .update({ usuario_id: usuarioId })
+    .eq('id', personaId)
+
+  if (error) {
+    console.error('vincularPersonaUsuarioAction error:', error.message)
+    return { success: false, error: 'No se pudo guardar la vinculación en la base de datos.' }
+  }
+
+  const { syncUserClaims } = await import('../auth/actions')
+  
+  if (personaPrev?.usuario_id) {
+    const { data: uPrev } = await supabase.from('usuarios').select('auth_user_id').eq('id', personaPrev.usuario_id).single()
+    if (uPrev?.auth_user_id) {
+      await syncUserClaims(uPrev.auth_user_id).catch(() => {})
+    }
+  }
+
+  if (usuarioId) {
+    const { data: uNew } = await supabase.from('usuarios').select('auth_user_id').eq('id', usuarioId).single()
+    if (uNew?.auth_user_id) {
+      await syncUserClaims(uNew.auth_user_id).catch(() => {})
+    }
+  }
+
+  revalidatePath('/configuracion/personas')
+  revalidatePath('/configuracion/usuarios')
+  return { success: true }
+}
+
+/**
+ * Envía una invitación de Supabase Auth por email para un cliente o proveedor,
+ * creando su registro de usuario y vinculándolo de manera automática.
+ */
+export async function invitarPersonaAction(payload: {
+  personaId: number
+  email: string
+  rolId: number
+}): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_crear')
+  if (denied) return denied
+
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: persona } = await supabase
+    .from('personas')
+    .select('*')
+    .eq('id', payload.personaId)
+    .single()
+
+  if (!persona) {
+    return { success: false, error: 'La persona comercial no fue encontrada.' }
+  }
+
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'inv-tienda' },
+    }
+  )
+
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+    payload.email,
+    {
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/login`,
+    }
+  )
+
+  if (authError || !authData.user) {
+    console.error('invitarPersonaAction invite error:', authError)
+    return { success: false, error: authError?.message || 'Error al enviar la invitación por correo.' }
+  }
+
+  const { data: nuevoUsuario, error: dbError } = await supabaseAdmin
+    .from('usuarios')
+    .insert({
+      auth_user_id: authData.user.id,
+      email: payload.email,
+      nombre_completo: persona.nombre_completo,
+      rol_id: payload.rolId,
+      activo: true,
+      username: payload.email.split('@')[0],
+      tenant: 'inv-tienda',
+    })
+    .select('id')
+    .single()
+
+  if (dbError) {
+    console.error('invitarPersonaAction db error:', dbError.message)
+    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    return { success: false, error: 'Se envió la invitación pero no se pudo crear el usuario en el sistema.' }
+  }
+
+  const { error: linkError } = await supabase
+    .from('personas')
+    .update({
+      usuario_id: nuevoUsuario.id,
+      email_contacto: payload.email,
+    })
+    .eq('id', payload.personaId)
+
+  if (linkError) {
+    console.error('invitarPersonaAction link error:', linkError.message)
+  }
+
+  const { syncUserClaims } = await import('../auth/actions')
+  await syncUserClaims(authData.user.id).catch(() => {})
+
+  revalidatePath('/configuracion/personas')
   revalidatePath('/configuracion/usuarios')
   return { success: true }
 }

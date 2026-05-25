@@ -1,20 +1,28 @@
-// app/(admin)/configuracion/roles/page.tsx
 import type { Metadata } from 'next'
+import { fetchRolesConPermisos } from '@/modules/config/queries'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { RolesManager } from './RolesManager'
 
 export const metadata: Metadata = { title: 'Roles y Permisos' }
 
-export default function RolesPage() {
+export default async function RolesPage() {
+  const [roles, currentUser] = await Promise.all([
+    fetchRolesConPermisos(),
+    getCurrentUser(),
+  ])
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Roles y Permisos</h1>
-        <p className="text-muted-foreground">
-          Configuración de roles y matriz de permisos
+        <p className="text-sm text-muted-foreground">
+          Configura permisos reales por módulo para menú, páginas y acciones.
         </p>
       </div>
-      <p className="text-sm text-muted-foreground py-8 text-center">
-        Módulo en desarrollo — Fase 8
-      </p>
+      <RolesManager
+        roles={roles}
+        currentUser={currentUser}
+      />
     </div>
   )
 }

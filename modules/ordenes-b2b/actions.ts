@@ -5,11 +5,21 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import type { OrdenB2BUpdate } from '@/lib/types/tables'
+import { can, type PermissionAction } from '@/lib/auth/permissions'
 
 export type ActionResult = {
   success: boolean
   error?: string
   id?: number
+}
+
+async function requireB2BPermission(action: PermissionAction): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+  if (!can(user, 'b2b_ordenes', action)) {
+    return { success: false, error: 'No tienes permisos para esta accion de B2B.' }
+  }
+  return null
 }
 
 // ════════════════════════════════════════════════════════════
@@ -19,8 +29,8 @@ export type ActionResult = {
 export async function crearOrdenB2BAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_crear')
+  if (denied) return denied
 
   const supabase = await createClient()
   const proveedor_id = parseInt(formData.get('proveedor_id') as string)
@@ -51,8 +61,8 @@ export async function crearOrdenB2BAction(
 export async function actualizarOrdenB2BAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = parseInt(formData.get('orden_id') as string)
@@ -91,8 +101,8 @@ export async function cambiarEstadoOrdenAction(
   ordenId: number,
   nuevoEstado: string
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase
@@ -114,8 +124,8 @@ export async function cambiarEstadoOrdenAction(
 export async function agregarDetalleOrdenAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_crear')
+  if (denied) return denied
 
   const supabase = await createClient()
   const orden_id = parseInt(formData.get('orden_id') as string)
@@ -156,8 +166,8 @@ export async function eliminarDetalleOrdenAction(
   detalleId: number,
   ordenId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_eliminar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase
@@ -175,8 +185,8 @@ export async function eliminarDetalleOrdenAction(
 export async function actualizarDetalleOrdenAction(
   formData: FormData,
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = parseInt(formData.get('detalle_id') as string)
@@ -214,8 +224,8 @@ export async function vincularCajaOrdenAction(
   cajaId: number,
   cantidadCajas: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -237,8 +247,8 @@ export async function vincularMultiplesCajasOrdenAction(
   ordenId: number,
   cajas: { caja_id: number; cantidad_cajas: number }[]
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -270,8 +280,8 @@ export async function actualizarCantidadCajasOrdenAction(
   cajaId: number,
   cantidadCajas: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -295,8 +305,8 @@ export async function desvincularCajaOrdenAction(
   ordenCajaId: number,
   ordenId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_eliminar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase
@@ -342,8 +352,8 @@ async function recalcularTotalesOrden(ordenId: number): Promise<void> {
 export async function eliminarOrdenB2BAction(
   id: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireB2BPermission('puede_eliminar')
+  if (denied) return denied
 
   const supabase = await createClient()
 

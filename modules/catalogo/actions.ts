@@ -5,11 +5,21 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import sharp from 'sharp'
+import { can, type PermissionAction } from '@/lib/auth/permissions'
 
 export type ActionResult = {
   success: boolean
   error?: string
   id?: number
+}
+
+async function requireCatalogoPermission(action: PermissionAction): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+  if (!can(user, 'catalogo_productos', action)) {
+    return { success: false, error: 'No tienes permisos para modificar catalogo.' }
+  }
+  return null
 }
 
 // ── Helpers de saneo ────────────────────────────────────────
@@ -53,8 +63,8 @@ export async function checkSkuExistsAction(sku_base: string, currentId?: number)
 export async function createProductAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_crear')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -104,8 +114,8 @@ export async function createProductAction(
 export async function updateProductAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
