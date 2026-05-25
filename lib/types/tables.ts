@@ -1,5 +1,6 @@
 // lib/types/tables.ts
 import type { Database } from './database.types'
+import type { PermissionMatrix } from '@/lib/auth/permissions'
 
 type Schema = Database['inv-tienda']
 type Tables = Schema['Tables']
@@ -74,6 +75,11 @@ export type PersonaRow = Tables['personas']['Row']
 export type UsuarioConRol = UsuarioRow & {
   rol: RolRow
   permisos: UsuarioPermisoRow | null
+  effective_permissions?: PermissionMatrix
+  persona?: {
+    id: number
+    tipo_entidad: string
+  } | null
 }
 
 // ── Despachos ───────────────────────────────────────────────

@@ -21,6 +21,8 @@ type Props = {
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
   initialFeatures?: TableFeatures
+  canEdit?: boolean
+  canDelete?: boolean
 }
 
 function OrdenesTableInner({
@@ -28,6 +30,8 @@ function OrdenesTableInner({
   catalogos,
   sortKey,
   sortOrder,
+  canEdit = false,
+  canDelete = false,
 }: Props) {
   const router = useRouter()
   const ctx = useDataTableContext()
@@ -134,12 +138,12 @@ function OrdenesTableInner({
           {/* Editar */}
           <button
             title="Editar"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors", !canEdit && "hidden")}
             onClick={(e) => {
               e.stopPropagation()
               setEditingOrden(row)
             }}
-            disabled={isPending}
+            disabled={isPending || !canEdit}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -147,7 +151,7 @@ function OrdenesTableInner({
           {/* Eliminar */}
           <button
             title="Eliminar"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors hover:text-destructive"
+            className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors hover:text-destructive", !canDelete && "hidden")}
             onClick={(e) => {
               e.stopPropagation()
               if (confirm(`¿Estás seguro de eliminar la orden #${row.id}?`)) {
@@ -161,7 +165,7 @@ function OrdenesTableInner({
                 })
               }
             }}
-            disabled={isPending}
+            disabled={isPending || !canDelete}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -219,7 +223,7 @@ function OrdenesTableInner({
         }}
       />
 
-      {editingOrden && catalogos && (
+      {canEdit && editingOrden && catalogos && (
         <OrdenFormDialog
           mode="edit"
           catalogos={catalogos}

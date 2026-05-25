@@ -9,6 +9,7 @@ import type {
   CajaDetalle, CajaDetalleTC,
 } from './types'
 import type { OrdenB2BRow } from '@/lib/types/tables'
+import { getCurrentUser } from '@/modules/auth/queries'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO ÓRDENES
@@ -21,6 +22,10 @@ export async function fetchOrdenesB2B(
   const page = filtros.page ?? 1
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
+
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
 
   let query = supabase
     .from('ordenes_b2b')
@@ -38,6 +43,18 @@ export async function fetchOrdenesB2B(
         nombre_completo
       )
     `, { count: 'estimated' })
+
+  // AISLAMIENTO DE DATOS B2B
+  if (userPersona) {
+    if (userPersona.tipo_entidad === 'Cliente B2B' || userNivel === 4) {
+      query = query.eq('cliente_b2b_id', userPersona.id)
+    } else if (userPersona.tipo_entidad === 'Proveedor' || userNivel === 5) {
+      query = query.eq('proveedor_id', userPersona.id)
+    }
+  } else if (userNivel === 4 || userNivel === 5) {
+    // Si tiene el rol restringido pero no tiene persona vinculada, no mostrar nada
+    return { items: [], total: 0 }
+  }
 
   if (filtros.q) {
     query = query.ilike('folio_proveedor', `%${filtros.q}%`)
@@ -115,7 +132,11 @@ export async function fetchOrdenB2BById(
   id: number
 ): Promise<OrdenB2BListItem | null> {
   const supabase = await createClient()
-  const { data, error } = await supabase
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+
+  let query = supabase
     .from('ordenes_b2b')
     .select(`
       id, folio_proveedor, estado, moneda, tipo_cambio,
@@ -132,7 +153,19 @@ export async function fetchOrdenB2BById(
       )
     `)
     .eq('id', id)
-    .single()
+
+  // AISLAMIENTO DE DATOS B2B
+  if (userPersona) {
+    if (userPersona.tipo_entidad === 'Cliente B2B' || userNivel === 4) {
+      query = query.eq('cliente_b2b_id', userPersona.id)
+    } else if (userPersona.tipo_entidad === 'Proveedor' || userNivel === 5) {
+      query = query.eq('proveedor_id', userPersona.id)
+    }
+  } else if (userNivel === 4 || userNivel === 5) {
+    return null
+  }
+
+  const { data, error } = await query.single()
 
   if (error || !data) return null
 

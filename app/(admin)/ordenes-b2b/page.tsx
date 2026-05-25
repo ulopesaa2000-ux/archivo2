@@ -10,6 +10,9 @@ import { Pagination } from '@/components/admin/Pagination'
 import { OrdenFormDialog } from './OrdenFormDialog'
 import type { FiltrosOrdenesB2B } from '@/modules/ordenes-b2b/types'
 import type { TableFeatures } from '@/components/admin/DataTable/types'
+import { requirePermission } from '@/lib/dal'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from '@/lib/auth/permissions'
 
 type SearchParams = Promise<{
   q?: string
@@ -50,20 +53,28 @@ function ToolbarSkeleton() {
   )
 }
 
-async function OrdenesB2BToolbar() {
+async function OrdenesB2BToolbar({ puedeCrear }: { puedeCrear: boolean }) {
   const catalogos = await fetchCatalogosB2B()
 
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <OrdenFormDialog mode="create" catalogos={catalogos} />
+        {puedeCrear && <OrdenFormDialog mode="create" catalogos={catalogos} />}
       </div>
       <OrdenesFilters catalogos={catalogos} />
     </div>
   )
 }
 
-async function OrdenesB2BTable({ searchParams }: { searchParams: SearchParams }) {
+async function OrdenesB2BTable({
+  searchParams,
+  puedeEditar,
+  puedeEliminar,
+}: {
+  searchParams: SearchParams
+  puedeEditar: boolean
+  puedeEliminar: boolean
+}) {
   const filtros = await buildFiltros(searchParams)
   const [tableConfig, { items, total }, catalogos] = await Promise.all([
     fetchUserTableConfig('/ordenes-b2b'),
@@ -88,21 +99,29 @@ async function OrdenesB2BTable({ searchParams }: { searchParams: SearchParams })
         initialFeatures={features} 
         sortKey={filtros.sort_by}
         sortOrder={filtros.order}
+        canEdit={puedeEditar}
+        canDelete={puedeEliminar}
       />
       <Pagination total={total} />
     </div>
   )
 }
 
-export default function OrdenesB2BPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function OrdenesB2BPage({ searchParams }: { searchParams: SearchParams }) {
+  await requirePermission('b2b_ordenes')
+  const user = await getCurrentUser()
+  const puedeCrear = can(user, 'b2b_ordenes', 'puede_crear')
+  const puedeEditar = can(user, 'b2b_ordenes', 'puede_editar')
+  const puedeEliminar = can(user, 'b2b_ordenes', 'puede_eliminar')
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Órdenes B2B</h1>
       <Suspense fallback={<ToolbarSkeleton />}>
-        <OrdenesB2BToolbar />
+        <OrdenesB2BToolbar puedeCrear={puedeCrear} />
       </Suspense>
       <Suspense fallback={<ListPageSkeleton />}>
-        <OrdenesB2BTable searchParams={searchParams} />
+        <OrdenesB2BTable searchParams={searchParams} puedeEditar={puedeEditar} puedeEliminar={puedeEliminar} />
       </Suspense>
     </div>
   )

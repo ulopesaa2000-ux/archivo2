@@ -15,6 +15,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ImportCsvButton } from './components/ImportCsvButton'
 import { CatalogoVistaToggle } from './components/CatalogoVistaToggle'
 import { CatalogoGrid } from './components/CatalogoGrid'
+import { requirePermission } from '@/lib/dal'
+import { can } from '@/lib/auth/permissions'
+import { getCurrentUser } from '@/modules/auth/queries'
 
 export const metadata: Metadata = {
   title: 'Catálogo de Productos',
@@ -58,11 +61,13 @@ async function CatalogoData({
   sortBy, 
   order,
   vista,
+  puedeCrear,
 }: { 
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
   vista: 'grid' | 'tabla'
+  puedeCrear: boolean
 }) {
   const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
     fetchProductosCatalogo(filtros),
@@ -89,19 +94,23 @@ async function CatalogoData({
 
         <div className="flex items-center gap-2">
           <CatalogoVistaToggle />
-          <Link 
-            href="/catalogo?modal=create" 
-            scroll={false} 
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Producto
-          </Link>
-          <ImportCsvButton />
+          {puedeCrear && (
+            <>
+              <Link 
+                href="/catalogo?modal=create" 
+                scroll={false} 
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Producto
+              </Link>
+              <ImportCsvButton />
+            </>
+          )}
         </div>
       </div>
 
-      <CatalogoCreateDialog catalogos={catalogos} />
+      {puedeCrear && <CatalogoCreateDialog catalogos={catalogos} />}
 
       <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
       {vista === 'grid' ? (
@@ -130,20 +139,15 @@ function CatalogoSkeleton() {
   )
 }
 
-import { getCurrentUser } from '@/modules/auth/queries'
-import { redirect } from 'next/navigation'
-
 export default async function CatalogoPage({
   searchParams,
 }: {
   searchParams: Promise<CatalogoSearchParams>
 }) {
-  const user = await getCurrentUser()
-  if (!user) redirect('/login')
+  await requirePermission('catalogo_productos')
 
-  if ((user.rol?.nivel_acceso ?? 99) >= 3) {
-    redirect('/catalogo/catalogos')
-  }
+  const user = await getCurrentUser()
+  const puedeCrear = can(user, 'catalogo_productos', 'puede_crear')
 
   const params = await searchParams
 
@@ -169,7 +173,7 @@ export default async function CatalogoPage({
   return (
     <div className="space-y-4">
       <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} vista={vista} />
+        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} vista={vista} puedeCrear={puedeCrear} />
       </Suspense>
     </div>
   )

@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
+import { UnauthorizedToastListener } from './UnauthorizedToastListener'
 
 interface AdminLayoutClientProps {
   user: UsuarioConRol
@@ -46,6 +47,7 @@ export function AdminLayoutClient({ user, bodegas, children }: AdminLayoutClient
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
+      <UnauthorizedToastListener />
       {/* Sidebar para Desktop */}
       <Sidebar 
         user={user} 

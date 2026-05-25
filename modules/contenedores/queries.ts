@@ -9,6 +9,7 @@ import type {
   OrdenDisponible, CajaEnContenedor,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
+import { getCurrentUser } from '@/modules/auth/queries'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO (usa v_contenedor_resumen)
@@ -22,9 +23,34 @@ export async function fetchContenedores(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+
   let query = supabase
     .from('v_contenedor_resumen')
     .select('*', { count: 'exact' })
+
+  // AISLAMIENTO DE DATOS B2B
+  if (userNivel === 4 || userNivel === 5) {
+    if (!userPersona) {
+      return { items: [], total: 0 }
+    }
+
+    const { data: ordenes } = await supabase
+      .from('ordenes_b2b')
+      .select('contenedor_id')
+      .eq(userNivel === 4 ? 'cliente_b2b_id' : 'proveedor_id', userPersona.id)
+      .not('contenedor_id', 'is', null)
+
+    const contenedorIds = Array.from(new Set((ordenes ?? []).map((o: any) => o.contenedor_id).filter(Boolean))) as number[]
+
+    if (contenedorIds.length === 0) {
+      return { items: [], total: 0 }
+    }
+
+    query = query.in('contenedor_id', contenedorIds)
+  }
 
   if (filtros.q) {
     const term = `%${filtros.q}%`
@@ -68,6 +94,25 @@ export async function fetchContenedorById(
   id: number
 ): Promise<ContenedorRow | null> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const userPersona = currentUser?.persona
+  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+
+  if (userNivel === 4 || userNivel === 5) {
+    if (!userPersona) return null
+
+    const { data: ordenes } = await supabase
+      .from('ordenes_b2b')
+      .select('id')
+      .eq('contenedor_id', id)
+      .eq(userNivel === 4 ? 'cliente_b2b_id' : 'proveedor_id', userPersona.id)
+      .limit(1)
+
+    if (!ordenes || ordenes.length === 0) {
+      return null
+    }
+  }
+
   const { data, error } = await supabase
     .from('contenedores')
     .select('*')

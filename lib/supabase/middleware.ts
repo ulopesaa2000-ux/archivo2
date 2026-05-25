@@ -1,14 +1,19 @@
+// C:\Users\uriel\Downloads\enero 26\archivo2\lib\supabase\middleware.ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { permissionForPath, type PermissionAction } from '@/lib/auth/permissions'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
   '/catalogo',
   '/configuracion',
   '/contenedores',
+  '/despachos',
   '/ecommerce',
   '/inventario',
+  '/inventario-virtual',
   '/ordenes-b2b',
+  '/unauthorized',
   '/api/debug-permissions',
   '/api/debug-user',
   '/api/inventario',
@@ -40,15 +45,14 @@ export async function updateSession(request: NextRequest) {
   )
 
   const { pathname } = request.nextUrl
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  // Obtener estado de Auth desde Supabase (solo valida JWT, no si está en la DB relacional)
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const isProtectedRoute = PROTECTED_ROUTES.some(route =>
+  const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
     pathname.startsWith(route)
   )
 
-  // 1. Si no hay sesión válida y trata de acceder a lugar protegido -> a login
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
@@ -56,11 +60,23 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // IMPORTANTE: Ya NO redirigimos automáticamente de /login a /dashboard basados solo en el JWT.
-  // ¿Por qué? Porque si el usuario fue eliminado o está inactivo en la base de datos "usuarios",
-  // el JWT local seguiría diciendo "activo", causando un loop infinito entre proxy y layout.
-  // La redirección de usuarios logueados se manejará en la página principal (login/page.tsx) 
-  // usando una validación a nivel de base de datos total.
+  if (user && isProtectedRoute && pathname !== '/unauthorized') {
+    const claims = user.app_metadata?.inv_tienda_claims
+    const modulo = permissionForPath(pathname)
+
+    if (modulo && claims?.version === 2) {
+      const action: PermissionAction = 'puede_leer'
+      const isSuperAdmin = claims.permisos?.es_super_admin === true || (claims.nivel_acceso ?? 99) <= 1
+      const hasAccess = isSuperAdmin || claims.permissions?.modules?.[modulo]?.[action] === true
+
+      if (!hasAccess) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/unauthorized'
+        url.searchParams.set('from', pathname)
+        return NextResponse.redirect(url)
+      }
+    }
+  }
 
   return supabaseResponse
 }

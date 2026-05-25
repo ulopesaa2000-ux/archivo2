@@ -3,6 +3,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import type { Database } from '@/lib/types/database.types'
+import { buildPermissionMatrix } from '@/lib/auth/permissions'
 
 /**
  * Resultado tipado de las acciones de auth.
@@ -179,10 +181,13 @@ export async function syncUserClaims(authUserId: string): Promise<boolean> {
 
   try {
     const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-    const supabaseAdmin = createSupabaseClient(
+    const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       serviceRoleKey,
-      { auth: { autoRefreshToken: false, persistSession: false } }
+      {
+        auth: { autoRefreshToken: false, persistSession: false },
+        db: { schema: 'inv-tienda' },
+      }
     )
 
     // 1. Obtener usuario de inv-tienda.usuarios
@@ -221,8 +226,28 @@ export async function syncUserClaims(authUserId: string): Promise<boolean> {
       console.error('[syncUserClaims] Error al buscar permisos de usuario:', permError)
     }
 
+    // 3.5 Obtener persona vinculada si existe
+    const { data: persona } = await supabaseAdmin
+      .from('personas')
+      .select('id, tipo_entidad')
+      .eq('usuario_id', usuario.id)
+      .eq('activo', true)
+      .maybeSingle()
+
+    const { data: rolPermisos, error: rolPermisosError } = await supabaseAdmin
+      .from('rol_permisos')
+      .select('modulo, puede_leer, puede_crear, puede_editar, puede_eliminar')
+      .eq('rol_id', usuario.rol_id)
+
+    if (rolPermisosError) {
+      console.error('[syncUserClaims] Error al buscar permisos del rol:', rolPermisosError)
+    }
+
+    const effectivePermissions = buildPermissionMatrix(rolPermisos ?? [])
+
     // 4. Armar el objeto de claims personalizado
     const claims = {
+      version: 2,
       usuario_id: usuario.id,
       username: usuario.username,
       nombre_completo: usuario.nombre_completo,
@@ -238,7 +263,13 @@ export async function syncUserClaims(authUserId: string): Promise<boolean> {
         puede_ver_inventario: permisos.puede_ver_inventario,
         puede_crear_notas_inventario: permisos.puede_crear_notas_inventario,
         puede_aprobar_notas_inventario: permisos.puede_aprobar_notas_inventario,
-      } : null
+      } : null,
+      persona_id: persona?.id || null,
+      persona_tipo: persona?.tipo_entidad || null,
+      permissions: {
+        version: 2,
+        modules: effectivePermissions,
+      },
     }
 
     // 5. Actualizar app_metadata en Supabase Auth
@@ -263,4 +294,3 @@ export async function syncUserClaims(authUserId: string): Promise<boolean> {
     return false
   }
 }
-

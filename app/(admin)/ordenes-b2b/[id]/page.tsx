@@ -7,6 +7,7 @@ import { OrdenCabecera } from './components/OrdenCabecera'
 import { OrdenProductos } from './components/OrdenProductos'
 import { OrdenCajas } from './components/OrdenCajas'
 import { Separator } from '@/components/ui/separator'
+import { requirePermission } from '@/lib/dal'
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const params = await props.params
@@ -20,6 +21,8 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 }
 
 export default async function OrdenDetallePage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission('b2b_ordenes')
+
   const params = await props.params
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()
