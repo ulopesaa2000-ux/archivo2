@@ -107,9 +107,15 @@ async function OrdenesB2BTable({
   )
 }
 
+import { createClient } from '@/lib/supabase/server'
+import { getCommercialScope } from '@/lib/auth/commercial-scope'
+
 export default async function OrdenesB2BPage({ searchParams }: { searchParams: SearchParams }) {
   await requirePermission('b2b_ordenes')
   const user = await getCurrentUser()
+  const supabase = await createClient()
+  const scope = await getCommercialScope(supabase, user)
+
   const puedeCrear = can(user, 'b2b_ordenes', 'puede_crear')
   const puedeEditar = can(user, 'b2b_ordenes', 'puede_editar')
   const puedeEliminar = can(user, 'b2b_ordenes', 'puede_eliminar')

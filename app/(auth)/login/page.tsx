@@ -37,26 +37,28 @@ async function LoginContent({
 
   return (
     <>
-      <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-bold text-lg">IT</span>
+      <div className="text-center space-y-3">
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-slate-900 dark:bg-white flex items-center justify-center shadow-xl shadow-slate-900/10 dark:shadow-none animate-bounce duration-[4000ms]">
+          <span className="text-white dark:text-slate-950 font-bold text-2xl tracking-tighter">IT</span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          inv-tienda
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Panel de administración
-        </p>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            inv-tienda
+          </h1>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+            Catálogo • B2B • E-commerce
+          </p>
+        </div>
       </div>
 
       {sessionExpired && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700 text-center">
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3.5 text-sm text-amber-600 dark:text-amber-400 text-center animate-in fade-in slide-in-from-top-1 duration-200">
           Tu sesión ha expirado. Inicia sesión de nuevo.
         </div>
       )}
       
       {noProfile && (
-        <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive text-center">
+        <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3.5 text-sm text-red-600 dark:text-red-400 text-center animate-in fade-in slide-in-from-top-1 duration-200">
           Tu cuenta no tiene un perfil válido o permisos en el sistema. Contacta al administrador.
         </div>
       )}

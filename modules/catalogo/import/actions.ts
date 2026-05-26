@@ -22,13 +22,14 @@ export interface CsvProductoRow {
   tela_ext_id?: string | number | null
   tela_forro_id?: string | number | null
   persona_id?: string | number | null
-  proveedor_id?: string | number | null
+  cliente_b2b_id?: string | number | null
   pz_en_caja?: string | number
   activo?: string | boolean
   destacado?: string | boolean
   es_conjunto?: string | boolean
   estado?: string
 }
+
 
 export interface ImportItem {
   data: CsvProductoRow
@@ -187,7 +188,7 @@ export async function importProductsFromCsvAction(
           tela_ext_id: toInt(row.tela_ext_id),
           tela_forro_id: toInt(row.tela_forro_id),
           persona_id: toInt(row.persona_id),
-          proveedor_id: toInt(row.proveedor_id),
+          cliente_b2b_id: toInt(row.cliente_b2b_id),
           pz_en_caja: toInt(row.pz_en_caja) ?? 1,
           activo: toBool(row.activo),
           destacado: toBool(row.destacado),

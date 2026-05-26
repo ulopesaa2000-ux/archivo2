@@ -6,9 +6,15 @@ type Schema = Database['inv-tienda']
 type Tables = Schema['Tables']
 
 // ── Productos ───────────────────────────────────────────────
-export type ProductoRow = Tables['productos']['Row']
-export type ProductoInsert = Tables['productos']['Insert']
-export type ProductoUpdate = Tables['productos']['Update']
+export type ProductoRow = Omit<Tables['productos']['Row'], 'proveedor_id'> & {
+  cliente_b2b_id: number | null
+}
+export type ProductoInsert = Omit<Tables['productos']['Insert'], 'proveedor_id'> & {
+  cliente_b2b_id?: number | null
+}
+export type ProductoUpdate = Omit<Tables['productos']['Update'], 'proveedor_id'> & {
+  cliente_b2b_id?: number | null
+}
 export type VarianteProductoRow = Tables['variantes_producto']['Row']
 export type ProductoImagenRow = Tables['producto_imagenes']['Row']
 export type ProductoTagRow = Tables['producto_tags']['Row']
@@ -16,6 +22,11 @@ export type AcabadoProductoRow = Tables['acabado_producto']['Row']
 export type ComplementoProductoRow = Tables['complemento_producto']['Row']
 export type MedidaProductoRow = Tables['medidas_producto']['Row']
 export type ProductoConjuntoRow = Tables['producto_conjunto']['Row']
+export type ProductoB2B = ProductoRow & {
+  cliente_b2b_id: number | null
+  fabricante_id: number | null
+}
+
 
 // ── Catálogos ───────────────────────────────────────────────
 export type MarcaRow = Tables['cat_marcas']['Row']
@@ -63,6 +74,32 @@ export type CajaProductoRow = Tables['cajas_producto']['Row']
 export type CajaDetalleRow = Tables['caja_detalles']['Row']
 export type ContenedorRow = Tables['contenedores']['Row']
 
+export type UsuarioPersonaRow = {
+  id: number
+  usuario_id: string
+  persona_id: number
+  created_at: string
+}
+
+export type OrdenDetallesComentarioRow = {
+  id: number
+  orden_detalle_id: number
+  usuario_id: string
+  comentario: string
+  archivo_adjunto_url: string | null
+  created_at: string
+}
+
+export type OrdenDetalleEventoRow = {
+  id: number
+  orden_detalle_id: number
+  usuario_id: string
+  tipo_evento: string
+  datos: any
+  created_at: string
+}
+
+
 // ── Usuarios ────────────────────────────────────────────────
 export type UsuarioRow = Tables['usuarios']['Row']
 export type RolRow = Tables['roles']['Row']
@@ -70,6 +107,13 @@ export type RolPermisoRow = Tables['rol_permisos']['Row']
 export type UsuarioPermisoRow = Tables['usuario_permisos']['Row']
 export type UsuarioBodegaRow = Tables['usuario_bodegas']['Row']
 export type PersonaRow = Tables['personas']['Row']
+export type PersonaAsignadaComercial = {
+  id: number
+  nombre_completo: string
+  tipo_entidad: TipoEntidadPersona
+  rol_asignacion: string | null
+  created_at: string | null
+}
 
 // ── Compuestos ──────────────────────────────────────────────
 export type UsuarioConRol = UsuarioRow & {
@@ -80,6 +124,52 @@ export type UsuarioConRol = UsuarioRow & {
     id: number
     tipo_entidad: string
   } | null
+}
+
+export type CommercialScope = {
+  is_super_admin: boolean
+  primary_persona_id: number | null
+  primary_persona_tipo: TipoEntidadPersona | string | null
+  assigned_persona_ids: number[]
+  allowed_cliente_ids: number[]
+  allowed_proveedor_ids: number[]
+  assigned_personas: PersonaAsignadaComercial[]
+  restricts_b2b: boolean
+}
+
+export type OrdenDetalleComentario = {
+  id: number
+  orden_detalle_id: number
+  orden_id: number
+  producto_id: number | null
+  usuario_id: number
+  mensaje: string
+  archivo_adjunto_url: string | null
+  created_at: string | null
+  autor_nombre: string | null
+  autor_email: string | null
+  autor_persona_tipo: string | null
+}
+
+export type OrdenDetalleEventoTipo =
+  | 'solicitud_cambio'
+  | 'aprobacion_cambio'
+  | 'rechazo_cambio'
+  | 'cambio_estado'
+  | 'cambio_precio'
+
+export type OrdenDetalleEvento = {
+  id: number
+  orden_detalle_id: number
+  orden_id: number
+  usuario_id: number
+  tipo_evento: OrdenDetalleEventoTipo
+  comentario_id: number | null
+  payload: Record<string, unknown> | null
+  created_at: string | null
+  autor_nombre: string | null
+  autor_email: string | null
+  autor_persona_tipo: string | null
 }
 
 // ── Despachos ───────────────────────────────────────────────

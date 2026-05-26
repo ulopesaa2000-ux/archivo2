@@ -1,7 +1,7 @@
 // app/(admin)/configuracion/usuarios/page.tsx
 import type { Metadata } from 'next'
 import { Shield } from 'lucide-react'
-import { fetchUsuarios, fetchRolesConPermisos } from '@/modules/config/queries'
+import { fetchUsuarios, fetchRolesConPermisos, fetchPersonasComercialesActivas, fetchTodosUsuarioPersonas } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { UsuariosManager } from './UsuariosManager'
 
@@ -10,11 +10,14 @@ export const metadata: Metadata = {
 }
 
 export default async function UsuariosPage() {
-  const [usuarios, roles, currentUser] = await Promise.all([
+  const [usuarios, roles, currentUser, personasDisponibles, todasLasAsignaciones] = await Promise.all([
     fetchUsuarios(),
     fetchRolesConPermisos(),
     getCurrentUser(),
+    fetchPersonasComercialesActivas(),
+    fetchTodosUsuarioPersonas(),
   ])
+
 
   return (
     <div className="space-y-6">
@@ -48,7 +51,13 @@ export default async function UsuariosPage() {
       </div>
 
       {/* Manager interactivo */}
-      <UsuariosManager usuarios={usuarios} roles={roles} currentUser={currentUser} />
+      <UsuariosManager
+        usuarios={usuarios}
+        roles={roles}
+        currentUser={currentUser}
+        personasDisponibles={personasDisponibles}
+        todasLasAsignaciones={todasLasAsignaciones}
+      />
     </div>
   )
 }

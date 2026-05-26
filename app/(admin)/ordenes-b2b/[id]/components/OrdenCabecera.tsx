@@ -22,10 +22,11 @@ import { actualizarOrdenB2BAction, cambiarEstadoOrdenAction } from '@/modules/or
 import type { OrdenB2BListItem, CatalogosB2B } from '@/modules/ordenes-b2b/types'
 
 export function OrdenCabecera({
-  orden, catalogos,
+  orden, catalogos, canEdit,
 }: {
   orden: OrdenB2BListItem
   catalogos: CatalogosB2B
+  canEdit: boolean
 }) {
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
@@ -74,7 +75,7 @@ export function OrdenCabecera({
           <span className="text-foreground font-medium">Orden #{orden.id}</span>
         </div>
         <div className="flex items-center gap-2">
-          {!esTerminal && (
+          {!esTerminal && canEdit && (
             <Select onValueChange={(v: any) => { if (v) handleEstado(v) }} disabled={isPending}>
               <SelectTrigger data-testid="orden-estado-trigger" className="w-[180px] h-9 text-sm">
                 <SelectValue placeholder="Cambiar estado..." />
@@ -86,7 +87,7 @@ export function OrdenCabecera({
               </SelectContent>
             </Select>
           )}
-          {!esTerminal && !isEditing && (
+          {!esTerminal && !isEditing && canEdit && (
             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
               <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
             </Button>

@@ -8,8 +8,168 @@ import type {
   OrdenCajaResuelta, CatalogosB2B, FiltrosCajas, CajaListItem,
   CajaDetalle, CajaDetalleTC,
 } from './types'
-import type { OrdenB2BRow } from '@/lib/types/tables'
+import type {
+  OrdenB2BRow,
+  OrdenDetalleComentario,
+  OrdenDetalleEvento,
+} from '@/lib/types/tables'
 import { getCurrentUser } from '@/modules/auth/queries'
+import {
+  buildCommercialOrderFilter,
+  canAccessCommercialOrder,
+  getCommercialScope,
+} from '@/lib/auth/commercial-scope'
+
+function applyCommercialScopeToOrderQuery(query: any, scope: Awaited<ReturnType<typeof getCommercialScope>>) {
+  if (scope.is_super_admin) return query
+
+  const filter = buildCommercialOrderFilter(scope)
+  if (!filter || filter === '__no_access__.eq.true') {
+    return null
+  }
+
+  return query.or(filter)
+}
+
+function mapOrderRow(o: any): OrdenB2BListItem {
+  const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
+  const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+  const cli = Array.isArray(o.cliente) ? o.cliente[0] : o.cliente
+  return {
+    id: o.id,
+    proveedor_id: o.proveedor_id ?? null,
+    cliente_b2b_id: o.cliente_b2b_id ?? null,
+    folio_proveedor: o.folio_proveedor,
+    estado: o.estado,
+    moneda: o.moneda,
+    tipo_cambio: o.tipo_cambio,
+    total_cajas: o.total_cajas,
+    total_piezas: o.total_piezas,
+    cbm_orden: o.cbm_orden,
+    observaciones: o.observaciones,
+    fecha_orden: o.fecha_orden,
+    contenedor_id: o.contenedor_id,
+    contenedor_codigo: cont?.codigo_contenedor ?? null,
+    proveedor_nombre: prov?.nombre_completo ?? null,
+    cliente_nombre: cli?.nombre_completo ?? null,
+  }
+}
+
+async function fetchAutoresMap(supabase: any, usuarioIds: number[]) {
+  if (usuarioIds.length === 0) return new Map<number, { autor_nombre: string | null; autor_email: string | null; autor_persona_tipo: string | null }>()
+
+  const [usuariosRes, personasRes] = await Promise.all([
+    supabase.from('usuarios').select('id, nombre_completo, email').in('id', usuarioIds),
+    supabase.from('personas').select('usuario_id, tipo_entidad').in('usuario_id', usuarioIds),
+  ])
+
+  const personasByUsuario = new Map<number, string | null>(
+    (personasRes.data ?? []).map((persona: any) => [persona.usuario_id, persona.tipo_entidad ?? null])
+  )
+
+  return new Map<number, { autor_nombre: string | null; autor_email: string | null; autor_persona_tipo: string | null }>(
+    (usuariosRes.data ?? []).map((usuario: any) => [
+      usuario.id,
+      {
+        autor_nombre: usuario.nombre_completo ?? null,
+        autor_email: usuario.email ?? null,
+        autor_persona_tipo: personasByUsuario.get(usuario.id) ?? null,
+      },
+    ])
+  )
+}
+
+async function fetchDetalleConversationMap(ordenId: number) {
+  const supabase = await createClient()
+  const [detalleRowsRes, comentariosRes, eventosRes] = await Promise.all([
+    supabase
+      .from('ordenes_b2b_detalles')
+      .select('id, orden_id, producto_id')
+      .eq('orden_id', ordenId),
+    (((supabase as any).from('orden_detalles_comentarios')) as any)
+      .select('id, orden_detalle_id, usuario_id, mensaje, archivo_adjunto_url, created_at')
+      .order('created_at', { ascending: true }),
+    (((supabase as any).from('orden_detalle_eventos')) as any)
+      .select('id, orden_detalle_id, usuario_id, tipo_evento, comentario_id, payload, created_at')
+      .order('created_at', { ascending: true }),
+  ])
+
+  const detalleRows = detalleRowsRes.data ?? []
+  const detalleMap = new Map<number, { orden_id: number; producto_id: number | null }>(
+    detalleRows.map((detalle) => [detalle.id, { orden_id: detalle.orden_id ?? ordenId, producto_id: detalle.producto_id ?? null }])
+  )
+
+  const comentariosData = comentariosRes.error?.code === '42P01' || comentariosRes.error?.code === 'PGRST205'
+    ? []
+    : (comentariosRes.data ?? []).filter((comentario: any) => detalleMap.has(comentario.orden_detalle_id))
+
+  const eventosData = eventosRes.error?.code === '42P01' || eventosRes.error?.code === 'PGRST205'
+    ? []
+    : (eventosRes.data ?? []).filter((evento: any) => detalleMap.has(evento.orden_detalle_id))
+
+  const autores = await fetchAutoresMap(
+    supabase,
+    Array.from(new Set([
+      ...comentariosData.map((comentario: any) => comentario.usuario_id),
+      ...eventosData.map((evento: any) => evento.usuario_id),
+    ]))
+  )
+
+  const comentariosPorDetalle = new Map<number, OrdenDetalleComentario[]>()
+  for (const comentario of comentariosData) {
+    const detalle = detalleMap.get(comentario.orden_detalle_id)
+    if (!detalle) continue
+
+    const autor = autores.get(comentario.usuario_id)
+    const item: OrdenDetalleComentario = {
+      id: comentario.id,
+      orden_detalle_id: comentario.orden_detalle_id,
+      orden_id: detalle.orden_id,
+      producto_id: detalle.producto_id,
+      usuario_id: comentario.usuario_id,
+      mensaje: comentario.mensaje,
+      archivo_adjunto_url: comentario.archivo_adjunto_url ?? null,
+      created_at: comentario.created_at ?? null,
+      autor_nombre: autor?.autor_nombre ?? null,
+      autor_email: autor?.autor_email ?? null,
+      autor_persona_tipo: autor?.autor_persona_tipo ?? null,
+    }
+
+    const items = comentariosPorDetalle.get(comentario.orden_detalle_id) ?? []
+    items.push(item)
+    comentariosPorDetalle.set(comentario.orden_detalle_id, items)
+  }
+
+  const eventosPorDetalle = new Map<number, OrdenDetalleEvento[]>()
+  for (const evento of eventosData) {
+    const detalle = detalleMap.get(evento.orden_detalle_id)
+    if (!detalle) continue
+
+    const autor = autores.get(evento.usuario_id)
+    const item: OrdenDetalleEvento = {
+      id: evento.id,
+      orden_detalle_id: evento.orden_detalle_id,
+      orden_id: detalle.orden_id,
+      usuario_id: evento.usuario_id,
+      tipo_evento: evento.tipo_evento,
+      comentario_id: evento.comentario_id ?? null,
+      payload: (evento.payload as Record<string, unknown> | null) ?? null,
+      created_at: evento.created_at ?? null,
+      autor_nombre: autor?.autor_nombre ?? null,
+      autor_email: autor?.autor_email ?? null,
+      autor_persona_tipo: autor?.autor_persona_tipo ?? null,
+    }
+
+    const items = eventosPorDetalle.get(evento.orden_detalle_id) ?? []
+    items.push(item)
+    eventosPorDetalle.set(evento.orden_detalle_id, items)
+  }
+
+  return {
+    comentariosPorDetalle,
+    eventosPorDetalle,
+  }
+}
 
 // ════════════════════════════════════════════════════════════
 // LISTADO ÓRDENES
@@ -24,13 +184,12 @@ export async function fetchOrdenesB2B(
   const to = from + PAGE_SIZE - 1
 
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  let query = supabase
+  let query: any = supabase
     .from('ordenes_b2b')
     .select(`
-      id, folio_proveedor, estado, moneda, tipo_cambio,
+      id, proveedor_id, cliente_b2b_id, folio_proveedor, estado, moneda, tipo_cambio,
       total_cajas, total_piezas, cbm_orden, observaciones,
       fecha_orden, contenedor_id,
       contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
@@ -44,15 +203,8 @@ export async function fetchOrdenesB2B(
       )
     `, { count: 'estimated' })
 
-  // AISLAMIENTO DE DATOS B2B
-  if (userPersona) {
-    if (userPersona.tipo_entidad === 'Cliente B2B' || userNivel === 4) {
-      query = query.eq('cliente_b2b_id', userPersona.id)
-    } else if (userPersona.tipo_entidad === 'Proveedor' || userNivel === 5) {
-      query = query.eq('proveedor_id', userPersona.id)
-    }
-  } else if (userNivel === 4 || userNivel === 5) {
-    // Si tiene el rol restringido pero no tiene persona vinculada, no mostrar nada
+  query = applyCommercialScopeToOrderQuery(query, scope)
+  if (!query) {
     return { items: [], total: 0 }
   }
 
@@ -99,27 +251,7 @@ export async function fetchOrdenesB2B(
     return { items: [], total: 0 }
   }
 
-  const items: OrdenB2BListItem[] = (data ?? []).map((o: any) => {
-    const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
-    const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
-    const cli = Array.isArray(o.cliente) ? o.cliente[0] : o.cliente
-    return {
-      id: o.id,
-      folio_proveedor: o.folio_proveedor,
-      estado: o.estado,
-      moneda: o.moneda,
-      tipo_cambio: o.tipo_cambio,
-      total_cajas: o.total_cajas,
-      total_piezas: o.total_piezas,
-      cbm_orden: o.cbm_orden,
-      observaciones: o.observaciones,
-      fecha_orden: o.fecha_orden,
-      contenedor_id: o.contenedor_id,
-      contenedor_codigo: cont?.codigo_contenedor ?? null,
-      proveedor_nombre: prov?.nombre_completo ?? null,
-      cliente_nombre: cli?.nombre_completo ?? null,
-    }
-  })
+  const items: OrdenB2BListItem[] = (data ?? []).map(mapOrderRow)
 
   return { items, total: count ?? 0 }
 }
@@ -133,13 +265,12 @@ export async function fetchOrdenB2BById(
 ): Promise<OrdenB2BListItem | null> {
   const supabase = await createClient()
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  let query = supabase
+  let query: any = supabase
     .from('ordenes_b2b')
     .select(`
-      id, folio_proveedor, estado, moneda, tipo_cambio,
+      id, proveedor_id, cliente_b2b_id, folio_proveedor, estado, moneda, tipo_cambio,
       total_cajas, total_piezas, cbm_orden, observaciones,
       fecha_orden, contenedor_id,
       contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
@@ -154,42 +285,22 @@ export async function fetchOrdenB2BById(
     `)
     .eq('id', id)
 
-  // AISLAMIENTO DE DATOS B2B
-  if (userPersona) {
-    if (userPersona.tipo_entidad === 'Cliente B2B' || userNivel === 4) {
-      query = query.eq('cliente_b2b_id', userPersona.id)
-    } else if (userPersona.tipo_entidad === 'Proveedor' || userNivel === 5) {
-      query = query.eq('proveedor_id', userPersona.id)
-    }
-  } else if (userNivel === 4 || userNivel === 5) {
+  query = applyCommercialScopeToOrderQuery(query, scope)
+  if (!query) {
     return null
   }
 
   const { data, error } = await query.single()
 
   if (error || !data) return null
-
-  const o: any = data
-  const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
-  const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
-  const cli = Array.isArray(o.cliente) ? o.cliente[0] : o.cliente
-
-  return {
-    id: o.id, folio_proveedor: o.folio_proveedor, estado: o.estado,
-    moneda: o.moneda, tipo_cambio: o.tipo_cambio,
-    total_cajas: o.total_cajas, total_piezas: o.total_piezas,
-    cbm_orden: o.cbm_orden, observaciones: o.observaciones,
-    fecha_orden: o.fecha_orden, contenedor_id: o.contenedor_id,
-    contenedor_codigo: cont?.codigo_contenedor ?? null,
-    proveedor_nombre: prov?.nombre_completo ?? null,
-    cliente_nombre: cli?.nombre_completo ?? null,
-  }
+  return mapOrderRow(data)
 }
 
 export async function fetchOrdenDetalles(
   ordenId: number
 ): Promise<OrdenDetalleResuelto[]> {
   const supabase = await createClient()
+  const conversation = await fetchDetalleConversationMap(ordenId)
   const { data, error } = await supabase
     .from('ordenes_b2b_detalles')
     .select(`
@@ -225,8 +336,42 @@ export async function fetchOrdenDetalles(
       cbm_detalle: d.cbm_detalle,
       peso_bruto_kg: d.peso_bruto_kg,
       estado_producto: d.estado_producto,
+      comentarios: conversation.comentariosPorDetalle.get(d.id) ?? [],
+      eventos: conversation.eventosPorDetalle.get(d.id) ?? [],
     }
   })
+}
+
+export async function fetchDetalleComentarios(
+  ordenDetalleId: number
+): Promise<OrdenDetalleComentario[]> {
+  const supabase = await createClient()
+  const { data: detalle } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('orden_id')
+    .eq('id', ordenDetalleId)
+    .single()
+
+  if (!detalle?.orden_id) return []
+
+  const conversation = await fetchDetalleConversationMap(detalle.orden_id)
+  return conversation.comentariosPorDetalle.get(ordenDetalleId) ?? []
+}
+
+export async function fetchDetalleEventos(
+  ordenDetalleId: number
+): Promise<OrdenDetalleEvento[]> {
+  const supabase = await createClient()
+  const { data: detalle } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('orden_id')
+    .eq('id', ordenDetalleId)
+    .single()
+
+  if (!detalle?.orden_id) return []
+
+  const conversation = await fetchDetalleConversationMap(detalle.orden_id)
+  return conversation.eventosPorDetalle.get(ordenDetalleId) ?? []
 }
 
 export async function fetchOrdenCajas(
@@ -317,20 +462,40 @@ export async function fetchOrdenCajas(
 
 export async function fetchCatalogosB2B(): Promise<CatalogosB2B> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
+
+  let proveedoresQuery: any = supabase
+    .from('personas')
+    .select('id, nombre_completo')
+    .eq('tipo_entidad', 'Proveedor')
+    .eq('activo', true)
+    .order('nombre_completo')
+
+  let clientesQuery: any = supabase
+    .from('personas')
+    .select('id, nombre_completo')
+    .eq('tipo_entidad', 'Cliente B2B')
+    .eq('activo', true)
+    .order('nombre_completo')
+
+  if (!scope.is_super_admin) {
+    if (scope.allowed_proveedor_ids.length === 0) {
+      proveedoresQuery = null
+    } else {
+      proveedoresQuery = proveedoresQuery.in('id', scope.allowed_proveedor_ids)
+    }
+
+    if (scope.allowed_cliente_ids.length === 0) {
+      clientesQuery = null
+    } else {
+      clientesQuery = clientesQuery.in('id', scope.allowed_cliente_ids)
+    }
+  }
 
   const [provRes, cliRes] = await Promise.all([
-    supabase
-      .from('personas')
-      .select('id, nombre_completo')
-      .eq('tipo_entidad', 'Proveedor')
-      .eq('activo', true)
-      .order('nombre_completo'),
-    supabase
-      .from('personas')
-      .select('id, nombre_completo')
-      .eq('tipo_entidad', 'Cliente B2B')
-      .eq('activo', true)
-      .order('nombre_completo'),
+    proveedoresQuery ?? Promise.resolve({ data: [], error: null }),
+    clientesQuery ?? Promise.resolve({ data: [], error: null }),
   ])
 
   if (provRes.error) {
@@ -370,8 +535,7 @@ export async function fetchCajasListado(
   const to = from + PAGE_SIZE - 1
 
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
   // Query base desde cajas_producto con JOINs
   let query = supabase
@@ -389,43 +553,38 @@ export async function fetchCajasListado(
     `, { count: 'exact' })
     .or('activo.is.null,activo.eq.true')
 
-  // AISLAMIENTO DE DATOS B2B
-  if (userNivel === 4 || userNivel === 5) {
-    if (!userPersona) {
+  if (!scope.is_super_admin) {
+    const clauses: string[] = []
+
+    if (scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    }
+
+    if (scope.allowed_cliente_ids.length > 0) {
+      const clientFilter = scope.allowed_cliente_ids.join(',')
+      const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
+        .select('id')
+        .or(`cliente_b2b_id.in.(${clientFilter})`)
+
+      const ordenIds = (ordenes ?? []).map((orden: any) => orden.id)
+      if (ordenIds.length > 0) {
+        const { data: ordenCajas } = await supabase
+          .from('orden_cajas')
+          .select('caja_id')
+          .in('orden_id', ordenIds)
+
+        const cajaIds = Array.from(new Set((ordenCajas ?? []).map((item) => item.caja_id).filter(Boolean))) as number[]
+        if (cajaIds.length > 0) {
+          clauses.push(`id.in.(${cajaIds.join(',')})`)
+        }
+      }
+    }
+
+    if (clauses.length === 0) {
       return { items: [], total: 0 }
     }
 
-    if (userNivel === 5) {
-      // Proveedor: cajas de su propiedad
-      query = query.eq('proveedor_id', userPersona.id)
-    } else {
-      // Cliente B2B: cajas vinculadas a sus órdenes
-      const { data: ordenes } = await supabase
-        .from('ordenes_b2b')
-        .select('id')
-        .eq('cliente_b2b_id', userPersona.id)
-
-      if (!ordenes || ordenes.length === 0) {
-        return { items: [], total: 0 }
-      }
-
-      const ordenIds = ordenes.map((o) => o.id)
-      const { data: ordenCajas } = await supabase
-        .from('orden_cajas')
-        .select('caja_id')
-        .in('orden_id', ordenIds)
-
-      if (!ordenCajas || ordenCajas.length === 0) {
-        return { items: [], total: 0 }
-      }
-
-      const cajaIds = Array.from(new Set(ordenCajas.map((oc) => oc.caja_id).filter(Boolean))) as number[]
-      if (cajaIds.length === 0) {
-        return { items: [], total: 0 }
-      }
-
-      query = query.in('id', cajaIds)
-    }
+    query = query.or(clauses.join(','))
   }
 
   if (filtros.q) {
@@ -480,42 +639,38 @@ export async function fetchCajaDetalle(
 ): Promise<CajaDetalle | null> {
   const supabase = await createClient()
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  // AISLAMIENTO DE DATOS B2B
-  if (userNivel === 4 || userNivel === 5) {
-    if (!userPersona) return null
+  if (!scope.is_super_admin) {
+    const { data: cajaBase } = await supabase
+      .from('cajas_producto')
+      .select('id, proveedor_id')
+      .eq('id', cajaId)
+      .single()
 
-    if (userNivel === 5) {
-      // Proveedor: la caja debe ser de este proveedor
-      const { data: check } = await supabase
-        .from('cajas_producto')
+    if (!cajaBase) return null
+
+    let allowed = scope.allowed_proveedor_ids.includes(cajaBase.proveedor_id ?? -1)
+
+    if (!allowed && scope.allowed_cliente_ids.length > 0) {
+      const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
         .select('id')
-        .eq('id', cajaId)
-        .eq('proveedor_id', userPersona.id)
-        .limit(1)
+        .or(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
 
-      if (!check || check.length === 0) return null
-    } else {
-      // Cliente B2B: la caja debe estar en alguna de sus órdenes
-      const { data: ordenes } = await supabase
-        .from('ordenes_b2b')
-        .select('id')
-        .eq('cliente_b2b_id', userPersona.id)
+      const ordenIds = (ordenes ?? []).map((orden: any) => orden.id)
+      if (ordenIds.length > 0) {
+        const { data: check } = await supabase
+          .from('orden_cajas')
+          .select('id')
+          .eq('caja_id', cajaId)
+          .in('orden_id', ordenIds)
+          .limit(1)
 
-      if (!ordenes || ordenes.length === 0) return null
-
-      const ordenIds = ordenes.map((o) => o.id)
-      const { data: check } = await supabase
-        .from('orden_cajas')
-        .select('id')
-        .eq('caja_id', cajaId)
-        .in('orden_id', ordenIds)
-        .limit(1)
-
-      if (!check || check.length === 0) return null
+        allowed = Boolean(check && check.length > 0)
+      }
     }
+
+    if (!allowed) return null
   }
 
   const { data: caja, error } = await supabase

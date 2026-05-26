@@ -294,3 +294,119 @@ export async function syncUserClaims(authUserId: string): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * Server Action estructurado para registrar un nuevo usuario de ecommerce (Cliente Retail).
+ */
+export async function registerAction(
+  prevState: AuthResult,
+  formData: FormData
+): Promise<AuthResult> {
+  console.log('[Server] registerAction llamado')
+  const nombreCompleto = formData.get('nombre_completo') as string
+  const email = formData.get('email') as string
+  const telefono = formData.get('telefono') as string
+  const password = formData.get('password') as string
+  const confirmPassword = formData.get('confirm_password') as string
+  const redirectTo = formData.get('redirectTo') as string || '/dashboard'
+
+  if (!nombreCompleto || !email || !password || !confirmPassword) {
+    return { success: false, error: 'Todos los campos excepto el teléfono son obligatorios.' }
+  }
+
+  if (password !== confirmPassword) {
+    return { success: false, error: 'Las contraseñas no coinciden.' }
+  }
+
+  const cleanEmail = email.trim().toLowerCase()
+  const cleanNombre = nombreCompleto.trim()
+  const cleanTelefono = telefono?.trim() || null
+
+  const supabase = await createClient()
+
+  // 1. Intentar el registro en Supabase Auth
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email: cleanEmail,
+    password,
+    options: {
+      data: {
+        nombre_completo: cleanNombre,
+        telefono: cleanTelefono,
+        rol: 'Cliente B2B Lectura'
+      }
+    }
+  })
+
+  if (authError) {
+    console.error('[Register] Error en signUp:', authError.message)
+    const mensajesAuth: Record<string, string> = {
+      'User already registered': 'El correo electrónico ya está registrado.',
+      'Password should be at least 6 characters': 'La contraseña debe tener al menos 6 caracteres.',
+      'Signup requires a valid email': 'Ingresa un correo electrónico válido.',
+    }
+    return {
+      success: false,
+      error: mensajesAuth[authError.message] || authError.message || 'Error al crear la cuenta. Intenta de nuevo.',
+    }
+  }
+
+  if (!authData?.user) {
+    return { success: false, error: 'No se pudo crear la cuenta de usuario.' }
+  }
+
+  // Esperar un momento corto para que el trigger handle_new_user_tenant cree el usuario
+  // y luego buscarlo en la tabla usuarios para vincular la persona.
+  let usuario = null
+  for (let i = 0; i < 5; i++) {
+    const { data: usuarioData } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('auth_user_id', authData.user.id)
+      .maybeSingle()
+
+    if (usuarioData) {
+      usuario = usuarioData
+      break
+    }
+    // Pequeño delay de 200ms
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+
+  if (!usuario) {
+    console.error('[Register] No se encontró el registro de usuario en inv-tienda.usuarios después de 1 segundo')
+    return {
+      success: true, // Se creó en Auth
+      error: 'Tu cuenta ha sido creada en el sistema con éxito, pero por favor inicia sesión de forma manual.',
+    }
+  }
+
+  // 2. Crear el registro en la tabla personas
+  const { error: personaError } = await supabase
+    .from('personas')
+    .insert({
+      tipo_entidad: 'Cliente Retail',
+      nombre_completo: cleanNombre,
+      email_contacto: cleanEmail,
+      telefono_contacto: cleanTelefono,
+      usuario_id: usuario.id,
+      activo: true
+    })
+
+  if (personaError) {
+    console.error('[Register] Error al insertar en la tabla personas:', personaError.message)
+    // No bloqueamos porque el usuario ya está creado en Auth y en usuarios.
+  }
+
+  // 3. Autologuear iniciando sesión para que no tenga que escribir sus credenciales
+  const loginResult = await signIn(cleanEmail, password)
+  if (!loginResult.success) {
+    return {
+      success: true,
+      error: 'Cuenta creada con éxito, pero debes iniciar sesión manualmente con tus datos.',
+    }
+  }
+
+  // Redirigir a donde corresponda
+  redirect(redirectTo)
+}
+

@@ -1,6 +1,9 @@
 // modules/ordenes-b2b/types.ts
-
-import type { PersonaRow } from '@/lib/types/tables'
+import type {
+  OrdenDetalleComentario,
+  OrdenDetalleEvento,
+  PersonaRow,
+} from '@/lib/types/tables'
 
 // ── Filtros ─────────────────────────────────────────────────
 export type FiltrosOrdenesB2B = {
@@ -26,6 +29,8 @@ export type FiltrosCajas = {
 // ── Orden en listado ────────────────────────────────────────
 export type OrdenB2BListItem = {
   id: number
+  proveedor_id?: number | null
+  cliente_b2b_id?: number | null
   folio_proveedor: string | null
   estado: string | null
   moneda: string
@@ -61,6 +66,8 @@ export type OrdenDetalleResuelto = {
   cbm_detalle: number | null
   peso_bruto_kg: number | null
   estado_producto: string | null
+  comentarios?: OrdenDetalleComentario[]
+  eventos?: OrdenDetalleEvento[]
 }
 
 // ── Caja vinculada a orden ──────────────────────────────────

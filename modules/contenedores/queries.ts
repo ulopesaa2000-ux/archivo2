@@ -10,6 +10,7 @@ import type {
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { buildCommercialOrderFilter, getCommercialScope } from '@/lib/auth/commercial-scope'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO (usa v_contenedor_resumen)
@@ -24,23 +25,21 @@ export async function fetchContenedores(
   const to = from + PAGE_SIZE - 1
 
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
   let query = supabase
     .from('v_contenedor_resumen')
     .select('*', { count: 'exact' })
 
-  // AISLAMIENTO DE DATOS B2B
-  if (userNivel === 4 || userNivel === 5) {
-    if (!userPersona) {
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') {
       return { items: [], total: 0 }
     }
 
-    const { data: ordenes } = await supabase
-      .from('ordenes_b2b')
+    const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
       .select('contenedor_id')
-      .eq(userNivel === 4 ? 'cliente_b2b_id' : 'proveedor_id', userPersona.id)
+      .or(orderFilter)
       .not('contenedor_id', 'is', null)
 
     const contenedorIds = Array.from(new Set((ordenes ?? []).map((o: any) => o.contenedor_id).filter(Boolean))) as number[]
@@ -95,17 +94,16 @@ export async function fetchContenedorById(
 ): Promise<ContenedorRow | null> {
   const supabase = await createClient()
   const currentUser = await getCurrentUser()
-  const userPersona = currentUser?.persona
-  const userNivel = currentUser?.rol?.nivel_acceso ?? 99
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  if (userNivel === 4 || userNivel === 5) {
-    if (!userPersona) return null
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return null
 
-    const { data: ordenes } = await supabase
-      .from('ordenes_b2b')
+    const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
       .select('id')
       .eq('contenedor_id', id)
-      .eq(userNivel === 4 ? 'cliente_b2b_id' : 'proveedor_id', userPersona.id)
+      .or(orderFilter)
       .limit(1)
 
     if (!ordenes || ordenes.length === 0) {
@@ -141,10 +139,13 @@ export async function fetchOrdenesDeContenedor(
   contenedorId: number
 ): Promise<OrdenEnContenedor[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
+
+  let query: any = supabase
     .from('ordenes_b2b')
     .select(`
-      id, folio_proveedor, estado, moneda, tipo_cambio, observaciones,
+      id, cliente_b2b_id, proveedor_id, folio_proveedor, estado, moneda, tipo_cambio, observaciones,
       total_cajas, total_piezas, cbm_orden, fecha_orden,
       proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo),
       cliente:personas!ordenes_b2b_cliente_b2b_id_fkey (nombre_completo),
@@ -152,6 +153,14 @@ export async function fetchOrdenesDeContenedor(
     `)
     .eq('contenedor_id', contenedorId)
     .order('id')
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
+    query = query.or(orderFilter)
+  }
+
+  const { data, error } = await query
 
   if (error || !data) return []
 
@@ -215,11 +224,13 @@ export async function fetchOrdenesDisponibles(
   q?: string,
 ): Promise<OrdenDisponible[]> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  let query = supabase
+  let query: any = supabase
     .from('ordenes_b2b')
     .select(`
-      id, folio_proveedor, estado, moneda,
+      id, cliente_b2b_id, proveedor_id, folio_proveedor, estado, moneda,
       total_cajas, total_piezas, fecha_orden, contenedor_id,
       proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
     `)
@@ -227,6 +238,12 @@ export async function fetchOrdenesDisponibles(
     .neq('estado', 'Cancelada')
     .order('fecha_orden', { ascending: false })
     .limit(50)
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
+    query = query.or(`${orderFilter},contenedor_id.is.null,contenedor_id.eq.${contenedorId}`)
+  }
 
   if (q) {
     const term = `%${q}%`

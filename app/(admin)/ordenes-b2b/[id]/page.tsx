@@ -8,6 +8,8 @@ import { OrdenProductos } from './components/OrdenProductos'
 import { OrdenCajas } from './components/OrdenCajas'
 import { Separator } from '@/components/ui/separator'
 import { requirePermission } from '@/lib/dal'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from '@/lib/auth/permissions'
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const params = await props.params
@@ -27,6 +29,7 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()
 
+  const currentUser = await getCurrentUser()
   const orden = await fetchOrdenB2BById(id)
   if (!orden) notFound()
 
@@ -40,7 +43,11 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
   return (
     <div className="space-y-6">
       {/* Hero / Cabecera */}
-      <OrdenCabecera orden={orden} catalogos={catalogos} />
+      <OrdenCabecera
+        orden={orden}
+        catalogos={catalogos}
+        canEdit={Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_editar'))}
+      />
 
       <Separator />
 
@@ -66,7 +73,12 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
         </TabsContent>
 
         <TabsContent value="productos" className="mt-4">
-          <OrdenProductos detalles={detalles} ordenId={id} />
+          <OrdenProductos
+            detalles={detalles}
+            ordenId={id}
+            canEdit={Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_editar'))}
+            canComment={Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_leer'))}
+          />
         </TabsContent>
       </Tabs>
     </div>
