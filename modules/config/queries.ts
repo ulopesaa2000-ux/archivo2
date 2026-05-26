@@ -3,6 +3,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { RolConPermisos, UsuarioConDetalle, PermisoModulo, ModuloPermiso } from './types'
+import { fetchAssignedCommercialPersonas } from '@/lib/auth/commercial-scope'
+import type { PersonaAsignadaComercial } from '@/lib/types/tables'
 
 type RolBaseRow = {
   id: number
@@ -107,3 +109,47 @@ export async function fetchRolesConPermisos(): Promise<RolConPermisos[]> {
     permisos:     permisosMap.get(r.id) ?? [],
   }))
 }
+
+export async function fetchAssignedPersonas(usuarioId: number): Promise<PersonaAsignadaComercial[]> {
+  const supabase = await createClient()
+  return fetchAssignedCommercialPersonas(supabase, usuarioId)
+}
+
+import type { PersonaRow } from '@/lib/types/tables'
+
+/** Trae todas las personas activas de tipo Cliente B2B o Proveedor */
+export async function fetchPersonasComercialesActivas(): Promise<PersonaRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('personas')
+    .select('*')
+    .in('tipo_entidad', ['Cliente B2B', 'Proveedor'])
+    .eq('activo', true)
+    .order('nombre_completo')
+
+  if (error || !data) {
+    console.error('[fetchPersonasComercialesActivas] error:', error)
+    return []
+  }
+  return data as PersonaRow[]
+}
+
+/** Trae todas las filas de usuario_personas para visualización de alcance en la lista */
+export async function fetchTodosUsuarioPersonas(): Promise<{ usuario_id: number; persona_id: number }[]> {
+  const supabase = await createClient()
+  const { data, error } = await (supabase.from('usuario_personas' as any) as any)
+    .select('usuario_id, persona_id')
+
+  if (error || !data) {
+    console.error('[fetchTodosUsuarioPersonas] error:', error ? {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    } : 'No data')
+    return []
+  }
+  return data
+}
+
+

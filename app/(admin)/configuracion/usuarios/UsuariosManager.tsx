@@ -23,9 +23,10 @@ import type {
 import { NuevoUsuarioModal } from '@/app/(admin)/configuracion/usuarios/NuevoUsuarioModal'
 import { CambiarPasswordModal } from '@/app/(admin)/configuracion/usuarios/CambiarPasswordModal'
 import { SincronizarUsuarioModal } from '@/app/(admin)/configuracion/usuarios/SincronizarUsuarioModal'
+import { AsignarClientesModal } from '@/app/(admin)/configuracion/usuarios/AsignarClientesModal'
 
 import { toast } from 'sonner'
-import type { UsuarioConRol } from '@/lib/types/tables'
+import type { UsuarioConRol, PersonaRow } from '@/lib/types/tables'
 
 const NIVEL_COLORS: Record<number, string> = {
   1: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
@@ -51,14 +52,20 @@ function UsuarioRow({
   usuario,
   roles,
   isCurrentUserSuperAdmin,
+  personasDisponibles,
+  todasLasAsignaciones,
 }: {
   usuario: UsuarioConDetalle
   roles: RolConPermisos[]
   isCurrentUserSuperAdmin: boolean
+  personasDisponibles: PersonaRow[]
+  todasLasAsignaciones: { usuario_id: number; persona_id: number }[]
 }) {
   const [isPendingActivo, startActivo] = useTransition()
   const [isPendingRol, startRol] = useTransition()
   const [activoOpt, setActivoOpt] = useState(usuario.activo)
+
+  const totalAsignaciones = todasLasAsignaciones.filter(a => a.usuario_id === usuario.id).length
 
   const handleToggleActivo = () => {
     const next = !activoOpt
@@ -112,6 +119,12 @@ function UsuarioRow({
                 Sin vincular
               </span>
             )}
+            {/* BADGE DE ASIGNACIONES B2B */}
+            {totalAsignaciones > 0 && (
+              <span className="inline-flex items-center rounded-full bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 ring-1 ring-inset ring-indigo-500/20">
+                {totalAsignaciones} empresa{totalAsignaciones !== 1 ? 's' : ''}
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted-foreground truncate">{usuario.email}</p>
         </div>
@@ -119,6 +132,15 @@ function UsuarioRow({
 
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-3 ml-12 sm:ml-0">
+
+        {/* Asignar Clientes/Proveedores (solo si está verificado y no es Super Admin) */}
+        {usuario.auth_user_id && !isSuperAdmin && isCurrentUserSuperAdmin && (
+          <AsignarClientesModal
+            usuarioId={usuario.id}
+            nombreUsuario={displayName}
+            personasDisponibles={personasDisponibles}
+          />
+        )}
 
         {/* Validar Sincronización Auth vs Cambiar Contraseña */}
         {!usuario.auth_user_id && isCurrentUserSuperAdmin && usuario.email ? (
@@ -199,10 +221,14 @@ export function UsuariosManager({
   usuarios,
   roles,
   currentUser,
+  personasDisponibles,
+  todasLasAsignaciones,
 }: {
   usuarios: UsuarioConDetalle[]
   roles: RolConPermisos[]
   currentUser: UsuarioConRol | null
+  personasDisponibles: PersonaRow[]
+  todasLasAsignaciones: { usuario_id: number; persona_id: number }[]
 }) {
   const isCurrentUserSuperAdmin = currentUser?.rol?.nivel_acceso === 1
   const currentUserLevel = currentUser?.rol?.nivel_acceso ?? 99
@@ -254,6 +280,8 @@ export function UsuariosManager({
                 usuario={u}
                 roles={visibleRoles}
                 isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
+                personasDisponibles={personasDisponibles}
+                todasLasAsignaciones={todasLasAsignaciones}
               />
             ))}
           </div>

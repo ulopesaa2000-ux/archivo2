@@ -185,6 +185,7 @@ export const AÑOS_DISPONIBLES = [2020, 2021, 2022, 2023, 2024, 2025, 2026] as c
 
 // ── Monedas ─────────────────────────────────────────────────
 export const MONEDAS = ['USD', 'MXN', 'CNY'] as const
+export const B2B_CHAT_ATTACHMENTS_BUCKET = 'b2b_chat_attachments' as const
 
 // ── Catálogo Maestro de Tallas (Cacheado) ────────────────────
 export const CAT_TALLAS_MAESTRO = [

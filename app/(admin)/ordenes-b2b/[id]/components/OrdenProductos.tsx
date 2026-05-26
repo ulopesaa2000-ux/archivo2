@@ -1,18 +1,19 @@
 // app/(admin)/ordenes-b2b/[id]/components/OrdenProductos.tsx
 'use client'
 
-import { useState, useTransition, useEffect, useCallback } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { Trash2, Loader2, Package, Plus, Pencil, Save, X, Search, AlertCircle } from 'lucide-react'
+import { Trash2, Loader2, Package, Plus, Pencil, Save, X, Search, AlertCircle, MessageSquare, Paperclip, CheckCircle2, Clock3 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { ESTADO_DETALLE_B2B_COLORS } from '@/lib/constants'
-import { eliminarDetalleOrdenAction, agregarDetalleOrdenAction, actualizarDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
+import { ESTADO_DETALLE_B2B_COLORS, ESTADOS_DETALLE_B2B } from '@/lib/constants'
+import { eliminarDetalleOrdenAction, agregarDetalleOrdenAction, actualizarDetalleOrdenAction, crearComentarioDetalleOrdenAction, registrarEventoDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
 import { fetchProductosBusqueda } from '@/modules/ordenes-b2b/queries'
 import { useDebouncedCallback } from 'use-debounce'
 import { cn } from '@/lib/utils'
@@ -46,7 +47,9 @@ function AgregarProductoDialog({
     } catch { setResults([]) } finally { setLoading(false) }
   }, 300)
 
-  useEffect(() => { if (open) { setSearch(''); debouncedSearch('') } }, [open])
+  useEffect(() => {
+    if (open) debouncedSearch('')
+  }, [debouncedSearch, open])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -140,14 +143,265 @@ function AgregarProductoDialog({
   )
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  solicitud_cambio: 'Solicitud de cambio',
+  aprobacion_cambio: 'Cambio aprobado',
+  rechazo_cambio: 'Cambio rechazado',
+  cambio_estado: 'Estado actualizado',
+  cambio_precio: 'Precio actualizado',
+}
+
+function DetalleConversationDialog({
+  detalle,
+  open,
+  onOpenChange,
+  canComment,
+  canEdit,
+}: {
+  detalle: OrdenDetalleResuelto | null
+  open: boolean
+  onOpenChange: (value: boolean) => void
+  canComment: boolean
+  canEdit: boolean
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [message, setMessage] = useState('')
+  const [commentError, setCommentError] = useState<string | null>(null)
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [eventType, setEventType] = useState<'solicitud_cambio' | 'aprobacion_cambio' | 'rechazo_cambio' | 'cambio_estado' | 'cambio_precio'>('solicitud_cambio')
+  const [estadoProducto, setEstadoProducto] = useState(detalle?.estado_producto ?? 'Pendiente')
+  const [precioUnitario, setPrecioUnitario] = useState(detalle?.precio_unitario ? String(detalle.precio_unitario) : '')
+  const [precioYuan, setPrecioYuan] = useState(detalle?.precio_yuan ? String(detalle.precio_yuan) : '')
+  const [precioAcordado, setPrecioAcordado] = useState(detalle?.precio_acordado ? String(detalle.precio_acordado) : '')
+  const [eventError, setEventError] = useState<string | null>(null)
+
+  if (!detalle) return null
+
+  const timeline = [
+    ...(detalle.comentarios ?? []).map((comment) => ({
+      key: `comment-${comment.id}`,
+      created_at: comment.created_at,
+      kind: 'comment' as const,
+      author: comment.autor_nombre ?? comment.autor_email ?? 'Usuario',
+      personaType: comment.autor_persona_tipo,
+      body: comment.mensaje,
+      attachmentUrl: comment.archivo_adjunto_url,
+    })),
+    ...(detalle.eventos ?? []).map((event) => ({
+      key: `event-${event.id}`,
+      created_at: event.created_at,
+      kind: 'event' as const,
+      author: event.autor_nombre ?? event.autor_email ?? 'Usuario',
+      personaType: event.autor_persona_tipo,
+      body: EVENT_LABELS[event.tipo_evento] ?? event.tipo_evento,
+      payload: event.payload,
+    })),
+  ].sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
+
+  const submitComment = () => {
+    if (!message.trim()) {
+      setCommentError('Escribe un comentario antes de enviarlo.')
+      return
+    }
+
+    startTransition(async () => {
+      const formData = new FormData()
+      formData.set('detalle_id', String(detalle.id))
+      formData.set('mensaje', message.trim())
+      if (attachment) formData.set('adjunto', attachment)
+
+      const result = await crearComentarioDetalleOrdenAction(formData)
+      if (!result.success) {
+        setCommentError(result.error ?? 'No se pudo crear el comentario.')
+        return
+      }
+
+      setMessage('')
+      setAttachment(null)
+      setCommentError(null)
+      router.refresh()
+    })
+  }
+
+  const submitEvent = () => {
+    startTransition(async () => {
+      const formData = new FormData()
+      formData.set('detalle_id', String(detalle.id))
+      formData.set('tipo_evento', eventType)
+
+      if (eventType === 'cambio_estado') {
+        formData.set('estado_producto', estadoProducto)
+      }
+
+      if (eventType === 'cambio_precio') {
+        formData.set('precio_unitario', precioUnitario)
+        formData.set('precio_yuan', precioYuan)
+        formData.set('precio_acordado', precioAcordado)
+      }
+
+      const result = await registrarEventoDetalleOrdenAction(formData)
+      if (!result.success) {
+        setEventError(result.error ?? 'No se pudo registrar el evento.')
+        return
+      }
+
+      setEventError(null)
+      router.refresh()
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            Conversación y cambios del detalle
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <div className="rounded-lg border bg-muted/10">
+            <div className="border-b px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">{detalle.producto_sku ?? 'Sin SKU'} · {detalle.producto_descripcion ?? detalle.producto_nombre ?? 'Producto sin descripción'}</p>
+              <p className="text-xs text-muted-foreground">Historial del detalle específico dentro de la orden.</p>
+            </div>
+
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto p-4">
+              {timeline.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Aún no hay comentarios ni eventos formales para esta línea.
+                </div>
+              ) : (
+                timeline.map((item) => (
+                  <div key={item.key} className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {item.kind === 'comment' ? <MessageSquare className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
+                      <span className="font-medium text-foreground">{item.author}</span>
+                      {item.personaType ? <span>{item.personaType}</span> : null}
+                      {item.created_at ? <span>{new Date(item.created_at).toLocaleString('es-MX')}</span> : null}
+                    </div>
+                    <div className="mt-2 text-sm text-foreground">{item.body}</div>
+                    {'attachmentUrl' in item && item.attachmentUrl ? (
+                      <a href={item.attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        Ver adjunto
+                      </a>
+                    ) : null}
+                    {'payload' in item && item.payload ? (
+                      <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-[11px] text-muted-foreground">
+                        {JSON.stringify(item.payload, null, 2)}
+                      </pre>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold">Nuevo comentario</h3>
+              </div>
+              <div className="space-y-3">
+                <Textarea
+                  rows={4}
+                  placeholder={canComment ? 'Describe el cambio, duda técnica o decisión comercial...' : 'Sin permiso para comentar.'}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  disabled={!canComment || isPending}
+                />
+                <Input
+                  type="file"
+                  onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+                  disabled={!canComment || isPending}
+                />
+                {commentError ? <p className="text-xs text-destructive">{commentError}</p> : null}
+                <Button size="sm" onClick={submitComment} disabled={!canComment || isPending}>
+                  {isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="mr-1.5 h-3.5 w-3.5" />}
+                  Publicar comentario
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold">Evento formal</h3>
+              </div>
+
+              <div className="space-y-3">
+                <select
+                  className="flex h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={eventType}
+                  onChange={(e) => setEventType(e.target.value as typeof eventType)}
+                  disabled={!canEdit || isPending}
+                >
+                  <option value="solicitud_cambio">Solicitud de cambio</option>
+                  <option value="aprobacion_cambio">Aprobación</option>
+                  <option value="rechazo_cambio">Rechazo</option>
+                  <option value="cambio_estado">Cambio de estado</option>
+                  <option value="cambio_precio">Cambio de precio</option>
+                </select>
+
+                {eventType === 'cambio_estado' ? (
+                  <select
+                    className="flex h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={estadoProducto}
+                    onChange={(e) => setEstadoProducto(e.target.value)}
+                    disabled={!canEdit || isPending}
+                  >
+                    {ESTADOS_DETALLE_B2B.map((estado) => (
+                      <option key={estado} value={estado}>{estado}</option>
+                    ))}
+                  </select>
+                ) : null}
+
+                {eventType === 'cambio_precio' ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Input value={precioUnitario} onChange={(e) => setPrecioUnitario(e.target.value)} placeholder="P. Unitario" disabled={!canEdit || isPending} />
+                    <Input value={precioYuan} onChange={(e) => setPrecioYuan(e.target.value)} placeholder="Precio Yuan" disabled={!canEdit || isPending} />
+                    <Input value={precioAcordado} onChange={(e) => setPrecioAcordado(e.target.value)} placeholder="Precio acordado" disabled={!canEdit || isPending} />
+                  </div>
+                ) : null}
+
+                {eventError ? <p className="text-xs text-destructive">{eventError}</p> : null}
+                <Button size="sm" variant="outline" onClick={submitEvent} disabled={!canEdit || isPending}>
+                  {isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+                  Registrar evento
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ════════════════════════════════════════════════════════════
 // O R D E N   P R O D U C T O S
 // ════════════════════════════════════════════════════════════
 
-export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleResuelto[]; ordenId: number }) {
+export function OrdenProductos({
+  detalles,
+  ordenId,
+  canEdit,
+  canComment,
+}: {
+  detalles: OrdenDetalleResuelto[]
+  ordenId: number
+  canEdit: boolean
+  canComment: boolean
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [conversationOpen, setConversationOpen] = useState(false)
+  const [conversationDetail, setConversationDetail] = useState<OrdenDetalleResuelto | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<Record<string, string>>({})
 
@@ -163,6 +417,7 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
   }
 
   const handleSaveEdit = (detalleId: number) => {
+    if (!canEdit) return
     startTransition(async () => {
       const fd = new FormData()
       fd.set('detalle_id', String(detalleId))
@@ -178,6 +433,7 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
   }
 
   const handleDelete = (detalleId: number) => {
+    if (!canEdit) return
     startTransition(async () => {
       await eliminarDetalleOrdenAction(detalleId, ordenId)
       router.refresh()
@@ -189,7 +445,7 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
       <div className="space-y-4 mt-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">0 líneas de producto</p>
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <Button size="sm" onClick={() => setDialogOpen(true)} disabled={!canEdit}>
             <Plus className="h-3.5 w-3.5 mr-1" /> Agregar Producto
           </Button>
         </div>
@@ -203,14 +459,22 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{detalles.length} línea{detalles.length !== 1 ? 's' : ''} de producto</p>
-        <Button size="sm" onClick={() => setDialogOpen(true)}>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">{detalles.length} línea{detalles.length !== 1 ? 's' : ''} de producto</p>
+        <Button size="sm" onClick={() => setDialogOpen(true)} disabled={!canEdit}>
           <Plus className="h-3.5 w-3.5 mr-1" /> Agregar Producto
         </Button>
       </div>
 
-      <AgregarProductoDialog open={dialogOpen} onOpenChange={setDialogOpen} ordenId={ordenId} />
+      <AgregarProductoDialog key={dialogOpen ? 'agregar-open' : 'agregar-closed'} open={dialogOpen} onOpenChange={setDialogOpen} ordenId={ordenId} />
+      <DetalleConversationDialog
+        key={`${conversationDetail?.id ?? 'none'}-${conversationOpen ? 'open' : 'closed'}`}
+        detalle={conversationDetail}
+        open={conversationOpen}
+        onOpenChange={setConversationOpen}
+        canEdit={canEdit}
+        canComment={canComment}
+      />
 
       <div className="rounded-lg border overflow-auto">
         <table className="w-full text-xs">
@@ -224,7 +488,7 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
               <th className="px-3 py-2 text-right">Yuan</th>
               <th className="px-3 py-2 text-right">CBM</th>
               <th className="px-3 py-2">Estado</th>
-              <th className="px-3 py-2 w-[70px]"></th>
+              <th className="px-3 py-2 w-[112px]"></th>
             </tr>
           </thead>
           <tbody>
@@ -286,11 +550,20 @@ export function OrdenProductos({ detalles, ordenId }: { detalles: OrdenDetalleRe
                       <td className="px-2 py-1">
                         <div className="flex gap-0.5">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground"
-                            onClick={() => startEdit(d)} title="Editar">
+                            onClick={() => startEdit(d)} title="Editar" disabled={!canEdit}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground"
+                            onClick={() => { setConversationDetail(d); setConversationOpen(true) }}
+                            title="Conversación"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </Button>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleDelete(d.id)} disabled={isPending} title="Eliminar">
+                            onClick={() => handleDelete(d.id)} disabled={isPending || !canEdit} title="Eliminar">
                             {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
                         </div>

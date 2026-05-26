@@ -4,7 +4,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
-import type { OrdenB2BUpdate } from '@/lib/types/tables'
+import { B2B_CHAT_ATTACHMENTS_BUCKET } from '@/lib/constants'
+import {
+  canAccessCommercialOrder,
+  getCommercialScope,
+} from '@/lib/auth/commercial-scope'
+import type {
+  OrdenB2BUpdate,
+  OrdenDetalleEventoTipo,
+  UsuarioConRol,
+} from '@/lib/types/tables'
 import { can, type PermissionAction } from '@/lib/auth/permissions'
 
 export type ActionResult = {
@@ -22,6 +31,120 @@ async function requireB2BPermission(action: PermissionAction): Promise<ActionRes
   return null
 }
 
+async function validateCommercialTargets(
+  supabase: any,
+  user: UsuarioConRol,
+  payload: { cliente_b2b_id?: number | null; proveedor_id?: number | null }
+): Promise<ActionResult | null> {
+  const scope = await getCommercialScope(supabase, user)
+  if (scope.is_super_admin) return null
+
+  if (!canAccessCommercialOrder(scope, payload)) {
+    return { success: false, error: 'La orden no pertenece al alcance comercial asignado a este usuario.' }
+  }
+
+  return null
+}
+
+async function fetchOrderForAccess(supabase: any, ordenId: number) {
+  const { data, error } = await supabase
+    .from('ordenes_b2b')
+    .select('id, cliente_b2b_id, proveedor_id')
+    .eq('id', ordenId)
+    .single()
+
+  if (error || !data) return null
+  return data
+}
+
+async function requireCommercialOrderAccess(
+  supabase: any,
+  ordenId: number
+): Promise<{ user: UsuarioConRol } | ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const orden = await fetchOrderForAccess(supabase, ordenId)
+  if (!orden) return { success: false, error: 'No se encontró la orden.' }
+
+  const denied = await validateCommercialTargets(supabase, user, orden)
+  if (denied) return denied
+
+  return { user }
+}
+
+async function requireCommercialDetalleAccess(
+  supabase: any,
+  detalleId: number
+): Promise<{ user: UsuarioConRol; ordenId: number } | ActionResult> {
+  const { data: detalle, error } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('id, orden_id')
+    .eq('id', detalleId)
+    .single()
+
+  if (error || !detalle?.orden_id) {
+    return { success: false, error: 'No se encontró el detalle de la orden.' }
+  }
+
+  const access = await requireCommercialOrderAccess(supabase, detalle.orden_id)
+  if ('success' in access) return access
+
+  return { ...access, ordenId: detalle.orden_id }
+}
+
+async function uploadDetalleChatAttachment(
+  supabase: any,
+  detalleId: number,
+  file: File
+): Promise<string> {
+  const extension = file.name.includes('.') ? file.name.split('.').pop() : 'bin'
+  const safeName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`
+  const storagePath = `orden-detalle-${detalleId}/${safeName}`
+  const bytes = await file.arrayBuffer()
+
+  const { error } = await supabase.storage
+    .from(B2B_CHAT_ATTACHMENTS_BUCKET)
+    .upload(storagePath, bytes, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const { data } = supabase.storage
+    .from(B2B_CHAT_ATTACHMENTS_BUCKET)
+    .getPublicUrl(storagePath)
+
+  return data.publicUrl
+}
+
+async function registrarEventoDetalle(
+  supabase: any,
+  input: {
+    orden_detalle_id: number
+    usuario_id: number
+    tipo_evento: OrdenDetalleEventoTipo
+    comentario_id?: number | null
+    payload?: Record<string, unknown> | null
+  }
+) {
+  const { error } = await (supabase.from('orden_detalle_eventos') as any)
+    .insert({
+      orden_detalle_id: input.orden_detalle_id,
+      usuario_id: input.usuario_id,
+      tipo_evento: input.tipo_evento,
+      comentario_id: input.comentario_id ?? null,
+      payload: input.payload ?? null,
+    })
+
+  if (error && error.code !== '42P01' && error.code !== 'PGRST205') {
+    throw new Error(error.message)
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 // CRUD ORDEN B2B
 // ════════════════════════════════════════════════════════════
@@ -33,14 +156,23 @@ export async function crearOrdenB2BAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
   const proveedor_id = parseInt(formData.get('proveedor_id') as string)
   if (!proveedor_id) return { success: false, error: 'Proveedor obligatorio.' }
+
+  const cliente_b2b_id = parseInt(formData.get('cliente_b2b_id') as string) || null
+  const deniedByScope = await validateCommercialTargets(supabase, user, {
+    proveedor_id,
+    cliente_b2b_id,
+  })
+  if (deniedByScope) return deniedByScope
 
   const { data, error } = await supabase
     .from('ordenes_b2b')
     .insert({
       proveedor_id,
-      cliente_b2b_id: parseInt(formData.get('cliente_b2b_id') as string) || null,
+      cliente_b2b_id,
       contenedor_id: parseInt(formData.get('contenedor_id') as string) || null,
       folio_proveedor: (formData.get('folio_proveedor') as string)?.trim() || null,
       moneda: (formData.get('moneda') as string) || 'USD',
@@ -65,6 +197,8 @@ export async function actualizarOrdenB2BAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
   const id = parseInt(formData.get('orden_id') as string)
   if (!id) return { success: false, error: 'ID requerido.' }
 
@@ -83,6 +217,12 @@ export async function actualizarOrdenB2BAction(
   if (contenedorIdRaw !== null && contenedorIdRaw !== undefined && (contenedorIdRaw as string) !== '') {
     payload.contenedor_id = parseInt(contenedorIdRaw as string) || null
   }
+
+  const deniedByScope = await validateCommercialTargets(supabase, user, {
+    proveedor_id: payload.proveedor_id ?? null,
+    cliente_b2b_id: payload.cliente_b2b_id ?? null,
+  })
+  if (deniedByScope) return deniedByScope
 
   const { error } = await supabase
     .from('ordenes_b2b')
@@ -105,6 +245,9 @@ export async function cambiarEstadoOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
+
   const { error } = await supabase
     .from('ordenes_b2b')
     .update({ estado: nuevoEstado })
@@ -134,6 +277,9 @@ export async function agregarDetalleOrdenAction(
   if (!orden_id || !producto_id) {
     return { success: false, error: 'Orden y producto requeridos.' }
   }
+
+  const access = await requireCommercialOrderAccess(supabase, orden_id)
+  if ('success' in access) return access
 
   const { error } = await supabase
     .from('ordenes_b2b_detalles')
@@ -170,6 +316,8 @@ export async function eliminarDetalleOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
   const { error } = await supabase
     .from('ordenes_b2b_detalles')
     .delete()
@@ -195,6 +343,9 @@ export async function actualizarDetalleOrdenAction(
   const orden_id = parseInt(formData.get('orden_id') as string)
   if (!orden_id) return { success: false, error: 'ID de orden requerido.' }
 
+  const access = await requireCommercialOrderAccess(supabase, orden_id)
+  if ('success' in access) return access
+
   const { error } = await supabase
     .from('ordenes_b2b_detalles')
     .update({
@@ -215,6 +366,144 @@ export async function actualizarDetalleOrdenAction(
   return { success: true }
 }
 
+export async function crearComentarioDetalleOrdenAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const denied = await requireB2BPermission('puede_leer')
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const detalleId = parseInt(formData.get('detalle_id') as string)
+  const mensaje = (formData.get('mensaje') as string | null)?.trim() ?? ''
+
+  if (!detalleId || !mensaje) {
+    return { success: false, error: 'Detalle y mensaje son obligatorios.' }
+  }
+
+  const access = await requireCommercialDetalleAccess(supabase, detalleId)
+  if ('success' in access) return access
+
+  let archivoAdjuntoUrl: string | null = null
+  const archivo = formData.get('adjunto')
+  if (archivo instanceof File && archivo.size > 0) {
+    try {
+      archivoAdjuntoUrl = await uploadDetalleChatAttachment(supabase, detalleId, archivo)
+    } catch (error) {
+      return { success: false, error: `No se pudo subir el adjunto: ${(error as Error).message}` }
+    }
+  }
+
+  const { data, error } = await (((supabase as any).from('orden_detalles_comentarios')) as any)
+    .insert({
+      orden_detalle_id: detalleId,
+      usuario_id: access.user.id,
+      mensaje,
+      archivo_adjunto_url: archivoAdjuntoUrl,
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') {
+      return { success: false, error: 'La tabla de comentarios B2B aun no existe en Supabase. Falta aprobar y crear la estructura aditiva.' }
+    }
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/ordenes-b2b/${access.ordenId}`)
+  return { success: true, id: data?.id }
+}
+
+export async function registrarEventoDetalleOrdenAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const detalleId = parseInt(formData.get('detalle_id') as string)
+  const tipoEvento = (formData.get('tipo_evento') as OrdenDetalleEventoTipo | null) ?? null
+  const comentarioId = parseInt(formData.get('comentario_id') as string) || null
+
+  if (!detalleId || !tipoEvento) {
+    return { success: false, error: 'Detalle y tipo de evento son obligatorios.' }
+  }
+
+  const access = await requireCommercialDetalleAccess(supabase, detalleId)
+  if ('success' in access) return access
+
+  const payload: Record<string, unknown> = {}
+  let updatePayload: Record<string, unknown> | null = null
+
+  if (tipoEvento === 'cambio_estado') {
+    const nuevoEstado = (formData.get('estado_producto') as string | null)?.trim() ?? ''
+    if (!nuevoEstado) return { success: false, error: 'Selecciona el nuevo estado del producto.' }
+
+    const { data: detalleActual } = await supabase
+      .from('ordenes_b2b_detalles')
+      .select('estado_producto')
+      .eq('id', detalleId)
+      .single()
+
+    payload.estado_anterior = detalleActual?.estado_producto ?? null
+    payload.estado_nuevo = nuevoEstado
+    updatePayload = { estado_producto: nuevoEstado }
+  }
+
+  if (tipoEvento === 'cambio_precio') {
+    const precio_unitario = formData.get('precio_unitario')
+    const precio_yuan = formData.get('precio_yuan')
+    const precio_acordado = formData.get('precio_acordado')
+
+    const { data: detalleActual } = await supabase
+      .from('ordenes_b2b_detalles')
+      .select('precio_unitario, precio_yuan, precio_acordado')
+      .eq('id', detalleId)
+      .single()
+
+    const nextPayload = {
+      precio_unitario: precio_unitario ? parseFloat(precio_unitario as string) || null : detalleActual?.precio_unitario ?? null,
+      precio_yuan: precio_yuan ? parseFloat(precio_yuan as string) || null : detalleActual?.precio_yuan ?? null,
+      precio_acordado: precio_acordado ? parseFloat(precio_acordado as string) || null : detalleActual?.precio_acordado ?? null,
+    }
+
+    payload.anterior = {
+      precio_unitario: detalleActual?.precio_unitario ?? null,
+      precio_yuan: detalleActual?.precio_yuan ?? null,
+      precio_acordado: detalleActual?.precio_acordado ?? null,
+    }
+    payload.nuevo = nextPayload
+    updatePayload = nextPayload
+  }
+
+  if (updatePayload) {
+    const { error: updateError } = await supabase
+      .from('ordenes_b2b_detalles')
+      .update(updatePayload as any)
+      .eq('id', detalleId)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+  }
+
+  try {
+    await registrarEventoDetalle(supabase, {
+      orden_detalle_id: detalleId,
+      usuario_id: access.user.id,
+      tipo_evento: tipoEvento,
+      comentario_id: comentarioId,
+      payload,
+    })
+  } catch (error) {
+    return { success: false, error: `No se pudo registrar el evento formal: ${(error as Error).message}` }
+  }
+
+  await recalcularTotalesOrden(access.ordenId)
+  revalidatePath(`/ordenes-b2b/${access.ordenId}`)
+  return { success: true }
+}
+
 // ════════════════════════════════════════════════════════════
 // VINCULAR/DESVINCULAR CAJAS
 // ════════════════════════════════════════════════════════════
@@ -228,6 +517,8 @@ export async function vincularCajaOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
 
   const { error } = await supabase
     .from('orden_cajas')
@@ -251,6 +542,8 @@ export async function vincularMultiplesCajasOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
 
   const payload = cajas
     .filter((item) => item.caja_id > 0 && item.cantidad_cajas > 0)
@@ -284,6 +577,8 @@ export async function actualizarCantidadCajasOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
 
   const { data, error } = await supabase
     .from('orden_cajas')
@@ -309,6 +604,8 @@ export async function desvincularCajaOrdenAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, ordenId)
+  if ('success' in access) return access
   const { error } = await supabase
     .from('orden_cajas')
     .delete()
@@ -356,6 +653,8 @@ export async function eliminarOrdenB2BAction(
   if (denied) return denied
 
   const supabase = await createClient()
+  const access = await requireCommercialOrderAccess(supabase, id)
+  if ('success' in access) return access
 
   // Eliminar detalles y cajas vinculadas para evitar errores de integridad referencial
   await supabase.from('ordenes_b2b_detalles').delete().eq('orden_id', id)

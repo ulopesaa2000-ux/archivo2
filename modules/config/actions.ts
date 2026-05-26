@@ -11,6 +11,12 @@ import type { Database } from '@/lib/types/database.types'
 
 type ActionResult = { success: boolean; error?: string }
 
+function isMissingCommercialTable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const maybeError = error as { code?: string; message?: string }
+  return maybeError.code === '42P01' || maybeError.code === 'PGRST205' || maybeError.message?.toLowerCase().includes('does not exist') === true
+}
+
 async function requireConfigPermission(action: 'puede_crear' | 'puede_editar' | 'puede_eliminar'): Promise<ActionResult | null> {
   const user = await getCurrentUser()
   if (!user || !can(user, 'config_usuarios', action)) {
@@ -567,6 +573,77 @@ export async function vincularPersonaUsuarioAction(
   return { success: true }
 }
 
+export async function guardarAsignacionesComercialesAction(
+  usuarioId: number,
+  personaIds: number[]
+): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const uniquePersonaIds = Array.from(new Set(personaIds.filter((id) => Number.isInteger(id) && id > 0)))
+
+  const { data: personaInterna } = await supabase
+    .from('personas')
+    .select('id, tipo_entidad')
+    .eq('usuario_id', usuarioId)
+    .maybeSingle()
+
+  if (personaInterna && !['Empleado', 'Administrador'].includes(personaInterna.tipo_entidad ?? '')) {
+    return { success: false, error: 'Solo empleados o administradores pueden recibir asignaciones comerciales.' }
+  }
+
+  if (uniquePersonaIds.length > 0) {
+    const { data: personasDestino, error: personasError } = await supabase
+      .from('personas')
+      .select('id, tipo_entidad')
+      .in('id', uniquePersonaIds)
+
+    if (personasError) {
+      return { success: false, error: 'No se pudieron validar las personas asignadas.' }
+    }
+
+    const invalidas = (personasDestino ?? []).filter((persona) => !['Cliente B2B', 'Proveedor'].includes(persona.tipo_entidad ?? ''))
+    if (invalidas.length > 0) {
+      return { success: false, error: 'Las asignaciones comerciales solo aceptan clientes B2B o proveedores.' }
+    }
+  }
+
+  const { error: deleteError } = await ((supabase as any).from('usuario_personas') as any)
+    .delete()
+    .eq('usuario_id', usuarioId)
+
+  if (deleteError) {
+    if (isMissingCommercialTable(deleteError)) {
+      return { success: false, error: 'La tabla usuario_personas aun no existe en Supabase. Falta aprobar y crear la estructura aditiva.' }
+    }
+    return { success: false, error: 'No se pudieron limpiar las asignaciones actuales.' }
+  }
+
+  if (uniquePersonaIds.length > 0) {
+    const { error: insertError } = await ((supabase as any).from('usuario_personas') as any)
+      .insert(
+        uniquePersonaIds.map((personaId) => ({
+          usuario_id: usuarioId,
+          persona_id: personaId,
+          rol_asignacion: 'Intermediario Comercial',
+        }))
+      )
+
+    if (insertError) {
+      if (isMissingCommercialTable(insertError)) {
+        return { success: false, error: 'La tabla usuario_personas aun no existe en Supabase. Falta aprobar y crear la estructura aditiva.' }
+      }
+      return { success: false, error: 'No se pudieron guardar las asignaciones comerciales.' }
+    }
+  }
+
+  revalidatePath('/configuracion/personas')
+  revalidatePath('/ordenes-b2b')
+  revalidatePath('/contenedores')
+  return { success: true }
+}
+
 /**
  * Envía una invitación de Supabase Auth por email para un cliente o proveedor,
  * creando su registro de usuario y vinculándolo de manera automática.
@@ -657,3 +734,66 @@ export async function invitarPersonaAction(payload: {
   revalidatePath('/configuracion/usuarios')
   return { success: true }
 }
+
+/**
+ * Guarda las asignaciones comerciales (clientes B2B y proveedores) para un empleado/intermediario.
+ * Sincroniza automáticamente los JWT Claims en Supabase Auth de forma inmediata.
+ */
+export async function guardarAsignacionesUsuarioAction(
+  usuarioId: number,
+  personaIds: number[]
+): Promise<ActionResult> {
+  const denied = await requireConfigPermission('puede_editar')
+  if (denied) return denied
+
+  const supabase = await createClient()
+
+  // 1. Obtener el UUID del usuario destino para la sincronización de claims posterior
+  const { data: userRow } = await supabase
+    .from('usuarios')
+    .select('auth_user_id')
+    .eq('id', usuarioId)
+    .single()
+
+  if (!userRow || !userRow.auth_user_id) {
+    return { success: false, error: 'Usuario no encontrado o no tiene cuenta vinculada.' }
+  }
+
+  const authUserId = userRow.auth_user_id
+
+  // 2. Eliminar asignaciones previas filtrando por el ID de usuario numérico entero
+  const { error: deleteError } = await (supabase.from('usuario_personas' as any) as any)
+    .delete()
+    .eq('usuario_id', usuarioId)
+
+  if (deleteError) {
+    console.error('[guardarAsignacionesUsuarioAction] delete error:', deleteError.message)
+    return { success: false, error: 'No se pudieron limpiar las asignaciones anteriores.' }
+  }
+
+  // 3. Insertar las nuevas asignaciones usando el ID de usuario numérico entero
+  if (personaIds.length > 0) {
+    const payload = personaIds.map(pId => ({
+      usuario_id: usuarioId,
+      persona_id: pId
+    }))
+
+    const { error: insertError } = await (supabase.from('usuario_personas' as any) as any)
+      .insert(payload)
+
+    if (insertError) {
+      console.error('[guardarAsignacionesUsuarioAction] insert error:', insertError.message)
+      return { success: false, error: 'No se pudieron guardar las nuevas asignaciones.' }
+    }
+  }
+
+  // 4. Sincronizar claims para el usuario usando su UUID de autenticación
+  const { syncUserClaims } = await import('../auth/actions')
+  await syncUserClaims(authUserId).catch(err => {
+    console.error('[guardarAsignacionesUsuarioAction] Error al sincronizar claims:', err)
+  })
+
+  revalidatePath('/configuracion/usuarios')
+  return { success: true }
+}
+

@@ -184,3 +184,113 @@ export const requirePermission = cache(async (
 export function getSessionPermissions(user: UsuarioConRol) {
   return getEffectivePermissions(user)
 }
+
+/**
+ * Obtiene el alcance comercial (CommercialScope) de un usuario.
+ * Resuelve y memoiza qué Clientes B2B y Proveedores tiene permitido ver o gestionar.
+ *
+ * @param user - El usuario autenticado
+ * @returns {Promise<CommercialScope>}
+ */
+import { createClient } from '@/lib/supabase/server'
+import type { CommercialScope, PersonaAsignadaComercial } from '@/lib/types/tables'
+
+export const getCommercialScope = cache(async (user: UsuarioConRol): Promise<CommercialScope> => {
+  const level = user.rol?.nivel_acceso ?? 99
+
+  // Caso 1: Super Admin o Administrador Senior (nivel <= 1) -> Acceso Global completo
+  if (isSuperAdmin(user) || level <= 1) {
+    return {
+      is_super_admin: true,
+      primary_persona_id: null,
+      primary_persona_tipo: null,
+      assigned_persona_ids: [],
+      allowed_cliente_ids: [],
+      allowed_proveedor_ids: [],
+      assigned_personas: [],
+      restricts_b2b: false,
+    }
+  }
+
+  // Caso 2: Cliente B2B (nivel 4) -> Aislado estricto a su propia persona
+  if (level === 4) {
+    const personaId = user.persona?.id ?? null
+    return {
+      is_super_admin: false,
+      primary_persona_id: personaId,
+      primary_persona_tipo: user.persona?.tipo_entidad ?? 'Cliente B2B',
+      assigned_persona_ids: personaId ? [personaId] : [],
+      allowed_cliente_ids: personaId ? [personaId] : [],
+      allowed_proveedor_ids: [],
+      assigned_personas: [],
+      restricts_b2b: true,
+    }
+  }
+
+  // Caso 3: Proveedor B2B (nivel 5) -> Aislado estricto a su propia persona
+  if (level === 5) {
+    const personaId = user.persona?.id ?? null
+    return {
+      is_super_admin: false,
+      primary_persona_id: personaId,
+      primary_persona_tipo: user.persona?.tipo_entidad ?? 'Proveedor',
+      assigned_persona_ids: personaId ? [personaId] : [],
+      allowed_cliente_ids: [],
+      allowed_proveedor_ids: personaId ? [personaId] : [],
+      assigned_personas: [],
+      restricts_b2b: true,
+    }
+  }
+
+  // Caso 4: Empleados / Intermediarios Comerciales (nivel 2 o 3, como Diana)
+  const supabase = await createClient()
+  const { data: assignments, error } = await (supabase.from('usuario_personas' as any) as any)
+    .select(`
+      persona_id,
+      persona:personas!usuario_personas_persona_id_fkey (
+        id,
+        nombre_completo,
+        tipo_entidad,
+        created_at
+      )
+    `)
+    .eq('usuario_id', user.id)
+
+  if (error) {
+    console.error('[getCommercialScope] Error cargando asignaciones usuario_personas:', error)
+  }
+
+  const assignedPersonas = (assignments ?? [])
+    .map((a: any) => a.persona)
+    .filter(Boolean) as any[]
+
+  const assignedPersonaIds = assignedPersonas.map((p) => p.id)
+  const allowedClientes = assignedPersonas
+    .filter((p) => p.tipo_entidad === 'Cliente B2B')
+    .map((p) => p.id)
+  const allowedProveedores = assignedPersonas
+    .filter((p) => p.tipo_entidad === 'Proveedor')
+    .map((p) => p.id)
+
+  // Si es un Administrador (nivel 2) y no tiene asignaciones asignadas, ve todo por defecto
+  // Si es un Operativo / Comercial B2B (nivel 3) y no tiene asignaciones, está restringido a vacío (Opción A)
+  const restrictsB2B = level === 3 || assignedPersonaIds.length > 0
+
+  return {
+    is_super_admin: false,
+    primary_persona_id: user.persona?.id ?? null,
+    primary_persona_tipo: user.persona?.tipo_entidad ?? null,
+    assigned_persona_ids: assignedPersonaIds,
+    allowed_cliente_ids: allowedClientes,
+    allowed_proveedor_ids: allowedProveedores,
+    assigned_personas: assignedPersonas.map((p) => ({
+      id: p.id,
+      nombre_completo: p.nombre_completo,
+      tipo_entidad: p.tipo_entidad,
+      rol_asignacion: null,
+      created_at: p.created_at,
+    })) as PersonaAsignadaComercial[],
+    restricts_b2b: restrictsB2B,
+  }
+})
+

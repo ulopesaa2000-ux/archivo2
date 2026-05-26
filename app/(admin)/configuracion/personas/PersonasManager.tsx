@@ -38,9 +38,10 @@ import { cn } from '@/lib/utils'
 import {
   vincularPersonaUsuarioAction,
   invitarPersonaAction,
+  guardarAsignacionesComercialesAction,
 } from '@/modules/config/actions'
 import type { UsuarioConDetalle, RolConPermisos } from '@/modules/config/types'
-import type { UsuarioConRol } from '@/lib/types/tables'
+import type { PersonaAsignadaComercial, UsuarioConRol } from '@/lib/types/tables'
 import { toast } from 'sonner'
 
 type PersonaItem = {
@@ -77,23 +78,28 @@ export function PersonasManager({
   usuarios,
   roles,
   currentUser,
+  commercialAssignments,
 }: {
   personas: PersonaItem[]
   usuarios: UsuarioConDetalle[]
   roles: RolConPermisos[]
   currentUser: UsuarioConRol | null
+  commercialAssignments: Record<string, PersonaAsignadaComercial[]>
 }) {
   const [q, setQ] = useState('')
   const [filterTipo, setFilterTipo] = useState<string>('all')
   const [filterVinculo, setFilterVinculo] = useState<string>('all')
 
   const [selectedPersona, setSelectedPersona] = useState<PersonaItem | null>(null)
+  const [assignmentTarget, setAssignmentTarget] = useState<PersonaItem | null>(null)
   const [isVincularOpen, setIsVincularOpen] = useState(false)
   const [isInvitarOpen, setIsInvitarOpen] = useState(false)
+  const [isAssignmentOpen, setIsAssignmentOpen] = useState(false)
 
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRolId, setInviteRolId] = useState<string>('')
   const [linkUsuarioId, setLinkUsuarioId] = useState<string>('unlink')
+  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<number[]>([])
 
   const [isPending, startTransition] = useTransition()
 
@@ -119,6 +125,14 @@ export function PersonasManager({
     return !estaVinculado || (selectedPersona && selectedPersona.usuario_id === u.id)
   })
 
+  const internalCommercialUsers = personas.filter((persona) =>
+    Boolean(persona.usuario_id) && ['Empleado', 'Administrador'].includes(persona.tipo_entidad)
+  )
+
+  const assignableCommercialPersonas = personas.filter((persona) =>
+    ['Cliente B2B', 'Proveedor'].includes(persona.tipo_entidad) && persona.activo !== false
+  )
+
   const handleVincularClick = (persona: PersonaItem) => {
     setSelectedPersona(persona)
     setLinkUsuarioId(persona.usuario_id ? String(persona.usuario_id) : 'unlink')
@@ -132,6 +146,13 @@ export function PersonasManager({
     const defaultRol = roles.find(r => r.nombre.includes('Lectura') || r.nombre.includes('B2B') || r.id === 8)
     setInviteRolId(defaultRol ? String(defaultRol.id) : '')
     setIsInvitarOpen(true)
+  }
+
+  const handleAssignmentClick = (persona: PersonaItem) => {
+    setAssignmentTarget(persona)
+    const currentAssignments = commercialAssignments[String(persona.usuario_id ?? '')] ?? []
+    setSelectedAssignmentIds(currentAssignments.map((item) => item.id))
+    setIsAssignmentOpen(true)
   }
 
   const submitVincular = () => {
@@ -168,6 +189,24 @@ export function PersonasManager({
         setSelectedPersona(null)
       } else {
         toast.error(res.error || 'Error al enviar invitación')
+      }
+    })
+  }
+
+  const submitAssignments = () => {
+    if (!assignmentTarget?.usuario_id) {
+      toast.error('La persona interna debe tener una cuenta asociada.')
+      return
+    }
+
+    startTransition(async () => {
+      const res = await guardarAsignacionesComercialesAction(assignmentTarget.usuario_id as number, selectedAssignmentIds)
+      if (res.success) {
+        toast.success('Asignaciones comerciales actualizadas')
+        setIsAssignmentOpen(false)
+        setAssignmentTarget(null)
+      } else {
+        toast.error(res.error || 'Error al guardar asignaciones')
       }
     })
   }
@@ -296,6 +335,17 @@ export function PersonasManager({
                       {/* Botones de acción */}
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          {p.usuario_id && ['Empleado', 'Administrador'].includes(p.tipo_entidad) && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 text-xs font-medium"
+                              onClick={() => handleAssignmentClick(p)}
+                            >
+                              <Users className="mr-1.5 h-3.5 w-3.5" />
+                              Alcance comercial
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -325,6 +375,63 @@ export function PersonasManager({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-xl border bg-card/60 p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Asignaciones comerciales</h2>
+            <p className="text-xs text-muted-foreground">
+              Amplia el alcance de empleados o intermediarios hacia clientes B2B y proveedores sin tocar su vínculo principal.
+            </p>
+          </div>
+          <span className="rounded-full border bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            {internalCommercialUsers.length} usuario{internalCommercialUsers.length === 1 ? '' : 's'} interno{internalCommercialUsers.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {internalCommercialUsers.map((persona) => {
+            const assignments = commercialAssignments[String(persona.usuario_id ?? '')] ?? []
+            return (
+              <div key={`scope-${persona.id}`} className="rounded-lg border bg-background p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{persona.nombre_completo}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {persona.usuario?.email || persona.usuario?.username || 'Sin cuenta vinculada'}
+                    </p>
+                  </div>
+                  <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {assignments.length} asignada{assignments.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="mt-3 flex min-h-[48px] flex-wrap gap-1.5">
+                  {assignments.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">Sin alcance adicional.</span>
+                  ) : (
+                    assignments.map((assignment) => (
+                      <span
+                        key={`${persona.id}-${assignment.id}`}
+                        className="inline-flex items-center rounded-full border bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground"
+                      >
+                        {assignment.nombre_completo}
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleAssignmentClick(persona)}>
+                    <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                    Editar alcance
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -446,6 +553,66 @@ export function PersonasManager({
             <Button onClick={submitInvitar} disabled={isPending} className="bg-primary hover:bg-primary/95 text-primary-foreground">
               {isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Enviar Invitación por Correo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAssignmentOpen} onOpenChange={setIsAssignmentOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Alcance comercial adicional
+            </DialogTitle>
+            <DialogDescription>
+              Define qué clientes B2B y proveedores puede operar <strong>{assignmentTarget?.nombre_completo}</strong> como intermediario interno.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto py-2 pr-1">
+            {assignableCommercialPersonas.map((persona) => {
+              const checked = selectedAssignmentIds.includes(persona.id)
+              return (
+                <label
+                  key={`assign-${persona.id}`}
+                  className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/20"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{persona.nombre_completo}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {persona.tipo_entidad} {persona.email_contacto ? `· ${persona.email_contacto}` : ''}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={checked}
+                    onCheckedChange={(value) => {
+                      setSelectedAssignmentIds((current) => (
+                        value
+                          ? Array.from(new Set([...current, persona.id]))
+                          : current.filter((id) => id !== persona.id)
+                      ))
+                    }}
+                  />
+                </label>
+              )
+            })}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAssignmentOpen(false)
+                setAssignmentTarget(null)
+              }}
+              disabled={isPending}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={submitAssignments} disabled={isPending}>
+              {isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Guardar alcance
             </Button>
           </DialogFooter>
         </DialogContent>

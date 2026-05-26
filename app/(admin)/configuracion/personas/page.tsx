@@ -1,7 +1,7 @@
 // app/(admin)/configuracion/personas/page.tsx
 import type { Metadata } from 'next'
 import { Users } from 'lucide-react'
-import { fetchUsuarios, fetchRolesConPermisos } from '@/modules/config/queries'
+import { fetchAssignedPersonas, fetchUsuarios, fetchRolesConPermisos } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { createClient } from '@/lib/supabase/server'
 import { PersonasManager } from '@/app/(admin)/configuracion/personas/PersonasManager'
@@ -45,6 +45,19 @@ export default async function PersonasPage() {
     getCurrentUser(),
   ])
 
+  const internosConCuenta = personas.filter((persona) =>
+    Boolean(persona.usuario_id) && ['Empleado', 'Administrador'].includes(persona.tipo_entidad ?? '')
+  )
+
+  const assignmentEntries = await Promise.all(
+    internosConCuenta.map(async (persona) => [
+      String(persona.usuario_id),
+      await fetchAssignedPersonas(persona.usuario_id as number),
+    ] as const)
+  )
+
+  const commercialAssignments = Object.fromEntries(assignmentEntries)
+
   return (
     <div className="space-y-6">
       {/* Cabecera */}
@@ -82,6 +95,7 @@ export default async function PersonasPage() {
         usuarios={usuarios}
         roles={roles}
         currentUser={currentUser}
+        commercialAssignments={commercialAssignments}
       />
     </div>
   )

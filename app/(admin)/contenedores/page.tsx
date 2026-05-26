@@ -8,6 +8,9 @@ import { ContenedoresTable } from './ContenedoresTable'
 import { Pagination } from '@/components/admin/Pagination'
 import { ContenedorFormDialog } from './ContenedorFormDialog'
 import type { FiltrosContenedores } from '@/modules/contenedores/types'
+import { createClient } from '@/lib/supabase/server'
+import { getCommercialScope } from '@/lib/auth/commercial-scope'
+import { getCurrentUser } from '@/modules/auth/queries'
 
 export const metadata: Metadata = { title: 'Contenedores' }
 
@@ -17,6 +20,10 @@ export default async function ContenedoresPage({
   searchParams: Promise<{ q?: string; estado?: string; año?: string; page?: string }>
 }) {
   const params = await searchParams;
+  const user = await getCurrentUser()
+  const supabase = await createClient()
+  const scope = await getCommercialScope(supabase, user)
+
   const filtros: FiltrosContenedores = {
     q: params.q,
     estado: params.estado,
