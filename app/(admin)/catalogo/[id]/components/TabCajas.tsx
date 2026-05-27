@@ -16,6 +16,8 @@ interface TabCajasProps {
   tallasDisponibles: CatalogoItem[]
   coloresDisponibles: CatalogoItem[]
   edadNombre?: string | null
+  canEdit?: boolean
+  canDelete?: boolean
 }
 
 // Caja temporal vacía para crear nueva
@@ -39,7 +41,15 @@ const crearCajaVacia = (tempId: number): SharedCajaData => ({
   }
 })
 
-export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponibles, edadNombre }: TabCajasProps) {
+export function TabCajas({ 
+  cajas, 
+  productoId, 
+  tallasDisponibles, 
+  coloresDisponibles, 
+  edadNombre, 
+  canEdit = true,
+  canDelete = true,
+}: TabCajasProps) {
   const router = useRouter()
   const [cajasNuevas, setCajasNuevas] = useState<SharedCajaData[]>([])
   const [nextTempId, setNextTempId] = useState(-1)
@@ -93,14 +103,16 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
             </Badge>
           </div>
         </div>
-        <Button
-          onClick={handleAddCaja}
-          size="sm"
-          className="gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Agregar Caja
-        </Button>
+        {canEdit && (
+          <Button
+            onClick={handleAddCaja}
+            size="sm"
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Agregar Caja
+          </Button>
+        )}
       </div>
 
       {/* Cajas nuevas (formularios vacíos) */}
@@ -109,7 +121,9 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
           key={cajaNueva.id}
           caja={cajaNueva}
           isNew={true}
-          onCreate={handleCreateCaja}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onCreate={canEdit ? handleCreateCaja : undefined}
           onRemove={handleRemoveNueva}
           tallasDisponibles={tallasDisponibles}
           coloresDisponibles={coloresDisponibles}
@@ -123,13 +137,15 @@ export function TabCajas({ cajas, productoId, tallasDisponibles, coloresDisponib
           <CajaCard
             key={caja.id}
             caja={caja as SharedCajaData}
-            onDeactivate={desactivarCajaAction}
-            onEdit={handleEditCaja}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            onDeactivate={canDelete ? desactivarCajaAction : undefined}
+            onEdit={canEdit ? handleEditCaja : undefined}
             tallasDisponibles={tallasDisponibles}
             coloresDisponibles={coloresDisponibles}
             edadNombre={edadNombre}
             esPrincipal={caja.es_principal ?? false}
-            onMarcarPrincipal={handleMarcarPrincipal}
+            onMarcarPrincipal={canEdit ? handleMarcarPrincipal : undefined}
             productoId={productoId}
           />
         ))

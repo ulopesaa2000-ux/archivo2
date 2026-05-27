@@ -340,3 +340,48 @@ export async function desvincularOrdenContenedorAction(
   revalidatePath('/ordenes-b2b')
   return { success: true }
 }
+
+export async function quickEditContenedoresAction(
+  ids: number[],
+  field: 'estado' | 'codigo_contenedor' | 'fecha_eta',
+  value: string | null
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  if (!ids.length) return { success: false, error: 'Sin contenedores seleccionados.' }
+
+  if (field === 'estado') {
+    if (!value) return { success: false, error: 'Estado invalido.' }
+    for (const id of ids) {
+      const result = await cambiarEstadoContenedorAction(id, value)
+      if (!result.success) return result
+    }
+    return { success: true }
+  }
+
+  const supabase = await createClient()
+  const payload = field === 'fecha_eta'
+    ? { fecha_eta: value || null }
+    : { codigo_contenedor: (value ?? '').trim() }
+
+  if (field === 'codigo_contenedor' && !payload.codigo_contenedor) {
+    return { success: false, error: 'Codigo de contenedor obligatorio.' }
+  }
+
+  const { error } = await supabase
+    .from('contenedores')
+    .update(payload)
+    .in('id', ids)
+
+  if (error) {
+    if (error.code === '23505') {
+      return { success: false, error: 'El codigo ya existe.' }
+    }
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/contenedores')
+  ids.forEach((id) => revalidatePath(`/contenedores/${id}`))
+  return { success: true }
+}

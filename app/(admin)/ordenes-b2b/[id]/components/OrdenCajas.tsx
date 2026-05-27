@@ -358,6 +358,10 @@ export function OrdenCajas({
   ordenId,
   catalogoCajas,
   detalles,
+  canEditOrden = true,
+  canEditCajas = true,
+  canDeleteCajas = true,
+  canCreateCajas = true,
 }: {
   cajas: OrdenCajaResuelta[]
   ordenId: number
@@ -366,6 +370,10 @@ export function OrdenCajas({
     tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
     colores: { id: number; nombre: string; hex_code: string | null }[]
   }
+  canEditOrden?: boolean
+  canEditCajas?: boolean
+  canDeleteCajas?: boolean
+  canCreateCajas?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -448,14 +456,20 @@ export function OrdenCajas({
       <div className="space-y-4 mt-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">0 cajas vinculadas</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
-              <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
-            </Button>
-            <Button size="sm" onClick={() => setCrearOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
-            </Button>
-          </div>
+          {(canEditOrden || canCreateCajas) && (
+            <div className="flex gap-2">
+              {canEditOrden && (
+                <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
+                  <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
+                </Button>
+              )}
+              {canCreateCajas && (
+                <Button size="sm" onClick={() => setCrearOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-center py-12 text-muted-foreground rounded-lg border">
           <Package className="h-8 w-8" />
@@ -485,14 +499,20 @@ export function OrdenCajas({
         <p className="text-sm text-muted-foreground">
           {cajas.length} caja{cajas.length !== 1 ? 's' : ''} vinculada{cajas.length !== 1 ? 's' : ''}
         </p>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
-            <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
-          </Button>
-          <Button size="sm" onClick={() => setCrearOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
-          </Button>
-        </div>
+        {(canEditOrden || canCreateCajas) && (
+          <div className="flex gap-2">
+            {canEditOrden && (
+              <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
+                <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
+              </Button>
+            )}
+            {canCreateCajas && (
+              <Button size="sm" onClick={() => setCrearOpen(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <VincularCajaDialog
@@ -520,11 +540,13 @@ export function OrdenCajas({
               key={c.id}
               caja={mapCajaToShared(c)}
               layout="horizontal"
-              canEdit
+              canEdit={canEditCajas}
+              canDelete={canEditOrden || canDeleteCajas}
+              canEditOrden={canEditOrden}
               isPending={isPending || deactivating === c.caja_id}
-              onRemove={() => handleRemove(c.id)}
-              onEdit={handleEdit}
-              onDeactivate={handleDeactivate}
+              onRemove={canEditOrden ? () => handleRemove(c.id) : undefined}
+              onEdit={canEditCajas ? handleEdit : undefined}
+              onDeactivate={canDeleteCajas ? handleDeactivate : undefined}
               tallasDisponibles={tallasDisponibles}
               coloresDisponibles={coloresDisponibles}
               precioUnitarioUsd={precioUnitarioUsd}

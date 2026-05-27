@@ -1,17 +1,25 @@
 // modules/contenedores/types.ts
 
-import type { ContenedorRow } from '@/lib/types/tables'
 import type { SharedCajaData } from '@/modules/cajas/types'
 
-// ── Filtros ─────────────────────────────────────────────────
+export type ContenedorSortBy =
+  | 'fecha_eta'
+  | 'fecha_etd'
+  | 'codigo_contenedor'
+  | 'numero_contenedor'
+  | 'total_ordenes'
+  | 'cajas_totales'
+  | 'estado'
+
 export type FiltrosContenedores = {
   q?: string
   estado?: string
-  año?: number
+  anio?: number
   page?: number
+  sort_by?: ContenedorSortBy
+  order?: 'asc' | 'desc'
 }
 
-// ── Contenedor resumen (desde v_contenedor_resumen) ─────────
 export type ContenedorResumen = {
   contenedor_id: number
   codigo_contenedor: string
@@ -35,7 +43,6 @@ export type ContenedorResumen = {
   valor_total_usd: number | null
 }
 
-// ── Packing list (desde v_contenedor_packing, una fila por caja) ──
 export type ContenedorPackingItem = {
   codigo_contenedor: string
   numero_contenedor: string | null
@@ -60,7 +67,6 @@ export type ContenedorPackingItem = {
   producto_descripcion: string | null
 }
 
-// ── Orden vinculada a contenedor ────────────────────────────
 export type OrdenEnContenedor = {
   id: number
   folio_proveedor: string | null
@@ -77,7 +83,6 @@ export type OrdenEnContenedor = {
   contenedor_codigo?: string | null
 }
 
-// ── Orden disponible para vincular ───────────────────────────
 export type OrdenDisponible = {
   id: number
   folio_proveedor: string | null
@@ -90,10 +95,8 @@ export type OrdenDisponible = {
   contenedor_id: number | null
 }
 
-// ── Caja dentro de contenedor (compatible con CajaCard) ────
 export type CajaEnContenedor = SharedCajaData & {
   ordenCajaId: number
   ordenId: number
   ordenFolio: string | null
 }
-

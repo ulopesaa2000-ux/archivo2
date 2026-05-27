@@ -167,11 +167,29 @@ export function buildCommercialOrderFilter(scope: CommercialScope): string | nul
   if (scope.is_super_admin) return null
 
   const clauses: string[] = []
-  if (scope.allowed_cliente_ids.length > 0) {
-    clauses.push(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
-  }
-  if (scope.allowed_proveedor_ids.length > 0) {
-    clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+
+  if (scope.primary_persona_tipo === 'Proveedor') {
+    // Si es un Proveedor primario, SÓLO puede ver órdenes asociadas a él
+    if (scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    } else {
+      return '__no_access__.eq.true'
+    }
+  } else if (scope.primary_persona_tipo === 'Cliente B2B') {
+    // Si es un Cliente B2B primario, SÓLO puede ver órdenes de su propia empresa
+    if (scope.allowed_cliente_ids.length > 0) {
+      clauses.push(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
+    } else {
+      return '__no_access__.eq.true'
+    }
+  } else {
+    // Si es un intermediario / staff (como Diana), puede ver indistintamente órdenes de sus proveedores o clientes asignados
+    if (scope.allowed_cliente_ids.length > 0) {
+      clauses.push(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
+    }
+    if (scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    }
   }
 
   return clauses.length > 0 ? clauses.join(',') : '__no_access__.eq.true'

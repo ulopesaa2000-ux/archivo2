@@ -21,22 +21,23 @@ type SearchParams = Promise<{
   page?: string
 } & Record<string, string | undefined>>
 
-export const metadata: Metadata = { title: 'Órdenes B2B' }
+export const metadata: Metadata = { title: 'Ordenes B2B' }
 
 async function buildFiltros(searchParams: SearchParams): Promise<FiltrosOrdenesB2B> {
   const params = await searchParams
-  const yearParam = params['a\u00f1o'] ?? params['a\u00c3\u00b1o'] ?? params.anio
+  const yearParam = params.anio ?? params['año'] ?? params['aÃ±o']
+
   const filtros: FiltrosOrdenesB2B = {
     q: params.q,
     estado: params.estado,
-    proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id) : undefined,
-    page: params.page ? parseInt(params.page) : 1,
-    sort_by: params.sort_by,
-    order: params.order as 'asc' | 'desc',
+    proveedor_id: params.proveedor_id ? parseInt(params.proveedor_id, 10) : undefined,
+    page: params.page ? parseInt(params.page, 10) : 1,
+    sort_by: params.sort_by ?? 'id',
+    order: params.order === 'asc' ? 'asc' : 'desc',
   }
 
   if (yearParam) {
-    ;(filtros as unknown as Record<string, number>)['a\u00c3\u00b1o'] = parseInt(yearParam)
+    ;(filtros as unknown as Record<string, number>).año = parseInt(yearParam, 10)
   }
 
   return filtros
@@ -45,10 +46,10 @@ async function buildFiltros(searchParams: SearchParams): Promise<FiltrosOrdenesB
 function ToolbarSkeleton() {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <div className="h-9 w-full max-w-sm rounded bg-muted animate-pulse" />
-      <div className="h-9 w-44 rounded bg-muted animate-pulse" />
-      <div className="h-9 w-48 rounded bg-muted animate-pulse" />
-      <div className="ml-auto h-9 w-32 rounded bg-muted animate-pulse" />
+      <div className="h-9 w-full max-w-sm animate-pulse rounded bg-muted" />
+      <div className="h-9 w-44 animate-pulse rounded bg-muted" />
+      <div className="h-9 w-48 animate-pulse rounded bg-muted" />
+      <div className="ml-auto h-9 w-32 animate-pulse rounded bg-muted" />
     </div>
   )
 }
@@ -93,10 +94,10 @@ async function OrdenesB2BTable({
       <p className="text-sm text-muted-foreground">
         {total} orden{total !== 1 ? 'es' : ''}
       </p>
-      <OrdenesTable 
-        items={items} 
+      <OrdenesTable
+        items={items}
         catalogos={catalogos}
-        initialFeatures={features} 
+        initialFeatures={features}
         sortKey={filtros.sort_by}
         sortOrder={filtros.order}
         canEdit={puedeEditar}
@@ -107,14 +108,9 @@ async function OrdenesB2BTable({
   )
 }
 
-import { createClient } from '@/lib/supabase/server'
-import { getCommercialScope } from '@/lib/auth/commercial-scope'
-
 export default async function OrdenesB2BPage({ searchParams }: { searchParams: SearchParams }) {
   await requirePermission('b2b_ordenes')
   const user = await getCurrentUser()
-  const supabase = await createClient()
-  const scope = await getCommercialScope(supabase, user)
 
   const puedeCrear = can(user, 'b2b_ordenes', 'puede_crear')
   const puedeEditar = can(user, 'b2b_ordenes', 'puede_editar')
@@ -122,7 +118,7 @@ export default async function OrdenesB2BPage({ searchParams }: { searchParams: S
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold tracking-tight">Órdenes B2B</h1>
+      <h1 className="text-2xl font-bold tracking-tight">Ordenes B2B</h1>
       <Suspense fallback={<ToolbarSkeleton />}>
         <OrdenesB2BToolbar puedeCrear={puedeCrear} />
       </Suspense>

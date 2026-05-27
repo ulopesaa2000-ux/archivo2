@@ -1,111 +1,144 @@
 // app/(admin)/contenedores/ContenedoresFilters.tsx
 'use client'
 
-import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useTransition } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import { Input } from '@/components/ui/input'
+import { useFilterParams } from '@/components/admin/useFilterParams'
+import { SearchInput } from '@/components/admin/SearchInput'
 import { Button } from '@/components/ui/button'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select'
-import { Search, Loader2, X } from 'lucide-react'
+import { ArrowUpDown, X } from 'lucide-react'
 import {
-  ESTADOS_CONTENEDOR, ESTADO_CONTENEDOR_LABELS,
-  ESTADO_CONTENEDOR_COLORS, AÑOS_DISPONIBLES,
+  ESTADOS_CONTENEDOR,
+  ESTADO_CONTENEDOR_LABELS,
+  ESTADO_CONTENEDOR_COLORS,
 } from '@/lib/constants'
+import type { ContenedorSortBy } from '@/modules/contenedores/types'
 
-export function ContenedoresFilters() {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const [isPending, startTransition] = useTransition()
+const AVAILABLE_YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026] as const
 
-  const updateParam = useCallback(
-    (key: string, value: string | null) => {
-      startTransition(() => {
-        const params = new URLSearchParams(searchParams.toString())
-        if (value === null || value === '' || value === '_all') {
-          params.delete(key)
-        } else {
-          params.set(key, value)
-        }
-        params.delete('page')
-        router.push(`${pathname}?${params.toString()}`, { scroll: false })
-      })
-    },
-    [searchParams, pathname, router]
-  )
+const SORT_OPTIONS: { value: ContenedorSortBy; label: string }[] = [
+  { value: 'fecha_eta', label: 'ETA mas reciente' },
+  { value: 'fecha_etd', label: 'ETD' },
+  { value: 'codigo_contenedor', label: 'Codigo' },
+  { value: 'numero_contenedor', label: 'No. contenedor' },
+  { value: 'total_ordenes', label: 'Ordenes' },
+  { value: 'cajas_totales', label: 'Cajas' },
+  { value: 'estado', label: 'Estado' },
+]
 
-  const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term || null)
-  }, 400)
+export function ContenedoresFilters({
+  sortBy,
+  order,
+}: {
+  sortBy: ContenedorSortBy
+  order: 'asc' | 'desc'
+}) {
+  const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
 
-  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+  const currentQ = searchParam('q')
+  const currentEstado = searchParam('estado', '_all')
+  const currentAnio = searchParam('anio', '_all')
 
   return (
-    <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
-      <div className="relative flex-1 max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Buscar N° contenedor, código, BL..."
-          defaultValue={searchParams.get('q') ?? ''}
-          onChange={(e) => handleSearch(e.target.value)}
-          className="pl-10"
-        />
-        {isPending && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+    <div className={`space-y-4 ${isPending ? 'opacity-70' : ''}`}>
+      <SearchInput
+        id="contenedores-search"
+        placeholder="Buscar No. contenedor, codigo, BL..."
+        currentValue={currentQ}
+        onSearch={(term) => updateParam('q', term)}
+        delay={500}
+        controlled
+      />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Select
+          value={currentEstado}
+          onValueChange={(value) => updateParam('estado', value === '_all' ? null : value)}
+        >
+          <SelectTrigger className="h-9 w-[175px] text-sm">
+            <span className="truncate">
+              {currentEstado !== '_all'
+                ? ESTADO_CONTENEDOR_LABELS[currentEstado] ?? currentEstado
+                : 'Todos los estados'}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todos los estados</SelectItem>
+            {ESTADOS_CONTENEDOR.map((estado) => (
+              <SelectItem key={estado} value={estado}>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${ESTADO_CONTENEDOR_COLORS[estado]?.split(' ')[0]}`} />
+                  {ESTADO_CONTENEDOR_LABELS[estado]}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={currentAnio}
+          onValueChange={(value) => updateParam('anio', value === '_all' ? null : value)}
+        >
+          <SelectTrigger className="h-9 w-[120px] text-sm">
+            <span className="truncate">
+              {currentAnio === '_all' ? 'Todos los anios' : currentAnio}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todos los anios</SelectItem>
+            {AVAILABLE_YEARS.map((anio) => (
+              <SelectItem key={anio} value={String(anio)}>{anio}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="hidden h-6 w-px bg-border sm:block" />
+
+        <Select
+          value={sortBy}
+          onValueChange={(value) => updateParam('sort_by', value === 'fecha_eta' ? null : value)}
+        >
+          <SelectTrigger className="h-9 w-[180px] text-sm">
+            <span className="flex items-center gap-1.5 truncate">
+              <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+              {SORT_OPTIONS.find((option) => option.value === sortBy)?.label ?? 'Ordenar por'}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {sortBy !== 'fecha_eta' && (
+          <button
+            type="button"
+            onClick={() => updateParam('order', order === 'asc' ? 'desc' : 'asc')}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+            title={order === 'asc' ? 'Ascendente, click para invertir' : 'Descendente, click para invertir'}
+          >
+            {order === 'asc' ? '^' : 'v'}
+          </button>
+        )}
+
+        <div className="flex-1" />
+
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => clearAll(['contenedores-search'])}
+            className="text-muted-foreground"
+          >
+            <X className="mr-1 h-3 w-3" />
+            Limpiar
+          </Button>
         )}
       </div>
-
-      <Select
-        value={searchParams.get('estado') ?? '_all'}
-        onValueChange={(v) => updateParam('estado', v === '_all' ? null : v)}
-      >
-        <SelectTrigger className="w-[175px] h-9 text-sm">
-          <span className="truncate">
-            {searchParams.get('estado')
-              ? ESTADO_CONTENEDOR_LABELS[searchParams.get('estado')!] ?? searchParams.get('estado')
-              : 'Todos los estados'}
-          </span>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="_all">Todos los estados</SelectItem>
-          {ESTADOS_CONTENEDOR.map((e) => (
-            <SelectItem key={e} value={e}>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${ESTADO_CONTENEDOR_COLORS[e]?.split(' ')[0]}`} />
-                {ESTADO_CONTENEDOR_LABELS[e]}
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={searchParams.get('año') ?? '_all'}
-        onValueChange={(v) => updateParam('año', v === '_all' ? null : v)}
-      >
-        <SelectTrigger className="w-[120px] h-9 text-sm">
-          <span className="truncate">
-            {searchParams.get('año') ?? 'Todos los años'}
-          </span>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="_all">Todos los años</SelectItem>
-          {AÑOS_DISPONIBLES.map((a) => (
-            <SelectItem key={a} value={String(a)}>{a}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {hasFilters && (
-        <Button variant="ghost" size="sm" onClick={() => {
-          startTransition(() => router.push(pathname, { scroll: false }))
-        }} className="text-muted-foreground">
-          <X className="h-3 w-3 mr-1" /> Limpiar
-        </Button>
-      )}
     </div>
   )
 }

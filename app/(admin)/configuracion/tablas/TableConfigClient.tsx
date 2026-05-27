@@ -11,14 +11,17 @@ import type { TableFeatures } from '@/components/admin/DataTable/types'
 import type { AdminTableDefinition } from '@/modules/admin-table/config/types'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 
-// Fields disponibles por defecto para cada tabla (ejemplo para catálogo)
-// Se pueden extender según la tabla
 const DEFAULT_QUICKEDIT_FIELDS: Record<string, { key: string; label: string; type: string }[]> = {
   '/catalogo': [
-    { key: 'descripcion', label: 'Descripción', type: 'text' },
+    { key: 'descripcion', label: 'Descripcion', type: 'text' },
     { key: 'familia', label: 'Familia', type: 'text' },
     { key: 'marca_id', label: 'Marca', type: 'select' },
     { key: 'precio_ec', label: 'Precio EC', type: 'currency' },
+    { key: 'estado', label: 'Estado', type: 'select' },
+  ],
+  '/contenedores': [
+    { key: 'codigo_contenedor', label: 'Codigo', type: 'text' },
+    { key: 'fecha_eta', label: 'ETA', type: 'date' },
     { key: 'estado', label: 'Estado', type: 'select' },
   ],
 }
@@ -45,9 +48,7 @@ export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
     return initialConfig ?? defaultFeatures
   })
 
-  const isModified = JSON.stringify(config) !== JSON.stringify(
-    initialConfig ?? defaultFeatures
-  )
+  const isModified = JSON.stringify(config) !== JSON.stringify(initialConfig ?? defaultFeatures)
 
   const handleToggle = useCallback((key: keyof TableFeatures, value: boolean) => {
     setConfig((prev) => {
@@ -57,7 +58,7 @@ export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
       } else if (key === 'bulkActions') {
         next.bulkActions = value ? [] : undefined
       } else {
-        (next as Record<string, unknown>)[key] = value
+        ;(next as Record<string, unknown>)[key] = value
       }
       return next
     })
@@ -67,14 +68,10 @@ export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
     setConfig((prev: TableFeatures): TableFeatures => {
       if (!prev.quickEdit) return prev
       const fields = prev.quickEdit as { key: string; label: string; type: string }[]
-      if (enabled) {
-        // No-op: el campo ya está en la lista (chequeado = true)
-        return prev
-      } else {
-        // Desmarcar: remover de la lista
-        const newFields = fields.filter((f) => f.key !== fieldKey)
-        return { ...prev, quickEdit: newFields.length > 0 ? newFields as TableFeatures['quickEdit'] : false }
-      }
+      if (enabled) return prev
+
+      const newFields = fields.filter((f) => f.key !== fieldKey)
+      return { ...prev, quickEdit: newFields.length > 0 ? (newFields as TableFeatures['quickEdit']) : false }
     })
   }, [])
 
@@ -88,12 +85,12 @@ export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
       }, isGlobal)
       setIsSaving(false)
       if (result.success) {
-        toast.success('Configuración guardada correctamente')
+        toast.success('Configuracion guardada correctamente')
       } else {
         toast.error('Error al guardar', { description: result.error })
       }
     })
-  }, [config, table.route])
+  }, [config, table.route, isGlobal, startTransition])
 
   const handleReset = useCallback(() => {
     setIsResetting(true)
@@ -102,19 +99,19 @@ export function TableConfigClient({ table, initialConfig, isGlobal }: Props) {
       setIsResetting(false)
       if (result.success) {
         setConfig(defaultFeatures)
-        toast.success('Configuración restablecida')
+        toast.success('Configuracion restablecida')
       } else {
         toast.error('Error al restablecer', { description: result.error })
       }
     })
-  }, [defaultFeatures, table.route])
+  }, [defaultFeatures, table.route, startTransition])
 
   return (
     <TableConfigCard
       table={table}
       currentConfig={config}
       isModified={isModified}
-      isSaving={isSaving || isResetting}
+      isSaving={isSaving || isResetting || isPending}
       onToggle={handleToggle}
       onToggleQuickEditField={handleToggleQuickEditField}
       onSave={handleSave}

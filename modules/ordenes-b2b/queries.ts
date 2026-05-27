@@ -556,26 +556,38 @@ export async function fetchCajasListado(
   if (!scope.is_super_admin) {
     const clauses: string[] = []
 
-    if (scope.allowed_proveedor_ids.length > 0) {
-      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
-    }
+    if (scope.primary_persona_tipo === 'Proveedor') {
+      // Si es un Proveedor primario, SÓLO puede ver cajas de su propia marca/proveedor
+      if (scope.allowed_proveedor_ids.length > 0) {
+        clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+      }
+    } else if (scope.primary_persona_tipo === 'Cliente B2B') {
+      // Si es un Cliente B2B primario, SÓLO puede ver cajas de los productos de su empresa
+      if (scope.allowed_cliente_ids.length > 0) {
+        const { data: allowedProducts } = await supabase
+          .from('productos')
+          .select('id')
+          .in('cliente_b2b_id', scope.allowed_cliente_ids)
 
-    if (scope.allowed_cliente_ids.length > 0) {
-      const clientFilter = scope.allowed_cliente_ids.join(',')
-      const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
-        .select('id')
-        .or(`cliente_b2b_id.in.(${clientFilter})`)
+        const allowedProductIds = (allowedProducts ?? []).map((p: any) => p.id)
+        if (allowedProductIds.length > 0) {
+          clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+        }
+      }
+    } else {
+      // Si es un intermediario / staff (como Diana), puede ver cajas de sus proveedores o productos de sus clientes asignados
+      if (scope.allowed_proveedor_ids.length > 0) {
+        clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+      }
+      if (scope.allowed_cliente_ids.length > 0) {
+        const { data: allowedProducts } = await supabase
+          .from('productos')
+          .select('id')
+          .in('cliente_b2b_id', scope.allowed_cliente_ids)
 
-      const ordenIds = (ordenes ?? []).map((orden: any) => orden.id)
-      if (ordenIds.length > 0) {
-        const { data: ordenCajas } = await supabase
-          .from('orden_cajas')
-          .select('caja_id')
-          .in('orden_id', ordenIds)
-
-        const cajaIds = Array.from(new Set((ordenCajas ?? []).map((item) => item.caja_id).filter(Boolean))) as number[]
-        if (cajaIds.length > 0) {
-          clauses.push(`id.in.(${cajaIds.join(',')})`)
+        const allowedProductIds = (allowedProducts ?? []).map((p: any) => p.id)
+        if (allowedProductIds.length > 0) {
+          clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
         }
       }
     }

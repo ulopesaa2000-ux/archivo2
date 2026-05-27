@@ -14,6 +14,9 @@ import type {
   TipoPrendaRow, EdadRow, PersonaRow,
 } from '@/lib/types/tables'
 
+import { getCurrentUser } from '@/modules/auth/queries'
+import { getCommercialScope } from '@/lib/auth/commercial-scope'
+
 // ═══════════════════════════════════════════════════════════════
 // LISTADO
 // ═══════════════════════════════════════════════════════════════
@@ -26,6 +29,10 @@ export async function fetchProductosCatalogo(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
+  // Obtener el alcance comercial del usuario
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
+
   // ── Catálogos en paralelo (para filtros y lookup) ─────────
   const catalogos = await fetchCatalogosParaFiltros()
 
@@ -33,9 +40,24 @@ export async function fetchProductosCatalogo(
   let query = (supabase
     .from('productos') as any)
     .select(
-      'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, tela_ext_id',
+      'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, tela_ext_id, cliente_b2b_id, persona_id',
       { count: 'exact' }
     )
+
+  // Aplicar filtro de alcance comercial para no-superadmins
+  if (!scope.is_super_admin) {
+    const clauses: string[] = []
+    if (scope.allowed_cliente_ids.length > 0) {
+      clauses.push(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
+    }
+    if (scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`persona_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    }
+    // Incluir también los productos generales sin cliente específico asignado (marca libre)
+    clauses.push('cliente_b2b_id.is.null')
+
+    query = query.or(clauses.join(','))
+  }
 
   // ── Filtro: búsqueda texto (SKU o descripción) ────────────
   if (filtros.q) {

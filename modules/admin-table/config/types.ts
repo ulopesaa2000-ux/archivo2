@@ -122,6 +122,6 @@ export const ADMIN_TABLES_LIST: AdminTableDefinition[] = [
     route: '/contenedores',
     label: 'Contenedores',
     description: 'Contenedores de importación con su estado y contenido.',
-    features_disponibles: ['selectable', 'expandable', 'sortable', 'columnSelector'],
+    features_disponibles: ['selectable', 'expandable', 'sortable', 'quickEdit', 'columnSelector'],
   },
 ]

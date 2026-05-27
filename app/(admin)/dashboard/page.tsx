@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { ADMIN_ROUTES } from '@/lib/constants'
+import { DashboardExpandableList } from './components/DashboardExpandableList'
 
 export const metadata: Metadata = {
   title: 'Dashboard B2B',
@@ -49,7 +50,7 @@ export default async function DashboardPage() {
         .neq('estado', 'Cancelada')
         .order('fecha_orden', { ascending: false })
 
-      ultimasOrdenes = ords?.slice(0, 5) ?? []
+      ultimasOrdenes = ords?.slice(0, 12) ?? []
       ordenesCount = ords?.filter(o => o.estado !== 'Completo').length ?? 0
 
       // Conteo de contenedores activos vinculados
@@ -63,7 +64,7 @@ export default async function DashboardPage() {
             .neq('estado', 'cerrado')
             .neq('estado', 'cancelado')
 
-          proximosContenedores = conts ?? []
+          proximosContenedores = conts?.slice(0, 12) ?? []
           contenedoresCount = conts?.length ?? 0
         }
 
@@ -80,7 +81,7 @@ export default async function DashboardPage() {
         .neq('estado', 'Cancelada')
         .order('fecha_orden', { ascending: false })
 
-      ultimasOrdenes = ords?.slice(0, 5) ?? []
+      ultimasOrdenes = ords?.slice(0, 12) ?? []
       ordenesCount = ords?.filter(o => o.estado !== 'Completo').length ?? 0
 
       // Conteo de contenedores activos asignados
@@ -94,7 +95,7 @@ export default async function DashboardPage() {
             .neq('estado', 'cerrado')
             .neq('estado', 'cancelado')
 
-          proximosContenedores = conts ?? []
+          proximosContenedores = conts?.slice(0, 12) ?? []
           contenedoresCount = conts?.length ?? 0
         }
 
@@ -109,9 +110,9 @@ export default async function DashboardPage() {
         supabase.from('cajas_producto').select('id', { count: 'exact' }),
       ])
 
-      ultimasOrdenes = ordsRes.data?.slice(0, 5) ?? []
+      ultimasOrdenes = ordsRes.data?.slice(0, 12) ?? []
       ordenesCount = ordsRes.data?.filter(o => o.estado !== 'Completo').length ?? 0
-      proximosContenedores = contsRes.data?.slice(0, 5) ?? []
+      proximosContenedores = contsRes.data?.slice(0, 12) ?? []
       contenedoresCount = contsRes.data?.length ?? 0
       cajasCount = cajasRes.count ?? 0
     }
@@ -191,7 +192,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Grid de Pendientes */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 items-start">
         {/* Columna A: Últimas Órdenes */}
         <div className="rounded-2xl border bg-card/60 backdrop-blur-sm p-6 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -207,37 +208,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
 
-          <div className="divide-y divide-border">
-            {ultimasOrdenes.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                No hay órdenes registradas.
-              </p>
-            ) : (
-              ultimasOrdenes.map((ord) => (
-                <div key={ord.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      {ord.folio_proveedor || `Orden #${ord.id}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {ord.total_cajas || 0} cajas · {ord.total_piezas || 0} piezas
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium border uppercase tracking-wider ${
-                      ord.estado === 'Confirmada' || ord.estado === 'Confirmado'
-                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                        : ord.estado === 'Pendiente'
-                        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                        : 'bg-blue-500/10 text-blue-600 border-blue-500/20'
-                    }`}
-                  >
-                    {ord.estado}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+          <DashboardExpandableList items={ultimasOrdenes} type="orders" />
         </div>
 
         {/* Columna B: Próximos Embarques */}
@@ -255,37 +226,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
 
-          <div className="divide-y divide-border">
-            {proximosContenedores.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                Sin contenedores activos en tránsito.
-              </p>
-            ) : (
-              proximosContenedores.map((cont) => (
-                <div key={cont.contenedor_id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      {cont.codigo_contenedor || cont.numero_contenedor}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      ETA: {cont.fecha_eta ? new Date(cont.fecha_eta).toLocaleDateString() : 'Pendiente'}
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium border uppercase tracking-wider ${
-                      cont.estado === 'en_transito'
-                        ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
-                        : cont.estado === 'en_aduana'
-                        ? 'bg-purple-500/10 text-purple-600 border-purple-500/20'
-                        : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                    }`}
-                  >
-                    {cont.estado?.replace('_', ' ')}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+          <DashboardExpandableList items={proximosContenedores} type="containers" />
         </div>
       </div>
     </div>

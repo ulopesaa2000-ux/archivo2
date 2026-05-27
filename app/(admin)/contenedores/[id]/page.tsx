@@ -16,6 +16,9 @@ import { ContenedorOrdenes } from './components/ContenedorOrdenes'
 import { ContenedorPacking } from './components/ContenedorPacking'
 import { ContenedorCajas } from './components/ContenedorCajas'
 import { Separator } from '@/components/ui/separator'
+import { requirePermission } from '@/lib/dal'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from '@/lib/auth/permissions'
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const params = await props.params;
@@ -26,9 +29,15 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 }
 
 export default async function ContenedorDetallePage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission('b2b_contenedores')
+
   const params = await props.params;
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()
+
+  const currentUser = await getCurrentUser()
+  const puedeEditar = Boolean(currentUser && can(currentUser, 'b2b_contenedores', 'puede_editar'))
+  const puedeEditarOrden = Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_editar'))
 
   const [contenedor, resumen] = await Promise.all([
     fetchContenedorById(id),
@@ -46,7 +55,12 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
 
   return (
     <div className="space-y-6">
-      <ContenedorCabecera contenedor={contenedor} resumen={resumen} bodegasVirtuales={bodegasVirtuales} />
+      <ContenedorCabecera 
+        contenedor={contenedor} 
+        resumen={resumen} 
+        bodegasVirtuales={bodegasVirtuales} 
+        canEdit={puedeEditar}
+      />
       <Separator />
       <Tabs defaultValue="ordenes">
         <TabsList>
@@ -55,7 +69,13 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
           <TabsTrigger value="packing">Packing List ({packing.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="ordenes">
-          <ContenedorOrdenes ordenes={ordenes} contenedorId={id} catalogos={catalogos} />
+          <ContenedorOrdenes
+            ordenes={ordenes}
+            contenedorId={id}
+            catalogos={catalogos}
+            canEditContenedor={puedeEditar}
+            canEditOrden={puedeEditarOrden}
+          />
         </TabsContent>
         <TabsContent value="cajas">
           <Suspense fallback={<TabSkeleton />}>
