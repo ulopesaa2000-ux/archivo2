@@ -9,12 +9,15 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import { buildCajaContenidoMap } from '@/modules/cajas/utils'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import type { SharedCajaData } from '@/modules/cajas/types'
+import { useSession } from '@/hooks/useSession'
 
 export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
   const [data, setData] = useState<any | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [tallasDisponibles, setTallasDisponibles] = useState<any[]>([])
   const [coloresDisponibles, setColoresDisponibles] = useState<any[]>([])
+  const [puedeEditar, setPuedeEditar] = useState(false)
+  const [puedeEliminar, setPuedeEliminar] = useState(false)
 
   useEffect(() => {
     setIsLoading(true)
@@ -26,6 +29,8 @@ export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
         setData(cajaData)
         setTallasDisponibles(catalogos.tallas)
         setColoresDisponibles(catalogos.colores)
+        setPuedeEditar(cajaData?.puedeEditar ?? false)
+        setPuedeEliminar(cajaData?.puedeEliminar ?? false)
       })
       .catch((err) => {
         console.error('Error fetching data:', err)
@@ -65,18 +70,22 @@ export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
         layout="vertical" 
         tallasDisponibles={tallasDisponibles}
         coloresDisponibles={coloresDisponibles}
-        onDeactivate={async (id) => {
+        canEdit={puedeEditar}
+        canDelete={puedeEliminar}
+        onDeactivate={puedeEliminar ? async (id) => {
           await import('@/modules/cajas/actions').then(m => m.desactivarCajaAction(id));
-        }}
-        onEdit={async (id, data) => {
+        } : undefined}
+        onEdit={puedeEditar ? async (id, data) => {
           await import('@/modules/cajas/actions').then(m => m.updateCajaCompletaAction(id, data));
           // Refrescar los datos localmente
           const res = await fetch(`/api/ordenes-b2b/caja-detalle?id=${id}`);
           if (res.ok) {
             const newData = await res.json();
             setData(newData);
+            setPuedeEditar(newData?.puedeEditar ?? false)
+            setPuedeEliminar(newData?.puedeEliminar ?? false)
           }
-        }}
+        } : undefined}
       />
 
       {/* Secciones extra específicas del Sheet */}

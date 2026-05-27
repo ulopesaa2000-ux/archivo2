@@ -385,11 +385,17 @@ function AgregarOrdenDialog({
 // ════════════════════════════════════════════════════════════
 
 export function ContenedorOrdenes({
-  ordenes, contenedorId, catalogos,
+  ordenes,
+  contenedorId,
+  catalogos,
+  canEditContenedor = true,
+  canEditOrden = true,
 }: {
   ordenes: OrdenEnContenedor[]
   contenedorId: number
   catalogos: CatalogosB2B
+  canEditContenedor?: boolean
+  canEditOrden?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -421,14 +427,18 @@ export function ContenedorOrdenes({
       <div className="space-y-4 mt-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">0 órdenes vinculadas</p>
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
-            <PlusCircle className="h-3.5 w-3.5 mr-1" /> Agregar Orden
-          </Button>
+          {canEditContenedor && (
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              <PlusCircle className="h-3.5 w-3.5 mr-1" /> Agregar Orden
+            </Button>
+          )}
         </div>
         <div className="flex flex-col items-center py-12 text-muted-foreground rounded-lg border">
           <ShoppingCart className="h-8 w-8" /><p className="text-sm mt-2">Sin órdenes vinculadas.</p>
         </div>
-        <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
+        {canEditContenedor && (
+          <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
+        )}
       </div>
     )
   }
@@ -438,13 +448,17 @@ export function ContenedorOrdenes({
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{ordenes.length} orden{ordenes.length !== 1 ? 'es' : ''} vinculada{ordenes.length !== 1 ? 's' : ''}</p>
-        <Button size="sm" onClick={() => setDialogOpen(true)}>
-          <PlusCircle className="h-3.5 w-3.5 mr-1" /> Agregar Orden
-        </Button>
+        {canEditContenedor && (
+          <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <PlusCircle className="h-3.5 w-3.5 mr-1" /> Agregar Orden
+          </Button>
+        )}
       </div>
 
       {/* Dialog */}
-      <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
+      {canEditContenedor && (
+        <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
+      )}
 
       {/* Table */}
       <div className="rounded-lg border overflow-hidden bg-background">
@@ -470,11 +484,11 @@ export function ContenedorOrdenes({
                 isExpanded={expanded.has(o.id)}
                 onToggle={toggle}
                 showContenedor={false}
-                onEdit={(id) => {
+                onEdit={canEditOrden ? (id) => {
                   const found = ordenes.find((x) => x.id === id)
                   if (found) setEditingOrden(found)
-                }}
-                onDelete={(id) => setRemovingId(id)}
+                } : undefined}
+                onDelete={canEditContenedor ? (id) => setRemovingId(id) : undefined}
               />
             ))}
           </tbody>
@@ -500,7 +514,7 @@ export function ContenedorOrdenes({
         </AlertDialogContent>
       </AlertDialog>
 
-      {editingOrden && catalogos && (
+      {canEditOrden && editingOrden && catalogos && (
         <OrdenFormDialog
           mode="edit"
           catalogos={catalogos}

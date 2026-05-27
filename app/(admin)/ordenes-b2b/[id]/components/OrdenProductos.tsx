@@ -253,16 +253,16 @@ function DetalleConversationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-5xl sm:max-w-5xl lg:max-w-5xl w-[95vw] sm:w-full overflow-y-auto max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-primary" />
+          <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
+            <MessageSquare className="h-4 w-4 text-primary animate-pulse" />
             Conversación y cambios del detalle
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <div className="rounded-lg border bg-muted/10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full mt-2">
+          <div className="lg:col-span-7 xl:col-span-8 rounded-lg border bg-muted/10 flex flex-col min-w-0">
             <div className="border-b px-4 py-3">
               <p className="text-sm font-semibold text-foreground">{detalle.producto_sku ?? 'Sin SKU'} · {detalle.producto_descripcion ?? detalle.producto_nombre ?? 'Producto sin descripción'}</p>
               <p className="text-xs text-muted-foreground">Historial del detalle específico dentro de la orden.</p>
@@ -300,7 +300,7 @@ function DetalleConversationDialog({
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="lg:col-span-5 xl:col-span-4 space-y-4 flex flex-col min-w-0">
             <div className="rounded-lg border p-4">
               <div className="mb-3 flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-primary" />

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosContenedores, ContenedorResumen,
-  ContenedorPackingItem, OrdenEnContenedor,
+  ContenedorPackingItem, OrdenEnContenedor, ContenedorSortBy,
   OrdenDisponible, CajaEnContenedor,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
@@ -23,6 +23,8 @@ export async function fetchContenedores(
   const page = filtros.page ?? 1
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
+  const sortBy: ContenedorSortBy = filtros.sort_by ?? 'fecha_eta'
+  const ascending = filtros.order === 'asc'
 
   const currentUser = await getCurrentUser()
   const scope = await getCommercialScope(supabase, currentUser)
@@ -62,14 +64,14 @@ export async function fetchContenedores(
     query = query.eq('estado', filtros.estado)
   }
 
-  if (filtros.año) {
+  if (filtros.anio) {
     query = query
-      .gte('fecha_eta', `${filtros.año}-01-01`)
-      .lt('fecha_eta', `${filtros.año + 1}-01-01`)
+      .gte('fecha_eta', `${filtros.anio}-01-01`)
+      .lt('fecha_eta', `${filtros.anio + 1}-01-01`)
   }
 
   query = query
-    .order('fecha_eta', { ascending: false, nullsFirst: false })
+    .order(sortBy, { ascending, nullsFirst: !ascending })
     .range(from, to)
 
   const { data, count, error } = await query
@@ -190,6 +192,8 @@ export async function fetchContenedorPacking(
   contenedorId: number
 ): Promise<ContenedorPackingItem[]> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
 
   const { data: cont } = await supabase
     .from('contenedores')
@@ -199,11 +203,30 @@ export async function fetchContenedorPacking(
 
   if (!cont) return []
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('v_contenedor_packing')
     .select('*')
     .eq('codigo_contenedor', cont.codigo_contenedor)
-    .order('orden_id')
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
+
+    // Obtener los IDs de las órdenes permitidas en este contenedor
+    const { data: allowedOrders } = await (supabase.from('ordenes_b2b') as any)
+      .select('id')
+      .eq('contenedor_id', contenedorId)
+      .or(orderFilter)
+
+    const allowedIds = (allowedOrders ?? []).map((o: any) => o.id)
+    if (allowedIds.length === 0) return []
+
+    query = query.in('orden_id', allowedIds)
+  }
+
+  query = query.order('orden_id')
+
+  const { data, error } = await query
 
   if (error) {
     console.error('Error fetchContenedorPacking:', JSON.stringify(error, null, 2))
@@ -278,12 +301,22 @@ export async function fetchCajasDeContenedor(
   contenedorId: number,
 ): Promise<CajaEnContenedor[]> {
   const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
 
-  // 1. Obtener órdenes del contenedor
-  const { data: ordenes } = await supabase
+  // 1. Obtener órdenes del contenedor con filtro de alcance comercial
+  let query = supabase
     .from('ordenes_b2b')
     .select('id, folio_proveedor')
     .eq('contenedor_id', contenedorId)
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
+    query = query.or(orderFilter)
+  }
+
+  const { data: ordenes } = await query
 
   if (!ordenes || ordenes.length === 0) return []
 

@@ -69,7 +69,16 @@ export default async function OrdenDetallePage(props: { params: Promise<{ id: st
         </TabsList>
 
         <TabsContent value="cajas" className="mt-4">
-          <OrdenCajas cajas={cajas} ordenId={id} catalogoCajas={catalogoCajas} detalles={detalles} />
+          <OrdenCajas
+            cajas={cajas}
+            ordenId={id}
+            catalogoCajas={catalogoCajas}
+            detalles={detalles}
+            canEditOrden={Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_editar'))}
+            canEditCajas={Boolean(currentUser && can(currentUser, 'b2b_cajas', 'puede_editar'))}
+            canDeleteCajas={Boolean(currentUser && can(currentUser, 'b2b_cajas', 'puede_eliminar'))}
+            canCreateCajas={Boolean(currentUser && can(currentUser, 'b2b_cajas', 'puede_crear'))}
+          />
         </TabsContent>
 
         <TabsContent value="productos" className="mt-4">

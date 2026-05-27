@@ -103,6 +103,7 @@ export function ContenedorCajas({ cajas }: { cajas: CajaEnContenedor[] }) {
                 caja={caja}
                 layout="horizontal"
                 canEdit={false}
+                canDelete={false}
               />
             ))}
           </div>

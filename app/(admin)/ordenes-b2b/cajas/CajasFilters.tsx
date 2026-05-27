@@ -16,12 +16,14 @@ import { ImportCajasModal } from './components/ImportCajasModal'
 export function CajasFilters({
   catalogos,
   catalogoCajas,
+  puedeCrear = false,
 }: {
   catalogos: CatalogosB2B
   catalogoCajas?: {
     tallas: { id: number; codigo: string; nombre: string; categoria: string; talla_us?: string | null }[]
     colores: { id: number; nombre: string; codigo?: string | null; hex_code: string | null }[]
   }
+  puedeCrear?: boolean
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -134,20 +136,24 @@ export function CajasFilters({
         </Button>
       )}
 
-      <Button
-        variant="outline"
-        className="ml-auto h-9"
-        onClick={() => setImportOpen(true)}
-      >
-        <Upload className="h-4 w-4 mr-2" /> Importar Excel
-      </Button>
+      {puedeCrear && (
+        <>
+          <Button
+            variant="outline"
+            className="ml-auto h-9"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" /> Importar Excel
+          </Button>
 
-      <Button
-        className="h-9"
-        onClick={() => setCrearOpen(true)}
-      >
-        <Plus className="h-4 w-4 mr-2" /> Nueva Caja
-      </Button>
+          <Button
+            className="h-9"
+            onClick={() => setCrearOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" /> Nueva Caja
+          </Button>
+        </>
+      )}
 
       <CrearCajaDialog
         open={crearOpen}

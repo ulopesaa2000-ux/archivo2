@@ -37,6 +37,8 @@ interface CajaCardProps {
   }) => Promise<void>
   isPending?: boolean
   canEdit?: boolean
+  canDelete?: boolean
+  canEditOrden?: boolean
   // Catálogos disponibles para agregar tallas/colores
   tallasDisponibles?: CatalogoItem[]
   coloresDisponibles?: CatalogoItem[]
@@ -63,6 +65,8 @@ export function CajaCard({
   onEdit,
   isPending = false,
   canEdit = true,
+  canDelete = true,
+  canEditOrden = true,
   tallasDisponibles = [],
   coloresDisponibles = [],
   isNew = false,
@@ -443,17 +447,19 @@ export function CajaCard({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {canEdit && !isEditing && (
+            {!isEditing && (
               <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
-                  onClick={() => setIsEditing(true)}
-                  title="Editar configuración">
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                {onRemove && (
+                {canEdit && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                    onClick={() => setIsEditing(true)}
+                    title="Editar configuración">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {canDelete && onRemove && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -464,7 +470,7 @@ export function CajaCard({
                     {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
                 )}
-                {onDeactivate && !onRemove && (
+                {canDelete && onDeactivate && !onRemove && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -475,7 +481,7 @@ export function CajaCard({
                     {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
                 )}
-                {!esPrincipal && onMarcarPrincipal && productoId && (
+                {canEdit && !esPrincipal && onMarcarPrincipal && productoId && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -492,7 +498,7 @@ export function CajaCard({
                 )}
               </>
             )}
-
+            
             {isEditing && (
               <div className="flex items-center gap-1">
                 <Button
@@ -534,6 +540,7 @@ export function CajaCard({
                     value={editData.cantidad_cajas}
                     onChange={(e) => setEditData({ ...editData, cantidad_cajas: e.target.value ? parseInt(e.target.value) : '' })}
                     className="h-9 text-sm tabular-nums"
+                    disabled={!canEditOrden}
                   />
                 </div>
               )}

@@ -39,6 +39,8 @@ import { Separator } from '@/components/ui/separator'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requirePermission } from '@/lib/dal'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from '@/lib/auth/permissions'
 
 export async function generateMetadata(props: {
   params: Promise<{ id: string }>
@@ -72,6 +74,7 @@ export default async function CatalogoDetallePage(props: {
   params: Promise<{ id: string }>
 }) {
   await requirePermission('catalogo_productos')
+  const user = await getCurrentUser()
 
   const params = await props.params;
   const id = parseInt(params.id)
@@ -115,7 +118,9 @@ export default async function CatalogoDetallePage(props: {
           {navegacion && (
             <ProductoNavigation navegacion={navegacion} />
           )}
-          <CatalogoDetailActions productoId={producto.id} catalogos={catalogos} />
+          {Boolean(user && can(user, 'catalogo_productos', 'puede_crear')) && (
+            <CatalogoDetailActions productoId={producto.id} catalogos={catalogos} />
+          )}
         </div>
       </div>
 
@@ -169,7 +174,13 @@ export default async function CatalogoDetallePage(props: {
 
         <TabsContent value="cajas">
           <Suspense fallback={<TabSkeleton />}>
-            <TabCajasAsync productoId={producto.id} catalogos={catalogos} edadNombre={fk.edad} />
+            <TabCajasAsync
+              productoId={producto.id}
+              catalogos={catalogos}
+              edadNombre={fk.edad}
+              canEdit={Boolean(user && can(user, 'b2b_cajas', 'puede_editar'))}
+              canDelete={Boolean(user && can(user, 'b2b_cajas', 'puede_eliminar'))}
+            />
           </Suspense>
         </TabsContent>
 
@@ -275,10 +286,14 @@ async function TabCajasAsync({
   productoId,
   catalogos,
   edadNombre,
+  canEdit,
+  canDelete,
 }: {
   productoId: number
   catalogos: CatalogosEdicion
   edadNombre: string | null
+  canEdit: boolean
+  canDelete: boolean
 }) {
   const cajas = await fetchCajasProducto(productoId)
   return (
@@ -288,6 +303,8 @@ async function TabCajasAsync({
       tallasDisponibles={catalogos.tallas}
       coloresDisponibles={catalogos.colores}
       edadNombre={edadNombre}
+      canEdit={canEdit}
+      canDelete={canDelete}
     />
   )
 }

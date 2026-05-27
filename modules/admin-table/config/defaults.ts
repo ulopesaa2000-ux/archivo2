@@ -29,7 +29,17 @@ export function getDefaultFeatures(route: string): TableFeatures {
     case '/ordenes-b2b/cajas':
       return { selectable: true, expandable: false, sortable: true, columnSelector: false }
     case '/contenedores':
-      return { selectable: true, expandable: true, sortable: true, columnSelector: false }
+      return {
+        selectable: true,
+        expandable: true,
+        sortable: true,
+        quickEdit: [
+          { key: 'codigo_contenedor', label: 'Codigo', type: 'text' },
+          { key: 'fecha_eta', label: 'ETA', type: 'date' },
+          { key: 'estado', label: 'Estado', type: 'select' },
+        ],
+        columnSelector: false,
+      }
     default:
       return { sortable: true }
   }

@@ -29,10 +29,12 @@ import type { ContenedorResumen } from '@/modules/contenedores/types'
 
 export function ContenedorCabecera({
   contenedor, resumen, bodegasVirtuales = [],
+  canEdit = true,
 }: {
   contenedor: ContenedorRow
   resumen: ContenedorResumen | null
   bodegasVirtuales?: BodegaRow[]
+  canEdit?: boolean
 }) {
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
@@ -98,7 +100,7 @@ export function ContenedorCabecera({
 
         <div className="flex items-center gap-2">
           {/* Estado con transiciones */}
-          {transicionesPermitidas.length > 0 && (
+          {canEdit && transicionesPermitidas.length > 0 && (
             <Select onValueChange={(v: any) => { if (v) handleEstado(v) }} disabled={isPending}>
               <SelectTrigger data-testid="contenedor-estado-trigger" className="w-[180px] h-9 text-sm">
                 <SelectValue placeholder="Cambiar estado..." />
@@ -113,7 +115,7 @@ export function ContenedorCabecera({
             </Select>
           )}
 
-          {contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && (
+          {canEdit && contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && (
             <Button
               variant="default" size="sm"
               onClick={() => { setBodegaVirtualId(bodegasVirtuales[0]?.id ?? null); setSurtirOpen(true) }}
@@ -123,7 +125,7 @@ export function ContenedorCabecera({
             </Button>
           )}
 
-          {!isEditing && (
+          {canEdit && !isEditing && (
             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
               <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
             </Button>

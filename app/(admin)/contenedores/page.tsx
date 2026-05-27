@@ -7,28 +7,55 @@ import { ContenedoresFilters } from './ContenedoresFilters'
 import { ContenedoresTable } from './ContenedoresTable'
 import { Pagination } from '@/components/admin/Pagination'
 import { ContenedorFormDialog } from './ContenedorFormDialog'
-import type { FiltrosContenedores } from '@/modules/contenedores/types'
-import { createClient } from '@/lib/supabase/server'
-import { getCommercialScope } from '@/lib/auth/commercial-scope'
+import type { FiltrosContenedores, ContenedorSortBy } from '@/modules/contenedores/types'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { requirePermission } from '@/lib/dal'
+import { can } from '@/lib/auth/permissions'
 
 export const metadata: Metadata = { title: 'Contenedores' }
+
+const VALID_SORT_BY: ContenedorSortBy[] = [
+  'fecha_eta',
+  'fecha_etd',
+  'codigo_contenedor',
+  'numero_contenedor',
+  'total_ordenes',
+  'cajas_totales',
+  'estado',
+]
+
+type ContenedoresSearchParams = {
+  q?: string
+  estado?: string
+  anio?: string
+  page?: string
+  sort_by?: string
+  order?: string
+}
 
 export default async function ContenedoresPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; estado?: string; año?: string; page?: string }>
+  searchParams: Promise<ContenedoresSearchParams>
 }) {
-  const params = await searchParams;
+  await requirePermission('b2b_contenedores')
+
+  const params = await searchParams
   const user = await getCurrentUser()
-  const supabase = await createClient()
-  const scope = await getCommercialScope(supabase, user)
+  const puedeCrear = can(user, 'b2b_contenedores', 'puede_crear')
+
+  const sortBy = (VALID_SORT_BY.includes(params.sort_by as ContenedorSortBy)
+    ? params.sort_by
+    : 'fecha_eta') as ContenedorSortBy
+  const order = params.order === 'asc' ? 'asc' : 'desc'
 
   const filtros: FiltrosContenedores = {
     q: params.q,
     estado: params.estado,
-    año: params.año ? parseInt(params.año) : undefined,
-    page: params.page ? parseInt(params.page) : 1,
+    anio: params.anio ? parseInt(params.anio, 10) : undefined,
+    page: params.page ? parseInt(params.page, 10) : 1,
+    sort_by: sortBy,
+    order,
   }
 
   const [{ items, total }, tableConfig] = await Promise.all([
@@ -50,10 +77,10 @@ export default async function ContenedoresPage({
             {total} contenedor{total !== 1 ? 'es' : ''}
           </p>
         </div>
-        <ContenedorFormDialog mode="create" />
+        {puedeCrear && <ContenedorFormDialog mode="create" />}
       </div>
-      <ContenedoresFilters />
-      <ContenedoresTable items={items} initialFeatures={features} />
+      <ContenedoresFilters sortBy={sortBy} order={order} />
+      <ContenedoresTable items={items} sortBy={sortBy} order={order} initialFeatures={features} />
       <Pagination total={total} />
     </div>
   )
