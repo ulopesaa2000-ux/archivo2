@@ -45,6 +45,7 @@ export async function fetchNotas(
     .select(`
       id, numero_nota, fecha_nota, fecha_confirmacion,
       total_cajas, nota_referencia, observaciones, usuario_id,
+      costo_total, comprobante_url,
       tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
         codigo, nombre, afecta_inventario
       ),
@@ -152,6 +153,8 @@ export async function fetchNotas(
       bodega_destino_nombre: destino?.nombre ?? null,
       bodega_destino_codigo: destino?.codigo ?? null,
       usuario_nombre: usuario?.nombre_completo ?? '',
+      costo_total: n.costo_total ? Number(n.costo_total) : 0,
+      comprobante_url: n.comprobante_url ?? null,
     }
   })
 
@@ -176,6 +179,7 @@ export async function fetchNotaById(
     .select(`
       id, numero_nota, fecha_nota, fecha_confirmacion,
       total_cajas, nota_referencia, observaciones, usuario_id,
+      costo_total, comprobante_url,
       tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
         codigo, nombre, afecta_inventario
       ),
@@ -222,6 +226,8 @@ export async function fetchNotaById(
     bodega_destino_nombre: destino?.nombre ?? null,
     bodega_destino_codigo: destino?.codigo ?? null,
     usuario_nombre: usuario?.nombre_completo ?? '',
+    costo_total: nr.costo_total ? Number(nr.costo_total) : 0,
+    comprobante_url: nr.comprobante_url ?? null,
   }
 
   // 2. Detalles de productos
@@ -242,7 +248,7 @@ async function fetchNotaDetalles(
     .select(`
       id, nota_id, producto_id, variante_id, cajas, piezas_sueltas, caja_id,
       producto:productos!nota_detalle_productos_producto_id_fkey (
-        sku_base, nombre, pz_en_caja
+        sku_base, nombre, descripcion, pz_en_caja
       ),
       caja:cajas_producto!nota_detalle_productos_caja_id_fkey (
         codigo_caja, nombre_pack
@@ -278,7 +284,7 @@ async function fetchNotaDetalles(
       piezas_sueltas: d.piezas_sueltas ?? 0,
       caja_id: d.caja_id,
       producto_sku: prod?.sku_base ?? null,
-      producto_nombre: prod?.nombre ?? null,
+      producto_nombre: prod?.descripcion ?? prod?.nombre ?? null,
       producto_pz_en_caja: prod?.pz_en_caja ?? null,
       caja_codigo: caja?.codigo_caja ?? null,
       caja_nombre_pack: caja?.nombre_pack ?? null,
@@ -638,7 +644,7 @@ export async function searchProductos(
     return {
       id: p.id,
       sku_base: p.sku_base,
-      nombre: p.nombre,
+      nombre: p.descripcion ?? p.nombre ?? '',
       descripcion: p.descripcion,
       pz_en_caja: p.pz_en_caja,
       marca_nombre: marca?.nombre ?? null,
@@ -661,6 +667,29 @@ export async function fetchCajasDeProducto(
   if (error || !data) return []
 
   return data as CajaParaSelector[]
+}
+
+export async function fetchProductoStockEnBodega(
+  productoId: number,
+  bodegaId: number
+): Promise<{ cajas: number; piezas_sueltas: number }> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('inventario_stock')
+    .select('cajas, piezas_sueltas')
+    .eq('producto_id', productoId)
+    .eq('bodega_id', bodegaId)
+    .is('caja_id', null)
+    .maybeSingle()
+
+  if (error || !data) {
+    return { cajas: 0, piezas_sueltas: 0 }
+  }
+
+  return {
+    cajas: Number(data.cajas) || 0,
+    piezas_sueltas: Number(data.piezas_sueltas) || 0,
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -708,6 +737,7 @@ export async function fetchNotasPendientesPorBodega(
     .from('notas_inventario')
     .select(`
       id, numero_nota, fecha_nota, fecha_confirmacion, total_cajas, nota_referencia, observaciones,
+      costo_total, comprobante_url,
       tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
         codigo, nombre, afecta_inventario
       ),
@@ -751,6 +781,8 @@ export async function fetchNotasPendientesPorBodega(
       bodega_destino_nombre: destino?.nombre ?? null,
       bodega_destino_codigo: null,
       usuario_nombre: '',
+      costo_total: n.costo_total ? Number(n.costo_total) : 0,
+      comprobante_url: n.comprobante_url ?? null,
     }
   })
 }

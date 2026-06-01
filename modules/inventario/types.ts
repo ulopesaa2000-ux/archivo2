@@ -45,6 +45,8 @@ export type NotaListItem = {
   bodega_destino_nombre: string | null
   bodega_destino_codigo: string | null
   usuario_nombre: string
+  costo_total: number | null
+  comprobante_url: string | null
 }
 
 // ── Resultado del listado ───────────────────────────────────
@@ -168,6 +170,8 @@ export type DraftProducto = {
   caja_id: number | null
   caja_codigo: string | null
   caja_nombre_pack: string | null
+  stock_origen_cajas: number | null
+  stock_origen_piezas: number | null
 }
 
 export type DraftNota = {
@@ -176,6 +180,7 @@ export type DraftNota = {
   bodega_destino_id: number | null
   nota_referencia: string
   observaciones: string
+  costo_total: number | null
   productos: DraftProducto[]
 }
 

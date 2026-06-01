@@ -103,6 +103,14 @@ export async function guardarNotaAction(
     return { success: false, error: 'No se pudo crear la nota.' }
   }
 
+  // Guardar costo total
+  if (draft.costo_total !== undefined && draft.costo_total !== null) {
+    await supabase
+      .from('notas_inventario')
+      .update({ costo_total: draft.costo_total })
+      .eq('id', notaId)
+  }
+
   // ── 2. Agregar productos ────────────────────────────────
   for (const prod of draft.productos) {
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
@@ -223,6 +231,7 @@ export async function actualizarNotaAction(
     .update({
       nota_referencia: draft.nota_referencia || null,
       observaciones: draft.observaciones || null,
+      costo_total: draft.costo_total || 0,
     })
     .eq('id', notaId)
 
@@ -442,7 +451,12 @@ export async function crearBodegaAction(
 
   if (error) {
     if (error.code === '23505') {
-      return { success: false, error: `El código "${codigo}" ya existe.` }
+      const errorStr = `${error.message || ''} ${error.details || ''}`.toLowerCase()
+      const isCodeDup = errorStr.includes('codigo') || errorStr.includes('key (codigo)')
+      if (isCodeDup) {
+        return { success: false, error: `El código "${codigo}" ya existe.` }
+      }
+      return { success: false, error: `Error de duplicidad (Llave primaria desincronizada): ${error.message}` }
     }
     return { success: false, error: error.message }
   }
@@ -475,7 +489,13 @@ export async function actualizarBodegaAction(
     })
     .eq('id', id)
 
-  if (error) return { success: false, error: error.message }
+  if (error) {
+    if (error.code === '23505') {
+      const codigo = (formData.get('codigo') as string)?.trim()
+      return { success: false, error: `El código "${codigo}" ya existe.` }
+    }
+    return { success: false, error: error.message }
+  }
 
   revalidatePath('/inventario/bodegas')
   return { success: true }
@@ -588,5 +608,145 @@ export async function eliminarAsignacionBodegaJSONAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/inventario/bodegas')
+  return { success: true }
+}
+
+export async function subirComprobanteNotaAction(
+  notaId: number,
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // 1. Obtener la nota para estructurar el path de forma limpia
+  const { data: nota, error: fetchError } = await supabase
+    .from('notas_inventario')
+    .select(`
+      numero_nota,
+      fecha_nota,
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (codigo)
+    `)
+    .eq('id', notaId)
+    .single()
+
+  if (fetchError || !nota) {
+    return { success: false, error: 'Nota no encontrada.' }
+  }
+
+  const n: any = nota
+  const numNota = n.numero_nota
+  const bodCodigo = n.bodega_origen?.codigo || 'BOD'
+  const fecha = n.fecha_nota ? new Date(n.fecha_nota) : new Date()
+
+  const yyyy = fecha.getFullYear()
+  const mm = String(fecha.getMonth() + 1).padStart(2, '0')
+  const dd = String(fecha.getDate()).padStart(2, '0')
+
+  // 2. Extraer archivo de formData
+  const file = formData.get('file') as File | null
+  if (!file || file.size === 0) {
+    return { success: false, error: 'No se recibió ningún archivo.' }
+  }
+
+  const ext = file.name.split('.').pop() || 'jpg'
+  const cleanNum = numNota.replace(/[^a-zA-Z0-9_\-]/g, '_')
+  const cleanBod = bodCodigo.replace(/[^a-zA-Z0-9_\-]/g, '_')
+  
+  // Guardar con formato estructurado por Mes y Año
+  const storagePath = `Notas/${yyyy}-${mm}/${cleanNum}-${cleanBod}-${dd}.${ext}`
+
+  // 3. Subir a Supabase Storage
+  const fileArrayBuffer = await file.arrayBuffer()
+  const { error: uploadError } = await supabase.storage
+    .from('product_images')
+    .upload(storagePath, Buffer.from(fileArrayBuffer), {
+      contentType: file.type || 'image/jpeg',
+      upsert: true,
+    })
+
+  if (uploadError) {
+    return { success: false, error: `Error al subir comprobante: ${uploadError.message}` }
+  }
+
+  // 4. Obtener URL pública
+  const { data: urlData } = supabase.storage
+    .from('product_images')
+    .getPublicUrl(storagePath)
+
+  if (!urlData?.publicUrl) {
+    return { success: false, error: 'No se pudo obtener la URL pública del comprobante.' }
+  }
+
+  const publicUrl = urlData.publicUrl
+
+  // 5. Guardar URL en la nota
+  const { error: updateError } = await supabase
+    .from('notas_inventario')
+    .update({ comprobante_url: publicUrl })
+    .eq('id', notaId)
+
+  if (updateError) {
+    return { success: false, error: `Error al registrar URL en BD: ${updateError.message}` }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath(`/inventario/notas/${notaId}`)
+
+  return { success: true }
+}
+
+export async function eliminarComprobanteNotaAction(
+  notaId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // 1. Obtener la URL del comprobante de la nota
+  const { data: nota, error: fetchError } = await supabase
+    .from('notas_inventario')
+    .select('comprobante_url')
+    .eq('id', notaId)
+    .single()
+
+  if (fetchError || !nota) {
+    return { success: false, error: 'Nota no encontrada.' }
+  }
+
+  const publicUrl = nota.comprobante_url
+  if (!publicUrl) {
+    return { success: true } // Ya no tiene comprobante
+  }
+
+  // 2. Extraer el storagePath de la URL
+  const bucketPrefix = `/object/public/product_images/`
+  const idx = publicUrl.indexOf(bucketPrefix)
+  if (idx !== -1) {
+    const storagePath = publicUrl.slice(idx + bucketPrefix.length)
+    const { error: storageError } = await supabase.storage
+      .from('product_images')
+      .remove([storagePath])
+
+    if (storageError) {
+      console.warn('[eliminarComprobanteNotaAction] Warning removing from storage:', storageError.message)
+    }
+  }
+
+  // 3. Limpiar URL en la nota
+  const { error: updateError } = await supabase
+    .from('notas_inventario')
+    .update({ comprobante_url: null })
+    .eq('id', notaId)
+
+  if (updateError) {
+    return { success: false, error: `Error al limpiar URL en la BD: ${updateError.message}` }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath(`/inventario/notas/${notaId}`)
+
   return { success: true }
 }

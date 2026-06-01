@@ -387,7 +387,7 @@ export async function fetchProductoWebBySlug(
       )
       `
     )
-    .eq('slug', decodeURIComponent(slug))
+    .eq('slug', decodeURIComponent(slug).toLowerCase())
     .eq('activo', true)
     .eq('productos.activo', true)
     .single()

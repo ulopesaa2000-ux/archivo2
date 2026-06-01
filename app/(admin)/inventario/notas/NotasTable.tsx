@@ -98,6 +98,22 @@ function NotasTableInner({
       ),
     },
     {
+      key: 'costo_total',
+      header: 'Costo',
+      sortKey: 'costo_total',
+      headerClassName: 'text-right w-[110px]',
+      className: 'text-right font-mono font-semibold tabular-nums',
+      cell: (row: NotaListItem) => (
+        <span className="text-sm">
+          {row.costo_total !== undefined && row.costo_total !== null && Number(row.costo_total) > 0 ? (
+            `$${Number(row.costo_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+          ) : (
+            '—'
+          )}
+        </span>
+      ),
+    },
+    {
       key: 'estado',
       header: 'Estado',
       sortKey: 'estado_codigo',
