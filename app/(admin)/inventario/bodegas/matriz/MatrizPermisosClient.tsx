@@ -255,7 +255,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                 <div className="inline-flex flex-col items-center gap-2 p-2 rounded-lg bg-muted/30 border border-muted/50 shadow-sm">
                                   <div className="flex items-center gap-1">
                                     <Tooltip>
-                                      <TooltipTrigger>
+                                      <TooltipTrigger render={
                                         <button
                                           onClick={() => handleTogglePermiso(usuario.id, bodega.id, 'puede_consultar')}
                                           disabled={isPending}
@@ -268,7 +268,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                         >
                                           <Eye className="h-3.5 w-3.5" />
                                         </button>
-                                      </TooltipTrigger>
+                                      } />
                                       <TooltipContent>
                                         <p className="text-xs font-semibold">puede_consultar</p>
                                         <p className="text-[10px] opacity-75">Permite ver stock y listado de notas de esta bodega.</p>
@@ -276,7 +276,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                     </Tooltip>
 
                                     <Tooltip>
-                                      <TooltipTrigger>
+                                      <TooltipTrigger render={
                                         <button
                                           onClick={() => handleTogglePermiso(usuario.id, bodega.id, 'puede_crear_notas')}
                                           disabled={isPending}
@@ -289,7 +289,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                         >
                                           <FileText className="h-3.5 w-3.5" />
                                         </button>
-                                      </TooltipTrigger>
+                                      } />
                                       <TooltipContent>
                                         <p className="text-xs font-semibold">puede_crear_notas</p>
                                         <p className="text-[10px] opacity-75">Permite crear nuevas notas de inventario (Borrador).</p>
@@ -297,7 +297,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                     </Tooltip>
 
                                     <Tooltip>
-                                      <TooltipTrigger>
+                                      <TooltipTrigger render={
                                         <button
                                           onClick={() => handleTogglePermiso(usuario.id, bodega.id, 'puede_confirmar_notas')}
                                           disabled={isPending}
@@ -310,7 +310,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                         >
                                           <ShieldCheck className="h-3.5 w-3.5" />
                                         </button>
-                                      </TooltipTrigger>
+                                      } />
                                       <TooltipContent>
                                         <p className="text-xs font-semibold">puede_confirmar_notas</p>
                                         <p className="text-[10px] opacity-75">Permite CONFIRMAR notas y realizar movimientos de stock reales.</p>
@@ -318,7 +318,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                     </Tooltip>
 
                                     <Tooltip>
-                                      <TooltipTrigger>
+                                      <TooltipTrigger render={
                                         <button
                                           onClick={() => handleTogglePermiso(usuario.id, bodega.id, 'puede_transferir')}
                                           disabled={isPending}
@@ -331,7 +331,7 @@ export function MatrizPermisosClient({ bodegas, usuarios, asignacionesIniciales 
                                         >
                                           <RefreshCw className="h-3.5 w-3.5" />
                                         </button>
-                                      </TooltipTrigger>
+                                      } />
                                       <TooltipContent>
                                         <p className="text-xs font-semibold">puede_transferir</p>
                                         <p className="text-[10px] opacity-75">Permite mover stock entre esta bodega y otras.</p>

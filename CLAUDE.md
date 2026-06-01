@@ -39,6 +39,9 @@ La base de datos PostgreSQL en Supabase ya existe y está poblada con datos real
 8. Las mutaciones van como Server Actions con `'use server'`.
 9. No instalar dependencias fuera del stack sin justificación clara.
 10. Cada archivo generado debe incluir el path completo como comentario en la primera línea.
+11. **Gestión de dependencias**: Toda instalación, desinstalación o actualización de paquetes debe realizarse estrictamente con **pnpm** (nunca npm o yarn).
+12. **Seguridad y cadena de suministro (Supply Chain Hardening)**: Al instalar bibliotecas nuevas, se debe verificar que no ejecuten scripts de postinstall maliciosos. Mantener el arreglo `pnpm.onlyBuiltDependencies` en `package.json` restringido al mínimo absoluto, admitiendo únicamente compiladores nativos e indispensables comprobados (como `@tailwindcss/oxide` y `sharp`).
+13. **Hardening de dependencias**: En caso de reportarse vulnerabilidades críticas (vía `pnpm audit`), las bibliotecas afectadas deben removerse, sustituirse o actualizarse a versiones parcheadas directamente desde los canales de distribución oficiales del fabricante (como SheetJS desde cdn.sheetjs.com).
 
 ### 3.3 Reglas de Nomenclatura
 - Tablas: `snake_case`

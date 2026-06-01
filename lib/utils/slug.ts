@@ -16,20 +16,20 @@
 
 const MAX_SLUG_LENGTH = 60
 
-/** Toma las primeras N letras de una palabra en mayúsculas */
+/** Toma las primeras N letras de una palabra en minúsculas */
 function abreviar(texto: string, len = 3): string {
-  const clean = texto.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const clean = texto.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
   return clean.slice(0, len)
 }
 
-/** Convierte texto a formato slug (mayúsculas, guiones, sin acentos) */
+/** Convierte texto a formato slug (minúsculas, guiones, sin acentos) */
 function slugify(texto: string): string {
   return texto
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')   // quitar acentos
     .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')       // no-alfanum → guión
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')       // no-alfanum → guión
     .replace(/^-+|-+$/g, '')           // quitar guiones bordes
 }
 

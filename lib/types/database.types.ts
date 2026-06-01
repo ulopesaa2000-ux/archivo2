@@ -1692,6 +1692,8 @@ export type Database = {
           tipo_movimiento_id: number
           total_cajas: number | null
           usuario_id: number
+          costo_total: number | null
+          comprobante_url: string | null
         }
         Insert: {
           bodega_destino_id?: number | null
@@ -1708,6 +1710,8 @@ export type Database = {
           tipo_movimiento_id: number
           total_cajas?: number | null
           usuario_id: number
+          costo_total?: number | null
+          comprobante_url?: string | null
         }
         Update: {
           bodega_destino_id?: number | null
@@ -1724,6 +1728,8 @@ export type Database = {
           tipo_movimiento_id?: number
           total_cajas?: number | null
           usuario_id?: number
+          costo_total?: number | null
+          comprobante_url?: string | null
         }
         Relationships: [
           {
@@ -4723,6 +4729,8 @@ export type Database = {
           tipo_movimiento_id: number | null
           total_cajas: number | null
           usuario_id: number | null
+          costo_total: number | null
+          comprobante_url: string | null
         }
         Insert: {
           bodega_destino_id?: number | null
@@ -4739,6 +4747,8 @@ export type Database = {
           tipo_movimiento_id?: number | null
           total_cajas?: number | null
           usuario_id?: number | null
+          costo_total?: number | null
+          comprobante_url?: string | null
         }
         Update: {
           bodega_destino_id?: number | null
@@ -4755,6 +4765,8 @@ export type Database = {
           tipo_movimiento_id?: number | null
           total_cajas?: number | null
           usuario_id?: number | null
+          costo_total?: number | null
+          comprobante_url?: string | null
         }
         Relationships: [
           {

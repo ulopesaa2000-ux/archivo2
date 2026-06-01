@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import sharp from 'sharp'
 import { can, type PermissionAction } from '@/lib/auth/permissions'
+import { generarSlugProducto } from '@/lib/utils/slug'
 
 export type ActionResult = {
   success: boolean
@@ -156,6 +157,44 @@ export async function updateProductAction(
       return { success: false, error: `El SKU "${sku_base}" ya existe.` }
     }
     return { success: false, error: error.message }
+  }
+
+  // ── Propagación del cambio al slug de la tienda web ─────────────────────
+  try {
+    const { data: webData } = await (supabase
+      .from('productos_web') as any)
+      .select('id')
+      .eq('producto_id', id)
+      .maybeSingle()
+
+    if (webData) {
+      // Si tiene registro web, consultamos los nombres descriptivos para armar el slug
+      const [marca, genero, tipo_prenda] = await Promise.all([
+        payload.marca_id
+          ? (supabase.from('cat_marcas') as any).select('nombre').eq('id', payload.marca_id).single()
+          : { data: null },
+        payload.genero_id
+          ? (supabase.from('cat_generos') as any).select('nombre').eq('id', payload.genero_id).single()
+          : { data: null },
+        payload.tipo_prenda_id
+          ? (supabase.from('cat_tipo_prenda') as any).select('nombre').eq('id', payload.tipo_prenda_id).single()
+          : { data: null },
+      ])
+
+      const nuevoSlug = generarSlugProducto({
+        sku_base,
+        tipo_prenda: tipo_prenda.data?.nombre ?? null,
+        genero: genero.data?.nombre ?? null,
+        marca: marca.data?.nombre ?? null,
+      })
+
+      await (supabase
+        .from('productos_web') as any)
+        .update({ slug: nuevoSlug })
+        .eq('producto_id', id)
+    }
+  } catch (err) {
+    console.error('Error propagando slug a productos_web:', err)
   }
 
   revalidatePath('/catalogo')
