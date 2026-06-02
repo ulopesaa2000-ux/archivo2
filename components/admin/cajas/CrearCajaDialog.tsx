@@ -221,6 +221,7 @@ export function CrearCajaDialog({
                 piezas_por_caja: null,
                 cbm: null,
                 peso_bruto_kg: null,
+                peso_neto: null,
                 tallas: null,
                 colores: null,
                 contenidoMap: null,

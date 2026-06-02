@@ -378,6 +378,7 @@ export type Database = {
           largo_cm: number | null
           nombre_pack: string | null
           peso_bruto_kg: number | null
+          peso_neto: number | null
           piezas_por_caja: number | null
           producto_id: number | null
           proveedor_id: number | null
@@ -396,6 +397,7 @@ export type Database = {
           largo_cm?: number | null
           nombre_pack?: string | null
           peso_bruto_kg?: number | null
+          peso_neto?: number | null
           piezas_por_caja?: number | null
           producto_id?: number | null
           proveedor_id?: number | null
@@ -414,6 +416,7 @@ export type Database = {
           largo_cm?: number | null
           nombre_pack?: string | null
           peso_bruto_kg?: number | null
+          peso_neto?: number | null
           piezas_por_caja?: number | null
           producto_id?: number | null
           proveedor_id?: number | null

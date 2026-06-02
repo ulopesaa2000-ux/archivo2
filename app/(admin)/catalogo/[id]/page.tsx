@@ -178,6 +178,7 @@ export default async function CatalogoDetallePage(props: {
               productoId={producto.id}
               catalogos={catalogos}
               edadNombre={fk.edad}
+              precioEcMxn={producto.precio_ec}
               canEdit={Boolean(user && can(user, 'b2b_cajas', 'puede_editar'))}
               canDelete={Boolean(user && can(user, 'b2b_cajas', 'puede_eliminar'))}
             />
@@ -286,12 +287,14 @@ async function TabCajasAsync({
   productoId,
   catalogos,
   edadNombre,
+  precioEcMxn,
   canEdit,
   canDelete,
 }: {
   productoId: number
   catalogos: CatalogosEdicion
   edadNombre: string | null
+  precioEcMxn: number | null
   canEdit: boolean
   canDelete: boolean
 }) {
@@ -305,6 +308,7 @@ async function TabCajasAsync({
       edadNombre={edadNombre}
       canEdit={canEdit}
       canDelete={canDelete}
+      precioEcMxn={precioEcMxn}
     />
   )
 }

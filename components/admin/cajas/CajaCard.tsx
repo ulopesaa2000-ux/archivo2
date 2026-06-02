@@ -1,7 +1,7 @@
 // components/admin/cajas/CajaCard.tsx
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -93,6 +93,7 @@ export function CajaCard({
     piezas_por_caja: caja.piezas_por_caja || 1,
     cbm: caja.cbm || '',
     peso_bruto_kg: caja.peso_bruto_kg || '',
+    peso_neto: caja.peso_neto || '',
     largo_cm: caja.largo_cm || '',
     ancho_cm: caja.ancho_cm || '',
     alto_cm: caja.alto_cm || '',
@@ -164,6 +165,50 @@ export function CajaCard({
     return { totalPorFila, totalPorColumna, totalGeneral }
   }, [editFilas, editTallas])
 
+  // Sincronizar piezas_por_caja con el total de la matriz automáticamente
+  useEffect(() => {
+    if (totalesEdicion.totalGeneral > 0) {
+      setEditData((prev: any) => {
+        if (prev.piezas_por_caja !== totalesEdicion.totalGeneral) {
+          return { ...prev, piezas_por_caja: totalesEdicion.totalGeneral }
+        }
+        return prev
+      })
+    }
+  }, [totalesEdicion.totalGeneral])
+
+  // Sincronizar automáticamente el resumen con la matriz en tiempo de edición
+  useEffect(() => {
+    if (editTallas.length > 0) {
+      const syncTallas = editTallas.map(t => {
+        const cat = tallasDisponibles.find(ct => ct.id === t.id)
+        return {
+          id: t.id,
+          label: t.nombre,
+          value: cat?.codigo || t.nombre
+        }
+      })
+      setEditData((prev: any) => {
+        const isSame = JSON.stringify(prev.tallas_summary) === JSON.stringify(syncTallas)
+        return isSame ? prev : { ...prev, tallas_summary: syncTallas }
+      })
+    }
+  }, [editTallas, tallasDisponibles])
+
+  useEffect(() => {
+    if (editFilas.length > 0) {
+      const syncColores = editFilas.map(f => ({
+        id: f.colorId,
+        label: f.colorNombre,
+        value: f.colorNombre
+      }))
+      setEditData((prev: any) => {
+        const isSame = JSON.stringify(prev.colores_summary) === JSON.stringify(syncColores)
+        return isSame ? prev : { ...prev, colores_summary: syncColores }
+      })
+    }
+  }, [editFilas])
+
   // Handlers para edición
   const handleDiscard = () => {
     if (isNew && onCreate) {
@@ -178,6 +223,7 @@ export function CajaCard({
         piezas_por_caja: caja.piezas_por_caja || 1,
         cbm: caja.cbm || '',
         peso_bruto_kg: caja.peso_bruto_kg || '',
+        peso_neto: caja.peso_neto || '',
         largo_cm: caja.largo_cm || '',
         ancho_cm: caja.ancho_cm || '',
         alto_cm: caja.alto_cm || '',
@@ -214,9 +260,11 @@ export function CajaCard({
         editTallas.forEach(talla => {
           const cantidad = fila.cantidades[talla.nombre] || 0
           if (cantidad > 0) {
+            const realTalla = tallasDisponibles.find(t => t.nombre === talla.nombre)
+            const realColor = coloresDisponibles.find(c => c.nombre === fila.colorNombre)
             detalles.push({
-              talla_id: talla.id,
-              color_id: fila.colorId,
+              talla_id: realTalla?.id ?? talla.id,
+              color_id: realColor?.id ?? fila.colorId,
               cantidad
             })
           }
@@ -225,9 +273,26 @@ export function CajaCard({
 
       const basePayload = { ...editData } as Record<string, any>;
       
+      // Sincronizar piezas_por_caja con los detalles si están configurados
+      if (detalles.length > 0) {
+        basePayload.piezas_por_caja = detalles.reduce((sum, d) => sum + d.cantidad, 0)
+      }
+
       // Convertir tags de resumen a strings piped
-      basePayload.tallas = editData.tallas_summary.map((t: any) => t.value).join('|')
-      basePayload.colores = editData.colores_summary.map((c: any) => c.label).join('|')
+      if (editTallas.length > 0) {
+        basePayload.tallas = editTallas.map(t => {
+          const cat = tallasDisponibles.find(ct => ct.id === t.id)
+          return cat?.codigo || t.nombre
+        }).join('|')
+      } else {
+        basePayload.tallas = editData.tallas_summary.map((t: any) => t.value).join('|')
+      }
+
+      if (editFilas.length > 0) {
+        basePayload.colores = editFilas.map(f => f.colorNombre).join('|')
+      } else {
+        basePayload.colores = editData.colores_summary.map((c: any) => c.label).join('|')
+      }
       
       // Limpiar campos de UI que no van a la BD
       delete basePayload.tallas_summary
@@ -248,9 +313,9 @@ export function CajaCard({
         await onEdit(caja.id, payload)
       }
       setIsEditing(false)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error guardando caja:', error)
-      alert('Error al guardar los cambios')
+      alert(error?.message || 'Error al guardar los cambios')
     } finally {
       setIsSaving(false)
     }
@@ -338,8 +403,8 @@ export function CajaCard({
     const isInfantil = txt.includes('infantil') || txt.includes('joven') || txt.includes('adolecente')
     
     let sugerencias = isInfantil
-      ? ['TALLA 4', 'TALLA 6', 'TALLA 8', 'TALLA 10', 'TALLA 12', 'TALLA 14', 'TALLA 16']
-      : ['CHICA', 'MEDIANA', 'GRANDE', 'EXTRA GRANDE']
+      ? ['TALLA 4', 'TALLA 6', 'TALLA 8', 'TALLA 10', 'TALLA 12', 'TALLA 14', 'TALLA 16', '4', '6', '8', '10', '12', '14', '16']
+      : ['CHICA', 'MEDIANA', 'GRANDE', 'EXTRA GRANDE', 'CH', 'M', 'G', 'EG', 'XG', 'S', 'L', 'XL']
 
     const tallasAgregar = tallasDisponibles.filter(
       t => sugerencias.includes(t.nombre.toUpperCase()) && !editTallas.some(et => et.id === t.id)
@@ -529,8 +594,8 @@ export function CajaCard({
         {/* Modo Edición - Formulario de datos base */}
         {isEditing ? (
           <div className="space-y-4">
-            <div className={cn("grid gap-4", isVertical ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4")}>
-              {caja.cantidad_cajas !== undefined && (
+            <div className={cn("grid gap-4", isVertical ? "grid-cols-2" : "grid-cols-2 md:grid-cols-5")}>
+              {caja.cantidad_cajas !== undefined && caja.cantidad_cajas !== null && (
                 <div className="space-y-1.5">
                   <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Cantidad cajas</Label>
                   <Input
@@ -583,12 +648,22 @@ export function CajaCard({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso (kg)</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso Bruto (kg)</Label>
                 <Input
                   type="number"
                   step="0.1"
                   value={editData.peso_bruto_kg}
                   onChange={(e) => setEditData({ ...editData, peso_bruto_kg: e.target.value ? parseFloat(e.target.value) : '' })}
+                  className="h-9 text-sm tabular-nums"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso Neto (kg)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={editData.peso_neto}
+                  onChange={(e) => setEditData({ ...editData, peso_neto: e.target.value ? parseFloat(e.target.value) : '' })}
                   className="h-9 text-sm tabular-nums"
                 />
               </div>
@@ -645,8 +720,14 @@ export function CajaCard({
                         costoCalculado = (precioUnitarioUsd * pz * tc) * (1 + (ganancia / 100))
                       } else {
                         // ESCENARIO B: Cálculo basado en PRECIO EC (Venta MXN)
-                        alert(`Se utilizará el Precio EC ($${precioEcMxn} MXN) como referencia directa. Al ser precio de venta, no se aplicará margen de ganancia adicional.`)
-                        costoCalculado = precioEcMxn! * pz
+                        const descInput = window.prompt(`Se utilizará el Precio EC ($${precioEcMxn} MXN) como referencia. Ingresa el % de descuento mayorista para estimar el costo de pieza (ej. 30 para 30% de descuento, o 0 para usar el precio completo):`, "30")
+                        if (descInput === null) return
+                        const desc = parseFloat(descInput)
+                        if (isNaN(desc) || desc < 0 || desc > 100) {
+                          alert("Porcentaje de descuento inválido.")
+                          return
+                        }
+                        costoCalculado = (precioEcMxn! * pz) * (1 - (desc / 100))
                       }
 
                       setEditData({ ...editData, costo_total_caja: Number(costoCalculado.toFixed(2)) })
@@ -714,9 +795,9 @@ export function CajaCard({
           /* Modo Vista - KPIs Logísticos */
           <div className={cn(
             "grid gap-6",
-            isVertical ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6"
+            isVertical ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7"
           )}>
-            {caja.cantidad_cajas !== undefined && (
+            {caja.cantidad_cajas !== undefined && caja.cantidad_cajas !== null && (
               <div className="space-y-1">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Cantidad cajas</span>
                 <p className="font-black text-xl tabular-nums leading-none">{caja.cantidad_cajas ?? 1}</p>
@@ -734,6 +815,12 @@ export function CajaCard({
               <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso bruto/caja</span>
               <p className="font-semibold text-foreground text-sm tabular-nums">
                 {caja.peso_bruto_kg ? `${caja.peso_bruto_kg} kg` : '—'}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso neto/caja</span>
+              <p className="font-semibold text-foreground text-sm tabular-nums">
+                {caja.peso_neto ? `${caja.peso_neto} kg` : '—'}
               </p>
             </div>
             {caja.costo_total_caja !== undefined && (

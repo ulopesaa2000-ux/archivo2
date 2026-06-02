@@ -18,6 +18,7 @@ interface TabCajasProps {
   edadNombre?: string | null
   canEdit?: boolean
   canDelete?: boolean
+  precioEcMxn?: number | null
 }
 
 // Caja temporal vacía para crear nueva
@@ -28,6 +29,7 @@ const crearCajaVacia = (tempId: number): SharedCajaData => ({
   piezas_por_caja: 0,
   cbm: 0,
   peso_bruto_kg: 0,
+  peso_neto: 0,
   largo_cm: 0,
   ancho_cm: 0,
   alto_cm: 0,
@@ -49,6 +51,7 @@ export function TabCajas({
   edadNombre, 
   canEdit = true,
   canDelete = true,
+  precioEcMxn = null,
 }: TabCajasProps) {
   const router = useRouter()
   const [cajasNuevas, setCajasNuevas] = useState<SharedCajaData[]>([])
@@ -71,6 +74,7 @@ export function TabCajas({
     detalles: { talla_id: number; color_id: number; cantidad: number }[]
   }) => {
     await createCajaAction(productoId, data)
+    setCajasNuevas([])
     router.refresh()
   }
 
@@ -128,6 +132,7 @@ export function TabCajas({
           tallasDisponibles={tallasDisponibles}
           coloresDisponibles={coloresDisponibles}
           edadNombre={edadNombre}
+          precioEcMxn={precioEcMxn}
         />
       ))}
 
@@ -147,6 +152,7 @@ export function TabCajas({
             esPrincipal={caja.es_principal ?? false}
             onMarcarPrincipal={canEdit ? handleMarcarPrincipal : undefined}
             productoId={productoId}
+            precioEcMxn={precioEcMxn}
           />
         ))
       ) : (

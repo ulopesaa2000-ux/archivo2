@@ -81,6 +81,7 @@ export type OrdenCajaResuelta = {
   caja_piezas_por_caja: number | null
   caja_cbm: number | null
   caja_peso_bruto_kg: number | null
+  caja_peso_neto?: number | null
   caja_largo_cm: number | null
   caja_ancho_cm: number | null
   caja_alto_cm: number | null
@@ -111,6 +112,7 @@ export type CajaListItem = {
   colores: string | null
   cbm: number | null
   peso_bruto_kg: number | null
+  peso_neto?: number | null
   costo_total_caja: number | null
   total_ordenes: number
   contenedores: string | null
@@ -130,6 +132,7 @@ export type CajaDetalle = {
   colores: string | null
   cbm: number | null
   peso_bruto_kg: number | null
+  peso_neto?: number | null
   largo_cm: number | null
   ancho_cm: number | null
   alto_cm: number | null

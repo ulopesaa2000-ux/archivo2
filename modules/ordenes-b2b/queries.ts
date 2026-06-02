@@ -383,7 +383,7 @@ export async function fetchOrdenCajas(
     .select(`
       id, orden_id, caja_id, cantidad_cajas,
       caja:cajas_producto!orden_cajas_caja_id_fkey (
-        codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg,
+        codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg, peso_neto,
         largo_cm, ancho_cm, alto_cm, costo_total_caja,
         tallas, colores,
         producto:productos!cajas_producto_producto_id_fkey ( sku_base, precio_ec ),
@@ -443,6 +443,7 @@ export async function fetchOrdenCajas(
       caja_piezas_por_caja: c?.piezas_por_caja ?? null,
       caja_cbm: c?.cbm ?? null,
       caja_peso_bruto_kg: c?.peso_bruto_kg ?? null,
+      caja_peso_neto: c?.peso_neto ?? null,
       caja_largo_cm: c?.largo_cm ?? null,
       caja_ancho_cm: c?.ancho_cm ?? null,
       caja_alto_cm: c?.alto_cm ?? null,
@@ -542,7 +543,7 @@ export async function fetchCajasListado(
     .from('cajas_producto')
     .select(`
       id, codigo_caja, nombre_pack, producto_id,
-      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg,
+      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg, peso_neto,
       costo_total_caja,
       producto:productos!cajas_producto_producto_id_fkey (
         sku_base, nombre
@@ -637,7 +638,7 @@ export async function fetchCajasListado(
       producto_nombre: prod?.nombre ?? null,
       proveedor_nombre: prov?.nombre_completo ?? null,
       piezas_por_caja: c.piezas_por_caja, tallas: c.tallas, colores: c.colores,
-      cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg,
+      cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg, peso_neto: c.peso_neto,
       costo_total_caja: c.costo_total_caja,
       total_ordenes: 0, contenedores: null, // Se llenan aparte si es necesario
     }
@@ -689,7 +690,7 @@ export async function fetchCajaDetalle(
     .from('cajas_producto')
     .select(`
       id, codigo_caja, nombre_pack, producto_id,
-      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg,
+      piezas_por_caja, tallas, colores, cbm, peso_bruto_kg, peso_neto,
       largo_cm, ancho_cm, alto_cm, costo_total_caja,
       producto:productos!cajas_producto_producto_id_fkey ( sku_base, nombre ),
       proveedor:personas!cajas_producto_proveedor_id_fkey ( nombre_completo )
@@ -752,7 +753,7 @@ export async function fetchCajaDetalle(
     producto_sku: prod?.sku_base ?? null, producto_nombre: prod?.nombre ?? null,
     proveedor_nombre: prov?.nombre_completo ?? null,
     piezas_por_caja: c.piezas_por_caja, tallas: c.tallas, colores: c.colores,
-    cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg,
+    cbm: c.cbm, peso_bruto_kg: c.peso_bruto_kg, peso_neto: c.peso_neto,
     largo_cm: c.largo_cm, ancho_cm: c.ancho_cm, alto_cm: c.alto_cm,
     costo_total_caja: c.costo_total_caja,
     detalles_talla_color, ordenes_vinculadas,
