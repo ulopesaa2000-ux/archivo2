@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useDebouncedCallback } from 'use-debounce'
 import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
-import { importarImagenesDesdeExcelAction, uploadImagenesConSkuAction } from '@/modules/catalogo/imagenes/actions'
+import { importarImagenesDesdeExcelAction, uploadSingleImagenConSkuAction } from '@/modules/catalogo/imagenes/actions'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -23,7 +23,7 @@ interface Props {
   mode: 'files' | 'excel'
 }
 
-const MAX_FILES = 20
+const MAX_FILES = 40
 const MAX_SIZE_BYTES = 5 * 1024 * 1024
 
 interface FilePreview {
@@ -184,6 +184,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const [files, setFiles] = useState<FilePreview[]>([])
   const [error, setError] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; name: string } | null>(null)
   // Cache de todos los SKUs: se carga UNA sola vez (1 query) al entrar al paso 2
   const allSkusRef = useRef<SkuRecord[]>([])
 
@@ -263,7 +264,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || [])
     setError(null)
-    if (selected.length > MAX_FILES) { setError(`Máximo ${MAX_FILES} imágenes`); return }
+    if (selected.length > MAX_FILES) { setError(`El límite máximo es de ${MAX_FILES} imágenes`); return }
     const valid: FilePreview[] = selected
       .filter(f => f.type.startsWith('image/') && f.size <= MAX_SIZE_BYTES)
       .map(f => ({ file: f, preview: URL.createObjectURL(f), sku: '', alt_text: '', uso: 'galeria_secundaria', es_principal: false, status: 'pending' as const }))
@@ -382,11 +383,41 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const handleUpload = () => {
     if (!allValid) { setError('Todas las imágenes deben tener un SKU válido'); return }
     startTransition(async () => {
-      const result = await uploadImagenesConSkuAction(
-        files.map(f => ({ file: f.file, producto_id: f.productoId!, sku_base: f.sku, alt_text: f.alt_text, uso_imagen: f.uso, orden: 0, es_principal: f.es_principal }))
-      )
-      if (result.success > 0) toast.success(`${result.success} imagen${result.success > 1 ? 'es' : ''} subida${result.success > 1 ? 's' : ''}`)
-      if (result.failed > 0) toast.error(`${result.failed} fallaron`)
+      setError(null)
+      setUploadProgress({ current: 0, total: files.length, name: 'Iniciando subida...' })
+
+      let successCount = 0
+      let failCount = 0
+
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        setUploadProgress({ current: i + 1, total: files.length, name: f.file.name })
+
+        try {
+          const formData = new FormData()
+          formData.append('file', f.file)
+          formData.append('producto_id', String(f.productoId))
+          formData.append('sku_base', f.sku)
+          formData.append('alt_text', f.alt_text)
+          formData.append('uso_imagen', f.uso)
+          formData.append('es_principal', String(f.es_principal))
+
+          const res = await uploadSingleImagenConSkuAction(formData)
+          if (res.success) {
+            successCount++
+          } else {
+            failCount++
+            console.error(`Error uploading ${f.file.name}:`, res.error)
+          }
+        } catch (err) {
+          failCount++
+          console.error(`Exception uploading ${f.file.name}:`, err)
+        }
+      }
+
+      setUploadProgress(null)
+      if (successCount > 0) toast.success(`${successCount} imagen${successCount > 1 ? 'es' : ''} subida${successCount > 1 ? 's' : ''} con éxito.`)
+      if (failCount > 0) toast.error(`${failCount} imagen${failCount > 1 ? 'es' : ''} fallaron.`)
       handleClose()
     })
   }
@@ -421,6 +452,22 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
           </div>
         </div>
 
+        {/* ── Progress Bar ── */}
+        {uploadProgress && (
+          <div className="bg-primary/5 border-b px-5 py-2.5 shrink-0 space-y-1.5 animate-in fade-in slide-in-from-top duration-200">
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="text-primary animate-pulse">Subiendo archivo {uploadProgress.current} de {uploadProgress.total}...</span>
+              <span className="text-muted-foreground truncate max-w-[250px]">{uploadProgress.name}</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div 
+                className="bg-primary h-full transition-all duration-300 rounded-full"
+                style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* ── Error ── */}
         {error && (
           <div className="mx-5 mt-2 p-3 bg-destructive/10 border border-destructive/30 rounded text-sm text-destructive flex items-center gap-2 shrink-0">
@@ -438,7 +485,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
               <div className="bg-muted/40 rounded-lg p-4 text-sm space-y-1">
                 <p className="font-semibold">¿Cómo funciona?</p>
                 <ul className="text-muted-foreground text-xs space-y-1">
-                  <li>• Sube hasta {MAX_FILES} imágenes desde tu equipo (PNG, JPG, WebP, máx. 5 MB c/u)</li>
+                  <li>• Sube hasta 25 imágenes desde tu equipo (PNG, JPG, WebP, máx. 5 MB c/u)</li>
                   <li>• El sistema detectará el SKU desde el nombre del archivo automáticamente</li>
                   <li>• En el paso 2 podrás corregir o asignar el producto manualmente</li>
                 </ul>
@@ -471,7 +518,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                       </button>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">{files.length} / {MAX_FILES} imágenes seleccionadas</p>
+                  <p className="text-xs text-muted-foreground">{files.length} imágenes seleccionadas</p>
                 </>
               ) : (
                 <button
@@ -481,7 +528,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                   <ImageIcon className="h-14 w-14 opacity-30" />
                   <div className="text-center">
                     <p className="font-semibold text-base">Haz clic para seleccionar imágenes</p>
-                    <p className="text-xs opacity-70 mt-1">PNG, JPG, WebP · Máx 5 MB · Hasta {MAX_FILES} archivos</p>
+                    <p className="text-xs opacity-70 mt-1">PNG, JPG, WebP · Máx 5 MB · Hasta 25 archivos</p>
                   </div>
                 </button>
               )}

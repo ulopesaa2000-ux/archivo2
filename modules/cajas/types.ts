@@ -16,6 +16,7 @@ export type SharedCajaData = {
   piezas_por_caja: number | null
   cbm: number | null
   peso_bruto_kg: number | null
+  peso_neto?: number | null
   largo_cm?: number | null
   ancho_cm?: number | null
   alto_cm?: number | null

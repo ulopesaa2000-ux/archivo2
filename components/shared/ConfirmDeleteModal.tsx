@@ -52,7 +52,7 @@ export function ConfirmDeleteModal({
             <AlertCircle className="h-5 w-5" />
             {title}
           </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
+          <AlertDialogDescription className="space-y-3" render={<div />}>
             <span>{description}</span>
             <div className="bg-muted p-2 rounded-md font-mono text-foreground font-medium text-sm border">
               {elementName}

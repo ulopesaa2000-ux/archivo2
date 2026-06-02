@@ -300,6 +300,7 @@ export async function updateCajaBaseAction(
       piezas_por_caja: data.piezas_por_caja,
       cbm: data.cbm,
       peso_bruto_kg: data.peso_bruto_kg,
+      peso_neto: data.peso_neto,
       largo_cm: data.largo_cm,
       ancho_cm: data.ancho_cm,
       alto_cm: data.alto_cm,
@@ -311,6 +312,13 @@ export async function updateCajaBaseAction(
 
   if (error) {
     console.error('Error actualizando caja:', error)
+    if (error.code === '23505') {
+      if (error.message?.includes('codigo_caja') || error.message?.includes('cajas_producto_codigo_caja_key')) {
+        throw new Error('El código de caja ya está registrado en el sistema por otro producto (los códigos deben ser únicos a nivel global).')
+      } else {
+        throw new Error('Error de duplicidad de llave primaria/índice en la base de datos (código 23505).')
+      }
+    }
     throw new Error('No se pudo actualizar la caja')
   }
 
@@ -448,6 +456,7 @@ export async function createCajaAction(
       piezas_por_caja: data.base.piezas_por_caja || totalPiezas,
       cbm: data.base.cbm,
       peso_bruto_kg: data.base.peso_bruto_kg,
+      peso_neto: data.base.peso_neto,
       largo_cm: data.base.largo_cm,
       ancho_cm: data.base.ancho_cm,
       alto_cm: data.base.alto_cm,
@@ -461,6 +470,13 @@ export async function createCajaAction(
 
   if (cajaError || !newCaja) {
     console.error('Error creando caja:', cajaError)
+    if (cajaError?.code === '23505') {
+      if (cajaError.message?.includes('codigo_caja') || cajaError.message?.includes('cajas_producto_codigo_caja_key')) {
+        throw new Error('El código de caja ya está registrado en el sistema por otro producto (los códigos deben ser únicos a nivel global).')
+      } else {
+        throw new Error('Error de duplicidad de llave primaria/índice en la base de datos (código 23505).')
+      }
+    }
     throw new Error('No se pudo crear la caja')
   }
 

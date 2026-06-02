@@ -16,6 +16,7 @@ import type {
 
 import { getCurrentUser } from '@/modules/auth/queries'
 import { getCommercialScope } from '@/lib/auth/commercial-scope'
+import { buildCajaContenidoMap } from '@/modules/cajas/utils'
 
 // ═══════════════════════════════════════════════════════════════
 // LISTADO
@@ -359,36 +360,6 @@ export async function fetchCajasProducto(
   return cajasConDetalle
 }
 
-function buildCajaContenidoMap(
-  detalles: CajaConDetalle['detalles']
-): CajaContenidoMap | null {
-  if (detalles.length === 0) return null
-
-  const tallasSet = new Set<string>()
-  const coloresSet = new Set<string>()
-  const matriz: Record<string, Record<string, number>> = {}
-  let totalPiezas = 0
-
-  for (const d of detalles) {
-    const talla = d.talla_codigo ?? '—'
-    const color = d.color_nombre ?? '—'
-    const cantidad = d.cantidad ?? 0
-
-    tallasSet.add(talla)
-    coloresSet.add(color)
-
-    if (!matriz[color]) matriz[color] = {}
-    matriz[color][talla] = (matriz[color][talla] ?? 0) + cantidad
-    totalPiezas += cantidad
-  }
-
-  return {
-    tallas: Array.from(tallasSet),
-    colores: Array.from(coloresSet),
-    matriz,
-    totalPiezas,
-  }
-}
 
 export async function fetchTagsProducto(
   productoId: number

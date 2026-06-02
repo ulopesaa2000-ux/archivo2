@@ -309,3 +309,83 @@ export async function uploadImagenesConSkuAction(
 
   return { success: successCount, failed: failCount }
 }
+
+/**
+ * Sube una sola imagen local al Storage y la asocia a un producto.
+ * Recibe FormData para evitar problemas de serialización en Server Actions.
+ */
+export async function uploadSingleImagenConSkuAction(
+  formData: FormData
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const file = formData.get('file') as File
+  const productoId = Number(formData.get('producto_id'))
+  const skuBase = formData.get('sku_base') as string
+  const altText = formData.get('alt_text') as string
+  const usoImagen = formData.get('uso_imagen') as string
+  const esPrincipal = formData.get('es_principal') === 'true'
+
+  if (!file) return { success: false, error: 'Archivo no recibido en el servidor' }
+
+  try {
+    // 1. Si es principal, quitar principal de otras imágenes del producto
+    if (esPrincipal) {
+      await (supabase.from('producto_imagenes') as any)
+        .update({ es_principal: false })
+        .eq('producto_id', productoId)
+    }
+
+    // 2. Subir archivo al Storage
+    const fileBuffer = Buffer.from(await file.arrayBuffer())
+    const cleanFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
+    const filePath = `${skuBase}/${cleanFileName}`
+    
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(filePath, fileBuffer, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (uploadError) {
+      console.warn('[uploadSingleImagenConSkuAction] Upload error:', uploadError.message)
+      return { success: false, error: uploadError.message }
+    }
+
+    // 3. Obtener URL pública
+    const { data: urlData } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(filePath)
+
+    const publicUrl = urlData.publicUrl
+
+    // 4. Crear registro en producto_imagenes
+    const { error: insertError } = await (supabase.from('producto_imagenes') as any)
+      .insert({
+        producto_id: productoId,
+        url: publicUrl,
+        alt_text: altText || null,
+        uso_imagen: usoImagen || 'galeria_secundaria',
+        orden: 0,
+        es_principal: esPrincipal,
+        origen_imagen: 'local',
+      })
+
+    if (insertError) {
+      console.warn('[uploadSingleImagenConSkuAction] Insert error:', insertError.message)
+      // Limpiar archivo subido si falla el registro
+      await supabase.storage.from(BUCKET).remove([filePath])
+      return { success: false, error: insertError.message }
+    }
+
+    revalidatePath('/catalogo/imagenes')
+    return { success: true }
+  } catch (err: any) {
+    console.warn('[uploadSingleImagenConSkuAction] Exception:', err)
+    return { success: false, error: err.message }
+  }
+}
