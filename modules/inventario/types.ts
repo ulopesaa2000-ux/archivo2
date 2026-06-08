@@ -23,6 +23,7 @@ export type FiltrosNotas = {
   page?: number
   limit_bodega_ids?: number[]
   limit_usuario_id?: number
+  ciudad?: string
 }
 
 // ── Nota en el listado ──────────────────────────────────────
@@ -40,11 +41,14 @@ export type NotaListItem = {
   estado_codigo: string
   estado_nombre: string
   estado_color: string | null
+  bodega_origen_id: number
   bodega_origen_nombre: string
   bodega_origen_codigo: string
+  bodega_destino_id: number | null
   bodega_destino_nombre: string | null
   bodega_destino_codigo: string | null
   usuario_nombre: string
+  usuario_id: number
   costo_total: number | null
   comprobante_url: string | null
 }
@@ -156,6 +160,7 @@ export type CatalogosInventario = {
   tiposMovimiento: TipoMovimientoRow[]
   estadosNota: EstadoNotaRow[]
   bodegas: BodegaRow[]
+  ciudades?: string[]
 }
 
 // ── Draft local (para crear/editar nota) ────────────────────

@@ -9,12 +9,19 @@ export const metadata: Metadata = {
   description: 'Historial de cambios en productos del catálogo',
 }
 
-async function AuditoriaData() {
-  const auditoria = await fetchAuditoriaGeneral(200)
-  return <AuditoriaProductosClient initialData={auditoria} />
+async function AuditoriaData({ limit }: { limit: number }) {
+  const auditoria = await fetchAuditoriaGeneral(limit)
+  return <AuditoriaProductosClient initialData={auditoria} limitActual={limit} />
 }
 
-export default function AuditoriaProductosPage() {
+export default async function AuditoriaProductosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ limit?: string }>
+}) {
+  const sp = await searchParams
+  const limit = sp.limit ? parseInt(sp.limit) : 200
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -35,7 +42,7 @@ export default function AuditoriaProductosPage() {
           </div>
         }
       >
-        <AuditoriaData />
+        <AuditoriaData limit={limit} />
       </Suspense>
     </div>
   )

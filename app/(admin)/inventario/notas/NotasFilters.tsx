@@ -25,9 +25,29 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
   const currentQ       = searchParam('q')
   const currentTipo    = searchParam('tipo_movimiento_id', '_all')
   const currentEstado  = searchParam('estado_codigo', '_all')
+  const currentCiudad  = searchParam('ciudad', '_all')
   const currentBodega  = searchParam('bodega_origen_id', '_all')
   const currentDesde   = searchParam('fecha_desde')
   const currentHasta   = searchParam('fecha_hasta')
+
+  const handleCiudadChange = (ciudad: string) => {
+    if (ciudad === '_all') {
+      updateParam('ciudad', null)
+      return
+    }
+    updateParam('ciudad', ciudad)
+    
+    if (currentBodega !== '_all') {
+      const bodegaSelected = catalogos.bodegas.find(b => String(b.id) === currentBodega)
+      if (bodegaSelected && bodegaSelected.ciudad !== ciudad) {
+        updateParam('bodega_origen_id', null)
+      }
+    }
+  }
+
+  const bodegasFiltradas = currentCiudad !== '_all'
+    ? catalogos.bodegas.filter(b => b.ciudad === currentCiudad)
+    : catalogos.bodegas
 
   return (
     <div className={`space-y-3 ${isPending ? 'opacity-70' : ''}`}>
@@ -100,6 +120,28 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
           </SelectContent>
         </Select>
 
+        {/* Ciudad */}
+        <Select
+          value={currentCiudad}
+          onValueChange={(v) => handleCiudadChange(v || '_all')}
+        >
+          <SelectTrigger className="w-[160px] h-9 text-sm">
+            <span className="truncate">
+              {currentCiudad === '_all'
+                ? 'Todas las ciudades'
+                : currentCiudad}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Todas las ciudades</SelectItem>
+            {(catalogos.ciudades ?? []).map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         {/* Bodega Origen */}
         <Select
           value={currentBodega}
@@ -114,7 +156,7 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="_all">Todas las bodegas</SelectItem>
-            {catalogos.bodegas.map((b) => (
+            {bodegasFiltradas.map((b) => (
               <SelectItem key={b.id} value={String(b.id)}>
                 {b.nombre}
               </SelectItem>

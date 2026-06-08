@@ -53,10 +53,10 @@ export async function fetchNotas(
         codigo, nombre, color
       ),
       bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
-        nombre, codigo
+        id, nombre, codigo
       ),
       bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (
-        nombre, codigo
+        id, nombre, codigo
       )
     `, { count: 'exact' })
 
@@ -83,9 +83,25 @@ export async function fetchNotas(
     }
   }
 
-  // ── Filtro: bodega origen ───────────────────────────────
+  // ── Filtro: bodega (origen o destino) ───────────────────
   if (filtros.bodega_origen_id) {
-    query = query.eq('bodega_origen_id', filtros.bodega_origen_id)
+    query = query.or(`bodega_origen_id.eq.${filtros.bodega_origen_id},bodega_destino_id.eq.${filtros.bodega_origen_id}`)
+  }
+
+  // ── Filtro: ciudad de la bodega ─────────────────────────
+  if (filtros.ciudad) {
+    const { data: bodegasCiudad } = await supabase
+      .from('bodegas')
+      .select('id')
+      .eq('ciudad', filtros.ciudad)
+      .eq('activa', true)
+    
+    if (bodegasCiudad && bodegasCiudad.length > 0) {
+      const idsStr = bodegasCiudad.map(b => b.id).join(',')
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+    } else {
+      query = query.eq('id', -1)
+    }
   }
 
   // ── Filtro: rango de fechas ─────────────────────────────
@@ -148,11 +164,14 @@ export async function fetchNotas(
       estado_codigo: estado?.codigo ?? '',
       estado_nombre: estado?.nombre ?? '',
       estado_color: estado?.color ?? null,
+      bodega_origen_id: origen?.id ?? 0,
       bodega_origen_nombre: origen?.nombre ?? '',
       bodega_origen_codigo: origen?.codigo ?? '',
+      bodega_destino_id: destino?.id ?? null,
       bodega_destino_nombre: destino?.nombre ?? null,
       bodega_destino_codigo: destino?.codigo ?? null,
       usuario_nombre: usuario?.nombre_completo ?? '',
+      usuario_id: n.usuario_id,
       costo_total: n.costo_total ? Number(n.costo_total) : 0,
       comprobante_url: n.comprobante_url ?? null,
     }
@@ -187,10 +206,10 @@ export async function fetchNotaById(
         codigo, nombre, color
       ),
       bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
-        nombre, codigo
+        id, nombre, codigo
       ),
       bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (
-        nombre, codigo
+        id, nombre, codigo
       )
     `)
     .eq('id', id)
@@ -221,11 +240,14 @@ export async function fetchNotaById(
     estado_codigo: estado?.codigo ?? '',
     estado_nombre: estado?.nombre ?? '',
     estado_color: estado?.color ?? null,
+    bodega_origen_id: origen?.id ?? 0,
     bodega_origen_nombre: origen?.nombre ?? '',
     bodega_origen_codigo: origen?.codigo ?? '',
+    bodega_destino_id: destino?.id ?? null,
     bodega_destino_nombre: destino?.nombre ?? null,
     bodega_destino_codigo: destino?.codigo ?? null,
     usuario_nombre: usuario?.nombre_completo ?? '',
+    usuario_id: nr.usuario_id,
     costo_total: nr.costo_total ? Number(nr.costo_total) : 0,
     comprobante_url: nr.comprobante_url ?? null,
   }
@@ -736,7 +758,7 @@ export async function fetchNotasPendientesPorBodega(
   const { data, error } = await supabase
     .from('notas_inventario')
     .select(`
-      id, numero_nota, fecha_nota, fecha_confirmacion, total_cajas, nota_referencia, observaciones,
+      id, numero_nota, fecha_nota, fecha_confirmacion, total_cajas, nota_referencia, observaciones, usuario_id,
       costo_total, comprobante_url,
       tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
         codigo, nombre, afecta_inventario
@@ -744,8 +766,8 @@ export async function fetchNotasPendientesPorBodega(
       estado:cat_estados_nota!notas_inventario_estado_id_fkey (
         codigo, nombre, color
       ),
-      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (nombre, codigo),
-      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (nombre, codigo)
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (id, nombre, codigo),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (id, nombre, codigo)
     `)
     .eq('estado_id', 1) // PEND
     .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
@@ -776,11 +798,14 @@ export async function fetchNotasPendientesPorBodega(
       estado_codigo: estado?.codigo ?? '',
       estado_nombre: estado?.nombre ?? '',
       estado_color: estado?.color ?? null,
+      bodega_origen_id: origen?.id ?? 0,
       bodega_origen_nombre: origen?.nombre ?? '',
-      bodega_origen_codigo: '',
+      bodega_origen_codigo: origen?.codigo ?? '',
+      bodega_destino_id: destino?.id ?? null,
       bodega_destino_nombre: destino?.nombre ?? null,
-      bodega_destino_codigo: null,
+      bodega_destino_codigo: destino?.codigo ?? null,
       usuario_nombre: '',
+      usuario_id: n.usuario_id,
       costo_total: n.costo_total ? Number(n.costo_total) : 0,
       comprobante_url: n.comprobante_url ?? null,
     }
@@ -794,4 +819,187 @@ export async function fetchTodasAsignacionesBodega(): Promise<UsuarioBodegaRow[]
     .select('*')
   if (error || !data) return []
   return data as UsuarioBodegaRow[]
+}
+
+export async function fetchNotasParaReporte(
+  filtros: Omit<FiltrosNotas, 'page'>
+): Promise<NotaListItem[]> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, fecha_confirmacion,
+      total_cajas, nota_referencia, observaciones, usuario_id,
+      costo_total, comprobante_url,
+      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
+        codigo, nombre, afecta_inventario
+      ),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey (
+        codigo, nombre, color
+      ),
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
+        id, nombre, codigo
+      ),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (
+        id, nombre, codigo
+      )
+    `)
+
+  if (filtros.q) {
+    query = query.ilike('numero_nota', `%${filtros.q}%`)
+  }
+
+  if (filtros.tipo_movimiento_id) {
+    query = query.eq('tipo_movimiento_id', filtros.tipo_movimiento_id)
+  }
+
+  if (filtros.estado_codigo) {
+    const { data: estadoData } = await supabase
+      .from('cat_estados_nota')
+      .select('id')
+      .eq('codigo', filtros.estado_codigo)
+      .single()
+    if (estadoData) {
+      query = query.eq('estado_id', estadoData.id)
+    }
+  }
+
+  if (filtros.bodega_origen_id) {
+    query = query.or(`bodega_origen_id.eq.${filtros.bodega_origen_id},bodega_destino_id.eq.${filtros.bodega_origen_id}`)
+  }
+
+  if (filtros.ciudad) {
+    const { data: bodegasCiudad } = await supabase
+      .from('bodegas')
+      .select('id')
+      .eq('ciudad', filtros.ciudad)
+      .eq('activa', true)
+    
+    if (bodegasCiudad && bodegasCiudad.length > 0) {
+      const idsStr = bodegasCiudad.map(b => b.id).join(',')
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+    } else {
+      query = query.eq('id', -1)
+    }
+  }
+
+  if (filtros.fecha_desde) {
+    query = query.gte('fecha_nota', filtros.fecha_desde)
+  }
+  if (filtros.fecha_hasta) {
+    query = query.lte('fecha_nota', `${filtros.fecha_hasta}T23:59:59`)
+  }
+
+  if (filtros.limit_bodega_ids && filtros.limit_bodega_ids.length > 0) {
+    const idsStr = filtros.limit_bodega_ids.join(',')
+    if (filtros.limit_usuario_id) {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
+    } else {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+    }
+  } else if (filtros.limit_usuario_id) {
+    query = query.eq('usuario_id', filtros.limit_usuario_id)
+  }
+
+  query = query.order('fecha_nota', { ascending: false }).limit(10000)
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchNotasParaReporte:', error)
+    return []
+  }
+
+  const userIds = Array.from(new Set((data ?? []).map(d => d.usuario_id).filter(Boolean)))
+  const { data: usersData } = userIds.length > 0 
+    ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
+    : { data: [] }
+  const usersMap = new Map(usersData?.map(u => [u.id, u]) || [])
+
+  return (data ?? []).map((n: any) => {
+    const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
+    const estado = Array.isArray(n.estado) ? n.estado[0] : n.estado
+    const origen = Array.isArray(n.bodega_origen) ? n.bodega_origen[0] : n.bodega_origen
+    const destino = Array.isArray(n.bodega_destino) ? n.bodega_destino[0] : n.bodega_destino
+    const usuario: any = usersMap.get(n.usuario_id)
+
+    return {
+      id: n.id,
+      numero_nota: n.numero_nota,
+      fecha_nota: n.fecha_nota,
+      fecha_confirmacion: n.fecha_confirmacion,
+      total_cajas: n.total_cajas,
+      nota_referencia: n.nota_referencia,
+      observaciones: n.observaciones,
+      tipo_codigo: tipo?.codigo ?? '',
+      tipo_nombre: tipo?.nombre ?? '',
+      afecta_inventario: tipo?.afecta_inventario ?? 0,
+      estado_codigo: estado?.codigo ?? '',
+      estado_nombre: estado?.nombre ?? '',
+      estado_color: estado?.color ?? null,
+      bodega_origen_id: origen?.id ?? 0,
+      bodega_origen_nombre: origen?.nombre ?? '',
+      bodega_origen_codigo: origen?.codigo ?? '',
+      bodega_destino_id: destino?.id ?? null,
+      bodega_destino_nombre: destino?.nombre ?? null,
+      bodega_destino_codigo: destino?.codigo ?? null,
+      usuario_nombre: usuario?.nombre_completo ?? '',
+      usuario_id: n.usuario_id,
+      costo_total: n.costo_total ? Number(n.costo_total) : 0,
+      comprobante_url: n.comprobante_url ?? null,
+    }
+  })
+}
+
+export async function fetchResumenReporteNotas(filtros: {
+  bodegaIds?: number[]
+  fechaDesde?: string
+  fechaHasta?: string
+  limit_usuario_id?: number
+}): Promise<{ total: number; porTipo: Record<string, number> }> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('notas_inventario')
+    .select('id, tipo_movimiento_id')
+
+  if (filtros.fechaDesde) {
+    query = query.gte('fecha_nota', filtros.fechaDesde)
+  }
+  if (filtros.fechaHasta) {
+    query = query.lte('fecha_nota', `${filtros.fechaHasta}T23:59:59`)
+  }
+
+  if (filtros.bodegaIds && filtros.bodegaIds.length > 0) {
+    const idsStr = filtros.bodegaIds.join(',')
+    if (filtros.limit_usuario_id) {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
+    } else {
+      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+    }
+  } else if (filtros.limit_usuario_id) {
+    query = query.eq('usuario_id', filtros.limit_usuario_id)
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchResumenReporteNotas:', error)
+    return { total: 0, porTipo: {} }
+  }
+
+  const { data: tipos } = await supabase.from('cat_tipos_movimiento').select('id, codigo')
+  const tiposMap = new Map(tipos?.map(t => [t.id, t.codigo]) || [])
+
+  const porTipo: Record<string, number> = {}
+  data.forEach((n: any) => {
+    const code = tiposMap.get(n.tipo_movimiento_id) || 'OTRO'
+    porTipo[code] = (porTipo[code] || 0) + 1
+  })
+
+  return {
+    total: data.length,
+    porTipo,
+  }
 }

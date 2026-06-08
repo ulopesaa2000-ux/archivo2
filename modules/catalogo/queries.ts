@@ -651,3 +651,126 @@ export async function fetchPuntosMedida() {
   const { data } = await (supabase.from('puntos_medida') as any).select('id, punto_medida, size_inch, position, clasificacion').order('punto_medida')
   return data ?? []
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FAMILIAS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FamiliaResumen {
+  familia: string | null
+  total_productos: number
+  es_codigo_raw: boolean
+  descripcion: string | null
+  skus?: string[]
+}
+
+export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
+  const supabase = await createClient()
+
+  // Obtenemos familia, descripcion y sku_base para realizar la agrupación y mapeo en JS (solo activos)
+  const { data, error } = await (supabase.from('productos') as any)
+    .select('familia, descripcion, sku_base')
+    .eq('activo', true)
+
+  if (error) {
+    console.error('Error fetchResumenFamilias:', error)
+    return []
+  }
+
+  const conteos: Record<string, number> = {}
+  const descripciones: Record<string, string | null> = {}
+  const skusPorFamilia: Record<string, string[]> = {}
+  let countNull = 0
+
+  for (const p of data || []) {
+    if (p.familia) {
+      conteos[p.familia] = (conteos[p.familia] || 0) + 1
+      if (!descripciones[p.familia] && p.descripcion) {
+        descripciones[p.familia] = p.descripcion
+      }
+      if (!skusPorFamilia[p.familia]) {
+        skusPorFamilia[p.familia] = []
+      }
+      if (p.sku_base) {
+        skusPorFamilia[p.familia].push(p.sku_base)
+      }
+    } else {
+      countNull++
+    }
+  }
+
+  const res: FamiliaResumen[] = Object.entries(conteos).map(([familia, count]) => {
+    // Detectar si cumple el patrón F000-000A, F000-000B, etc.
+    const es_codigo_raw = /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(familia)
+    return {
+      familia,
+      total_productos: count,
+      es_codigo_raw,
+      descripcion: descripciones[familia] || null,
+      skus: skusPorFamilia[familia] || [],
+    }
+  })
+
+  if (countNull > 0) {
+    res.push({
+      familia: null,
+      total_productos: countNull,
+      es_codigo_raw: false,
+      descripcion: 'Productos sin familia asignada',
+      skus: (data || []).filter((p: any) => !p.familia && p.sku_base).map((p: any) => p.sku_base),
+    })
+  }
+
+  return res.sort((a, b) => {
+    // Colocar códigos raw primero
+    if (a.es_codigo_raw !== b.es_codigo_raw) {
+      return a.es_codigo_raw ? -1 : 1
+    }
+    const nameA = a.familia || ''
+    const nameB = b.familia || ''
+    return nameA.localeCompare(nameB, 'es', { sensitivity: 'base' })
+  })
+}
+
+export async function fetchProductosPorFamilia(
+  familia: string | null
+): Promise<(ProductoRow & { imagen_principal: string | null })[]> {
+  const supabase = await createClient()
+
+  let query = (supabase.from('productos') as any)
+    .select('id, sku_base, nombre, descripcion, familia, precio_ec, pz_en_caja, activo')
+    .eq('activo', true)
+
+  if (familia === null) {
+    query = query.is('familia', null)
+  } else {
+    query = query.eq('familia', familia)
+  }
+
+  const { data, error } = await query.order('sku_base')
+
+  if (error) {
+    console.error('Error fetchProductosPorFamilia:', error)
+    return []
+  }
+
+  const productos = data || []
+  if (productos.length === 0) return []
+
+  const ids = productos.map((p: any) => p.id)
+
+  const { data: imagenes } = await (supabase.from('producto_imagenes') as any)
+    .select('producto_id, url')
+    .eq('es_principal', true)
+    .in('producto_id', ids)
+
+  const imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
+    acc[img.producto_id] = img.url
+    return acc
+  }, {})
+
+  return productos.map((p: any) => ({
+    ...p,
+    imagen_principal: imagenesMap[p.id] || null,
+  }))
+}

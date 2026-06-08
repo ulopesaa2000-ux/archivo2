@@ -49,6 +49,25 @@ export default async function NotaDetallePage({
   const nota = await fetchNotaById(id)
   if (!nota) notFound()
 
+  // Validación de acceso por rol
+  const isSuperAdmin = user.rol?.nivel_acceso === 1
+  const isAdminInventario = user.rol?.nombre === 'Admin Operativo Inventario'
+
+  if (!isSuperAdmin && !isAdminInventario) {
+    const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+    const tieneBodegaAsignada = userBodegas.some(
+      b => b.id === nota.cabecera.bodega_origen_id || b.id === (nota.cabecera.bodega_destino_id ?? -1)
+    )
+
+    if (!tieneBodegaAsignada) {
+      notFound()
+    }
+
+    if (user.rol?.nombre === 'Bodeguero' && nota.cabecera.usuario_id !== user.id) {
+      notFound()
+    }
+  }
+
   const esEditable = nota.cabecera.estado_codigo === 'PEND' || nota.cabecera.estado_codigo === 'PROC'
 
   // Si es editable, cargar catálogos para el draft builder

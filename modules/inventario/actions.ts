@@ -45,6 +45,10 @@ export async function guardarNotaAction(
 
   // ── Validar permisos de bodega si es nivel 3+ ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
+    if (confirmar) {
+      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
+    }
+
     const { data: perm } = await supabase
       .from('usuario_bodegas')
       .select('puede_crear_notas, puede_confirmar_notas')
@@ -54,10 +58,6 @@ export async function guardarNotaAction(
 
     if (!perm || !perm.puede_crear_notas) {
       return { success: false, error: 'No tienes permiso para registrar notas en esta bodega de origen.' }
-    }
-
-    if (confirmar && !perm.puede_confirmar_notas) {
-      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega de origen.' }
     }
   }
 
@@ -187,7 +187,8 @@ export async function actualizarNotaAction(
   const { data: nota } = await supabase
     .from('notas_inventario')
     .select(`
-      id, estado_id, bodega_origen_id,
+      id, estado_id, bodega_origen_id, bodega_destino_id, usuario_id,
+      nota_referencia, observaciones, costo_total,
       estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
     `)
     .eq('id', notaId)
@@ -197,19 +198,78 @@ export async function actualizarNotaAction(
 
   // ── Validar permisos de bodega si es nivel 3+ ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
-    const { data: perm } = await supabase
-      .from('usuario_bodegas')
-      .select('puede_crear_notas, puede_confirmar_notas')
-      .eq('usuario_id', user.id)
-      .eq('bodega_id', (nota as any).bodega_origen_id)
-      .single()
-
-    if (!perm || !perm.puede_crear_notas) {
-      return { success: false, error: 'No tienes permiso para editar notas en esta bodega.' }
+    if (confirmar) {
+      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
     }
 
-    if (confirmar && !perm.puede_confirmar_notas) {
-      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega.' }
+    const esCreador = nota.usuario_id === user.id
+    const esEncargado = user.rol?.nombre === 'Encargado de Bodega'
+    const esTransferencia = nota.bodega_destino_id !== null
+
+    if (!esCreador) {
+      if (esEncargado && esTransferencia) {
+        // En notas ajenas de transferencia, el Encargado sólo puede editar la bodega destino.
+        // Validar que no se modifiquen otros campos de la cabecera.
+        if (
+          draft.nota_referencia !== (nota.nota_referencia || '') ||
+          draft.observaciones !== (nota.observaciones || '')
+        ) {
+          return { success: false, error: 'Como Encargado, en notas ajenas solo puedes modificar la bodega de destino.' }
+        }
+
+        // Comprobar que los productos/cantidades del draft coincidan exactamente con los detalles originales
+        const { data: detallesOriginales } = await supabase
+          .from('nota_detalle_productos')
+          .select('producto_id, variante_id, cajas, piezas_sueltas, caja_id')
+          .eq('nota_id', notaId)
+
+        const originalKeyMap = new Map(
+          detallesOriginales?.map(d => [
+            `${d.producto_id}-${d.caja_id}`,
+            { cajas: d.cajas, piezas_sueltas: d.piezas_sueltas }
+          ]) || []
+        )
+
+        if (draft.productos.length !== (detallesOriginales?.length ?? 0)) {
+          return { success: false, error: 'Como Encargado, en notas ajenas no puedes alterar los productos de la nota.' }
+        }
+
+        for (const p of draft.productos) {
+          const key = `${p.producto_id}-${p.caja_id}`
+          const orig = originalKeyMap.get(key)
+          if (!orig || orig.cajas !== p.cajas || orig.piezas_sueltas !== p.piezas_sueltas) {
+            return { success: false, error: 'Como Encargado, en notas ajenas no puedes alterar las cantidades de productos.' }
+          }
+        }
+
+        // Validar que el Encargado tenga acceso a la nueva bodega de destino (draft.bodega_destino_id)
+        if (draft.bodega_destino_id) {
+          const { data: permDest } = await supabase
+            .from('usuario_bodegas')
+            .select('puede_crear_notas, puede_consultar')
+            .eq('usuario_id', user.id)
+            .eq('bodega_id', draft.bodega_destino_id)
+            .single()
+
+          if (!permDest) {
+            return { success: false, error: 'No tienes permisos asignados sobre la bodega de destino seleccionada.' }
+          }
+        }
+      } else {
+        return { success: false, error: 'Solo puedes editar notas creadas por ti mismo.' }
+      }
+    } else {
+      // Si es el creador, validar que tenga permisos para crear notas en la bodega de origen
+      const { data: perm } = await supabase
+        .from('usuario_bodegas')
+        .select('puede_crear_notas')
+        .eq('usuario_id', user.id)
+        .eq('bodega_id', (nota as any).bodega_origen_id)
+        .single()
+
+      if (!perm || !perm.puede_crear_notas) {
+        return { success: false, error: 'No tienes permiso para editar notas en esta bodega.' }
+      }
     }
   }
 
@@ -232,6 +292,7 @@ export async function actualizarNotaAction(
       nota_referencia: draft.nota_referencia || null,
       observaciones: draft.observaciones || null,
       costo_total: draft.costo_total || 0,
+      bodega_destino_id: draft.bodega_destino_id || null,
     })
     .eq('id', notaId)
 
@@ -306,24 +367,7 @@ export async function confirmarNotaAction(
 
   // ── Validar permisos de bodega si es nivel 3+ ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
-    const { data: nota } = await supabase
-      .from('notas_inventario')
-      .select('bodega_origen_id')
-      .eq('id', notaId)
-      .single()
-
-    if (!nota) return { success: false, error: 'Nota no encontrada.' }
-
-    const { data: perm } = await supabase
-      .from('usuario_bodegas')
-      .select('puede_confirmar_notas')
-      .eq('usuario_id', user.id)
-      .eq('bodega_id', nota.bodega_origen_id)
-      .single()
-
-    if (!perm || !perm.puede_confirmar_notas) {
-      return { success: false, error: 'No tienes permiso para confirmar notas en esta bodega.' }
-    }
+    return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
   }
 
   // Obtener ID del estado CONF
@@ -367,6 +411,29 @@ export async function cancelarNotaAction(
 
   const supabase = await createClient()
 
+  // ── Validar permisos de nivel 3+ en cancelación ───────────
+  if (user.rol && user.rol.nivel_acceso >= 3) {
+    const { data: nota } = await supabase
+      .from('notas_inventario')
+      .select('usuario_id, estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )')
+      .eq('id', notaId)
+      .single()
+
+    if (!nota) return { success: false, error: 'Nota no encontrada.' }
+
+    if (nota.usuario_id !== user.id) {
+      return { success: false, error: 'Solo puedes cancelar notas creadas por ti mismo.' }
+    }
+
+    const estadoCodigo = Array.isArray((nota as any).estado)
+      ? (nota as any).estado[0]?.codigo
+      : (nota as any).estado?.codigo
+
+    if (estadoCodigo !== 'PEND' && estadoCodigo !== 'PROC') {
+      return { success: false, error: 'Solo puedes cancelar notas que estén en estado Pendiente o En Proceso.' }
+    }
+  }
+
   const { data, error } = await supabase.rpc('sp_cancelar_nota', {
     p_nota_id: notaId,
     p_usuario_id: user.id,
@@ -396,6 +463,40 @@ export async function cambiarEstadoNotaAction(
   if (!user) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
+
+  // ── Validar permisos de nivel 3+ en cambio de estado ───────────
+  if (user.rol && user.rol.nivel_acceso >= 3) {
+    const { data: nota } = await supabase
+      .from('notas_inventario')
+      .select('usuario_id, estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )')
+      .eq('id', notaId)
+      .single()
+
+    if (!nota) return { success: false, error: 'Nota no encontrada.' }
+
+    if (nota.usuario_id !== user.id) {
+      return { success: false, error: 'Solo puedes cambiar el estado de notas creadas por ti mismo.' }
+    }
+
+    const estadoCodigo = Array.isArray((nota as any).estado)
+      ? (nota as any).estado[0]?.codigo
+      : (nota as any).estado?.codigo
+
+    if (estadoCodigo !== 'PEND' && estadoCodigo !== 'PROC') {
+      return { success: false, error: 'Solo puedes modificar notas que estén en estado Pendiente o En Proceso.' }
+    }
+
+    // Verificar que el nuevo estado no sea CONF
+    const { data: nuevoEstado } = await supabase
+      .from('cat_estados_nota')
+      .select('codigo')
+      .eq('id', nuevoEstadoId)
+      .single()
+
+    if (nuevoEstado?.codigo === 'CONF') {
+      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
+    }
+  }
 
   const { error } = await supabase
     .from('notas_inventario')
@@ -520,6 +621,30 @@ export async function asignarUsuarioBodegaAction(
     return { success: false, error: 'Bodega y usuario son requeridos.' }
   }
 
+  // Validación de seguridad para Bodeguero
+  if (user.rol?.nombre === 'Bodeguero') {
+    const { data: usuarioAsociado, error: userErr } = await supabase
+      .from('usuarios')
+      .select(`
+        id,
+        rol:roles!usuarios_rol_id_fkey ( nombre )
+      `)
+      .eq('id', usuario_id)
+      .single()
+
+    if (userErr || !usuarioAsociado) {
+      return { success: false, error: 'Usuario a asociar no encontrado.' }
+    }
+
+    const rolNombreAsociado = Array.isArray((usuarioAsociado as any).rol)
+      ? (usuarioAsociado as any).rol[0]?.nombre
+      : (usuarioAsociado as any).rol?.nombre
+
+    if (rolNombreAsociado !== 'Bodeguero') {
+      return { success: false, error: 'Como Bodeguero, solo tienes permisos para asignar bodegas a otros usuarios con rol Bodeguero.' }
+    }
+  }
+
   const { error } = await supabase
     .from('usuario_bodegas')
     .upsert({
@@ -570,6 +695,30 @@ export async function guardarAsignacionBodegaJSONAction(payload: {
   if (!user) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
+
+  // Validación de seguridad para Bodeguero
+  if (user.rol?.nombre === 'Bodeguero') {
+    const { data: usuarioAsociado, error: userErr } = await supabase
+      .from('usuarios')
+      .select(`
+        id,
+        rol:roles!usuarios_rol_id_fkey ( nombre )
+      `)
+      .eq('id', payload.usuario_id)
+      .single()
+
+    if (userErr || !usuarioAsociado) {
+      return { success: false, error: 'Usuario a asociar no encontrado.' }
+    }
+
+    const rolNombreAsociado = Array.isArray((usuarioAsociado as any).rol)
+      ? (usuarioAsociado as any).rol[0]?.nombre
+      : (usuarioAsociado as any).rol?.nombre
+
+    if (rolNombreAsociado !== 'Bodeguero') {
+      return { success: false, error: 'Como Bodeguero, solo tienes permisos para asignar bodegas a otros usuarios con rol Bodeguero.' }
+    }
+  }
 
   const { error } = await supabase
     .from('usuario_bodegas')

@@ -21,6 +21,7 @@ type Props = {
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
   initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
+  bodegaFiltradaId?: number
 }
 
 // Fallback features base
@@ -35,6 +36,7 @@ function NotasTableInner({
   notas,
   sortKey,
   sortOrder,
+  bodegaFiltradaId,
 }: Props) {
   const columns: ColumnDef<NotaListItem>[] = [
     {
@@ -56,12 +58,26 @@ function NotasTableInner({
       header: 'Tipo',
       sortKey: 'tipo_codigo',
       cell: (row: NotaListItem) => {
-        const icon = TIPO_MOVIMIENTO_ICONS[row.tipo_codigo] ?? ''
-        const color = TIPO_MOVIMIENTO_COLORS[row.tipo_codigo] ?? 'bg-gray-100 text-gray-800'
+        let icon = TIPO_MOVIMIENTO_ICONS[row.tipo_codigo] ?? ''
+        let color = TIPO_MOVIMIENTO_COLORS[row.tipo_codigo] ?? 'bg-gray-100 text-gray-800'
+        let nombre = row.tipo_nombre
+
+        if (row.tipo_codigo === 'TRF' && bodegaFiltradaId) {
+          if (row.bodega_destino_id === bodegaFiltradaId) {
+            icon = '↔↑'
+            color = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-300/30'
+            nombre = 'Traspaso (Entrada)'
+          } else if (row.bodega_origen_id === bodegaFiltradaId) {
+            icon = '↔↓'
+            color = 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-300/30'
+            nombre = 'Traspaso (Salida)'
+          }
+        }
+
         return (
           <Badge variant="secondary" className={`text-xs ${color}`}>
             <span className="mr-1">{icon}</span>
-            {row.tipo_nombre}
+            {nombre}
           </Badge>
         )
       },
@@ -70,20 +86,28 @@ function NotasTableInner({
       key: 'origen',
       header: 'Origen',
       sortKey: 'bodega_origen_nombre',
-      cell: (row: NotaListItem) => (
-        <span className="text-sm">{row.bodega_origen_nombre}</span>
-      ),
+      cell: (row: NotaListItem) => {
+        const esFiltrada = bodegaFiltradaId === row.bodega_origen_id
+        return (
+          <span className={`text-sm ${esFiltrada ? 'font-bold text-foreground' : 'text-muted-foreground'}`}>
+            {row.bodega_origen_nombre}
+          </span>
+        )
+      },
     },
     {
       key: 'destino',
       header: 'Destino',
       headerClassName: 'hidden lg:table-cell',
       className: 'hidden lg:table-cell',
-      cell: (row: NotaListItem) => (
-        <span className="text-sm text-muted-foreground">
-          {row.bodega_destino_nombre ?? '—'}
-        </span>
-      ),
+      cell: (row: NotaListItem) => {
+        const esFiltrada = bodegaFiltradaId === row.bodega_destino_id
+        return (
+          <span className={`text-sm ${esFiltrada ? 'font-bold text-foreground' : 'text-muted-foreground'}`}>
+            {row.bodega_destino_nombre ?? '—'}
+          </span>
+        )
+      },
     },
     {
       key: 'total_cajas',
