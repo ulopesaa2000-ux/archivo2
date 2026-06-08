@@ -56,6 +56,7 @@ const GROUPS: NavGroup[] = [
     icon: Package,
     items: [
       { label: 'Productos', href: ADMIN_ROUTES.catalogo.lista, icon: Package, modulo: 'catalogo_productos' },
+      { label: 'Familias', href: ADMIN_ROUTES.catalogo.familias, icon: SwatchBook, modulo: 'catalogo_productos' },
       { label: 'Catalogos Soporte', href: ADMIN_ROUTES.catalogo.catalogos, icon: SwatchBook, modulo: 'catalogo_catalogos' },
       { label: 'Imagenes', href: ADMIN_ROUTES.catalogo.imagenes, icon: ImageIcon, modulo: 'catalogo_imagenes' },
     ],

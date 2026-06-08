@@ -191,7 +191,7 @@ export default async function BodegasPage(props: {
             </Link>
           </Button>
           <Button variant="outline" size="sm" asChild className="border-primary/20 hover:border-primary/40 hover:bg-primary/5">
-            <Link href="/inventario/bodegas/matriz" className="flex items-center gap-1">
+            <Link href="/inventario/bodegas/matriz">
               <ShieldCheck className="h-4 w-4 text-primary" />
               Matriz de Permisos
             </Link>

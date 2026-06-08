@@ -59,18 +59,17 @@ export function NoteDraftBuilder({
   currentUserLevel, userBodegas,
 }: Props) {
   const router = useRouter()
-
-  // Bodegas permitidas según el nivel de acceso del usuario (incluyendo siempre las seleccionadas en la nota para evitar ID en Select)
-  const allowedBodegas = currentUserLevel <= 2
-    ? catalogos.bodegas
-    : catalogos.bodegas.filter((b) => 
-        userBodegas.some((ub) => ub.id === b.id) || 
-        b.id === draft.bodega_origen_id || 
-        b.id === draft.bodega_destino_id
-      )
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const esCreador = mode === 'create' || initialData?.cabecera.usuario_id === usuarioId
+  const esAdmin = currentUserLevel <= 2
+  const esEncargado = currentUserLevel === 3
+  const esTransferencia = mode === 'edit' && initialData?.cabecera.bodega_destino_id !== undefined && initialData?.cabecera.bodega_destino_id !== null
+
+  const todoBloqueado = !esAdmin && !esCreador && !(esEncargado && esTransferencia)
+  const soloEditaDestino = !esAdmin && !esCreador && esEncargado && esTransferencia
 
   // ── Draft state ─────────────────────────────────────────
   const [draft, setDraft] = useState<DraftNota>(() => {
@@ -116,6 +115,15 @@ export function NoteDraftBuilder({
       productos: [],
     }
   })
+
+  // Bodegas permitidas según el nivel de acceso del usuario (incluyendo siempre las seleccionadas en la nota para evitar ID en Select)
+  const allowedBodegas = currentUserLevel <= 2
+    ? catalogos.bodegas
+    : catalogos.bodegas.filter((b) => 
+        userBodegas.some((ub) => ub.id === b.id) || 
+        b.id === draft.bodega_origen_id || 
+        b.id === draft.bodega_destino_id
+      )
 
   // ── Comprobante Físico ───────────────────────────────────
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
@@ -434,12 +442,11 @@ export function NoteDraftBuilder({
                   const Icon = TIPO_MOV_ICONS_COMP[t.codigo as keyof typeof TIPO_MOV_ICONS_COMP] || Package
                   const isSelected = draft.tipo_movimiento_id === t.id
                   const colorMap = TIPO_MOVIMIENTO_COLORS[t.codigo] || 'bg-primary text-primary-foreground'
-
                   return (
                     <button
                       key={t.id}
                       type="button"
-                      disabled={mode === 'edit'}
+                      disabled={mode === 'edit' || todoBloqueado || soloEditaDestino}
                       onClick={() => {
                         setDraft((prev) => ({
                           ...prev,
@@ -449,7 +456,7 @@ export function NoteDraftBuilder({
                       }}
                       className={cn(
                         "flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center gap-1 group",
-                        mode === 'edit' && "opacity-50 cursor-not-allowed",
+                        (mode === 'edit' || todoBloqueado || soloEditaDestino) && "opacity-50 cursor-not-allowed",
                         isSelected 
                           ? cn("border-transparent font-bold shadow-lg shadow-black/5 scale-102", colorMap.split(' ')[0], colorMap.split(' ')[1])
                           : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
@@ -472,7 +479,7 @@ export function NoteDraftBuilder({
                   onValueChange={(v) =>
                     v && setDraft((prev) => ({ ...prev, bodega_origen_id: parseInt(v) }))
                   }
-                  disabled={mode === 'edit'}
+                  disabled={mode === 'edit' || todoBloqueado || soloEditaDestino}
                 >
                   <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue placeholder="Seleccionar origen...">
@@ -501,7 +508,7 @@ export function NoteDraftBuilder({
                     onValueChange={(v) =>
                       v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
                     }
-                    disabled={mode === 'edit'}
+                    disabled={todoBloqueado || (mode === 'edit' && (!esTransferencia || (!esAdmin && !esEncargado)))}
                   >
                     <SelectTrigger className="h-11 rounded-xl">
                       <SelectValue placeholder="Seleccionar destino...">
@@ -530,6 +537,7 @@ export function NoteDraftBuilder({
                     placeholder="Ej: OC-2026-043"
                     maxLength={50}
                     className="h-11 rounded-xl"
+                    disabled={todoBloqueado || soloEditaDestino}
                   />
                 </div>
               )}
@@ -547,6 +555,7 @@ export function NoteDraftBuilder({
                     placeholder="Ej: OC-2026-043"
                     maxLength={50}
                     className="h-11 rounded-xl"
+                    disabled={todoBloqueado || soloEditaDestino}
                   />
                 </div>
               )}
@@ -566,6 +575,7 @@ export function NoteDraftBuilder({
                     }}
                     placeholder="Ej: 12500.00"
                     className="h-11 rounded-xl"
+                    disabled={todoBloqueado || soloEditaDestino}
                   />
                 </div>
               )}
@@ -582,6 +592,7 @@ export function NoteDraftBuilder({
                 placeholder="Ingresa notas, chofer, placas, etc..."
                 rows={2}
                 className="rounded-xl"
+                disabled={todoBloqueado || soloEditaDestino}
               />
             </div>
           </CardContent>
@@ -654,7 +665,7 @@ export function NoteDraftBuilder({
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10 h-11 rounded-xl"
-              disabled={!draft.bodega_origen_id}
+              disabled={!draft.bodega_origen_id || todoBloqueado || soloEditaDestino}
             />
             {!draft.bodega_origen_id && (
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-orange-600 uppercase bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">
@@ -865,6 +876,7 @@ export function NoteDraftBuilder({
                             size="sm"
                             className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive rounded-full"
                             onClick={() => handleRemoveProduct(p.tempId)}
+                            disabled={todoBloqueado || soloEditaDestino}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -905,39 +917,43 @@ export function NoteDraftBuilder({
         </Link>
 
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            disabled={isPending || draft.productos.length === 0}
-            onClick={() => handleSave(false)}
-            className="rounded-xl h-11 px-5"
-          >
-            {isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-2" />
-            )}
-            Guardar Borrador
-          </Button>
+          {!todoBloqueado && (
+            <Button
+              variant="outline"
+              disabled={isPending || draft.productos.length === 0}
+              onClick={() => handleSave(false)}
+              className="rounded-xl h-11 px-5"
+            >
+              {isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Guardar Borrador
+            </Button>
+          )}
 
-          {currentUserLevel >= 3 && !puedeConfirmar && draft.bodega_origen_id && (
+          {currentUserLevel <= 2 && !puedeConfirmar && draft.bodega_origen_id && (
             <span className="text-xs text-amber-600 font-bold uppercase tracking-tighter">
               * Sin permiso de confirmación en esta bodega
             </span>
           )}
 
-          <Button
-            disabled={isPending || draft.productos.length === 0 || !puedeConfirmar}
-            onClick={() => handleSave(true)}
-            variant={puedeConfirmar ? 'default' : 'secondary'}
-            className="rounded-xl h-11 px-6 font-bold uppercase tracking-wider shadow-md"
-          >
-            {isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-            )}
-            Confirmar
-          </Button>
+          {currentUserLevel <= 2 && (
+            <Button
+              disabled={isPending || draft.productos.length === 0 || !puedeConfirmar}
+              onClick={() => handleSave(true)}
+              variant={puedeConfirmar ? 'default' : 'secondary'}
+              className="rounded-xl h-11 px-6 font-bold uppercase tracking-wider shadow-md"
+            >
+              {isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+              )}
+              Confirmar
+            </Button>
+          )}
         </div>
       </div>
 

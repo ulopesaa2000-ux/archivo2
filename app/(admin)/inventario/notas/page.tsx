@@ -1,10 +1,12 @@
 // app/(admin)/inventario/notas/page.tsx
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import { fetchNotas, fetchCatalogosInventario } from '@/modules/inventario/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { NotasFilters } from './NotasFilters'
 import { NotasTable } from './NotasTable'
+import { ReporteNotasButton } from './ReporteNotasButton'
 import { Pagination } from '@/components/admin/Pagination'
 import { Button } from '@/components/ui/button'
 import { Plus, Clock, RefreshCw, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
@@ -28,6 +30,7 @@ export default async function NotasPage({
     tipo_movimiento_id?: string
     estado_codigo?: string
     bodega_origen_id?: string
+    ciudad?: string
     fecha_desde?: string
     fecha_hasta?: string
     page?: string
@@ -36,7 +39,30 @@ export default async function NotasPage({
   const { user } = await verifySession()
   const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
 
+  const isSuperAdmin = user.rol?.nivel_acceso === 1
+  const isAdminInventario = user.rol?.nombre === 'Admin Operativo Inventario'
+
+  const cookieStore = await cookies()
+  const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
+  let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
+
+  // Restricciones para Nivel 3+ (Encargado y Bodeguero)
+  if (!isSuperAdmin && !isAdminInventario) {
+    if (
+      bodegaActivaId === null || 
+      bodegaActivaId === 0 || 
+      !userBodegas.some(b => b.id === bodegaActivaId)
+    ) {
+      bodegaActivaId = userBodegas[0]?.id ?? null
+    }
+  }
+
   const sp = await searchParams
+
+  const bodegaOrigenIdParam = sp.bodega_origen_id ? parseInt(sp.bodega_origen_id) : undefined
+  const bodegaOrigenIdFiltro = bodegaOrigenIdParam !== undefined 
+    ? bodegaOrigenIdParam 
+    : (bodegaActivaId && bodegaActivaId !== 0 ? bodegaActivaId : undefined)
   
   const filtros: FiltrosNotas = {
     q: sp.q,
@@ -44,18 +70,36 @@ export default async function NotasPage({
       ? parseInt(sp.tipo_movimiento_id)
       : undefined,
     estado_codigo: sp.estado_codigo,
-    bodega_origen_id: sp.bodega_origen_id
-      ? parseInt(sp.bodega_origen_id)
-      : undefined,
+    bodega_origen_id: bodegaOrigenIdFiltro,
+    ciudad: sp.ciudad,
     fecha_desde: sp.fecha_desde,
     fecha_hasta: sp.fecha_hasta,
     page: sp.page ? parseInt(sp.page) : 1,
   }
 
-  // Restricciones para Bodeguero (nivel > 2)
-  if (user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2) {
+  // Si es un rol restringido y no tiene bodegas asignadas, mostrar el Empty State amigable
+  if (!isSuperAdmin && !isAdminInventario && userBodegas.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] border rounded-2xl bg-background p-8 text-center space-y-4 shadow-sm">
+        <div className="p-4 bg-amber-500/10 text-amber-500 rounded-full">
+          <Clock className="h-10 w-10 animate-pulse" />
+        </div>
+        <div className="max-w-md space-y-2">
+          <h2 className="text-xl font-bold tracking-tight">Sin Bodegas Asignadas</h2>
+          <p className="text-sm text-muted-foreground">
+            No tienes bodegas asignadas en la matriz de permisos. Contacta a tu administrador para configurar tus accesos.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Restricciones para Nivel 3+ (Encargado y Bodeguero)
+  if (!isSuperAdmin && !isAdminInventario) {
     filtros.limit_bodega_ids = userBodegas.map(b => b.id)
-    filtros.limit_usuario_id = user.id
+    if (user.rol?.nombre === 'Bodeguero') {
+      filtros.limit_usuario_id = user.id
+    }
   }
 
   const [{ notas, total }, catalogos, tableConfig] = await Promise.all([
@@ -65,11 +109,14 @@ export default async function NotasPage({
   ])
 
   // Filtrar catálogo de bodegas para nivel 3
+  const activeBodegas = user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
+    ? userBodegas
+    : catalogos.bodegas
+
   const catalogosFiltrados = {
     ...catalogos,
-    bodegas: user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
-      ? userBodegas
-      : catalogos.bodegas
+    bodegas: activeBodegas,
+    ciudades: Array.from(new Set(activeBodegas.map(b => b.ciudad).filter(Boolean))) as string[]
   }
 
   const features = {
@@ -89,12 +136,15 @@ export default async function NotasPage({
             {total} nota{total !== 1 ? 's' : ''} encontrada{total !== 1 ? 's' : ''}
           </p>
         </div>
-        <Link href={ADMIN_ROUTES.inventario.notaNueva}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nueva Nota
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
+          <Link href={ADMIN_ROUTES.inventario.notaNueva}>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Nueva Nota
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -160,7 +210,7 @@ export default async function NotasPage({
       <NotasFilters catalogos={catalogosFiltrados} />
 
       {/* Tabla (Server, se re-renderiza) */}
-      <NotasTable notas={notas} initialFeatures={features} />
+      <NotasTable notas={notas} initialFeatures={features} bodegaFiltradaId={filtros.bodega_origen_id} />
 
       {/* Paginación */}
       <Pagination total={total} />

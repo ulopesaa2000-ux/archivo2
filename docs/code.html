@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Retail Reorg - Familias de Productos</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary": "#002e6a",
+                        "tertiary-container": "#ef9900",
+                        "on-primary": "#003915",
+                        "surface-container-low": "#131b2e",
+                        "on-primary-fixed-variant": "#005321",
+                        "outline": "#869585",
+                        "secondary-container": "#0566d9",
+                        "on-primary-container": "#004b1e",
+                        "on-surface": "#dae2fd",
+                        "primary-fixed-dim": "#4ae176",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-background": "#dae2fd",
+                        "surface-container": "#171f33",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "on-tertiary-container": "#5c3800",
+                        "surface": "#0b1326",
+                        "surface-tint": "#4ae176",
+                        "on-secondary-fixed": "#001a42",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "outline-variant": "#3d4a3d",
+                        "background": "#0b1326",
+                        "on-tertiary": "#472a00",
+                        "on-primary-fixed": "#002109",
+                        "surface-container-lowest": "#060e20",
+                        "surface-container-highest": "#2d3449",
+                        "error-container": "#93000a",
+                        "inverse-surface": "#dae2fd",
+                        "surface-dim": "#0b1326",
+                        "inverse-primary": "#006e2f",
+                        "primary": "#4be277",
+                        "surface-variant": "#2d3449",
+                        "inverse-on-surface": "#283044",
+                        "on-error": "#690005",
+                        "tertiary-fixed": "#ffddb8",
+                        "secondary": "#adc6ff",
+                        "error": "#ffb4ab",
+                        "surface-container-high": "#222a3d",
+                        "secondary-fixed": "#d8e2ff",
+                        "on-secondary-container": "#e6ecff",
+                        "tertiary": "#ffba61",
+                        "primary-fixed": "#6bff8f",
+                        "on-secondary-fixed-variant": "#004395",
+                        "on-tertiary-fixed": "#2a1700",
+                        "on-surface-variant": "#bccbb9",
+                        "on-error-container": "#ffdad6",
+                        "primary-container": "#22c55e",
+                        "surface-bright": "#31394d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "unit": "4px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "24px",
+                        "insertion-zone-height": "80px",
+                        "drag-handle-width": "32px"
+                    },
+                    "fontFamily": {
+                        "label-mono": ["JetBrains Mono"],
+                        "headline-md-mobile": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "body-sm": ["Hanken Grotesk"],
+                        "body-base": ["Hanken Grotesk"],
+                        "display-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "label-mono": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-md-mobile": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .insertion-zone {
+            transition: all 0.2s ease-in-out;
+            height: 8px;
+        }
+        .insertion-zone.active {
+            height: 80px;
+            background-color: rgba(75, 226, 119, 0.05);
+            border: 1px dashed #4be277;
+        }
+        .dragging {
+            opacity: 0.8;
+            transform: scale(1.02);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col font-body-base overflow-hidden">
+<!-- TopNavBar -->
+<header class="bg-surface-container-high shadow-sm docked full-width top-0 flex justify-between items-center px-margin-desktop w-full h-16 shrink-0 z-50">
+<div class="flex items-center gap-6">
+<h1 class="font-display-lg text-display-lg text-primary">Retail Reorg</h1>
+<div class="hidden md:flex items-center bg-surface-container rounded-full px-3 py-1 border border-outline-variant focus-within:border-primary transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-sm text-on-surface placeholder-on-surface-variant focus:outline-none" placeholder="Buscar..." type="text"/>
+</div>
+</div>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-on-surface font-headline-md transition-colors duration-200" href="#">Tablero</a>
+<a class="text-primary border-b-2 border-primary pb-1 font-headline-md transition-colors duration-200" href="#">Inventario</a>
+<a class="text-on-surface-variant hover:text-on-surface font-headline-md transition-colors duration-200" href="#">Historial</a>
+</nav>
+<div class="flex items-center gap-4">
+<div class="flex gap-2">
+<button class="bg-transparent border border-outline-variant text-on-surface font-label-mono text-label-mono px-4 py-2 rounded uppercase hover:bg-surface-variant transition-colors">Exportar</button>
+<button class="bg-primary text-on-primary font-label-mono text-label-mono px-4 py-2 rounded uppercase hover:bg-primary-fixed-dim transition-colors" id="btn-save-changes">Guardar Cambios</button>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<button class="p-2 hover:bg-surface-variant rounded-full transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="p-2 hover:bg-surface-variant rounded-full transition-colors"><span class="material-symbols-outlined">settings</span></button>
+</div>
+<img alt="User Profile" class="w-8 h-8 rounded-full border border-outline-variant" data-alt="A small circular profile picture of an administrative user in a dark, professional setting. The user appears focused and professional." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCpseEQiefwx8epkaUpUoo3J1kwt6w21WAWRIPkUSd5SeEfEi0-UWUriQ7nHwYp4AlQXfp2dAmvCHg-mHaZB2533MRueFsZvIkyRHXNaOnkTtsGQXfm-0DQRPiql_B8g1ORssVVyPOdmGKSgsYvREWuHGUuC8sNoHj2v_7XMBsokzGsNA927kkTWPDBl712mOFBYabnY4u1hpM-d9d1CPJIW6SmYDAgTgreFdvnvgv-xlSs9NoHbFxp6xSscROWxjOC876iN-nNpCA"/>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden relative">
+<!-- User Guide Banner -->
+<div class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-surface-container-highest border border-outline-variant rounded-full px-6 py-2 shadow-lg flex items-center gap-2 z-40">
+<span class="material-symbols-outlined text-primary">info</span>
+<span class="font-body-sm text-on-surface">Guía de uso: Arrastre productos para reubicar y organizar sus familias</span>
+</div>
+<!-- Left Sidebar: Split into Unassigned and Reassignment -->
+<aside class="w-80 bg-surface-container border-r border-outline-variant flex flex-col h-full shrink-0">
+<!-- Sin Asignar -->
+<div class="flex-1 flex flex-col min-h-0 border-b border-outline-variant">
+<div class="p-4 border-b border-outline-variant bg-surface-container-high sticky top-0 z-10">
+<h2 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined">inventory_2</span>
+                    Sin Asignar
+                </h2>
+<p class="font-body-sm text-on-surface-variant mt-1">Nuevos productos</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-3 insertion-zone-container">
+<!-- Draggable Item 1 -->
+<div class="bg-surface-variant border border-outline-variant rounded p-3 cursor-grab hover:border-primary transition-colors flex items-center gap-3 group relative" draggable="true" id="drag-item-1">
+<div class="w-6 h-full flex flex-col justify-center items-center text-on-surface-variant opacity-50 group-hover:opacity-100">
+<span class="material-symbols-outlined text-[16px]">drag_indicator</span>
+</div>
+<img alt="T-Shirt" class="w-10 h-10 rounded object-cover" data-alt="A close-up of a neatly folded, high-quality white t-shirt on a dark, minimalist retail shelf. The lighting is crisp and modern." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCzQWTkOlIHOB5nGY-_4XYy0jU5ngh0iCwKl33yAkI_WH50YsnYACpdrmT27j83UWKpG8bWvspjamMSOz8044mzUphnh25iLW3C_W_z3nyCodwo6uzqfz1cyXLkdkYFQKJCofygg0MTw2I3E5GUOp_fet8WNZD0lkhZf0SHvfVwociZ2_AK_UZy1kUyz8SpDarpVZE1Y5twGHGji1D88FzCrjbdLuQfbnnmsMlEFrVZb4TILW0jiVBUFlEBc1NKiYjSct75oKVCxfA"/>
+<div class="flex-1 min-w-0">
+<div class="font-label-mono text-label-mono text-primary truncate">TSH-WHT-M</div>
+<div class="font-body-sm text-body-sm text-on-surface truncate">Basic Cotton Tee</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bandeja de Reasignación -->
+<div class="flex-1 flex flex-col min-h-0 bg-surface-container">
+<div class="p-4 border-b border-outline-variant bg-surface-container-high sticky top-0 z-10">
+<h2 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined">move_item</span>
+                    Bandeja de Reasignación
+                </h2>
+<p class="font-body-sm text-on-surface-variant mt-1">Productos por mover</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-3 insertion-zone-container">
+<!-- Draggable Item 2 -->
+<div class="bg-surface-variant border border-outline-variant rounded p-3 cursor-grab hover:border-primary transition-colors flex items-center gap-3 group relative" draggable="true" id="drag-item-2">
+<div class="w-6 h-full flex flex-col justify-center items-center text-on-surface-variant opacity-50 group-hover:opacity-100">
+<span class="material-symbols-outlined text-[16px]">drag_indicator</span>
+</div>
+<img alt="Jeans" class="w-10 h-10 rounded object-cover" data-alt="A detail shot of dark blue denim jeans showing the texture and stitching, presented in a low-key, professional studio light." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJoWhuOTOU1iqg4Zsu3xBY-qvrFjG7dN90X7H8gd7zUGJi3r6L2caEf_jtGXlIJshuEQ8lHPpmUONLx4jP3ttWul3To3Powb0MG6dFLowL6vXIozsSuwakoYb-t92I9CZ6Lv7nTmGV3ZXBU3XcPupW-_j8fG-e0hw3CGNOFC380OK-1B370uum_HNuFzlvf8-YqbszC5Nam8_xzlxq1B2-rcPSOghW6vFkeWSKbsDWTtJYbsDpFJvaFqCea-ogElOHu1wDu_CBhgM"/>
+<div class="flex-1 min-w-0">
+<div class="font-label-mono text-label-mono text-primary truncate">DNM-BLU-32</div>
+<div class="font-body-sm text-body-sm text-on-surface truncate">Slim Fit Jeans</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Central Workspace -->
+<main class="flex-1 overflow-y-auto p-8 bg-background flex flex-col" id="main-workspace">
+<!-- Main Search -->
+<div class="max-w-4xl mx-auto w-full mb-8">
+<div class="flex items-center bg-surface-container rounded-lg px-4 py-3 border border-outline-variant focus-within:border-primary transition-colors shadow-sm">
+<span class="material-symbols-outlined text-on-surface-variant mr-3">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-base text-on-surface w-full placeholder-on-surface-variant focus:outline-none" placeholder="Buscar productos dentro de familias..." type="text"/>
+</div>
+</div>
+<div class="max-w-4xl mx-auto space-y-2 w-full">
+<!-- Insertion Zone Top -->
+<div class="insertion-zone rounded border-transparent border" id="zone-top"></div>
+<!-- Family Card 1 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-6 relative family-card" data-family="F000-000A">
+<div class="flex justify-between items-start mb-4">
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-headline-md text-headline-md text-on-surface">F000-000A</h3>
+<span class="bg-tertiary-container text-on-tertiary-container font-label-mono text-[10px] px-2 py-0.5 rounded uppercase">Activo</span>
+</div>
+<p class="font-body-sm text-on-surface-variant mt-1">Colección Básicos Verano</p>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 min-h-[60px] p-2 bg-surface-container-lowest rounded border border-dashed border-outline-variant">
+<!-- Product in Family -->
+<div class="bg-surface flex items-center gap-3 p-2 rounded border border-outline-variant cursor-grab hover:border-primary transition-colors group relative" draggable="true">
+<div class="w-4 h-full flex flex-col justify-center items-center text-on-surface-variant opacity-0 group-hover:opacity-100 absolute left-1">
+<span class="material-symbols-outlined text-[14px]">drag_indicator</span>
+</div>
+<img alt="Black Tee" class="w-8 h-8 rounded object-cover ml-3" data-alt="A premium black cotton t-shirt neatly displayed against a dark charcoal background. The lighting emphasizes the fabric texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhHJC8zvXuZjoOd4oQfcoUeV7U1kQJhZuL7lDc-RvXNxY9Z4zYYehhQJMUu0FO9PCVkleXz__3Ud-nyJGADTiG1uw3IznBT_J4ld3RlrYosODY5U3fVNQ9pQ2u5SC5h4W107Osoqj2irUqrZe9F3c7iSBCcZor1wJbuovEH_GyUQxwi1IDbCUwTjAhxCX8ISSln2q93bQyJRZ5ACCJQUddlcxBnOrB7U98FrOnECCINL-twb1iCm-iV6WUNteOiY3fBllRzLQzlxk"/>
+<div>
+<div class="font-label-mono text-[10px] text-on-surface-variant">TSH-BLK-S</div>
+<div class="font-body-sm text-sm text-on-surface">Black Basic Tee</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Insertion Zone Mid -->
+<div class="insertion-zone rounded border-transparent border flex items-center justify-center" id="zone-mid">
+<span class="text-on-surface-variant font-body-sm opacity-0 transition-opacity">Suelte aquí para crear nueva familia</span>
+</div>
+<!-- Family Card 2 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-6 relative family-card" data-family="F000-000B">
+<div class="flex justify-between items-start mb-4">
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-headline-md text-headline-md text-on-surface">F000-000B</h3>
+<span class="bg-surface-variant text-on-surface-variant font-label-mono text-[10px] px-2 py-0.5 rounded uppercase">Borrador</span>
+</div>
+<p class="font-body-sm text-on-surface-variant mt-1">Línea Denim Premium</p>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">more_vert</span></button>
+</div>
+<div class="p-8 border border-dashed border-outline-variant rounded flex items-center justify-center bg-surface-container-lowest transition-colors drop-target-area">
+<span class="font-body-sm text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined">add_circle</span>
+                    Arrastre productos aquí
+                </span>
+</div>
+</div>
+<!-- Insertion Zone Bottom -->
+<div class="insertion-zone rounded border-transparent border flex items-center justify-center" id="zone-bot">
+<span class="text-on-surface-variant font-body-sm opacity-0 transition-opacity">Suelte aquí para crear nueva familia</span>
+</div>
+</div>
+</main>
+<!-- Right Panel Toggle (Expanded state) -->
+<aside class="w-80 bg-surface-container border-l border-outline-variant flex flex-col h-full shrink-0 relative transition-transform duration-300 transform translate-x-0" id="controls-panel">
+<div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-high">
+<h2 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">history</span>
+                Cambios Realizados
+            </h2>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-full hover:bg-surface-variant" id="btn-close-controls">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+<!-- Audit Item 1 -->
+<div class="bg-surface border border-outline-variant rounded p-3 text-sm">
+<div class="font-label-mono text-primary mb-1">TSH-BLK-S</div>
+<div class="text-on-surface-variant flex items-center gap-2 flex-wrap">
+<span class="bg-surface-variant px-1.5 py-0.5 rounded text-xs">Sin Asignar</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span class="bg-surface-variant px-1.5 py-0.5 rounded text-xs text-on-surface">F000-000A</span>
+</div>
+</div>
+<!-- Audit Item 2 -->
+<div class="bg-surface border border-outline-variant rounded p-3 text-sm">
+<div class="font-label-mono text-primary mb-1">DNM-BLU-32</div>
+<div class="text-on-surface-variant flex items-center gap-2 flex-wrap">
+<span class="bg-surface-variant px-1.5 py-0.5 rounded text-xs">F000-000B</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span class="bg-surface-variant px-1.5 py-0.5 rounded text-xs text-on-surface">F001-000C</span>
+</div>
+</div>
+</div>
+<div class="p-4 border-t border-outline-variant bg-surface-container-high">
+<button class="w-full bg-primary text-on-primary font-label-mono text-label-mono px-4 py-3 rounded uppercase hover:bg-primary-fixed-dim transition-colors flex items-center justify-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">save</span>
+                Confirmar Reorganización
+            </button>
+</div>
+</aside>
+<!-- Floating Tooltip (Hidden by default, shown via JS during drag) -->
+<div class="hidden fixed pointer-events-none bg-surface-bright text-on-surface font-body-sm px-4 py-2 rounded-lg shadow-2xl border border-outline-variant z-[100] flex items-center gap-2 backdrop-blur-md bg-opacity-90" id="drag-tooltip">
+<span class="material-symbols-outlined text-primary text-sm" id="tooltip-icon">add_circle</span>
+<span id="tooltip-text">Se añadirá a Familia F001</span>
+</div>
+</div>
+<script>
+        // Simple Drag and Drop Interaction Logic
+        const draggables = document.querySelectorAll('[draggable="true"]');
+        const insertionZones = document.querySelectorAll('.insertion-zone');
+        const tooltip = document.getElementById('drag-tooltip');
+        const tooltipText = document.getElementById('tooltip-text');
+        const tooltipIcon = document.getElementById('tooltip-icon');
+        const controlsPanel = document.getElementById('controls-panel');
+        const btnCloseControls = document.getElementById('btn-close-controls');
+        const btnSaveChanges = document.getElementById('btn-save-changes');
+        
+        let isDragging = false;
+
+        // Toggle Controls Panel
+        btnCloseControls.addEventListener('click', () => {
+            controlsPanel.classList.add('translate-x-full', 'hidden');
+        });
+        
+        btnSaveChanges.addEventListener('click', () => {
+            controlsPanel.classList.remove('translate-x-full', 'hidden');
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                tooltip.style.left = e.clientX + 15 + 'px';
+                tooltip.style.top = e.clientY + 15 + 'px';
+            }
+        });
+
+        draggables.forEach(draggable => {
+            draggable.addEventListener('dragstart', (e) => {
+                isDragging = true;
+                draggable.classList.add('dragging');
+                tooltip.classList.remove('hidden');
+                tooltipText.textContent = 'Moviendo producto...';
+                tooltipIcon.textContent = 'drag_indicator';
+                
+                // Show drop targets
+                insertionZones.forEach(zone => {
+                    zone.classList.add('bg-surface-variant', 'border-dashed');
+                });
+            });
+
+            draggable.addEventListener('dragend', () => {
+                isDragging = false;
+                draggable.classList.remove('dragging');
+                tooltip.classList.add('hidden');
+                
+                insertionZones.forEach(zone => {
+                    zone.classList.remove('active', 'bg-surface-variant', 'border-dashed');
+                    const text = zone.querySelector('span');
+                    if(text) text.style.opacity = '0';
+                });
+                
+                document.querySelectorAll('.drop-target-area').forEach(area => {
+                    area.classList.remove('border-primary', 'bg-surface-variant');
+                });
+            });
+        });
+
+        insertionZones.forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('active');
+                tooltipText.textContent = 'Crear nueva familia';
+                tooltipIcon.textContent = 'add_circle';
+                const text = zone.querySelector('span');
+                if(text) text.style.opacity = '1';
+            });
+
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('active');
+                const text = zone.querySelector('span');
+                if(text) text.style.opacity = '0';
+            });
+            
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('active');
+            });
+        });
+        
+        // Add dragover to family cards to show "add to family" intent
+        const familyCards = document.querySelectorAll('.family-card');
+        familyCards.forEach(card => {
+            const dropArea = card.querySelector('.drop-target-area') || card.querySelector('.grid');
+            
+            card.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if(isDragging) {
+                    const familyId = card.dataset.family || card.querySelector('h3').textContent;
+                    tooltipText.textContent = `Mover a ${familyId}`;
+                    tooltipIcon.textContent = 'move_item';
+                    if(dropArea) {
+                        dropArea.classList.add('border-primary', 'bg-surface-variant');
+                    }
+                }
+            });
+            card.addEventListener('dragleave', () => {
+                if(dropArea) {
+                    dropArea.classList.remove('border-primary', 'bg-surface-variant');
+                }
+            });
+            card.addEventListener('drop', () => {
+                if(dropArea) {
+                    dropArea.classList.remove('border-primary', 'bg-surface-variant');
+                }
+            });
+        });
+        
+        // Setup sidebar drop zones
+        const sidebarZones = document.querySelectorAll('.insertion-zone-container');
+        sidebarZones.forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if(isDragging) {
+                    const title = zone.previousElementSibling.querySelector('h2').textContent.trim();
+                    tooltipText.textContent = `Mover a ${title}`;
+                    tooltipIcon.textContent = 'move_item';
+                }
+            });
+        });
+
+    </script>
+</body></html>

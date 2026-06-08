@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Warehouse, Loader2, RefreshCw } from 'lucide-react'
 import type { BodegaRow } from '@/lib/types/tables'
 
@@ -36,6 +38,7 @@ export function BodegaSelector({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [loadingToast, setLoadingToast] = useState<{ visible: boolean; bodegaNombre: string }>({ visible: false, bodegaNombre: '' })
+  const [showNotice, setShowNotice] = useState(false)
 
   if (bodegas.length === 0) {
     return (
@@ -72,7 +75,7 @@ export function BodegaSelector({
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="relative flex items-center gap-2">
         <Warehouse className="h-4 w-4 text-muted-foreground shrink-0" />
         <Select
           value={bodegaActivaId?.toString() ?? ''}
@@ -81,6 +84,7 @@ export function BodegaSelector({
             const newId = parseInt(value, 10)
             
             setBodegaActiva(newId)
+            setShowNotice(true)
             
             if (pathname === '/inventario/stock') {
               const bodegaObj = newId === 0 ? { nombre: 'Todas las bodegas' } : bodegas.find(b => b.id === newId)
@@ -130,6 +134,28 @@ export function BodegaSelector({
             ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-lg flex items-center justify-center shrink-0"
+          onClick={() => {
+            setShowNotice(false)
+            startTransition(() => {
+              router.refresh()
+            })
+          }}
+          disabled={isPending}
+          title="Recargar vista manualmente"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isPending && "animate-spin")} />
+        </Button>
+
+        {showNotice && (
+          <span className="absolute top-9 left-6 z-50 text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-2.5 py-0.5 rounded shadow-lg animate-in fade-in slide-in-from-top-1 duration-200 whitespace-nowrap">
+            Recarga para ver la información de esta bodega
+          </span>
+        )}
       </div>
 
       {/* Loading Toast (solo para /inventario/stock) */}

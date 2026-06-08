@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { DataTable, ColumnDef, DataTableProvider, useDataTableContext } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -15,21 +15,44 @@ import {
 } from '@/components/ui/select'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils'
 import { History, Search, FileText, User, ArrowRight, Package } from 'lucide-react'
+import { toast } from 'sonner'
 import type { AuditoriaGeneralRow } from '@/modules/catalogo/queries'
 
 interface Props {
   initialData: AuditoriaGeneralRow[]
+  limitActual?: number
 }
 
-function AuditoriaProductosClientInner({ initialData }: Props) {
+function AuditoriaProductosClientInner({ initialData, limitActual = 200 }: Props) {
   const router = useRouter()
   const ctx = useDataTableContext()
   const [searchTerm, setSearchTerm] = useState('')
   const [accionFilter, setAccionFilter] = useState<string>('ALL')
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 100
 
   const handleAccionChange = (value: string | null) => {
     setAccionFilter(value || 'ALL')
   }
+
+  const handleLimitChange = (value: string | null) => {
+    if (!value) return
+    const newLimit = parseInt(value)
+    if (newLimit > limitActual) {
+      toast.info(`Trayendo registros históricos (${newLimit === 100000 ? 'Todo el historial' : `Límite ${newLimit}`}), espera un momento...`, {
+        duration: 3000
+      })
+    }
+    
+    const params = new URLSearchParams(window.location.search)
+    params.set('limit', value)
+    router.push(`/configuracion/auditoria_producto?${params.toString()}`, { scroll: false })
+  }
+
+  // Reiniciar página al buscar o filtrar
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, accionFilter])
 
   const filteredData = useMemo(() => {
     return initialData.filter((item) => {
@@ -44,6 +67,13 @@ function AuditoriaProductosClientInner({ initialData }: Props) {
       return matchesSearch && matchesAccion
     })
   }, [initialData, searchTerm, accionFilter])
+
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage)
+
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage
+    return filteredData.slice(start, start + itemsPerPage)
+  }, [filteredData, currentPage, itemsPerPage])
 
   const getAccionBadge = (accion: string) => {
     switch (accion) {
@@ -253,6 +283,18 @@ function AuditoriaProductosClientInner({ initialData }: Props) {
             <SelectItem value="DELETE">Eliminaciones</SelectItem>
           </SelectContent>
         </Select>
+
+        <Select value={String(limitActual)} onValueChange={handleLimitChange}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Límite de registros" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="200">Últimos 200 cambios</SelectItem>
+            <SelectItem value="1000">Últimos 1000 cambios</SelectItem>
+            <SelectItem value="5000">Últimos 5000 cambios</SelectItem>
+            <SelectItem value="100000">Todo el historial</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Estadísticas */}
@@ -296,24 +338,60 @@ function AuditoriaProductosClientInner({ initialData }: Props) {
       {/* Tabla */}
       <DataTable
         columns={columns}
-        data={filteredData}
+        data={paginatedData}
         rowKey={(row) => row.id}
         renderExpanded={renderExpanded}
         emptyMessage="No se encontraron registros de auditoría."
         emptyIcon={<History className="h-12 w-12" />}
       />
 
+      {/* Paginación client-side */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 py-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+          >
+            Anterior
+          </Button>
+          {Array.from({ length: totalPages }).map((_, idx) => {
+            const pageNum = idx + 1
+            return (
+              <Button
+                key={pageNum}
+                variant={currentPage === pageNum ? 'default' : 'outline'}
+                size="sm"
+                className="w-9 h-9 p-0"
+                onClick={() => setCurrentPage(pageNum)}
+              >
+                {pageNum}
+              </Button>
+            )
+          })}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+          >
+            Siguiente
+          </Button>
+        </div>
+      )}
+
       <div className="text-sm text-muted-foreground">
-        Mostrando {filteredData.length} de {initialData.length} registros
+        Mostrando del {filteredData.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} al {Math.min(currentPage * itemsPerPage, filteredData.length)} de {filteredData.length} registros filtrados (Total: {initialData.length} registros)
       </div>
     </div>
   )
 }
 
-export function AuditoriaProductosClient(props: Props) {
+export function AuditoriaProductosClient({ limitActual, ...props }: Props) {
   return (
     <DataTableProvider route="/configuracion/auditoria_producto" features={{ expandable: true }}>
-      <AuditoriaProductosClientInner {...props} />
+      <AuditoriaProductosClientInner limitActual={limitActual} {...props} />
     </DataTableProvider>
   )
 }

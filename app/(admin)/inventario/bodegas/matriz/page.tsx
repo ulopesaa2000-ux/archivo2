@@ -71,7 +71,7 @@ export default async function MatrizPermisosPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/inventario/bodegas" className="flex items-center gap-1.5">
+            <Link href="/inventario/bodegas">
               <ChevronLeft className="h-4 w-4" />
               Regresar a Bodegas
             </Link>

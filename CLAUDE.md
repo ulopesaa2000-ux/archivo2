@@ -76,6 +76,12 @@ La base de datos PostgreSQL en Supabase ya existe y está poblada con datos real
 6. Para `datetime-local`, mostrar con `formatForDateTimeInput()` y guardar con `inputDateTimeToUTC()`.
 7. Usar el componente `<Fecha>` para renderizar fechas y añadir `title` con fecha completa como tooltip.
 
+### 3.6 Reglas de Diseño de Modales (Dialogs)
+1. Para modales de densidad alta o formularios complejos (como personalización de reportes o edición de datos), evitar forzar anchos angostos como `sm:max-w-sm` o `sm:max-w-md` en pantallas grandes.
+2. En vistas móviles, el modal debe ser de ancho completo (`w-full` o `max-w-full`) para mantener la adaptabilidad responsiva sin recortar información ni generar barras de scroll innecesarias.
+3. En pantallas medianas y grandes, usar clases responsivas como `sm:max-w-[80vw]` o `sm:max-w-[90vw]` (de 80% a 90% del ancho) o anchos máximos grandes y bien distribuidos (por ejemplo, `max-w-4xl`, `max-w-5xl` o `max-w-7xl` con `w-full`).
+4. Para anular el ancho por defecto que impone el componente base (ej. `sm:max-w-sm` dentro de `dialog.tsx`), se debe especificar explícitamente en el componente que lo usa la clase correspondiente al ancho deseado para pantallas medianas/grandes (ej. `sm:max-w-[85vw]` o `sm:max-w-4xl`), anulando la restricción de anchos fijos pequeños.
+
 ## Arquitectura Objetivo
 
 ### Shell Persistente del Admin

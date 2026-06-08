@@ -60,6 +60,7 @@ export const ADMIN_ROUTES = {
     detalle: (id: number | string) => `/catalogo/${id}`,
     catalogos: '/catalogo/catalogos',
     imagenes: '/catalogo/imagenes',
+    familias: '/catalogo/familias',
   },
   inventario: {
     notas: '/inventario/notas',
