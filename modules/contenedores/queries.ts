@@ -39,7 +39,7 @@ export async function fetchContenedores(
       return { items: [], total: 0 }
     }
 
-    const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
+    const { data: ordenes } = await supabase.from('ordenes_b2b')
       .select('contenedor_id')
       .or(orderFilter)
       .not('contenedor_id', 'is', null)
@@ -102,7 +102,7 @@ export async function fetchContenedorById(
     const orderFilter = buildCommercialOrderFilter(scope)
     if (!orderFilter || orderFilter === '__no_access__.eq.true') return null
 
-    const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
+    const { data: ordenes } = await supabase.from('ordenes_b2b')
       .select('id')
       .eq('contenedor_id', id)
       .or(orderFilter)
@@ -213,7 +213,7 @@ export async function fetchContenedorPacking(
     if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
 
     // Obtener los IDs de las órdenes permitidas en este contenedor
-    const { data: allowedOrders } = await (supabase.from('ordenes_b2b') as any)
+    const { data: allowedOrders } = await supabase.from('ordenes_b2b')
       .select('id')
       .eq('contenedor_id', contenedorId)
       .or(orderFilter)

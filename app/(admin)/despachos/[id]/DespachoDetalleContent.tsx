@@ -36,7 +36,7 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
   const [cantidades, setCantidades] = useState<Record<number, number>>(() => {
     const init: Record<number, number> = {}
     for (const det of despacho.detalles ?? []) {
-      init[det.id] = det.cantidad_cajas_solicitadas
+      init[det.id] = det.cantidad_cajas_solicitadas ?? 0
     }
     return init
   })
@@ -69,7 +69,7 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
     })
   }
 
-  const totalSolicitadas = despacho.detalles?.reduce((a, d) => a + d.cantidad_cajas_solicitadas, 0) ?? 0
+  const totalSolicitadas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_solicitadas ?? 0), 0) ?? 0
   const totalCargadas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_cargadas ?? 0), 0) ?? 0
   const totalRecibidas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_recibidas ?? 0), 0) ?? 0
 
@@ -196,8 +196,8 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
                     {despacho.estado === 'En Tránsito' && (
                       <TableCell>
                         <Input
-                          type="number" min={0} max={det.cantidad_cajas_solicitadas}
-                          value={cantidades[det.id] ?? det.cantidad_cajas_solicitadas}
+                          type="number" min={0} max={det.cantidad_cajas_solicitadas ?? 0}
+                          value={cantidades[det.id] ?? det.cantidad_cajas_solicitadas ?? 0}
                           onChange={(e) => setCantidades(prev => ({ ...prev, [det.id]: parseInt(e.target.value) || 0 }))}
                           className="w-20 h-8 text-right ml-auto"
                         />

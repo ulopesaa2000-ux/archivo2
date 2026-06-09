@@ -38,8 +38,8 @@ export async function fetchProductosCatalogo(
   const catalogos = await fetchCatalogosParaFiltros()
 
   // ── Query principal ───────────────────────────────────────
-  let query = (supabase
-    .from('productos') as any)
+  let query = supabase
+    .from('productos')
     .select(
       'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, tela_ext_id, cliente_b2b_id, persona_id',
       { count: 'exact' }
@@ -140,18 +140,18 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
   const supabase = await createClient()
 
   const [marcasRes, generosRes, telasRes] = await Promise.all([
-    (supabase
-      .from('cat_marcas') as any)
+    supabase
+      .from('cat_marcas')
       .select('id, nombre')
       .eq('activo', true)
       .order('nombre'),
-    (supabase
-      .from('cat_generos') as any)
+    supabase
+      .from('cat_generos')
       .select('id, nombre')
       .eq('activo', true)
       .order('nombre'),
-    (supabase
-      .from('cat_telas') as any)
+    supabase
+      .from('cat_telas')
       .select('id, nombre')
       .order('nombre'),
   ])
@@ -175,25 +175,25 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
     tiposTagRes, refTagsRes, partesRes, compTiposRes, corteFormasRes, acaTiposRes, acaDetRes, acaPatRes, locaRes,
     tallasRes, coloresRes
   ] = await Promise.all([
-    (supabase.from('cat_marcas') as any).select('id, nombre').eq('activo', true).order('nombre'),
-    (supabase.from('cat_generos') as any).select('id, nombre').eq('activo', true).order('nombre'),
-    (supabase.from('cat_telas') as any).select('id, nombre').order('nombre'),
-    (supabase.from('cat_tipo_prenda') as any).select('id, nombre').order('nombre'),
-    (supabase.from('cat_edades') as any).select('id, rango').order('orden'),
-    (supabase.from('personas') as any).select('id, nombre_completo').order('nombre_completo'),
+    supabase.from('cat_marcas').select('id, nombre').eq('activo', true).order('nombre'),
+    supabase.from('cat_generos').select('id, nombre').eq('activo', true).order('nombre'),
+    supabase.from('cat_telas').select('id, nombre').order('nombre'),
+    supabase.from('cat_tipo_prenda').select('id, nombre').order('nombre'),
+    supabase.from('cat_edades').select('id, rango').order('orden'),
+    supabase.from('personas').select('id, nombre_completo').order('nombre_completo'),
 
     // Para Tabs
-    (supabase.from('tipo_tag') as any).select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
-    (supabase.from('ref_tag') as any).select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
-    (supabase.from('parte_prenda_comp') as any).select('id, nombre').order('nombre'),
-    (supabase.from('tipo_comp') as any).select('id, nombre, complemento_en').order('nombre'),
-    (supabase.from('corte_forma_comp') as any).select('id, nombre, corte_forma_en').order('nombre'),
-    (supabase.from('tipo_acabado') as any).select('id, nombre').order('nombre'),
-    (supabase.from('detalle_acabado') as any).select('id, nombre').order('nombre'),
-    (supabase.from('patron_acabado') as any).select('id, estampado_patron').order('estampado_patron'),
-    (supabase.from('localizacion_acabado') as any).select('id, nombre').order('nombre'),
-    (supabase.from('cat_tallas') as any).select('id, nombre, codigo').order('orden'),
-    (supabase.from('cat_colores') as any).select('id, nombre, codigo').order('nombre'),
+    supabase.from('tipo_tag').select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
+    supabase.from('ref_tag').select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
+    supabase.from('parte_prenda_comp').select('id, nombre').order('nombre'),
+    supabase.from('tipo_comp').select('id, nombre, complemento_en').order('nombre'),
+    supabase.from('corte_forma_comp').select('id, nombre, corte_forma_en').order('nombre'),
+    supabase.from('tipo_acabado').select('id, nombre').order('nombre'),
+    supabase.from('detalle_acabado').select('id, nombre').order('nombre'),
+    supabase.from('patron_acabado').select('id, estampado_patron').order('estampado_patron'),
+    supabase.from('localizacion_acabado').select('id, nombre').order('nombre'),
+    supabase.from('cat_tallas').select('id, nombre, codigo').order('orden'),
+    supabase.from('cat_colores').select('id, nombre, codigo').order('nombre'),
   ])
 
   const mapToCatalogo = (data: any[] | null) => (data ?? []) as any[]
@@ -238,14 +238,18 @@ export async function fetchProductoPorId(
   id: number
 ): Promise<ProductoRow | null> {
   const supabase = await createClient()
-  const { data, error } = await (supabase
-    .from('productos') as any)
+  const { data, error } = await supabase
+    .from('productos')
     .select('*')
     .eq('id', id)
     .single()
 
   if (error || !data) return null
-  return data
+  const row = data as any
+  return {
+    ...data,
+    cliente_b2b_id: row.cliente_b2b_id ?? null,
+  } as unknown as ProductoRow
 }
 
 export async function fetchFKDescriptivas(
@@ -256,25 +260,25 @@ export async function fetchFKDescriptivas(
   const [marca, genero, edad, tipo_prenda, tela_forro, tela_ext, persona] =
     await Promise.all([
       producto.marca_id
-        ? (supabase.from('cat_marcas') as any).select('nombre').eq('id', producto.marca_id).single()
+        ? supabase.from('cat_marcas').select('nombre').eq('id', producto.marca_id).single()
         : { data: null },
       producto.genero_id
-        ? (supabase.from('cat_generos') as any).select('nombre').eq('id', producto.genero_id).single()
+        ? supabase.from('cat_generos').select('nombre').eq('id', producto.genero_id).single()
         : { data: null },
       producto.edad_id
-        ? (supabase.from('cat_edades') as any).select('rango').eq('id', producto.edad_id).single()
+        ? supabase.from('cat_edades').select('rango').eq('id', producto.edad_id).single()
         : { data: null },
       producto.tipo_prenda_id
-        ? (supabase.from('cat_tipo_prenda') as any).select('nombre').eq('id', producto.tipo_prenda_id).single()
+        ? supabase.from('cat_tipo_prenda').select('nombre').eq('id', producto.tipo_prenda_id).single()
         : { data: null },
       producto.tela_forro_id
-        ? (supabase.from('cat_telas') as any).select('nombre').eq('id', producto.tela_forro_id).single()
+        ? supabase.from('cat_telas').select('nombre').eq('id', producto.tela_forro_id).single()
         : { data: null },
       producto.tela_ext_id
-        ? (supabase.from('cat_telas') as any).select('nombre').eq('id', producto.tela_ext_id).single()
+        ? supabase.from('cat_telas').select('nombre').eq('id', producto.tela_ext_id).single()
         : { data: null },
       producto.persona_id
-        ? (supabase.from('personas') as any).select('nombre_completo').eq('id', producto.persona_id).single()
+        ? supabase.from('personas').select('nombre_completo').eq('id', producto.persona_id).single()
         : { data: null },
     ])
 
@@ -293,8 +297,8 @@ export async function fetchProductoWeb(
   productoId: number
 ): Promise<ProductoWebRow | null> {
   const supabase = await createClient()
-  const { data } = await (supabase
-    .from('productos_web') as any)
+  const { data } = await supabase
+    .from('productos_web')
     .select('*')
     .eq('producto_id', productoId)
     .single()
@@ -305,8 +309,8 @@ export async function fetchImagenesProducto(
   productoId: number
 ): Promise<ProductoImagenRow[]> {
   const supabase = await createClient()
-  const { data } = await (supabase
-    .from('producto_imagenes') as any)
+  const { data } = await supabase
+    .from('producto_imagenes')
     .select('*')
     .eq('producto_id', productoId)
     .order('es_principal', { ascending: false })
@@ -319,8 +323,8 @@ export async function fetchCajasProducto(
 ): Promise<CajaConDetalle[]> {
   const supabase = await createClient()
 
-  const { data: cajas } = await (supabase
-    .from('cajas_producto') as any)
+  const { data: cajas } = await supabase
+    .from('cajas_producto')
     .select('*')
     .eq('producto_id', productoId)
     .or('activo.is.null,activo.eq.true')
@@ -331,8 +335,8 @@ export async function fetchCajasProducto(
   const cajasConDetalle: CajaConDetalle[] = []
 
   for (const caja of cajas) {
-    const { data: detalles } = await (supabase
-      .from('caja_detalles') as any)
+    const { data: detalles } = await supabase
+      .from('caja_detalles')
       .select(`
         *,
         talla:cat_tallas!caja_detalles_talla_id_fkey ( codigo, nombre ),
@@ -365,7 +369,7 @@ export async function fetchTagsProducto(
   productoId: number
 ): Promise<TagResuelto[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('producto_tags') as any).select(`
+  const { data } = await supabase.from('producto_tags').select(`
       id, valor_texto, tipo_tag_id, ref_tag_id,
       tipo_tag:tipo_tag!producto_tags_tipo_tag_id_fkey ( nombre, codigo ),
       ref_tag:ref_tag!producto_tags_ref_tag_id_fkey ( nombre, codigo )
@@ -388,7 +392,7 @@ export async function fetchComplementosProducto(
   productoId: number
 ): Promise<ComplementoResuelto[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('complemento_producto') as any).select(`
+  const { data } = await supabase.from('complemento_producto').select(`
       id, descripcion_adicional, 
       parte_prenda_id, tipo_comp_id, material_id, corte_forma_id,
       parte:parte_prenda_comp!complemento_producto_parte_prenda_id_fkey ( nombre ),
@@ -416,7 +420,7 @@ export async function fetchAcabadosProducto(
   productoId: number
 ): Promise<AcabadoResuelto[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('acabado_producto') as any).select(`
+  const { data } = await supabase.from('acabado_producto').select(`
       id, tipo_acabado_id, detalle_acabado_id, patron_acabado_id, localizacion_id,
       tipo:tipo_acabado!acabado_producto_tipo_acabado_id_fkey ( nombre ),
       detalle:detalle_acabado!acabado_producto_detalle_acabado_id_fkey ( nombre ),
@@ -442,7 +446,7 @@ export async function fetchVariantesProducto(
   productoId: number
 ): Promise<VarianteResuelta[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('variantes_producto') as any).select(`
+  const { data } = await supabase.from('variantes_producto').select(`
       id, sku_completo, costo_promedio, precio_venta, activo,
       talla_id, color_id,
       talla:cat_tallas!variantes_producto_talla_id_fkey ( codigo, nombre ),
@@ -469,7 +473,7 @@ export async function fetchMedidasProducto(
   productoId: number
 ): Promise<MedidaResuelta[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('medidas_producto') as any).select(`
+  const { data } = await supabase.from('medidas_producto').select(`
       id, medida_cm, medida_ft,
       talla:cat_tallas!medidas_producto_talla_id_fkey ( codigo ),
       punto:puntos_medida!medidas_producto_punto_medida_id_fkey ( punto_medida, clasificacion )
@@ -490,7 +494,7 @@ export async function fetchConjuntoProducto(
   productoId: number
 ): Promise<ConjuntoResuelto[]> {
   const supabase = await createClient()
-  const { data } = await (supabase.from('producto_conjunto') as any).select(`
+  const { data } = await supabase.from('producto_conjunto').select(`
       id, producto_hijo_id, cantidad, es_requerido, orden,
       hijo:productos!producto_conjunto_producto_hijo_id_fkey (
         id, sku_base, nombre
@@ -508,8 +512,8 @@ export async function fetchConjuntoProducto(
     let imagen: string | null = null
 
     if (hijo?.id) {
-      const { data: img } = await (supabase
-        .from('producto_imagenes') as any)
+      const { data: img } = await supabase
+        .from('producto_imagenes')
         .select('url')
         .eq('producto_id', hijo.id)
         .eq('es_principal', true)
@@ -537,7 +541,7 @@ export async function fetchNavegacionProducto(
   productoId: number
 ) {
   const supabase = await createClient()
-  const { data } = await (supabase as any).rpc('fn_navegar_producto', {
+  const { data } = await supabase.rpc('fn_navegar_producto', {
     p_producto_id: productoId,
   })
 
@@ -549,12 +553,17 @@ export async function fetchProductoPorIdParaEdicion(
   id: number
 ): Promise<ProductoRow | null> {
   const supabase = await createClient()
-  const { data } = await (supabase
-    .from('productos') as any)
+  const { data } = await supabase
+    .from('productos')
     .select('*')
     .eq('id', id)
     .single()
-  return data
+  if (!data) return null
+  const row = data as any
+  return {
+    ...data,
+    cliente_b2b_id: row.cliente_b2b_id ?? null,
+  } as unknown as ProductoRow
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -576,9 +585,9 @@ export async function fetchAuditoriaProducto(
   productoId: number
 ): Promise<AuditoriaProductoRow[]> {
   const supabase = await createClient()
-  const { data, error } = await (supabase
-    .schema('inv-tienda') as any)
-    .from('v_auditoria_productos')
+  const { data, error } = await supabase
+    .schema('inv-tienda')
+    .from('v_auditoria_productos' as any)
     .select(`
       id,
       productoid,
@@ -626,9 +635,9 @@ export async function fetchAuditoriaGeneral(
   limit: number = 100
 ): Promise<AuditoriaGeneralRow[]> {
   const supabase = await createClient()
-  const { data, error } = await (supabase
-    .schema('inv-tienda') as any)
-    .from('v_auditoria_productos')
+  const { data, error } = await supabase
+    .schema('inv-tienda')
+    .from('v_auditoria_productos' as any)
     .select('*')
     .limit(limit)
 
@@ -643,12 +652,12 @@ export async function fetchAuditoriaGeneral(
     return []
   }
 
-  return data ?? []
+  return (data as any) ?? []
 }
 
 export async function fetchPuntosMedida() {
   const supabase = await createClient()
-  const { data } = await (supabase.from('puntos_medida') as any).select('id, punto_medida, size_inch, position, clasificacion').order('punto_medida')
+  const { data } = await supabase.from('puntos_medida').select('id, punto_medida, size_inch, position, clasificacion').order('punto_medida')
   return data ?? []
 }
 
@@ -674,7 +683,7 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
 
   // Obtenemos id, familia, descripcion y sku_base para realizar la agrupación y mapeo en JS (solo activos)
-  const { data, error } = await (supabase.from('productos') as any)
+  const { data, error } = await supabase.from('productos')
     .select('id, familia, descripcion, sku_base')
     .eq('activo', true)
 
@@ -753,7 +762,7 @@ export async function fetchProductosPorFamilia(
 ): Promise<(ProductoRow & { imagen_principal: string | null })[]> {
   const supabase = await createClient()
 
-  let query = (supabase.from('productos') as any)
+  let query = supabase.from('productos')
     .select('id, sku_base, nombre, descripcion, familia, precio_ec, pz_en_caja, activo')
     .eq('activo', true)
 
@@ -775,7 +784,7 @@ export async function fetchProductosPorFamilia(
 
   const ids = productos.map((p: any) => p.id)
 
-  const { data: imagenes } = await (supabase.from('producto_imagenes') as any)
+  const { data: imagenes } = await supabase.from('producto_imagenes')
     .select('producto_id, url')
     .eq('es_principal', true)
     .in('producto_id', ids)

@@ -15,8 +15,8 @@ export async function marcarCajaPrincipalAction(
   const supabase = await createClient()
 
   // Verificar si la caja tiene detalles válidos antes de marcarla
-  const { data: detalles, error: detallesError } = await (supabase
-    .from('caja_detalles') as any)
+  const { data: detalles, error: detallesError } = await supabase
+    .from('caja_detalles')
     .select('id, talla_id, color_id, cantidad')
     .eq('caja_id', cajaId)
 
@@ -86,8 +86,8 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   }
 
   // 2. Obtener los caja_detalles de esa caja
-  const { data: detalles, error: detallesError } = await (supabase
-    .from('caja_detalles') as any)
+  const { data: detalles, error: detallesError } = await supabase
+    .from('caja_detalles')
     .select('talla_id, color_id, cantidad')
     .eq('caja_id', cajaPrincipal.id)
 
@@ -111,8 +111,8 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   }
 
   // 3. Obtener sku_base y precio_ec del producto
-  const { data: producto } = await (supabase
-    .from('productos') as any)
+  const { data: producto } = await supabase
+    .from('productos')
     .select('sku_base, precio_ec')
     .eq('id', productoId)
     .single()
@@ -126,7 +126,7 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   for (const d of detallesValidos) {
     const key = `${d.talla_id}-${d.color_id}`
     if (!combinacionesEsperadas.has(key)) {
-      combinacionesEsperadas.set(key, { talla_id: d.talla_id, color_id: d.color_id })
+      combinacionesEsperadas.set(key, { talla_id: d.talla_id as number, color_id: d.color_id as number })
     }
   }
 
@@ -138,24 +138,24 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   }
 
   // 5. Obtener variantes existentes del producto (con ID para poder actualizarlas)
-  const { data: variantesExistentes } = await (supabase
-    .from('variantes_producto') as any)
+  const { data: variantesExistentes } = await supabase
+    .from('variantes_producto')
     .select('id, talla_id, color_id, activo')
     .eq('producto_id', productoId)
 
   const existentesMap = new Map<string, { id: number; activo: boolean }>()
   for (const v of (variantesExistentes ?? [])) {
     const key = `${v.talla_id}-${v.color_id}`
-    existentesMap.set(key, { id: v.id, activo: v.activo })
+    existentesMap.set(key, { id: v.id, activo: v.activo ?? false })
   }
 
   // 6. Obtener info de tallas y colores para construir SKU
-  const { data: tallasData } = await (supabase
-    .from('cat_tallas') as any)
+  const { data: tallasData } = await supabase
+    .from('cat_tallas')
     .select('id, codigo')
 
-  const { data: coloresData } = await (supabase
-    .from('cat_colores') as any)
+  const { data: coloresData } = await supabase
+    .from('cat_colores')
     .select('id, codigo')
 
   const tallaMap = new Map(tallasData?.map((t: any) => [t.id, t.codigo ?? '']) ?? [])
@@ -206,8 +206,8 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   let desactivadas = 0
 
   if (nuevasVariantes.length > 0) {
-    const { error: insertError } = await (supabase
-      .from('variantes_producto') as any)
+    const { error: insertError } = await supabase
+      .from('variantes_producto')
       .insert(nuevasVariantes)
 
     if (insertError) {
@@ -217,8 +217,8 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   }
 
   if (idsParaReactivar.length > 0) {
-    const { error: reactivarError } = await (supabase
-      .from('variantes_producto') as any)
+    const { error: reactivarError } = await supabase
+      .from('variantes_producto')
       .update({ activo: true })
       .in('id', idsParaReactivar)
 
@@ -228,8 +228,8 @@ export async function generarVariantesDesdeCajaPrincipalAction(
   }
 
   if (idsObsoletas.length > 0) {
-    const { error: desactivarError } = await (supabase
-      .from('variantes_producto') as any)
+    const { error: desactivarError } = await supabase
+      .from('variantes_producto')
       .update({ activo: false })
       .in('id', idsObsoletas)
 

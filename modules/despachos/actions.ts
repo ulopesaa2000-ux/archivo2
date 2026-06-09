@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import type { DespachoFormData } from './types'
+import type { CrearNotaResponse } from '@/lib/types/tables'
 
 export type ActionResult = {
   success: boolean
@@ -94,14 +95,18 @@ export async function crearDespachoAction(
     p_usuario_id: user.id,
     p_nota_referencia: `Despacho ${despachoId}`,
     p_observaciones: `Despacho desde bodega virtual a física. Despacho ID: ${despachoId}`,
-  }) as { data: any; error: any }
+  })
 
   if (notaSalError) {
     return { success: false, error: `Error al crear nota de salida: ${notaSalError.message}` }
   }
 
-  const notaSalResult = Array.isArray(notaSalData) ? notaSalData[0] : notaSalData
+  const notaSalResult = (Array.isArray(notaSalData) ? notaSalData[0] : notaSalData) as CrearNotaResponse | null
   const notaSalId = notaSalResult?.nota_id
+
+  if (!notaSalId) {
+    return { success: false, error: 'No se pudo obtener el ID de la nota de salida.' }
+  }
 
   // Agregar productos a nota SAL con cantidades negativas (salida)
   // Espera... sp_agregar_producto_nota usa cajas como cantidad positiva
@@ -143,14 +148,18 @@ export async function crearDespachoAction(
     p_usuario_id: user.id,
     p_nota_referencia: `Despacho ${despachoId}`,
     p_observaciones: `Recepción pendiente del despacho ${despachoId}. Confirmar al recibir físicamente.`,
-  }) as { data: any; error: any }
+  })
 
   if (notaEntError) {
     return { success: false, error: `Error al crear nota de entrada: ${notaEntError.message}` }
   }
 
-  const notaEntResult = Array.isArray(notaEntData) ? notaEntData[0] : notaEntData
+  const notaEntResult = (Array.isArray(notaEntData) ? notaEntData[0] : notaEntData) as CrearNotaResponse | null
   const notaEntId = notaEntResult?.nota_id
+
+  if (!notaEntId) {
+    return { success: false, error: 'No se pudo obtener el ID de la nota de entrada.' }
+  }
 
   for (const prod of data.productos) {
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {

@@ -3,6 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
+import type { Database } from '@/lib/types/database.types'
 import type { FiltrosDespacho, DespachoListaItem, StockVirtualItem } from './types'
 
 // ════════════════════════════════════════════════════════════
@@ -53,9 +54,20 @@ export async function fetchStockVirtual(
     return []
   }
 
+  type StockRowType = {
+    producto_id: number
+    cajas: number | null
+    piezas_sueltas: number | null
+    bodega_id: number
+    bodega: { nombre: string } | { nombre: string }[] | null
+    producto: { sku_base: string; nombre: string } | { sku_base: string; nombre: string }[] | null
+  }
+
+  const rows = data as unknown as StockRowType[]
+
   // Agrupar por producto (pueden haber múltiples registros por producto si tienen caja_id distinto)
   const map = new Map<number, StockVirtualItem>()
-  for (const row of data as any[]) {
+  for (const row of rows) {
     const prod = row.producto
       ? (Array.isArray(row.producto) ? row.producto[0] : row.producto)
       : null
@@ -134,18 +146,30 @@ export async function fetchDespachos(
     return { items: [], total: 0 }
   }
 
-  const items: DespachoListaItem[] = (data ?? []).map((d: any) => {
+  type DespachoQueryRow = Database['inv-tienda']['Tables']['despachos']['Row'] & {
+    bodega_origen: Database['inv-tienda']['Tables']['bodegas']['Row'] | Database['inv-tienda']['Tables']['bodegas']['Row'][] | null
+    bodega_destino: Database['inv-tienda']['Tables']['bodegas']['Row'] | Database['inv-tienda']['Tables']['bodegas']['Row'][] | null
+    detalles: {
+      cantidad_cajas_solicitadas: number | null
+      cantidad_cajas_cargadas: number | null
+      cantidad_cajas_recibidas: number | null
+    }[] | null
+  }
+
+  const rows = (data ?? []) as unknown as DespachoQueryRow[]
+
+  const items: DespachoListaItem[] = rows.map((d) => {
     const detalles = Array.isArray(d.detalles) ? d.detalles : []
     const totSolicitadas = detalles.reduce(
-      (acc: number, det: any) => acc + (det.cantidad_cajas_solicitadas ?? 0),
+      (acc: number, det) => acc + (det.cantidad_cajas_solicitadas ?? 0),
       0
     )
     const totCargadas = detalles.reduce(
-      (acc: number, det: any) => acc + (det.cantidad_cajas_cargadas ?? 0),
+      (acc: number, det) => acc + (det.cantidad_cajas_cargadas ?? 0),
       0
     )
     const totRecibidas = detalles.reduce(
-      (acc: number, det: any) => acc + (det.cantidad_cajas_recibidas ?? 0),
+      (acc: number, det) => acc + (det.cantidad_cajas_recibidas ?? 0),
       0
     )
 
@@ -209,8 +233,25 @@ export async function fetchDespachoById(despachoId: number) {
     return null
   }
 
-  const detalles = Array.isArray(data.detalles) ? data.detalles : []
-  const detallesProcesados = detalles.map((det: any) => {
+  type DespachoDetailQueryRow = Database['inv-tienda']['Tables']['despachos']['Row'] & {
+    bodega_origen: Database['inv-tienda']['Tables']['bodegas']['Row'] | Database['inv-tienda']['Tables']['bodegas']['Row'][] | null
+    bodega_destino: Database['inv-tienda']['Tables']['bodegas']['Row'] | Database['inv-tienda']['Tables']['bodegas']['Row'][] | null
+    detalles: {
+      id: number
+      caja_id: number | null
+      producto_id: number | null
+      cantidad_cajas_solicitadas: number | null
+      cantidad_cajas_cargadas: number | null
+      cantidad_cajas_recibidas: number | null
+      caja: { codigo_caja: string } | { codigo_caja: string }[] | null
+      producto: { sku_base: string; nombre: string } | { sku_base: string; nombre: string }[] | null
+    }[] | null
+  }
+
+  const typedData = data as unknown as DespachoDetailQueryRow
+
+  const detalles = Array.isArray(typedData.detalles) ? typedData.detalles : []
+  const detallesProcesados = detalles.map((det) => {
     const caja = det.caja
       ? Array.isArray(det.caja)
         ? det.caja[0]
@@ -230,16 +271,16 @@ export async function fetchDespachoById(despachoId: number) {
   })
 
   return {
-    ...data,
-    bodega_origen: data.bodega_origen
-      ? Array.isArray(data.bodega_origen)
-        ? data.bodega_origen[0]
-        : data.bodega_origen
+    ...typedData,
+    bodega_origen: typedData.bodega_origen
+      ? Array.isArray(typedData.bodega_origen)
+        ? typedData.bodega_origen[0]
+        : typedData.bodega_origen
       : null,
-    bodega_destino: data.bodega_destino
-      ? Array.isArray(data.bodega_destino)
-        ? data.bodega_destino[0]
-        : data.bodega_destino
+    bodega_destino: typedData.bodega_destino
+      ? Array.isArray(typedData.bodega_destino)
+        ? typedData.bodega_destino[0]
+        : typedData.bodega_destino
       : null,
     detalles: detallesProcesados,
   }

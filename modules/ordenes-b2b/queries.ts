@@ -86,10 +86,12 @@ async function fetchDetalleConversationMap(ordenId: number) {
       .from('ordenes_b2b_detalles')
       .select('id, orden_id, producto_id')
       .eq('orden_id', ordenId),
-    (((supabase as any).from('orden_detalles_comentarios')) as any)
+    supabase
+      .from('orden_detalles_comentarios' as any)
       .select('id, orden_detalle_id, usuario_id, mensaje, archivo_adjunto_url, created_at')
       .order('created_at', { ascending: true }),
-    (((supabase as any).from('orden_detalle_eventos')) as any)
+    supabase
+      .from('orden_detalle_eventos' as any)
       .select('id, orden_detalle_id, usuario_id, tipo_evento, comentario_id, payload, created_at')
       .order('created_at', { ascending: true }),
   ])
@@ -101,11 +103,11 @@ async function fetchDetalleConversationMap(ordenId: number) {
 
   const comentariosData = comentariosRes.error?.code === '42P01' || comentariosRes.error?.code === 'PGRST205'
     ? []
-    : (comentariosRes.data ?? []).filter((comentario: any) => detalleMap.has(comentario.orden_detalle_id))
+    : ((comentariosRes.data as any) ?? []).filter((comentario: any) => detalleMap.has(comentario.orden_detalle_id))
 
   const eventosData = eventosRes.error?.code === '42P01' || eventosRes.error?.code === 'PGRST205'
     ? []
-    : (eventosRes.data ?? []).filter((evento: any) => detalleMap.has(evento.orden_detalle_id))
+    : ((eventosRes.data as any) ?? []).filter((evento: any) => detalleMap.has(evento.orden_detalle_id))
 
   const autores = await fetchAutoresMap(
     supabase,
@@ -666,7 +668,7 @@ export async function fetchCajaDetalle(
     let allowed = scope.allowed_proveedor_ids.includes(cajaBase.proveedor_id ?? -1)
 
     if (!allowed && scope.allowed_cliente_ids.length > 0) {
-      const { data: ordenes } = await (supabase.from('ordenes_b2b') as any)
+      const { data: ordenes } = await supabase.from('ordenes_b2b')
         .select('id')
         .or(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)
 
