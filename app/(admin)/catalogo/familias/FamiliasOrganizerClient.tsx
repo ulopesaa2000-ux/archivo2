@@ -32,11 +32,17 @@ import {
   Loader2,
   HelpCircle,
   FileSpreadsheet,
+  GripVertical,
+  Package,
+  History,
+  Save,
+  Info,
+  ArrowRightLeft,
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'motion/react'
-import { fetchProductosPorFamilia, type FamiliaResumen } from '@/modules/catalogo/queries'
+import { fetchProductosPorFamilia, type FamiliaResumen, type FamiliaResumenSku } from '@/modules/catalogo/queries'
 import { moverProductosDeFamiliaAction, renombrarFamiliaAction } from '@/modules/catalogo/actions'
 import { cn } from '@/lib/utils'
 
@@ -94,13 +100,88 @@ export function FamiliasOrganizerClient({
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [renameInput, setRenameInput] = useState('')
 
-  // --- Estados de Colapso de Paneles ---
-  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false)
-  const [isRightDirCollapsed, setIsRightDirCollapsed] = useState(false)
-  const [isRightDestCollapsed, setIsRightDestCollapsed] = useState(false)
+  // --- Estados del Rediseño 3 Columnas y Drag & Drop ---
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [draggedProductId, setDraggedProductId] = useState<number | null>(null)
+  const [expandedFamilies, setExpandedFamilies] = useState<Record<string, boolean>>({})
+  const [leftSearchQuery, setLeftSearchQuery] = useState('')
+  const [isCreateIntermediateDialogOpen, setIsCreateIntermediateDialogOpen] = useState(false)
+  const [activeDirTab, setActiveDirTab] = useState<'cards' | 'skus'>('skus')
 
-  // --- Estado de Pestaña del Directorio ---
-  const [activeDirTab, setActiveDirTab] = useState<'list' | 'skus'>('list')
+  // --- Estado ocultable de las secciones del sidebar ---
+  const [isSinAsignarCollapsed, setIsSinAsignarCollapsed] = useState(false)
+  const [isBandejaCollapsed, setIsBandejaCollapsed] = useState(false)
+
+  // --- Tooltip flotante durante Drag ---
+  const [dragTooltip, setDragTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+
+  // --- Estados de Inspección ---
+  const [inspectedProduct, setInspectedProduct] = useState<ProductListItem | null>(null)
+  const [loadingInspection, setLoadingInspection] = useState(false)
+
+  const handleInspectProduct = async (productId: number, skuBase: string, description: string | null) => {
+    setLoadingInspection(true)
+    
+    // 1. Check if the product is already in our loadedProducts cache
+    let cachedProduct: ProductListItem | undefined
+    for (const prods of Object.values(loadedProducts)) {
+      const found = prods.find(p => p.id === productId)
+      if (found) {
+        cachedProduct = found
+        break
+      }
+    }
+
+    if (cachedProduct) {
+      setInspectedProduct(cachedProduct)
+      setLoadingInspection(false)
+      setIsRightPanelOpen(true)
+      return
+    }
+
+    // 2. If not, fetch its image from Supabase
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      
+      const { data: imgData } = await supabase
+        .from('producto_imagenes')
+        .select('url')
+        .eq('producto_id', productId)
+        .eq('es_principal', true)
+        .maybeSingle()
+
+      const newItem: ProductListItem = {
+        id: productId,
+        sku_base: skuBase,
+        nombre: null,
+        descripcion: description,
+        familia: null,
+        precio_ec: null,
+        pz_en_caja: null,
+        activo: true,
+        imagen_principal: imgData?.url ?? null
+      }
+      
+      setInspectedProduct(newItem)
+    } catch (err) {
+      console.error('Error fetching image for inspection:', err)
+      setInspectedProduct({
+        id: productId,
+        sku_base: skuBase,
+        nombre: null,
+        descripcion: description,
+        familia: null,
+        precio_ec: null,
+        pz_en_caja: null,
+        activo: true,
+        imagen_principal: null
+      })
+    } finally {
+      setLoadingInspection(false)
+      setIsRightPanelOpen(true)
+    }
+  }
 
   // --- Sugeridor de Familias Intermedias ---
   const [isIntermediateMode, setIsIntermediateMode] = useState(false)
@@ -108,6 +189,74 @@ export function FamiliasOrganizerClient({
   const [suggestedKeywords, setSuggestedKeywords] = useState<string[]>([])
 
   const hasPendingChanges = Object.keys(stagedMoves).length > 0 || Object.keys(stagedRenames).length > 0
+
+  // --- Obtener la lista de SKUs netos/virtuales de cada familia (con stagedMoves aplicados) ---
+  const getNetSkusForFamilies = (): Record<string, FamiliaResumenSku[]> => {
+    const netSkus: Record<string, FamiliaResumenSku[]> = {}
+
+    // 1. Inicializar con los SKUs originales de la base de datos
+    familias.forEach(f => {
+      const familyKey = f.familia || 'null'
+      netSkus[familyKey] = f.skus ? [...f.skus] : []
+    })
+
+    // 2. Aplicar los staged moves
+    Object.entries(stagedMoves).forEach(([prodIdStr, targetFamily]) => {
+      const prodId = parseInt(prodIdStr, 10)
+      const targetKey = targetFamily || 'null'
+
+      // Buscar la información del producto
+      let foundSku: FamiliaResumenSku | undefined
+
+      // A. Buscar en los skus de las familias originales
+      for (const f of familias) {
+        const item = f.skus?.find(s => s.id === prodId)
+        if (item) {
+          foundSku = item
+          break
+        }
+      }
+
+      // B. Si no está ahí, buscar en la caché de productos cargados
+      if (!foundSku) {
+        for (const prods of Object.values(loadedProducts)) {
+          const item = prods.find(p => p.id === prodId)
+          if (item) {
+            foundSku = {
+              id: item.id,
+              sku_base: item.sku_base,
+              descripcion: item.descripcion || null
+            }
+            break
+          }
+        }
+      }
+
+      // C. Si no está en ninguna parte, usar un fallback temporal
+      if (!foundSku) {
+        foundSku = {
+          id: prodId,
+          sku_base: `ID #${prodId}`,
+          descripcion: null
+        }
+      }
+
+      // Quitar el producto de cualquier lista donde esté asignado originalmente
+      Object.keys(netSkus).forEach(famKey => {
+        netSkus[famKey] = netSkus[famKey].filter(s => s.id !== prodId)
+      })
+
+      // Agregar el producto al destino
+      if (!netSkus[targetKey]) {
+        netSkus[targetKey] = []
+      }
+      if (!netSkus[targetKey].some(s => s.id === prodId)) {
+        netSkus[targetKey].push(foundSku)
+      }
+    })
+
+    return netSkus
+  }
 
   // --- Efecto: Cargar F000-000C por defecto ---
   useEffect(() => {
@@ -118,6 +267,32 @@ export function FamiliasOrganizerClient({
   useEffect(() => {
     setFamilias(initialFamilias)
   }, [initialFamilias])
+
+  // --- Efecto: Ajustar layout para ocupar 100% de la pantalla (sin márgenes ni paddings) ---
+  useEffect(() => {
+    const pageWrapper = document.getElementById('familias-organizer-container')?.parentElement
+    const mainWrapper = pageWrapper?.parentElement
+
+    if (pageWrapper) {
+      const origClasses = pageWrapper.className
+      pageWrapper.classList.remove('p-6', 'max-w-[1600px]', 'mx-auto')
+      pageWrapper.classList.add('p-0', 'max-w-none', 'w-full', 'h-full')
+      
+      let origMainClasses = ''
+      if (mainWrapper) {
+        origMainClasses = mainWrapper.className
+        mainWrapper.classList.remove('overflow-auto')
+        mainWrapper.classList.add('overflow-hidden', 'h-full')
+      }
+
+      return () => {
+        pageWrapper.className = origClasses
+        if (mainWrapper && origMainClasses) {
+          mainWrapper.className = origMainClasses
+        }
+      }
+    }
+  }, [])
 
   // --- Cargar productos de una familia bajo demanda ---
   const loadProductsForFamily = async (familyCode: string) => {
@@ -134,6 +309,241 @@ export function FamiliasOrganizerClient({
       setLoadingProducts(prev => ({ ...prev, [familyCode]: false }))
     }
   };
+
+  // --- Manejo de Drag & Drop ---
+  const handleDragStart = (e: React.DragEvent, productId: number, skuLabel?: string) => {
+    setDraggedProductId(productId)
+    e.dataTransfer.setData('text/plain', productId.toString())
+    e.dataTransfer.effectAllowed = 'move'
+    setDragTooltip({ text: skuLabel ? `Moviendo ${skuLabel}...` : 'Moviendo producto...', x: e.clientX + 14, y: e.clientY + 14 })
+  }
+
+  const handleDragEnd = () => {
+    setDraggedProductId(null)
+    setDragTooltip(null)
+  }
+
+  const handleGlobalMouseMove = (e: React.MouseEvent) => {
+    if (draggedProductId !== null && dragTooltip) {
+      setDragTooltip(prev => prev ? { ...prev, x: e.clientX + 14, y: e.clientY + 14 } : null)
+    }
+  }
+
+  const handleDropOnFamily = (e: React.DragEvent, targetFamily: string) => {
+    e.preventDefault()
+    // Limpiar clases de hover en el elemento destino
+    e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'bg-primary/[0.01]')
+    setDraggedProductId(null)
+    setDragTooltip(null)
+
+    const prodIdStr = e.dataTransfer.getData('text/plain') || (draggedProductId ? draggedProductId.toString() : '')
+    if (!prodIdStr) return
+
+    const prodId = parseInt(prodIdStr, 10)
+    
+    // Obtener la familia actual del producto
+    let originalFamily: string | null = null
+    for (const [fam, prods] of Object.entries(loadedProducts)) {
+      const found = prods.find(p => p.id === prodId)
+      if (found) {
+        originalFamily = fam
+        break
+      }
+    }
+
+    const currentFamily = stagedMoves[prodId] !== undefined ? stagedMoves[prodId] : originalFamily
+    if (currentFamily === targetFamily) return
+
+    // Registrar movimiento
+    setStagedMoves(prev => ({
+      ...prev,
+      [prodId]: targetFamily
+    }))
+
+    // Cargar productos de destino
+    loadProductsForFamily(targetFamily)
+
+    // Mover localmente en la caché de productos para feedback inmediato
+    let productToMove: ProductListItem | undefined
+    for (const prods of Object.values(loadedProducts)) {
+      const found = prods.find(p => p.id === prodId)
+      if (found) {
+        productToMove = found
+        break
+      }
+    }
+
+    if (productToMove) {
+      if (loadedProducts[targetFamily]) {
+        const alreadyInDest = loadedProducts[targetFamily].some(p => p.id === prodId)
+        if (!alreadyInDest) {
+          setLoadedProducts(prev => ({
+            ...prev,
+            [targetFamily]: [...(prev[targetFamily] || []), { ...productToMove!, familia: targetFamily }]
+          }))
+        }
+      }
+    }
+
+    // Deseleccionar producto
+    setSelectedProductIds(prev => ({ ...prev, [prodId]: false }))
+    toast.success(`Producto reubicado localmente a "${targetFamily}"`)
+  }
+
+  const handleDropOnBandeja = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.currentTarget.classList.remove('ring-1', 'ring-primary/40')
+    setDraggedProductId(null)
+    setDragTooltip(null)
+
+    const prodIdStr = e.dataTransfer.getData('text/plain') || (draggedProductId ? draggedProductId.toString() : '')
+    if (!prodIdStr) return
+
+    const prodId = parseInt(prodIdStr, 10)
+
+    // Verificar si el producto ya existe en loadedProducts
+    let foundInLoaded = false
+    for (const prods of Object.values(loadedProducts)) {
+      if (prods.some(p => p.id === prodId)) {
+        foundInLoaded = true
+        break
+      }
+    }
+
+    // Si no está en loadedProducts (ej. viene de un badge en Vista Puro SKU),
+    // crear un ProductListItem sintético a partir de familias[].skus[]
+    if (!foundInLoaded) {
+      let syntheticProduct: ProductListItem | null = null
+      for (const f of familias) {
+        const sku = f.skus?.find(s => s.id === prodId)
+        if (sku) {
+          syntheticProduct = {
+            id: prodId,
+            sku_base: sku.sku_base,
+            nombre: null,
+            descripcion: sku.descripcion || null,
+            familia: f.familia || 'F000-000C',
+            precio_ec: null,
+            pz_en_caja: null,
+            activo: true,
+            imagen_principal: null
+          }
+          break
+        }
+      }
+
+      if (syntheticProduct) {
+        const famKey = syntheticProduct.familia || 'F000-000C'
+        setLoadedProducts(prev => ({
+          ...prev,
+          [famKey]: [...(prev[famKey] || []), syntheticProduct!]
+        }))
+      }
+    }
+
+    setSelectedProductIds(prev => ({
+      ...prev,
+      [prodId]: true
+    }))
+    toast.info('Producto agregado a la bandeja de reasignación')
+  }
+
+  const handleDropOnInsertionZone = (e: React.DragEvent, prevFamilyCode: string) => {
+    e.preventDefault()
+    e.currentTarget.classList.remove('active', 'border-primary', 'bg-primary/5', 'h-16')
+    setDraggedProductId(null)
+    setDragTooltip(null)
+
+    const prodIdStr = e.dataTransfer.getData('text/plain') || (draggedProductId ? draggedProductId.toString() : '')
+    if (!prodIdStr) return
+
+    const prodId = parseInt(prodIdStr, 10)
+    const suggestion = getIntermediateCodeSuggestion(prevFamilyCode)
+    
+    setRefFamilyName(prevFamilyCode)
+    setNewFamilyInput(suggestion)
+    setIsIntermediateMode(true)
+    setIsNewFamilyMode(true)
+    
+    // Seleccionar el producto que se arrastró
+    setSelectedProductIds({ [prodId]: true })
+    setIsCreateIntermediateDialogOpen(true)
+  }
+
+  const handleConfirmCreateIntermediate = () => {
+    const code = newFamilyInput.trim()
+    if (!code) {
+      toast.warning('Ingresa un código para la nueva familia')
+      return
+    }
+
+    const selectedIds = Object.entries(selectedProductIds)
+      .filter(([_, isSelected]) => isSelected)
+      .map(([id]) => parseInt(id, 10))
+
+    if (selectedIds.length === 0) {
+      toast.warning('No hay productos seleccionados para mover')
+      return
+    }
+
+    // Registrar en stagedMoves
+    const nextMoves = { ...stagedMoves }
+    selectedIds.forEach(id => {
+      nextMoves[id] = code
+    })
+    setStagedMoves(nextMoves)
+
+    // Registrar familia localmente si no existe
+    if (!familias.some(f => f.familia === code)) {
+      setFamilias(prev => [
+        ...prev,
+        {
+          familia: code,
+          total_productos: selectedIds.length,
+          es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(code),
+          descripcion: refFamilyName ? (familias.find(f => f.familia === refFamilyName)?.descripcion || '') : '',
+          skus: []
+        }
+      ])
+    }
+
+    // Mover productos localmente en la caché
+    const movedProductsList: ProductListItem[] = []
+    selectedIds.forEach(id => {
+      for (const prods of Object.values(loadedProducts)) {
+        const found = prods.find(p => p.id === id)
+        if (found) {
+          movedProductsList.push({ ...found, familia: code })
+        }
+      }
+    })
+    
+    setLoadedProducts(prev => ({
+      ...prev,
+      [code]: movedProductsList
+    }))
+
+    setSelectedProductIds({})
+    setIsCreateIntermediateDialogOpen(false)
+    setIsNewFamilyMode(false)
+    setIsIntermediateMode(false)
+    setRefFamilyName('')
+    
+    // Expandir la nueva familia automáticamente
+    setExpandedFamilies(prev => ({ ...prev, [code]: true }))
+    toast.success(`Familia "${code}" creada localmente en borrador`)
+  }
+
+  const handleToggleExpandFamily = (familyCode: string) => {
+    const isExpanded = !expandedFamilies[familyCode]
+    if (isExpanded) {
+      loadProductsForFamily(familyCode)
+    }
+    setExpandedFamilies(prev => ({
+      ...prev,
+      [familyCode]: !prev[familyCode]
+    }))
+  }
 
   // --- Pin/Agregar una familia a la bandeja izquierda ---
   const pinFamily = (familyCode: string) => {
@@ -241,6 +651,7 @@ export function FamiliasOrganizerClient({
     setSelectedProductIds({})
     setDestSearchQuery('')
     setDestFamilyName('')
+    setFamilias(initialFamilias)
     toast.info('Se descartaron todos los cambios locales')
   }
 
@@ -313,7 +724,7 @@ export function FamiliasOrganizerClient({
     return words.every(word => 
       name.includes(word) || 
       description.includes(word) || 
-      (f.skus && f.skus.some(sku => sku.toLowerCase().includes(word)))
+      (f.skus && f.skus.some(sku => sku.sku_base.toLowerCase().includes(word)))
     )
   })
 
@@ -330,21 +741,26 @@ export function FamiliasOrganizerClient({
     return words.every(word => 
       name.includes(word) || 
       description.includes(word) ||
-      (f.skus && f.skus.some(sku => sku.toLowerCase().includes(word)))
+      (f.skus && f.skus.some(sku => sku.sku_base.toLowerCase().includes(word)))
     )
   })
 
   // --- Resolver familia y productos de forma combinada (incluyendo staged changes) ---
   const getVisibleProductsInFamily = (familyCode: string): ProductListItem[] => {
     const originalProds = loadedProducts[familyCode] || []
-    return originalProds.map(p => {
-      // Si el producto se movió localmente a otra familia, reflejarlo
-      const currentDest = stagedMoves[p.id]
-      return {
-        ...p,
-        familia: currentDest !== undefined ? currentDest : p.familia,
-      }
-    })
+    return originalProds
+      .map(p => {
+        // Si el producto se movió localmente a otra familia, reflejarlo
+        const currentDest = stagedMoves[p.id]
+        return {
+          ...p,
+          familia: currentDest !== undefined ? currentDest : p.familia,
+        }
+      })
+      .filter(p => {
+        const currentFam = p.familia || 'F000-000C'
+        return currentFam === familyCode
+      })
   }
 
   // --- Productos que pertenecen a la familia destino actual en el workspace ---
@@ -717,9 +1133,11 @@ export function FamiliasOrganizerClient({
       toast.success('¡Reporte exportado con éxito!', { id: toastId })
     } catch (err) {
       console.error('Error al exportar reporte Excel:', err)
-      toast.error('Ocurrió un error al exportar a Excel', { id: toastId })
+      toast.error('Ocurrió un error al exportar el reporte Excel', { id: toastId })
     }
   }
+
+  const [trayDestFamily, setTrayDestFamily] = useState('')
 
   // --- Variables calculadas dinámicamente ---
   const netCounts = getNetProductCounts()
@@ -728,8 +1146,107 @@ export function FamiliasOrganizerClient({
   const destProducts = getDestinationProducts()
   const totalDestCount = destProducts.original.length + destProducts.staged.length
 
+  const unassignedProducts = getVisibleProductsInFamily('F000-000C')
+  const filteredUnassigned = unassignedProducts.filter(p => {
+    const sku = (p.sku_base || '').toLowerCase()
+    const name = (p.nombre || '').toLowerCase()
+    const desc = (p.descripcion || '').toLowerCase()
+    const query = leftSearchQuery.toLowerCase()
+    return sku.includes(query) || name.includes(query) || desc.includes(query)
+  })
+
+  const selectedProducts = Object.entries(selectedProductIds)
+    .filter(([_, isSelected]) => isSelected)
+    .map(([id]) => {
+      const prodId = parseInt(id, 10)
+      for (const prods of Object.values(loadedProducts)) {
+        const found = prods.find(p => p.id === prodId)
+        if (found) return found
+      }
+      return null
+    })
+    .filter(Boolean) as ProductListItem[]
+
+  const activeFamiliesList = familias.filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
+  const filteredActiveFamiliesList = activeFamiliesList.filter(f => {
+    const name = (f.familia || '').toLowerCase()
+    const description = (f.descripcion || '').toLowerCase()
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return true
+    
+    return words.every(word => 
+      name.includes(word) || 
+      description.includes(word) ||
+      (f.skus && f.skus.some(sku => sku.sku_base.toLowerCase().includes(word)))
+    )
+  })
+
+  // Colapsar automáticamente la pestaña de "Sin Asignar" cuando no tenga productos (0 de 0) y haya terminado de cargar
+  useEffect(() => {
+    const hasLoaded = loadedProducts['F000-000C'] !== undefined
+    const isLoading = !!loadingProducts['F000-000C']
+    if (hasLoaded && !isLoading && unassignedProducts.length === 0) {
+      setIsSinAsignarCollapsed(true)
+    }
+  }, [unassignedProducts.length, loadingProducts['F000-000C'], loadedProducts['F000-000C']])
+
+  // Bulk move staged changes trigger
+  const handleBulkMoveToFamily = (targetFamily: string) => {
+    if (selectedProducts.length === 0) {
+      toast.warning('No hay productos seleccionados')
+      return
+    }
+    if (!targetFamily) {
+      toast.warning('Selecciona una familia de destino')
+      return
+    }
+
+    const nextMoves = { ...stagedMoves }
+    selectedProducts.forEach(p => {
+      nextMoves[p.id] = targetFamily
+    })
+    setStagedMoves(nextMoves)
+
+    // Cargar destino
+    loadProductsForFamily(targetFamily)
+
+    // Actualizar cache local para feedback inmediato
+    setLoadedProducts(prev => {
+      const updatedDest = [...(prev[targetFamily] || [])]
+      selectedProducts.forEach(p => {
+        if (!updatedDest.some(item => item.id === p.id)) {
+          updatedDest.push({ ...p, familia: targetFamily })
+        }
+      })
+      return {
+        ...prev,
+        [targetFamily]: updatedDest
+      }
+    })
+
+    setSelectedProductIds({})
+    setTrayDestFamily('')
+    toast.success(`Se movieron ${selectedProducts.length} producto(s) a "${targetFamily}"`)
+  }
+
+  const netSkusMap = getNetSkusForFamilies()
+
   return (
-    <div className="relative space-y-6">
+    <div
+      id="familias-organizer-container"
+      className="relative h-full w-full flex flex-col bg-background text-foreground overflow-hidden"
+      onMouseMove={handleGlobalMouseMove}
+    >
+      {/* ── TOOLTIP FLOTANTE DURANTE DRAG ─────────────────────────────── */}
+      {dragTooltip && draggedProductId !== null && (
+        <div
+          className="fixed pointer-events-none z-[200] flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-2xl border border-border/60 bg-popover/95 backdrop-blur-sm text-popover-foreground text-xs font-medium select-none"
+          style={{ left: dragTooltip.x, top: dragTooltip.y }}
+        >
+          <GripVertical className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span>{dragTooltip.text}</span>
+        </div>
+      )}
       {/* ── BARRA DE ACCIONES SUPERIOR (Sticky Action Bar) ────────────────── */}
       <AnimatePresence>
         {hasPendingChanges && (
@@ -737,33 +1254,33 @@ export function FamiliasOrganizerClient({
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="sticky top-14 z-30 flex items-center justify-between p-4 rounded-xl border border-amber-500/20 bg-amber-500/10 backdrop-blur supports-[backdrop-filter]:bg-amber-500/5 shadow-md"
+            className="flex items-center justify-between p-3 border-b border-amber-500/20 bg-amber-500/10 backdrop-blur shadow-sm shrink-0"
           >
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
               </span>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                Tienes cambios pendientes de guardar en borrador. 
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                Cambios pendientes en borrador: 
                 <span className="ml-2 font-mono text-xs px-2 py-0.5 bg-amber-500/20 rounded-md text-amber-700 dark:text-amber-400">
                   {Object.keys(stagedMoves).length} movimientos, {Object.keys(stagedRenames).length} renombrados
                 </span>
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={handleDiscardChanges}
-                className="border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-800 dark:hover:text-amber-200"
+                className="h-8 border-amber-500/30 text-amber-800 hover:bg-amber-500/10 dark:text-amber-300"
               >
-                Descartar Cambios
+                Restablecer a Original
               </Button>
               <Button
-                size="sm"
+                size="xs"
                 onClick={() => setIsConfirmModalOpen(true)}
-                className="bg-amber-600 hover:bg-amber-500 text-white"
+                className="h-8 bg-amber-600 hover:bg-amber-500 text-white"
               >
                 Guardar Cambios
               </Button>
@@ -772,723 +1289,975 @@ export function FamiliasOrganizerClient({
         )}
       </AnimatePresence>
 
-      <div className="flex justify-end mb-2">
-        <Button
-          onClick={handleExportToExcel}
-          variant="outline"
-          className="border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 flex items-center gap-2"
-          size="sm"
-        >
-          <FileSpreadsheet className="h-4 w-4 text-green-600 dark:text-green-400" />
-          Exportar a Excel
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ── COLUMNA IZQUIERDA (Bandeja de Trabajo / Lista a la Mano) ──── */}
-        <div className="lg:col-span-6 space-y-6">
-          <Card className="shadow-sm">
-            <CardHeader
-              className="pb-3 border-b flex flex-row items-center justify-between cursor-pointer select-none"
-              onClick={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
+      {/* CONTENEDOR PRINCIPAL EN 3 COLUMNAS */}
+      <div className="flex-1 flex overflow-hidden bg-card text-foreground w-full h-full">
+        
+        {/* COLUMNA 1: SIDEBAR IZQUIERDO (Bandejas de Entrada y Control) */}
+        <aside className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full bg-card shrink-0 select-none">
+          {/* SECCIÓN 1: SIN ASIGNAR */}
+          <div className={cn(
+            "flex flex-col min-h-0 border-b border-zinc-200 dark:border-zinc-800 transition-all duration-200",
+            isSinAsignarCollapsed ? "shrink-0" : "flex-1"
+          )}>
+            {/* Header toggle Sin Asignar */}
+            <button
+              onClick={() => setIsSinAsignarCollapsed(v => !v)}
+              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none"
             >
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5 text-primary" />
-                  Bandeja de Trabajo (Lista a la Mano)
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Productos organizados en los grupos activos listos para transferir.
-                </p>
+              <div className="flex items-center gap-2">
+                {isSinAsignarCollapsed
+                  ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                }
+                <Package className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Sin Asignar</span>
               </div>
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {pinnedFamilies.length} Familia(s)
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
-                  className="h-7 w-7 p-0"
-                >
-                  {isLeftPanelCollapsed ? (
-                    <ChevronRight className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {filteredUnassigned.length} de {unassignedProducts.length}
+              </Badge>
+            </button>
+
+            {!isSinAsignarCollapsed && (
+            <>
+            {/* Buscador interno local */}
+            <div className="p-2 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Filtrar sin asignar..."
+                  className="pl-7 h-7 text-xs bg-muted/20"
+                  value={leftSearchQuery}
+                  onChange={(e) => setLeftSearchQuery(e.target.value)}
+                />
               </div>
-            </CardHeader>
-            {!isLeftPanelCollapsed && (
-              <CardContent className="p-0">
-                {pinnedFamilies.map((familyCode) => {
-                  const isDefault = familyCode === 'F000-000C'
-                  const products = getVisibleProductsInFamily(familyCode)
-                  const visibleInGroup = products.filter(p => p.familia === familyCode)
-                  const isLoading = loadingProducts[familyCode]
-                  
-                  // Buscar si la familia tiene un nombre renombrado en borrador
-                  const renombradoLocal = stagedRenames[familyCode] || autoRenames[familyCode]
-                  const displayName = renombradoLocal ? `${familyCode} → ${renombradoLocal}` : familyCode
+            </div>
 
-                  const allSelected = visibleInGroup.length > 0 && visibleInGroup.every(p => selectedProductIds[p.id])
-                  const someSelected = visibleInGroup.some(p => selectedProductIds[p.id]) && !allSelected
-
-                  return (
-                    <div
-                      key={familyCode}
-                      className={cn(
-                        "border-b last:border-0 p-4 transition-colors",
-                        !isDefault && "bg-primary/[0.02] border-l-4 border-l-primary"
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          {!isDefault && (
-                            <div className="text-xs font-semibold text-primary px-1.5 py-0.5 bg-primary/10 rounded-md border border-primary/20 flex items-center gap-1">
-                              <Pin className="h-3 w-3" />
-                              Agregada
-                            </div>
-                          )}
-                          <h3 className="font-mono font-bold text-sm text-foreground flex items-center gap-2">
-                            {displayName}
-                            {renombradoLocal && (
-                              <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px]">
-                                {stagedRenames[familyCode] ? 'Renombrado local' : 'Auto Sufijo'}
-                              </Badge>
-                            )}
-                          </h3>
-                          <span className="text-xs text-muted-foreground">
-                            ({visibleInGroup.length} productos disponibles)
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {puedeEditar && !isDefault && (
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => {
-                                setRenameTarget(familyCode)
-                                setRenameInput(stagedRenames[familyCode] || familyCode)
-                                setIsRenameModalOpen(true)
-                              }}
-                              title="Renombrar esta familia"
-                            >
-                              <FolderEdit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                            </Button>
-                          )}
-                          {!isDefault && (
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => unpinFamily(familyCode)}
-                              title="Quitar de la bandeja"
-                            >
-                              <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {(() => {
-                        const familyInfo = familias.find(f => f.familia === familyCode)
-                        return familyInfo?.descripcion ? (
-                          <p className="text-xs text-muted-foreground italic mb-3 pl-1">
-                            Descripción general: {familyInfo.descripcion}
-                          </p>
-                        ) : null
-                      })()}
-
-                      {isLoading ? (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
-                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                          Cargando productos de la familia...
-                        </div>
-                      ) : visibleInGroup.length === 0 ? (
-                        <div className="text-sm text-muted-foreground py-4 text-center bg-muted/10 rounded-lg border border-dashed">
-                          {products.length > 0 ? (
-                            <span className="italic flex items-center gap-1.5 justify-center">
-                              Todos los productos de este grupo fueron movidos en borrador.
-                            </span>
+            {/* Listado de Productos Sin Asignar */}
+            <ScrollArea className="flex-1 p-2">
+              {loadingProducts['F000-000C'] ? (
+                <div className="flex items-center justify-center py-8 gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  Cargando...
+                </div>
+              ) : filteredUnassigned.length === 0 ? (
+                <div className="text-center py-8 text-xs text-muted-foreground italic">
+                  No hay productos sin asignar.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredUnassigned.map((p) => {
+                    const isSelected = !!selectedProductIds[p.id]
+                    return (
+                      <div
+                        key={p.id}
+                        draggable="true"
+                        onDragStart={(e) => handleDragStart(e, p.id, p.sku_base)}
+                        onDragEnd={handleDragEnd}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border bg-card/50 hover:bg-accent/45 hover:border-primary/40 transition-all cursor-grab group relative",
+                          isSelected && "border-primary bg-primary/[0.02]"
+                        )}
+                      >
+                        <div 
+                          className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
+                          onClick={() => {
+                            setInspectedProduct(p)
+                            setIsRightPanelOpen(true)
+                          }}
+                        >
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelectProduct(p.id)}
+                              className="h-3.5 w-3.5 shrink-0"
+                            />
+                          </div>
+                          <div 
+                            onClick={(e) => e.stopPropagation()}
+                            className="cursor-grab text-muted-foreground hover:text-foreground shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                          >
+                            <GripVertical className="h-3.5 w-3.5" />
+                          </div>
+                          
+                          {p.imagen_principal ? (
+                            <img
+                              src={p.imagen_principal}
+                              alt={p.sku_base}
+                              className="h-8 w-8 object-cover rounded bg-muted border shrink-0"
+                            />
                           ) : (
-                            'No hay productos en esta familia.'
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {/* Selector para todo el grupo */}
-                          {puedeEditar && (
-                            <div className="flex items-center gap-2 px-2 py-1 bg-muted/20 rounded-md border text-xs text-muted-foreground mb-2">
-                              <Checkbox
-                                checked={allSelected}
-                                onCheckedChange={() => toggleSelectAllInFamily(familyCode, products)}
-                              />
-                              <span>Seleccionar todos los de esta familia</span>
+                            <div className="h-8 w-8 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
+                              NO IMG
                             </div>
                           )}
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {visibleInGroup.map((p) => {
-                              const isSelected = !!selectedProductIds[p.id]
-                              const hasMovePending = stagedMoves[p.id] !== undefined
-                              
-                              return (
-                                <div
-                                  key={p.id}
-                                  className={cn(
-                                    "flex items-center gap-3 p-2 rounded-lg border bg-card transition-all hover:bg-accent/30",
-                                    isSelected && "border-primary bg-primary/[0.01]",
-                                    hasMovePending && "border-amber-500/30 bg-amber-500/[0.01]"
-                                  )}
-                                >
-                                  {puedeEditar && (
-                                    <Checkbox
-                                      checked={isSelected}
-                                      onCheckedChange={() => toggleSelectProduct(p.id)}
-                                    />
-                                  )}
-                                  
-                                  {p.imagen_principal ? (
-                                    <img
-                                      src={p.imagen_principal}
-                                      alt={p.sku_base}
-                                      className="h-10 w-10 object-cover rounded bg-muted border"
-                                    />
-                                  ) : (
-                                    <div className="h-10 w-10 bg-muted border rounded flex items-center justify-center text-[10px] text-muted-foreground font-mono">
-                                      NO IMG
-                                    </div>
-                                  )}
-
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <span className="font-mono text-xs font-bold text-foreground truncate">
-                                        {p.sku_base}
-                                      </span>
-                                      {p.precio_ec && (
-                                        <span className="text-[10px] font-semibold text-muted-foreground">
-                                          ${p.precio_ec}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[11px] text-muted-foreground truncate">
-                                      {p.descripcion ?? 'Sin descripción'}
-                                    </p>
-                                  </div>
-                                </div>
-                              )
-                            })}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-xs font-bold truncate tracking-wide">
+                              {p.sku_base}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground truncate leading-normal">
+                              {p.descripcion ?? 'Sin descripción'}
+                            </p>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </CardContent>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+            </>
             )}
-          </Card>
-        </div>
+          </div>
 
-        {/* ── COLUMNA DERECHA (Directorio Alfabético y Destino) ─────────── */}
-        <div className="lg:col-span-6 space-y-6">
-          {/* Directorio de Selección / Pinning */}
-          <Card className="shadow-sm">
-            <CardHeader
-              className="pb-3 border-b flex flex-row items-center justify-between cursor-pointer select-none"
-              onClick={() => setIsRightDirCollapsed(!isRightDirCollapsed)}
+          {/* SECCIÓN 2: BANDEJA DE REASIGNACIÓN (SELECCIONADOS) — Ocultable */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.currentTarget.classList.add('ring-1', 'ring-primary/40')
+              setDragTooltip(prev => prev ? { ...prev, text: 'Soltar en Bandeja de Reasignación' } : null)
+            }}
+            onDragLeave={(e) => {
+              e.currentTarget.classList.remove('ring-1', 'ring-primary/40')
+            }}
+            onDrop={(e) => {
+              e.currentTarget.classList.remove('ring-1', 'ring-primary/40')
+              handleDropOnBandeja(e)
+              if (isBandejaCollapsed) setIsBandejaCollapsed(false)
+            }}
+            className={cn(
+              "flex flex-col min-h-0 bg-muted/5 border-t border-zinc-200 dark:border-zinc-800 transition-all duration-200",
+              isBandejaCollapsed ? "shrink-0" : isSinAsignarCollapsed ? "flex-1" : "h-[210px]"
+            )}
+          >
+            {/* Header con toggle */}
+            <button
+              onClick={() => setIsBandejaCollapsed(v => !v)}
+              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none"
             >
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                Directorio Alfabético de Familias
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setIsRightDirCollapsed(!isRightDirCollapsed)}
-                className="h-7 w-7 p-0"
-              >
-                {isRightDirCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
+              <div className="flex items-center gap-2">
+                {isBandejaCollapsed
+                  ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                }
+                <ArrowRightLeft className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Reasignación</span>
+              </div>
+              <Badge
+                className={cn(
+                  "font-mono text-[10px] transition-colors",
+                  selectedProducts.length > 0
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
                 )}
-              </Button>
-            </CardHeader>
-            {!isRightDirCollapsed && (
-              <CardContent className="p-4 space-y-4">
-                {/* Selector de Pestañas */}
-                <div className="flex border-b gap-4 mb-2 text-xs font-semibold text-muted-foreground select-none">
-                  <button
-                    type="button"
-                    onClick={() => setActiveDirTab('list')}
-                    className={cn(
-                      "pb-2 border-b-2 px-1 transition-all",
-                      activeDirTab === 'list'
-                        ? "border-primary text-foreground font-bold"
-                        : "border-transparent hover:text-foreground"
-                    )}
-                  >
-                    Listado de Familias
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDirTab('skus')}
-                    className={cn(
-                      "pb-2 border-b-2 px-1 transition-all",
-                      activeDirTab === 'skus'
-                        ? "border-primary text-foreground font-bold"
-                        : "border-transparent hover:text-foreground"
-                    )}
-                  >
-                    Detalle por SKUs (Puro SKU)
-                  </button>
-                </div>
+              >
+                {selectedProducts.length} de {Object.values(selectedProductIds).filter(Boolean).length === 0 ? 0 : selectedProducts.length}
+              </Badge>
+            </button>
 
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder={activeDirTab === 'list' ? "Buscar familia..." : "Buscar por SKU o familia..."}
-                    className="pl-8 h-9"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-
-                <ScrollArea className="h-[520px] pr-2">
-                  {activeDirTab === 'list' ? (
-                    filteredFamiliesList.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-8">
-                        No se encontraron familias.
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {filteredFamiliesList.map((f) => {
-                          const name = f.familia || 'Sin Clasificar'
-                          const isPinned = pinnedFamilies.includes(name)
-                          const renombradoLocal = stagedRenames[name] || autoRenames[name]
-                          const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
-                          
-                          return (
-                            <button
-                              key={name}
-                              onClick={() => pinFamily(name)}
-                              disabled={isPinned}
-                              className={cn(
-                                "w-full text-left flex flex-col p-1.5 px-2.5 rounded-lg border border-transparent transition-colors",
-                                isPinned
-                                  ? "bg-muted text-muted-foreground cursor-not-allowed"
-                                  : "hover:bg-accent text-foreground hover:border-border"
-                              )}
-                            >
-                              <div className="w-full flex items-center justify-between font-mono text-xs font-bold mb-0.5">
-                                <span className="truncate pr-2 flex items-center gap-2">
-                                  {displayName}
-                                  {renombradoLocal && (
-                                    <Badge variant="outline" className="text-[9px] scale-90 border-amber-500/30 text-amber-600 font-sans">
-                                      {stagedRenames[name] ? 'Manual' : 'Sufijo'}
-                                    </Badge>
-                                  )}
-                                </span>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <Badge variant="secondary" className="text-[10px] font-sans">
-                                    {f.total_productos}
-                                  </Badge>
-                                  {isPinned ? (
-                                    <Check className="h-3 w-3 text-green-600" />
-                                  ) : (
-                                    <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
-                                  )}
-                                </div>
-                              </div>
-                              {f.descripcion && (
-                                <p className="text-[11px] text-muted-foreground truncate w-full italic font-sans">
-                                  {f.descripcion}
-                                </p>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )
+            {/* Contenido colapsable */}
+            {!isBandejaCollapsed && (
+              <>
+                <ScrollArea className="flex-1 p-2">
+                  {selectedProducts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full py-6 text-center text-xs text-muted-foreground border border-dashed border-muted-foreground/25 rounded bg-muted/10 mt-1">
+                      <Info className="h-4 w-4 mb-1 text-muted-foreground/40" />
+                      <p className="italic">Arrastre productos aquí</p>
+                      <p className="text-[10px]">o marque casillas arriba</p>
+                    </div>
                   ) : (
-                    filteredFamiliesList.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-8">
-                        No se encontraron familias.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {filteredFamiliesList.map((f) => {
-                          const name = f.familia || 'Sin Clasificar'
-                          const isPinned = pinnedFamilies.includes(name)
-                          const renombradoLocal = stagedRenames[name] || autoRenames[name]
-                          const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
-                          
-                          return (
-                            <div
-                              key={name}
-                              className={cn(
-                                "p-2 px-2.5 rounded-lg border bg-card/50 space-y-1 border-border/80 transition-all",
-                                isPinned && "opacity-60 border-dashed"
-                              )}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5">
-                                  {displayName}
-                                  {renombradoLocal && (
-                                    <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-600 font-sans">
-                                      {stagedRenames[name] ? 'Manual' : 'Sufijo'}
-                                    </Badge>
-                                  )}
-                                </span>
-                                <Button
-                                  size="xs"
-                                  variant="outline"
-                                  onClick={() => pinFamily(name)}
-                                  disabled={isPinned}
-                                  className="h-6 text-[10px] px-2 py-0"
-                                >
-                                  {isPinned ? 'Agregada' : 'Trabajar'}
-                                </Button>
-                              </div>
-                              {f.descripcion && (
-                                <p className="text-[10px] text-muted-foreground italic leading-normal truncate">
-                                  {f.descripcion}
-                                </p>
-                              )}
-                              {f.skus && f.skus.length > 0 && (
-                                <div className="flex flex-wrap gap-1 pt-0.5">
-                                  {f.skus.map(sku => {
-                                    const match = searchQuery && searchQuery.split(/\s+/).filter(Boolean).some(w => sku.toLowerCase().includes(w.toLowerCase()))
-                                    return (
-                                      <Badge
-                                        key={sku}
-                                        variant={match ? "default" : "secondary"}
-                                        className={cn(
-                                          "font-mono text-[11px] py-0.5 px-2 transition-colors border shadow-sm rounded-md tracking-wide",
-                                          match 
-                                            ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
-                                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border-zinc-200 dark:border-zinc-700/80 font-semibold"
-                                        )}
-                                      >
-                                        {sku}
-                                      </Badge>
-                                    )
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
+                    <div className="space-y-1">
+                      {selectedProducts.map((p) => (
+                        <div
+                          key={p.id}
+                          draggable="true"
+                          onDragStart={(e) => {
+                            handleDragStart(e, p.id, p.sku_base)
+                          }}
+                          onDragEnd={handleDragEnd}
+                          onClick={() => handleInspectProduct(p.id, p.sku_base, p.descripcion)}
+                          className="flex items-center justify-between p-1.5 px-2 rounded bg-card border border-zinc-200 dark:border-zinc-800 text-[11px] cursor-grab active:cursor-grabbing hover:border-primary/50 transition-colors select-none group"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <GripVertical className="h-3 w-3 text-muted-foreground opacity-40 group-hover:opacity-100 shrink-0" />
+                            <span className="font-mono font-bold truncate">{p.sku_base}</span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleSelectProduct(p.id)
+                            }}
+                            className="text-muted-foreground hover:text-destructive transition-colors ml-1 shrink-0"
+                            title="Quitar de bandeja"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </ScrollArea>
-              </CardContent>
-            )}
-          </Card>
 
-          {/* Espacio de Trabajo de Destino */}
-          <Card className="shadow-sm border-primary/10">
-            <CardHeader
-              className="pb-3 border-b bg-primary/[0.01] flex flex-row items-center justify-between cursor-pointer select-none"
-              onClick={() => setIsRightDestCollapsed(!isRightDestCollapsed)}
-            >
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ArrowRight className="h-5 w-5 text-primary" />
-                  Familia de Destino
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Selecciona dónde colocar los productos elegidos.
-                </p>
+                {selectedProducts.length > 0 && (
+                  <div className="p-2 border-t border-zinc-200 dark:border-zinc-800 bg-card space-y-2">
+                    <div className="flex gap-1">
+                      <select
+                        className="flex-1 h-8 rounded border border-input bg-background dark:bg-zinc-900 px-2 py-0.5 text-xs outline-none focus:border-ring"
+                        value={trayDestFamily}
+                        onChange={(e) => setTrayDestFamily(e.target.value)}
+                      >
+                        <option value="">-- Mover a familia --</option>
+                        {familias
+                          .filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
+                          .map(f => (
+                            <option key={f.familia} value={f.familia!}>
+                              {f.familia} {f.descripcion ? `- ${f.descripcion.substring(0, 20)}...` : ''}
+                            </option>
+                          ))}
+                      </select>
+                      <Button
+                        size="xs"
+                        onClick={() => handleBulkMoveToFamily(trayDestFamily)}
+                        disabled={!trayDestFamily}
+                        className="h-8 px-3"
+                      >
+                        Mover
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </aside>
+
+        {/* COLUMNA 2: ÁREA CENTRAL (Workspace Mapeador de Familias) */}
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-muted/10">
+          {/* Barra de Herramientas Superior del Workspace */}
+          <div className="p-3 bg-card border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar familias, productos o SKUs..."
+                  className="pl-8 h-8 w-72 text-xs"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
+
+              {/* Selector de Pestaña de Vista */}
+              <div className="flex bg-muted p-0.5 rounded-lg text-xs">
+                <button
+                  onClick={() => setActiveDirTab('cards')}
+                  className={cn(
+                    "px-3 py-1 rounded-md transition-all font-medium",
+                    activeDirTab === 'cards'
+                      ? "bg-card text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Vista Tarjetas
+                </button>
+                <button
+                  onClick={() => setActiveDirTab('skus')}
+                  className={cn(
+                    "px-3 py-1 rounded-md transition-all font-medium",
+                    activeDirTab === 'skus'
+                      ? "bg-card text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Vista Puro SKU
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleExportToExcel}
+                variant="outline"
+                className="h-8 border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 flex items-center gap-1.5"
+                size="sm"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-green-600 dark:text-green-400" />
+                Exportar Excel
+              </Button>
+
               <Button
                 variant="ghost"
-                size="icon-xs"
-                onClick={() => setIsRightDestCollapsed(!isRightDestCollapsed)}
-                className="h-7 w-7 p-0"
+                onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                className="h-8 text-xs flex items-center gap-1 bg-muted/40 hover:bg-muted"
+                size="sm"
               >
-                {isRightDestCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
+                <History className="h-4 w-4 text-muted-foreground" />
+                <span>Cambios ({Object.keys(stagedMoves).length})</span>
+                {isRightPanelOpen ? (
+                  <ChevronRight className="h-3 w-3 ml-1" />
                 ) : (
-                  <ChevronDown className="h-4 w-4" />
+                  <ChevronDown className="h-3 w-3 ml-1" />
                 )}
               </Button>
-            </CardHeader>
-            {!isRightDestCollapsed && (
-              <CardContent className="p-4 space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">Modo de selección:</span>
-                    <button
-                      onClick={() => {
-                        setIsNewFamilyMode(!isNewFamilyMode)
-                      }}
-                      className="text-xs text-primary hover:underline font-medium"
-                    >
-                      {isNewFamilyMode ? 'Elegir existente' : 'Crear nueva familia'}
-                    </button>
+            </div>
+          </div>
+
+          {/* Área Principal de Contenido */}
+          <div className="flex-1 overflow-hidden">
+            {activeDirTab === 'skus' ? (
+              /* VISTA DENSE SKU (PURO SKU) */
+              <ScrollArea className="h-full p-6">
+                {filteredActiveFamiliesList.length === 0 ? (
+                  <div className="text-center py-12 text-sm text-muted-foreground italic">
+                    No se encontraron familias activas.
                   </div>
+                ) : (
+                  <div className="space-y-2 max-w-4xl mx-auto pb-24">
+                    {/* Zona de Inserción inicial */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.add('active', 'border-primary', 'bg-primary/5', 'h-16')
+                        const span = e.currentTarget.querySelector('span')
+                        if (span) span.classList.remove('opacity-0')
+                        setDragTooltip(prev => prev ? { ...prev, text: '+ Crear nueva familia al inicio' } : null)
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove('active', 'border-primary', 'bg-primary/5', 'h-16')
+                        const span = e.currentTarget.querySelector('span')
+                        if (span) span.classList.add('opacity-0')
+                      }}
+                      onDrop={(e) => {
+                        const span = e.currentTarget.querySelector('span')
+                        if (span) span.classList.add('opacity-0')
+                        handleDropOnInsertionZone(e, filteredActiveFamiliesList[0].familia!)
+                      }}
+                      className="insertion-zone border border-transparent rounded-lg h-2 flex items-center justify-center transition-all text-xs font-semibold text-primary/80"
+                    >
+                      <span className="opacity-0 pointer-events-none transition-opacity text-xs flex items-center gap-1.5">
+                        <Plus className="h-4 w-4" /> Crear familia al inicio
+                      </span>
+                    </div>
 
-                  {isNewFamilyMode ? (
-                    <div className="space-y-3">
-                      {/* Sugeridor de Familias Intermedias */}
-                      <div className="flex items-center gap-2 pt-1">
-                        <Checkbox
-                          id="intermediate-mode"
-                          checked={isIntermediateMode}
-                          onCheckedChange={(checked) => {
-                            setIsIntermediateMode(!!checked)
-                            if (!checked) {
-                              setRefFamilyName('')
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor="intermediate-mode"
-                          className="text-xs text-muted-foreground font-semibold cursor-pointer select-none"
-                        >
-                          Crear familia intermedia después de una existente
-                        </label>
-                      </div>
+                    {filteredActiveFamiliesList.map((f, idx) => {
+                      const name = f.familia!
+                      const renombradoLocal = stagedRenames[name] || autoRenames[name]
+                      const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
+                      const skus = netSkusMap[name] || []
 
-                      {isIntermediateMode && (
-                        <div className="space-y-2.5 p-3 bg-muted/20 border border-dashed rounded-lg">
-                          <div>
-                            <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
-                              Seleccionar familia de referencia:
-                            </label>
-                            <select
-                              className="w-full h-8 rounded border border-input bg-background text-foreground dark:bg-zinc-900 px-2.5 py-0.5 text-xs outline-none focus:border-ring"
-                              value={refFamilyName}
-                              onChange={(e) => handleSelectRefFamily(e.target.value)}
-                            >
-                              <option value="" className="bg-background text-foreground dark:bg-zinc-900">-- Selecciona --</option>
-                              {familias
-                                .filter(f => f.familia && /^F\d{3}-\d{3}[AB]$/i.test(f.familia))
-                                .map(f => (
-                                  <option key={f.familia} value={f.familia!} className="bg-background text-foreground dark:bg-zinc-900">
-                                    {f.familia} {f.descripcion ? `- ${f.descripcion.substring(0, 25)}...` : ''}
-                                  </option>
-                                ))}
-                            </select>
+                      return (
+                        <div key={name} className="space-y-2">
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.currentTarget.classList.add('border-primary', 'bg-primary/[0.03]')
+                              setDragTooltip(prev => prev ? { ...prev, text: `Mover a ${name}` } : null)
+                            }}
+                            onDragLeave={(e) => {
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]')
+                            }}
+                            onDrop={(e) => handleDropOnFamily(e, name)}
+                            className="p-3 rounded-lg border bg-card space-y-1 border-zinc-200 dark:border-zinc-800 transition-all animate-in fade-in duration-200"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5">
+                                {displayName}
+                                {renombradoLocal && (
+                                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-600 font-sans">
+                                    {stagedRenames[name] ? 'Manual' : 'Sufijo'}
+                                  </Badge>
+                                )}
+                              </span>
+                              <Badge variant="secondary" className="font-mono text-[10px] py-0 px-2 shrink-0">
+                                {skus.length} de {f.total_productos}
+                              </Badge>
+                            </div>
+                            {f.descripcion && (
+                              <p className="text-xs text-muted-foreground italic">
+                                {f.descripcion}
+                              </p>
+                            )}
+                            {skus.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 pt-1.5 border-t mt-1.5 border-dashed border-zinc-200 dark:border-zinc-800">
+                                {skus.map(sku => {
+                                  const match = searchQuery && searchQuery.split(/\s+/).filter(Boolean).some(w => sku.sku_base.toLowerCase().includes(w.toLowerCase()))
+                                  return (
+                                    <Badge
+                                      key={sku.id}
+                                      variant={match ? "default" : "secondary"}
+                                      draggable="true"
+                                      onDragStart={(e) => handleDragStart(e, sku.id, sku.sku_base)}
+                                      onDragEnd={handleDragEnd}
+                                      onClick={() => handleInspectProduct(sku.id, sku.sku_base, sku.descripcion)}
+                                      className={cn(
+                                        "font-mono text-xs py-0.5 px-2 transition-colors border shadow-sm rounded-md tracking-wide cursor-grab active:cursor-grabbing hover:scale-105 active:scale-95 duration-75 select-none",
+                                        match 
+                                          ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
+                                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700/60 font-semibold"
+                                      )}
+                                    >
+                                      {sku.sku_base}
+                                    </Badge>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-center py-4 text-xs text-muted-foreground italic border border-dashed rounded border-zinc-200 dark:border-zinc-800/40 bg-muted/5">
+                                Arrastre productos aquí para asignarlos
+                              </div>
+                            )}
                           </div>
 
-                          {refFamilyName && (
-                            <div className="space-y-2 border-t pt-2">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground text-[11px]">Código sugerido:</span>
-                                {(() => {
-                                  const suggestion = getIntermediateCodeSuggestion(refFamilyName)
-                                  return (
-                                    <button
-                                      type="button"
-                                      onClick={() => setNewFamilyInput(suggestion)}
-                                      className="font-mono font-bold text-primary hover:underline text-xs"
-                                      title="Hacer clic para usar este código"
-                                    >
-                                      {suggestion}
-                                    </button>
-                                  )
-                                })()}
+                          {/* Zona de Inserción intermedia después de esta familia */}
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.currentTarget.classList.add('active', 'border-primary', 'bg-primary/5', 'h-16')
+                              const span = e.currentTarget.querySelector('span')
+                              if (span) span.classList.remove('opacity-0')
+                              setDragTooltip(prev => prev ? { ...prev, text: `+ Crear familia entre ${name} y siguiente` } : null)
+                            }}
+                            onDragLeave={(e) => {
+                              e.currentTarget.classList.remove('active', 'border-primary', 'bg-primary/5', 'h-16')
+                              const span = e.currentTarget.querySelector('span')
+                              if (span) span.classList.add('opacity-0')
+                            }}
+                            onDrop={(e) => {
+                              const span = e.currentTarget.querySelector('span')
+                              if (span) span.classList.add('opacity-0')
+                              handleDropOnInsertionZone(e, name)
+                            }}
+                            className="insertion-zone border border-transparent rounded-lg h-2 flex items-center justify-center transition-all text-xs font-semibold text-primary/80"
+                          >
+                            <span className="opacity-0 pointer-events-none transition-opacity text-xs flex items-center gap-1.5">
+                              <Plus className="h-4 w-4" /> Crear familia aquí
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            ) : (
+              /* VISTA TARJETAS INTERACTIVAS (DRAG & DROP) */
+              <ScrollArea className="h-full p-6">
+                {filteredActiveFamiliesList.length === 0 ? (
+                  <div className="text-center py-12 text-sm text-muted-foreground italic">
+                    No se encontraron familias activas.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-w-4xl mx-auto pb-24">
+                    
+                    {/* Zona de Inserción inicial */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.add('active', 'border-primary', 'bg-primary/5', 'h-16')
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove('active', 'border-primary', 'bg-primary/5', 'h-16')
+                      }}
+                      onDrop={(e) => handleDropOnInsertionZone(e, filteredActiveFamiliesList[0].familia!)}
+                      className="insertion-zone border border-transparent rounded-lg h-2 flex items-center justify-center transition-all text-xs font-semibold text-primary/80"
+                    >
+                      <span className="opacity-0 pointer-events-none transition-opacity text-xs flex items-center gap-1.5">
+                        <Plus className="h-4 w-4" /> Soltar aquí para crear nueva familia intermedia
+                      </span>
+                    </div>
+
+                    {filteredActiveFamiliesList.map((f, idx) => {
+                      const name = f.familia!
+                      const products = getVisibleProductsInFamily(name)
+                      const visibleInGroup = products.filter(p => p.familia === name)
+                      const isExpanded = !!expandedFamilies[name]
+                      const isLoading = loadingProducts[name]
+
+                      const renombradoLocal = stagedRenames[name] || autoRenames[name]
+                      const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
+
+                      return (
+                        <div key={name} className="space-y-2">
+                          {/* Tarjeta de la Familia */}
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.currentTarget.classList.add('border-primary', 'bg-primary/[0.01]')
+                            }}
+                            onDragLeave={(e) => {
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]')
+                            }}
+                            onDrop={(e) => handleDropOnFamily(e, name)}
+                            className="bg-card border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 transition-all shadow-xs family-card flex flex-col"
+                          >
+                            <div className="flex items-center justify-between mb-2 select-none">
+                              <div
+                                className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+                                onClick={() => handleToggleExpandFamily(name)}
+                              >
+                                <div className="text-muted-foreground hover:text-foreground shrink-0">
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </div>
+                                <h3 className="font-mono font-bold text-sm text-foreground flex items-center gap-2 truncate">
+                                  {displayName}
+                                </h3>
+                                
+                                {renombradoLocal && (
+                                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-600 shrink-0 font-sans">
+                                    {stagedRenames[name] ? 'Manual' : 'Sufijo'}
+                                  </Badge>
+                                )}
+                                
+                                <Badge variant="secondary" className="font-mono text-[10px] py-0 px-2 shrink-0">
+                                  {visibleInGroup.length} de {f.total_productos}
+                                </Badge>
                               </div>
 
-                              {suggestedKeywords.length > 0 && (
-                                <div className="space-y-1">
-                                  <span className="text-[10px] text-muted-foreground block font-medium">
-                                    Palabras clave de referencia:
-                                  </span>
-                                  <div className="flex flex-wrap gap-1 max-h-[80px] overflow-y-auto">
-                                    {suggestedKeywords.map(kw => (
-                                      <button
-                                        key={kw}
-                                        type="button"
-                                        onClick={() => {
-                                          const current = newFamilyInput.trim()
-                                          if (!current.includes(kw)) {
-                                            setNewFamilyInput(current ? `${current} ${kw}` : kw)
-                                          }
-                                        }}
-                                        className="text-[9px] bg-primary/5 hover:bg-primary/20 border border-primary/20 text-primary rounded px-1.5 py-0.5 font-medium transition-colors"
-                                      >
-                                        {kw}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-foreground">Nombre de la nueva familia:</label>
-                        <Input
-                          placeholder="Ej. F324-010B o Jeans Caballero Slim"
-                          value={newFamilyInput}
-                          onChange={(e) => setNewFamilyInput(e.target.value)}
-                          className="h-9 font-mono"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <label className="text-xs font-semibold text-foreground">Familia destino existente:</label>
-                      <div className="relative">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Buscar familia de destino..."
-                          className="pl-8 h-9"
-                          value={destSearchQuery}
-                          onChange={(e) => setDestSearchQuery(e.target.value)}
-                        />
-                      </div>
-
-                      <ScrollArea className="h-[220px] border rounded-lg p-2 bg-muted/5">
-                        {(() => {
-                          const list = [...filteredDestFamiliesList]
-                          if (destFamilyName && !list.some(f => f.familia === destFamilyName)) {
-                            const original = familias.find(f => f.familia === destFamilyName)
-                            if (original) {
-                              list.push(original)
-                            }
-                          }
-
-                          if (list.length === 0) {
-                            return (
-                              <p className="text-xs text-muted-foreground text-center py-8">
-                                No se encontraron familias.
-                              </p>
-                            )
-                          }
-
-                          return (
-                            <div className="space-y-1">
-                              {list.map((f) => {
-                                const name = f.familia || 'Sin Clasificar'
-                                const isSelected = destFamilyName === name
-                                
-                                return (
-                                  <button
-                                    key={name}
-                                    type="button"
+                              <div className="flex items-center gap-2 shrink-0">
+                                {puedeEditar && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
                                     onClick={() => {
-                                      setDestFamilyName(name)
-                                      loadProductsForFamily(name)
+                                      setRenameTarget(name)
+                                      setRenameInput(stagedRenames[name] || name)
+                                      setIsRenameModalOpen(true)
                                     }}
-                                    className={cn(
-                                      "w-full text-left flex flex-col p-2.5 rounded-lg border transition-all",
-                                      isSelected
-                                        ? "bg-primary/10 border-primary text-foreground font-semibold"
-                                        : "border-transparent hover:bg-accent text-foreground hover:border-border"
-                                    )}
+                                    title="Renombrar esta familia"
+                                    className="h-7 w-7"
                                   >
-                                    <div className="w-full flex items-center justify-between font-mono text-xs font-bold mb-1">
-                                      <span className="truncate pr-2">{name}</span>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <Badge variant="secondary" className="text-[10px] font-sans">
-                                          {f.total_productos}
-                                        </Badge>
-                                        {isSelected && (
-                                          <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-                                        )}
-                                      </div>
-                                    </div>
-                                    {f.descripcion && (
-                                      <p className="text-[11px] text-muted-foreground truncate w-full italic font-sans">
-                                        {f.descripcion}
-                                      </p>
-                                    )}
-                                  </button>
-                                )
-                              })}
+                                    <FolderEdit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
-                          )
-                        })()}
-                      </ScrollArea>
-                    </div>
-                  )}
 
-                  {!isNewFamilyMode && destFamilyName && (
-                    (() => {
-                      const selectedFamily = familias.find(f => f.familia === destFamilyName)
-                      return selectedFamily?.descripcion ? (
-                        <p className="text-xs text-muted-foreground italic bg-muted/30 p-2.5 rounded border border-dashed mt-2 leading-relaxed">
-                          <strong>Descripción destino:</strong> {selectedFamily.descripcion}
-                        </p>
-                      ) : null
-                    })()
-                  )}
+                            {f.descripcion && (
+                              <p className="text-xs text-muted-foreground italic mb-2 pl-6">
+                                Descripción genérica: {f.descripcion}
+                              </p>
+                            )}
 
-                  {puedeEditar && (
-                    <Button
-                      onClick={handleStageMove}
-                      className="w-full bg-primary hover:bg-primary/90 mt-2 text-primary-foreground"
-                      size="sm"
-                    >
-                      Mover Seleccionados
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
+                            {/* Grid de productos si está expandida */}
+                            {isExpanded && (
+                              <div className="mt-2 pl-6 border-l border-zinc-200 dark:border-zinc-800 ml-2">
+                                {isLoading ? (
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                                    Cargando productos...
+                                  </div>
+                                ) : visibleInGroup.length === 0 ? (
+                                  <div className="text-xs text-muted-foreground py-6 text-center border border-dashed rounded bg-muted/10 drop-target-area">
+                                    Arrastre productos aquí o use selección
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {visibleInGroup.map((p) => {
+                                      const isSelected = !!selectedProductIds[p.id]
+                                      const hasMovePending = stagedMoves[p.id] !== undefined
+                                      
+                                      return (
+                                        <div
+                                          key={p.id}
+                                          draggable="true"
+                                          onDragStart={(e) => handleDragStart(e, p.id)}
+                                          onDragEnd={handleDragEnd}
+                                          onClick={() => {
+                                            setInspectedProduct(p)
+                                            setIsRightPanelOpen(true)
+                                          }}
+                                          className={cn(
+                                            "flex items-center gap-2.5 p-2 rounded border border-zinc-200 dark:border-zinc-800/80 bg-card transition-all hover:bg-accent/40 cursor-grab group relative cursor-pointer",
+                                            isSelected && "border-primary bg-primary/[0.01]",
+                                            hasMovePending && "border-amber-500/30 bg-amber-500/[0.01]"
+                                          )}
+                                        >
+                                          {puedeEditar && (
+                                            <div onClick={(e) => e.stopPropagation()}>
+                                              <Checkbox
+                                                checked={isSelected}
+                                                onCheckedChange={() => toggleSelectProduct(p.id)}
+                                                className="h-3.5 w-3.5 shrink-0"
+                                              />
+                                            </div>
+                                          )}
 
-                {/* Vista previa de productos en la familia de destino */}
-                <div className="pt-4 border-t space-y-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-foreground">Vista Previa Destino:</span>
-                    <Badge variant="outline">{totalDestCount} pzs</Badge>
+                                          <div 
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="cursor-grab text-muted-foreground hover:text-foreground shrink-0 opacity-20 group-hover:opacity-100 transition-opacity"
+                                          >
+                                            <GripVertical className="h-3 w-3" />
+                                          </div>
+                                          
+                                          {p.imagen_principal ? (
+                                            <img
+                                              src={p.imagen_principal}
+                                              alt={p.sku_base}
+                                              className="h-7 w-7 object-cover rounded bg-muted border shrink-0"
+                                            />
+                                          ) : (
+                                            <div className="h-7 w-7 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
+                                              NO IMG
+                                            </div>
+                                          )}
+
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-mono text-xs font-bold truncate tracking-wide">
+                                              {p.sku_base}
+                                            </div>
+                                            <p className="text-[11px] text-muted-foreground truncate leading-normal">
+                                              {p.descripcion ?? 'Sin descripción'}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Zona de Inserción intermedia después de esta familia */}
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.currentTarget.classList.add('active', 'border-primary', 'bg-primary/5', 'h-16')
+                            }}
+                            onDragLeave={(e) => {
+                              e.currentTarget.classList.remove('active', 'border-primary', 'bg-primary/5', 'h-16')
+                            }}
+                            onDrop={(e) => handleDropOnInsertionZone(e, name)}
+                            className="insertion-zone border border-transparent rounded-lg h-2 flex items-center justify-center transition-all text-xs font-semibold text-primary/80"
+                          >
+                            <span className="opacity-0 pointer-events-none transition-opacity text-xs flex items-center gap-1.5">
+                              <Plus className="h-4 w-4" /> Soltar aquí para crear nueva familia intermedia
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            )}
+          </div>
+        </main>
+
+        {/* COLUMNA 3: SIDEBAR DERECHO (Panel de Control Ocultable - stagedMoves) */}
+        <aside className={cn(
+          "border-l border-zinc-200 dark:border-zinc-800 bg-card flex flex-col h-full transition-all duration-300 overflow-hidden shrink-0",
+          isRightPanelOpen ? "w-80 opacity-100" : "w-0 opacity-0 border-l-0"
+        )}>
+          <div className="p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">Cambios</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {hasPendingChanges && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={handleDiscardChanges}
+                  className="h-7 text-[10px] uppercase font-bold text-muted-foreground hover:text-destructive hover:bg-destructive/10 px-2 flex items-center gap-1"
+                  title="Restablecer todos los cambios locales"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Restablecer a Original
+                </Button>
+              )}
+              <button
+                onClick={() => setIsRightPanelOpen(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors rounded-full p-1 hover:bg-muted"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* INSPECTOR DE PRODUCTO SELECCIONADO (Sticky under Header) */}
+          <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 bg-muted/5 shrink-0">
+            <h4 className="font-bold text-[10px] text-primary uppercase tracking-wider mb-2 flex items-center gap-1">
+              <Package className="h-3 w-3" />
+              Producto Seleccionado
+            </h4>
+            
+            {loadingInspection ? (
+              <div className="flex items-center justify-center py-6 gap-2 text-xs text-muted-foreground border rounded bg-card">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Cargando detalles...
+              </div>
+            ) : inspectedProduct ? (
+              <div 
+                draggable="true"
+                onDragStart={(e) => handleDragStart(e, inspectedProduct.id, inspectedProduct.sku_base)}
+                onDragEnd={handleDragEnd}
+                className="w-full aspect-[4/3] rounded-lg border border-zinc-200 dark:border-zinc-800 relative overflow-hidden group cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all duration-200 bg-zinc-950"
+              >
+                {/* Imagen de Fondo */}
+                {inspectedProduct.imagen_principal ? (
+                  <img
+                    src={inspectedProduct.imagen_principal}
+                    alt={inspectedProduct.sku_base}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2">
+                    <Package className="h-10 w-10 opacity-30 animate-pulse" />
+                    <span className="text-[10px] uppercase font-mono tracking-wider opacity-50">Sin Imagen</span>
+                  </div>
+                )}
+
+                {/* Gradiente oscuro superior e inferior para mejorar contraste */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/40 pointer-events-none" />
+
+                {/* Botón de Cerrar (Top Right) */}
+                <button
+                  onClick={() => setInspectedProduct(null)}
+                  className="absolute top-3 right-3 bg-black/60 hover:bg-black/90 text-white rounded-full p-1.5 transition-colors z-20 backdrop-blur-xs shadow-md border border-white/10"
+                  title="Cerrar vista previa"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+
+                {/* Contenido en Overlay (Top Left) */}
+                <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start max-w-[85%] z-10 pointer-events-none">
+                  {/* Badge de SKU */}
+                  <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded px-2.5 py-1 shadow-md">
+                    <span className="font-mono text-xs font-bold text-white tracking-wider select-all pointer-events-auto">
+                      {inspectedProduct.sku_base}
+                    </span>
                   </div>
 
-                  <ScrollArea className="h-[250px] border rounded-lg p-2 bg-muted/10">
-                    {totalDestCount === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-center">
-                        <HelpCircle className="h-8 w-8 opacity-40 mb-2" />
-                        <p className="text-xs italic">
-                          Selecciona un destino y mueve productos para previsualizarlos aquí.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {/* Mostrar los productos que ya estaban originalmente */}
-                        {destProducts.original.map(p => (
-                          <div key={p.id} className="flex items-center justify-between p-1.5 rounded bg-card border text-xs">
-                            <span className="font-mono font-medium truncate pr-2">{p.sku_base}</span>
-                            <span className="text-[10px] text-muted-foreground shrink-0">Original</span>
-                          </div>
-                        ))}
-                        
-                        {/* Mostrar los productos movidos localmente en borrador (resaltados) */}
-                        {destProducts.staged.map(p => (
-                          <div
-                            key={p.id}
-                            className="flex items-center justify-between p-1.5 rounded bg-amber-500/10 border border-amber-500/40 text-xs text-amber-900 dark:text-amber-300 font-semibold animate-pulse"
-                          >
-                            <span className="font-mono truncate pr-2">{p.sku_base}</span>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] bg-amber-500/20 px-1 py-0.5 rounded text-amber-800 dark:text-amber-300 font-mono text-[9px]">
-                                Borrador
-                              </span>
-                              <button
-                                onClick={() => handleCancelStagedMove(p.id)}
-                                className="text-amber-600 hover:text-red-500 transition-colors p-0.5"
-                                title="Cancelar reubicación"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </ScrollArea>
+                  {/* Detalle / Descripción */}
+                  {inspectedProduct.descripcion && (
+                    <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded p-2.5 shadow-md">
+                      <p className="text-[10px] text-white leading-normal font-medium tracking-wide uppercase select-text pointer-events-auto max-h-[80px] overflow-y-auto pr-1">
+                        {inspectedProduct.descripcion}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </CardContent>
+
+                {/* Botón de Acción (Bottom Right) */}
+                <div className="absolute bottom-3 right-3 z-10">
+                  <Button
+                    size="xs"
+                    className={cn(
+                      "h-8 px-4 font-semibold text-xs rounded shadow-md border backdrop-blur-xs transition-all duration-150",
+                      selectedProductIds[inspectedProduct.id]
+                        ? "bg-amber-600/90 hover:bg-amber-600 text-white border-amber-500/25"
+                        : "bg-black/85 hover:bg-black text-white border-zinc-800/80"
+                    )}
+                    onClick={() => toggleSelectProduct(inspectedProduct.id)}
+                  >
+                    {selectedProductIds[inspectedProduct.id] ? 'Deseleccionar' : 'Seleccionar'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-[11px] text-muted-foreground italic border border-dashed rounded border-zinc-200 dark:border-zinc-800 bg-muted/10">
+                Haz clic en un SKU para ver su imagen e info
+              </div>
             )}
-          </Card>
-        </div>
+          </div>
+
+          <ScrollArea className="flex-1 p-3">
+            <div className="space-y-4">
+              {/* Cambios de Renombrar */}
+              {(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
+                <div className="space-y-1.5">
+                  <h4 className="font-bold text-[10px] text-primary uppercase tracking-wider">
+                    Renombrar Familias ({Object.keys(stagedRenames).length + Object.keys(autoRenames).length})
+                  </h4>
+                  <div className="space-y-1">
+                    {Object.entries(stagedRenames).map(([oldName, newName]) => (
+                      <div key={oldName} className="flex flex-col gap-1 text-[11px] font-mono bg-muted/25 border p-2 rounded">
+                        <span className="text-muted-foreground line-through text-[10px]">{oldName}</span>
+                        <div className="flex items-center gap-1 text-foreground font-semibold">
+                          <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+                          <span>{newName}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {Object.entries(autoRenames).map(([oldName, newName]) => (
+                      <div key={oldName} className="flex flex-col gap-1 text-[11px] font-mono bg-amber-500/[0.02] border border-amber-500/20 p-2 rounded">
+                        <span className="text-muted-foreground line-through text-[10px]">{oldName}</span>
+                        <div className="flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
+                          <ArrowRight className="h-3 w-3 text-amber-500 shrink-0" />
+                          <span>{newName}</span>
+                        </div>
+                        <span className="text-[9px] text-amber-600 font-sans italic">Auto Sufijo</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Auditoría de Movimientos */}
+              {Object.keys(stagedMoves).length > 0 ? (
+                <div className="space-y-1.5">
+                  <h4 className="font-bold text-[10px] text-primary uppercase tracking-wider">
+                    Auditoría de Movimientos ({Object.keys(stagedMoves).length})
+                  </h4>
+                  <div className="space-y-1.5">
+                    {Object.entries(stagedMoves).map(([prodIdStr, destFamily]) => {
+                      const prodId = parseInt(prodIdStr, 10)
+                      const finalDest = getFinalFamilyName(destFamily, autoRenames)
+
+                      // Encontrar nombre SKU
+                      let sku = `ID #${prodId}`
+                      for (const prods of Object.values(loadedProducts)) {
+                        const found = prods.find(p => p.id === prodId)
+                        if (found) { sku = found.sku_base; break }
+                      }
+
+                      // Encontrar familia de origen
+                      let originFamily = 'Sin Clasificar'
+                      for (const f of familias) {
+                        if (f.skus?.some(s => s.id === prodId)) {
+                          originFamily = f.familia === 'F000-000C' ? 'Sin Asignar' : (f.familia || 'Sin Clasificar')
+                          break
+                        }
+                      }
+
+                      return (
+                        <div key={prodIdStr} className="bg-card border border-zinc-200 dark:border-zinc-800 rounded p-2.5 text-[11px]">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-mono font-bold text-primary tracking-wide">{sku}</span>
+                            <button
+                              onClick={() => handleCancelStagedMove(prodId)}
+                              className="text-muted-foreground hover:text-destructive transition-colors p-0.5 rounded hover:bg-destructive/10"
+                              title="Cancelar este movimiento"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <div className="text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                            <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] border border-muted-foreground/10">{originFamily}</span>
+                            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                            <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] font-semibold border border-primary/20">{finalDest}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                !(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
+                  <div className="text-center py-12 text-xs text-muted-foreground italic">
+                    No hay cambios locales en borrador.
+                  </div>
+                )
+              )}
+            </div>
+          </ScrollArea>
+
+          {hasPendingChanges && (
+            <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-muted/20 space-y-2 shrink-0">
+              <Button
+                onClick={() => setIsConfirmModalOpen(true)}
+                disabled={isPending}
+                className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-semibold flex items-center justify-center gap-1.5 h-9 text-xs"
+              >
+                <Save className="h-4 w-4" />
+                Confirmar Cambios
+              </Button>
+            </div>
+          )}
+        </aside>
       </div>
+
+      {/* ── DIALOG DE CREACIÓN DE FAMILIA INTERMEDIA ───────────────────── */}
+      <Dialog open={isCreateIntermediateDialogOpen} onOpenChange={setIsCreateIntermediateDialogOpen}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Crear Nueva Familia Intermedia
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            <p className="text-muted-foreground leading-normal">
+              Se creará una familia intermedia a partir de la familia de referencia <span className="font-mono font-bold text-foreground">"{refFamilyName}"</span>.
+            </p>
+
+            <div className="space-y-2 p-3 bg-muted/20 border border-dashed rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Código sugerido:</span>
+                <button
+                  type="button"
+                  onClick={() => setNewFamilyInput(getIntermediateCodeSuggestion(refFamilyName))}
+                  className="font-mono font-bold text-primary hover:underline text-xs"
+                  title="Restablecer código sugerido"
+                >
+                  {getIntermediateCodeSuggestion(refFamilyName)}
+                </button>
+              </div>
+
+              {suggestedKeywords.length > 0 && (
+                <div className="space-y-1 border-t pt-2 mt-2">
+                  <span className="text-[10px] text-muted-foreground block font-medium">
+                    Palabras clave de la familia anterior:
+                  </span>
+                  <div className="flex flex-wrap gap-1 max-h-[80px] overflow-y-auto pt-1">
+                    {suggestedKeywords.map(kw => (
+                      <button
+                        key={kw}
+                        type="button"
+                        onClick={() => {
+                          const current = newFamilyInput.trim()
+                          if (!current.includes(kw)) {
+                            setNewFamilyInput(current ? `${current} ${kw}` : kw)
+                          }
+                        }}
+                        className="text-[9px] bg-primary/5 hover:bg-primary/20 border border-primary/20 text-primary rounded px-1.5 py-0.5 font-medium transition-colors"
+                      >
+                        {kw}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-foreground">Nombre / Código de la familia:</label>
+              <Input
+                placeholder="Ej. F324-005A o Abrigos Premium"
+                value={newFamilyInput}
+                onChange={(e) => setNewFamilyInput(e.target.value)}
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsCreateIntermediateDialogOpen(false)
+                setSelectedProductIds({})
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConfirmCreateIntermediate}
+              className="bg-primary text-primary-foreground font-semibold"
+            >
+              Crear y Reubicar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── MODAL DE CONFIRMACIÓN DE CAMBIOS (Dialog) ──────────────────── */}
       <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
@@ -1498,12 +2267,12 @@ export function FamiliasOrganizerClient({
           </DialogHeader>
           
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground leading-normal">
               Se realizarán los siguientes cambios en la base de datos de Supabase. Por favor, revísalos con cuidado antes de confirmar:
             </p>
 
             <ScrollArea className="max-h-[300px] border rounded-lg p-3 bg-muted/20">
-              <div className="space-y-4 text-sm">
+              <div className="space-y-4 text-xs">
                 {/* Mostrar renombrados */}
                 {(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
                   <div className="space-y-1.5">
@@ -1540,13 +2309,11 @@ export function FamiliasOrganizerClient({
                       Reubicar Productos ({Object.keys(stagedMoves).length})
                     </h4>
                     <div className="space-y-1.5">
-                      {/* Agrupar por destino para mostrar bonito */}
                       {Object.entries(
                         Object.entries(stagedMoves).reduce((acc, [prodIdStr, destFamily]) => {
                           const finalDest = getFinalFamilyName(destFamily, autoRenames)
                           if (!acc[finalDest]) acc[finalDest] = []
                           const prodId = parseInt(prodIdStr, 10)
-                          // Buscar el SKU del producto
                           let sku = `ID #${prodId}`
                           for (const prods of Object.values(loadedProducts)) {
                             const found = prods.find(p => p.id === prodId)
@@ -1612,7 +2379,7 @@ export function FamiliasOrganizerClient({
           </DialogHeader>
           
           <div className="space-y-4 py-2 text-sm">
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground leading-normal">
               Estás renombrando la familia <span className="font-mono font-bold text-foreground">"{renameTarget}"</span>. 
               Esto afectará localmente a todos los productos agrupados bajo este código en la bandeja de trabajo.
             </p>

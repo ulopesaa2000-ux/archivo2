@@ -1064,6 +1064,12 @@ export type Database = {
           puerto_destino: string | null
           puerto_origen: string | null
           updated_at: string | null
+          fecha_llegada_real: string | null
+          costo_flete_maritimo: number | null
+          costo_desaduanamiento: number | null
+          comentarios: string | null
+          pago_flete_detalles: string | null
+          documentos_checklist: Json | null
         }
         Insert: {
           buque?: string | null
@@ -1082,6 +1088,12 @@ export type Database = {
           puerto_destino?: string | null
           puerto_origen?: string | null
           updated_at?: string | null
+          fecha_llegada_real?: string | null
+          costo_flete_maritimo?: number | null
+          costo_desaduanamiento?: number | null
+          comentarios?: string | null
+          pago_flete_detalles?: string | null
+          documentos_checklist?: Json | null
         }
         Update: {
           buque?: string | null
@@ -1100,6 +1112,12 @@ export type Database = {
           puerto_destino?: string | null
           puerto_origen?: string | null
           updated_at?: string | null
+          fecha_llegada_real?: string | null
+          costo_flete_maritimo?: number | null
+          costo_desaduanamiento?: number | null
+          comentarios?: string | null
+          pago_flete_detalles?: string | null
+          documentos_checklist?: Json | null
         }
         Relationships: []
       }

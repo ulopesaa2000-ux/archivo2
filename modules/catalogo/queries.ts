@@ -656,20 +656,26 @@ export async function fetchPuntosMedida() {
 // FAMILIAS
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface FamiliaResumenSku {
+  id: number
+  sku_base: string
+  descripcion: string | null
+}
+
 export interface FamiliaResumen {
   familia: string | null
   total_productos: number
   es_codigo_raw: boolean
   descripcion: string | null
-  skus?: string[]
+  skus?: FamiliaResumenSku[]
 }
 
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
 
-  // Obtenemos familia, descripcion y sku_base para realizar la agrupación y mapeo en JS (solo activos)
+  // Obtenemos id, familia, descripcion y sku_base para realizar la agrupación y mapeo en JS (solo activos)
   const { data, error } = await (supabase.from('productos') as any)
-    .select('familia, descripcion, sku_base')
+    .select('id, familia, descripcion, sku_base')
     .eq('activo', true)
 
   if (error) {
@@ -679,7 +685,7 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
 
   const conteos: Record<string, number> = {}
   const descripciones: Record<string, string | null> = {}
-  const skusPorFamilia: Record<string, string[]> = {}
+  const skusPorFamilia: Record<string, FamiliaResumenSku[]> = {}
   let countNull = 0
 
   for (const p of data || []) {
@@ -692,7 +698,11 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
         skusPorFamilia[p.familia] = []
       }
       if (p.sku_base) {
-        skusPorFamilia[p.familia].push(p.sku_base)
+        skusPorFamilia[p.familia].push({
+          id: p.id,
+          sku_base: p.sku_base,
+          descripcion: p.descripcion || null
+        })
       }
     } else {
       countNull++
@@ -717,7 +727,13 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
       total_productos: countNull,
       es_codigo_raw: false,
       descripcion: 'Productos sin familia asignada',
-      skus: (data || []).filter((p: any) => !p.familia && p.sku_base).map((p: any) => p.sku_base),
+      skus: (data || [])
+        .filter((p: any) => !p.familia && p.sku_base)
+        .map((p: any) => ({
+          id: p.id,
+          sku_base: p.sku_base,
+          descripcion: p.descripcion || null
+        })),
     })
   }
 

@@ -100,3 +100,18 @@ export type CajaEnContenedor = SharedCajaData & {
   ordenId: number
   ordenFolio: string | null
 }
+
+export type ContenedorReporteItem = {
+  proveedor_id: number
+  proveedor_nombre: string
+  anios: Record<number, {
+    cantidad: number
+    contenedores: {
+      id: number
+      codigo_contenedor: string
+      numero_contenedor: string | null
+      estado: string
+      fecha_eta: string | null
+    }[]
+  }>
+}

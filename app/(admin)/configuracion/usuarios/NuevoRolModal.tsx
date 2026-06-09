@@ -27,7 +27,7 @@ import type { ModuloPermiso } from '@/modules/config/types'
 import { toast } from 'sonner'
 
 const AREAS: { id: string; label: string; modules: ModuloPermiso[] }[] = [
-  { id: 'catalogo', label: 'Catalogo', modules: ['catalogo_productos', 'catalogo_catalogos', 'catalogo_imagenes'] },
+  { id: 'catalogo', label: 'Catalogo', modules: ['catalogo_productos', 'catalogo_catalogos', 'catalogo_imagenes', 'catalogo_familias'] },
   { id: 'inventario', label: 'Inventario', modules: ['inventario_stock', 'inventario_notas', 'inventario_bodegas', 'inventario_virtual'] },
   { id: 'b2b', label: 'Ordenes B2B', modules: ['b2b_ordenes', 'b2b_cajas', 'b2b_contenedores', 'despachos'] },
   { id: 'ecommerce', label: 'Ecommerce', modules: ['ecommerce_catalogo', 'ecommerce_ordenes', 'ecommerce_config'] },
