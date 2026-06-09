@@ -2,7 +2,7 @@
 'use client'
 
 import { Fragment, useState, useRef, useCallback } from 'react'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import {
   Upload,
   ChevronRight,
@@ -197,7 +197,7 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
 
   // ── Descargar Plantilla Excel de Dos Hojas ─────────────────────────
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     // Hoja 1: Cajas de Producto
     const cajasData = [
       {
@@ -302,20 +302,33 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
       nombre: c.nombre,
     }))
 
-    const wb = XLSX.utils.book_new()
-    const wsCajas = XLSX.utils.json_to_sheet(cajasData)
-    const wsDetalles = XLSX.utils.json_to_sheet(detallesData)
-    const wsInstrucciones = XLSX.utils.json_to_sheet(instruccionesData)
-    const wsTallas = XLSX.utils.json_to_sheet(tallasData)
-    const wsColores = XLSX.utils.json_to_sheet(coloresData)
+    const workbook = new ExcelJS.Workbook()
+    
+    const addSheetWithData = (name: string, data: any[]) => {
+      const sheet = workbook.addWorksheet(name)
+      if (data.length > 0) {
+        const keys = Object.keys(data[0])
+        sheet.columns = keys.map(key => ({ header: key, key }))
+        sheet.addRows(data)
+      }
+    }
 
-    XLSX.utils.book_append_sheet(wb, wsCajas, 'Cajas')
-    XLSX.utils.book_append_sheet(wb, wsDetalles, 'Detalles')
-    XLSX.utils.book_append_sheet(wb, wsInstrucciones, 'Guia')
-    XLSX.utils.book_append_sheet(wb, wsTallas, 'Tallas')
-    XLSX.utils.book_append_sheet(wb, wsColores, 'Colores')
+    addSheetWithData('Cajas', cajasData)
+    addSheetWithData('Detalles', detallesData)
+    addSheetWithData('Guia', instruccionesData)
+    addSheetWithData('Tallas', tallasData)
+    addSheetWithData('Colores', coloresData)
 
-    XLSX.writeFile(wb, 'plantilla_cajas_y_detalles.xlsx')
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'plantilla_cajas_y_detalles.xlsx'
+    anchor.click()
+    window.URL.revokeObjectURL(url)
   }
 
   // ── Parsear Archivo Excel ──────────────────────────────────────────
@@ -337,12 +350,50 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
           const ab = evt.target?.result
           if (!ab) throw new Error('No se pudo leer el archivo')
 
-          const workbook = XLSX.read(ab, { type: 'array' })
+          const workbook = new ExcelJS.Workbook()
+          await workbook.xlsx.load(ab as ArrayBuffer)
 
           // Leer Hoja 1: Cajas
-          const sheetCajasName = workbook.SheetNames.find(n => n.toLowerCase() === 'cajas') || workbook.SheetNames[0]
-          const sheetCajas = workbook.Sheets[sheetCajasName]
-          const cajasRows = toPlainData(XLSX.utils.sheet_to_json<ExcelCajaRow>(sheetCajas))
+          const sheetCajas = workbook.worksheets.find(w => w.name.toLowerCase() === 'cajas') || workbook.worksheets[0]
+          if (!sheetCajas) {
+            throw new Error('No se encontró ninguna pestaña en el archivo')
+          }
+
+          // Helper para convertir worksheet de exceljs a JSON (array de objetos)
+          function sheetToJson<T>(sheet: ExcelJS.Worksheet): T[] {
+            const result: T[] = []
+            const headers: string[] = []
+            sheet.eachRow((row, rowNumber) => {
+              if (rowNumber === 1) {
+                // Leer encabezados
+                row.eachCell((cell, colNumber) => {
+                  headers[colNumber] = cell.text ? String(cell.text).trim() : ''
+                })
+              } else {
+                const rowObj: any = {}
+                row.eachCell((cell, colNumber) => {
+                  const header = headers[colNumber]
+                  if (header) {
+                    let val = cell.value
+                    if (val !== null && typeof val === 'object') {
+                      if ('result' in val) {
+                        val = (val as any).result
+                      } else if ('text' in val) {
+                        val = (val as any).text
+                      }
+                    }
+                    rowObj[header] = val
+                  }
+                })
+                if (Object.keys(rowObj).length > 0) {
+                  result.push(rowObj as T)
+                }
+              }
+            })
+            return result
+          }
+
+          const cajasRows = toPlainData(sheetToJson<ExcelCajaRow>(sheetCajas))
 
           if (cajasRows.length === 0) {
             throw new Error('La pestaña "Cajas" está vacía o falta')
@@ -355,10 +406,9 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
           }
 
           // Leer Hoja 2: Detalles
-          const sheetDetallesName = workbook.SheetNames.find(n => n.toLowerCase() === 'detalles') || workbook.SheetNames[1]
-          const sheetDetalles = sheetDetallesName ? workbook.Sheets[sheetDetallesName] : null
+          const sheetDetalles = workbook.worksheets.find(w => w.name.toLowerCase() === 'detalles') || workbook.worksheets[1]
           const detallesRows = sheetDetalles
-            ? toPlainData(XLSX.utils.sheet_to_json<ExcelDetalleRow>(sheetDetalles))
+            ? toPlainData(sheetToJson<ExcelDetalleRow>(sheetDetalles))
             : []
 
           const safeCajasRows = toPlainData(validCajasRows)
@@ -495,7 +545,7 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
                 </p>
                 <div className="grid md:grid-cols-2 gap-4 text-xs mt-2">
                   <div className="border bg-background p-3 rounded-md space-y-1">
-                    <span className="font-semibold text-primary">Pestaña 1: "Cajas"</span>
+                    <span className="font-semibold text-primary">Pestaña 1: &quot;Cajas&quot;</span>
                     <p className="text-muted-foreground">Registra el empaque. Columnas:</p>
                     <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
                       <li><strong className="text-foreground">codigo_caja</strong> (único, ej: CJ-K24-AZUL)</li>
@@ -505,7 +555,7 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
                     </ul>
                   </div>
                   <div className="border bg-background p-3 rounded-md space-y-1">
-                    <span className="font-semibold text-primary">Pestaña 2: "Detalles"</span>
+                    <span className="font-semibold text-primary">Pestaña 2: &quot;Detalles&quot;</span>
                     <p className="text-muted-foreground">Desglose de piezas. Columnas:</p>
                     <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
                       <li><strong className="text-foreground">codigo_caja</strong> (conecta a la pestaña Cajas)</li>
@@ -751,7 +801,7 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
                                         Desglose de Piezas ({item.detalles.length} desgloses):
                                       </h4>
                                       {item.detalles.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground italic">No se definieron detalles para esta caja en la hoja "Detalles".</p>
+                                        <p className="text-xs text-muted-foreground italic">No se definieron detalles para esta caja en la hoja &quot;Detalles&quot;.</p>
                                       ) : (
                                         <div className="border rounded overflow-hidden bg-background max-w-2xl">
                                           <Table>
@@ -836,7 +886,7 @@ export function ImportCajasModal({ open, onOpenChange, catalogoCajas }: Props) {
               <div className="text-center space-y-2">
                 <h3 className="text-xl font-bold tracking-tight">Confirmar Importación</h3>
                 <p className="text-sm text-muted-foreground max-w-md">
-                  Se guardarán los cambios en la base de datos de manera definitiva. Para las cajas en "Actualizar", se eliminarán sus desgloses anteriores y se guardarán los definidos en este archivo.
+                  Se guardarán los cambios en la base de datos de manera definitiva. Para las cajas en &quot;Actualizar&quot;, se eliminarán sus desgloses anteriores y se guardarán los definidos en este archivo.
                 </p>
               </div>
 

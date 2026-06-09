@@ -63,12 +63,50 @@ export function ImportStepUpload({ bodegas, bodegaActivaId, onFileParsed }: Prop
           },
         })
       } else if (ext === 'xlsx' || ext === 'xls') {
-        const XLSX = await import('xlsx')
+        const ExcelJS = (await import('exceljs')).default
         const arrayBuffer = await file.arrayBuffer()
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-        const sheetName = workbook.SheetNames[0]
-        const sheet = workbook.Sheets[sheetName]
-        const json = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' })
+        const workbook = new ExcelJS.Workbook()
+        await workbook.xlsx.load(arrayBuffer)
+        const sheet = workbook.worksheets[0]
+        if (!sheet) {
+          setParseError('No se encontró ninguna pestaña en el archivo Excel.')
+          return
+        }
+
+        const json: Record<string, string>[] = []
+        const headers: string[] = []
+        sheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) {
+            row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+              headers[colNumber] = cell.text ? String(cell.text).trim() : ''
+            })
+          } else {
+            const rowObj: Record<string, string> = {}
+            let hasValue = false
+            for (let i = 1; i < headers.length; i++) {
+              const header = headers[i]
+              if (!header) continue
+              const cell = row.getCell(i)
+              let val = cell.value
+              if (val !== null && typeof val === 'object') {
+                if ('result' in val) {
+                  val = (val as any).result
+                } else if ('text' in val) {
+                  val = (val as any).text
+                }
+              }
+              const stringVal = val !== null && val !== undefined ? String(val).trim() : ''
+              rowObj[header] = stringVal
+              if (stringVal !== '') {
+                hasValue = true
+              }
+            }
+            if (hasValue) {
+              json.push(rowObj)
+            }
+          }
+        })
+
         if (json.length === 0) {
           setParseError('La hoja de cálculo está vacía.')
           return

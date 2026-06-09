@@ -12,7 +12,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Download, Loader2, FileSpreadsheet } from 'lucide-react'
 import { fetchContenedoresDetalleAnual } from '@/modules/contenedores/queries'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 
 const YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026] as const
@@ -68,20 +68,35 @@ export function ExcelExportDialog() {
       })
 
       // Generar libro de trabajo y descargar
-      const worksheet = XLSX.utils.json_to_sheet(rows)
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, `Contenedores ${selectedYear}`)
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet(`Contenedores ${selectedYear}`)
 
-      // Ajustar anchos de columnas automáticamente
-      const maxLens = Object.keys(rows[0]).map((key) => {
-        return Math.max(
-          key.length,
-          ...rows.map((row: any) => String(row[key] ?? '').length)
-        )
+      if (rows.length > 0) {
+        const keys = Object.keys(rows[0])
+        worksheet.columns = keys.map((key) => {
+          const maxLen = Math.max(
+            key.length,
+            ...rows.map((row: any) => String(row[key] ?? '').length)
+          )
+          return {
+            header: key,
+            key: key,
+            width: maxLen + 2,
+          }
+        })
+        worksheet.addRows(rows)
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       })
-      worksheet['!cols'] = maxLens.map((w) => ({ wch: w + 2 }))
-
-      XLSX.writeFile(workbook, `Reporte_Contenedores_${selectedYear}.xlsx`)
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `Reporte_Contenedores_${selectedYear}.xlsx`
+      anchor.click()
+      window.URL.revokeObjectURL(url)
       toast.success(`Reporte del año ${selectedYear} exportado exitosamente.`)
       setOpen(false)
     } catch (err) {
