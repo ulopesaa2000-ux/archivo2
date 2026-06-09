@@ -4,7 +4,7 @@ import { fetchResumenFamilias } from '@/modules/catalogo/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import { can } from '@/lib/auth/permissions'
-import { FamiliasOrganizerClient } from './FamiliasOrganizerClient'
+import { FamiliasOrganizerClient } from '@/app/(admin)/catalogo/familias/FamiliasOrganizerClient'
 
 export const metadata: Metadata = {
   title: 'Organizador de Familias',
@@ -29,18 +29,9 @@ export default async function FamiliasPage() {
   const puedeEditar = can(user, 'catalogo_productos', 'puede_editar')
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Organizador de Familias</h1>
-        <p className="text-sm text-muted-foreground">
-          Agrupa y clasifica productos por familias. Usa la bandeja de trabajo para reacomodar productos en lotes.
-        </p>
-      </div>
-
-      <FamiliasOrganizerClient
-        initialFamilias={familias}
-        puedeEditar={puedeEditar}
-      />
-    </div>
+    <FamiliasOrganizerClient
+      initialFamilias={familias}
+      puedeEditar={puedeEditar}
+    />
   )
 }

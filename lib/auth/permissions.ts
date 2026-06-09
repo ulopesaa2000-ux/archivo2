@@ -14,6 +14,7 @@ export const PERMISSION_MODULES = [
   'catalogo_productos',
   'catalogo_catalogos',
   'catalogo_imagenes',
+  'catalogo_familias',
   'inventario_stock',
   'inventario_notas',
   'inventario_bodegas',
@@ -44,6 +45,7 @@ export const MODULE_LABELS: Record<PermissionModule, { label: string; grupo: str
   catalogo_productos: { label: 'Catalogo Productos', grupo: 'Catalogo' },
   catalogo_catalogos: { label: 'Catalogos Soporte', grupo: 'Catalogo' },
   catalogo_imagenes: { label: 'Imagenes', grupo: 'Catalogo' },
+  catalogo_familias: { label: 'Familias de Productos', grupo: 'Catalogo' },
   inventario_stock: { label: 'Stock', grupo: 'Inventario' },
   inventario_notas: { label: 'Notas', grupo: 'Inventario' },
   inventario_bodegas: { label: 'Bodegas', grupo: 'Inventario' },
@@ -64,6 +66,7 @@ export const MODULE_LABELS: Record<PermissionModule, { label: string; grupo: str
 export const ROUTE_PERMISSION_MAP = [
   { prefix: '/catalogo/catalogos', modulo: 'catalogo_catalogos' },
   { prefix: '/catalogo/imagenes', modulo: 'catalogo_imagenes' },
+  { prefix: '/catalogo/familias', modulo: 'catalogo_familias' },
   { prefix: '/catalogo', modulo: 'catalogo_productos' },
   { prefix: '/inventario/stock', modulo: 'inventario_stock' },
   { prefix: '/inventario/notas', modulo: 'inventario_notas' },

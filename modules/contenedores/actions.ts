@@ -192,6 +192,12 @@ export async function crearContenedorAction(
       peso_total_kg: parseFloat(formData.get('peso_total_kg') as string) || null,
       cbm_total: parseFloat(formData.get('cbm_total') as string) || null,
       estado: 'borrador',
+      fecha_llegada_real: (formData.get('fecha_llegada_real') as string) || null,
+      costo_flete_maritimo: parseFloat(formData.get('costo_flete_maritimo') as string) || null,
+      costo_desaduanamiento: parseFloat(formData.get('costo_desaduanamiento') as string) || null,
+      comentarios: (formData.get('comentarios') as string)?.trim() || null,
+      pago_flete_detalles: (formData.get('pago_flete_detalles') as string)?.trim() || null,
+      documentos_checklist: formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {},
     })
     .select('id')
     .single()
@@ -231,6 +237,12 @@ export async function actualizarContenedorAction(
       fecha_eta: (formData.get('fecha_eta') as string) || null,
       peso_total_kg: parseFloat(formData.get('peso_total_kg') as string) || null,
       cbm_total: parseFloat(formData.get('cbm_total') as string) || null,
+      fecha_llegada_real: (formData.get('fecha_llegada_real') as string) || null,
+      costo_flete_maritimo: parseFloat(formData.get('costo_flete_maritimo') as string) || null,
+      costo_desaduanamiento: parseFloat(formData.get('costo_desaduanamiento') as string) || null,
+      comentarios: (formData.get('comentarios') as string)?.trim() || null,
+      pago_flete_detalles: (formData.get('pago_flete_detalles') as string)?.trim() || null,
+      documentos_checklist: formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {},
     })
     .eq('id', id)
 

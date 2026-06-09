@@ -21,6 +21,7 @@ import {
   Ship,
   ShoppingBag,
   ShoppingCart,
+  Sparkles,
   SwatchBook,
   Truck,
   Users,
@@ -56,7 +57,7 @@ const GROUPS: NavGroup[] = [
     icon: Package,
     items: [
       { label: 'Productos', href: ADMIN_ROUTES.catalogo.lista, icon: Package, modulo: 'catalogo_productos' },
-      { label: 'Familias', href: ADMIN_ROUTES.catalogo.familias, icon: SwatchBook, modulo: 'catalogo_productos' },
+      { label: 'Familias', href: ADMIN_ROUTES.catalogo.familias, icon: SwatchBook, modulo: 'catalogo_familias' },
       { label: 'Catalogos Soporte', href: ADMIN_ROUTES.catalogo.catalogos, icon: SwatchBook, modulo: 'catalogo_catalogos' },
       { label: 'Imagenes', href: ADMIN_ROUTES.catalogo.imagenes, icon: ImageIcon, modulo: 'catalogo_imagenes' },
     ],
@@ -75,6 +76,7 @@ const GROUPS: NavGroup[] = [
     icon: ShoppingCart,
     items: [
       { label: 'Ordenes', href: ADMIN_ROUTES.ordenesB2B.lista, icon: ShoppingCart, modulo: 'b2b_ordenes' },
+      { label: 'Orden Rápida', href: '/ordenes-b2b/orden-rapida', icon: Sparkles, modulo: 'b2b_ordenes' },
       { label: 'Cajas', href: ADMIN_ROUTES.ordenesB2B.cajas, icon: LayoutGrid, modulo: 'b2b_cajas' },
     ],
   },

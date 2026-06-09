@@ -6,7 +6,7 @@ import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosContenedores, ContenedorResumen,
   ContenedorPackingItem, OrdenEnContenedor, ContenedorSortBy,
-  OrdenDisponible, CajaEnContenedor,
+  OrdenDisponible, CajaEnContenedor, ContenedorReporteItem,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
 import { getCurrentUser } from '@/modules/auth/queries'
@@ -399,3 +399,192 @@ export async function fetchCajasDeContenedor(
     }
   })
 }
+
+export async function fetchContenedoresReporteAnual(): Promise<ContenedorReporteItem[]> {
+  const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
+
+  let query: any = supabase
+    .from('ordenes_b2b')
+    .select(`
+      contenedor_id,
+      proveedor_id,
+      proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo),
+      contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+        id, codigo_contenedor, numero_contenedor, estado, fecha_eta
+      )
+    `)
+    .not('contenedor_id', 'is', null)
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
+    query = query.or(orderFilter)
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchContenedoresReporteAnual:', error)
+    return []
+  }
+
+  const map = new Map<number, { proveedor_nombre: string; contenedoresMap: Map<number, any> }>()
+
+  for (const o of data) {
+    const provId = o.proveedor_id
+    if (!provId) continue
+    const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+    const cont = Array.isArray(o.contenedor) ? o.contenedor[0] : o.contenedor
+    if (!cont) continue
+
+    if (!map.has(provId)) {
+      map.set(provId, {
+        proveedor_nombre: prov?.nombre_completo ?? 'Proveedor Desconocido',
+        contenedoresMap: new Map()
+      })
+    }
+
+    const supplierInfo = map.get(provId)!
+    if (!supplierInfo.contenedoresMap.has(cont.id)) {
+      supplierInfo.contenedoresMap.set(cont.id, cont)
+    }
+  }
+
+  const result: ContenedorReporteItem[] = []
+
+  for (const [provId, info] of map.entries()) {
+    const anios: Record<number, { cantidad: number; contenedores: any[] }> = {}
+
+    for (const cont of info.contenedoresMap.values()) {
+      const dateStr = cont.fecha_eta
+      const year = dateStr ? new Date(dateStr).getFullYear() : new Date().getFullYear()
+
+      if (!anios[year]) {
+        anios[year] = { cantidad: 0, contenedores: [] }
+      }
+
+      anios[year].cantidad++
+      anios[year].contenedores.push({
+        id: cont.id,
+        codigo_contenedor: cont.codigo_contenedor,
+        numero_contenedor: cont.numero_contenedor,
+        estado: cont.estado,
+        fecha_eta: cont.fecha_eta
+      })
+    }
+
+    result.push({
+      proveedor_id: provId,
+      proveedor_nombre: info.proveedor_nombre,
+      anios
+    })
+  }
+
+  return result.sort((a, b) => a.proveedor_nombre.localeCompare(b.proveedor_nombre))
+}
+
+export async function fetchContenedoresDetalleAnual(
+  anio: number
+): Promise<any[]> {
+  const supabase = await createClient()
+  const currentUser = await getCurrentUser()
+  const scope = await getCommercialScope(supabase, currentUser)
+
+  // 1. Obtener contenedores del año
+  const { data: contenedores, error } = await supabase
+    .from('contenedores')
+    .select('*')
+    .gte('fecha_eta', `${anio}-01-01`)
+    .lt('fecha_eta', `${anio + 1}-01-01`)
+    .order('fecha_eta', { ascending: false })
+
+  if (error || !contenedores) {
+    console.error('Error fetchContenedoresDetalleAnual:', error)
+    return []
+  }
+
+  const contIds = contenedores.map((c) => c.id)
+  if (contIds.length === 0) return []
+
+  // 2. Obtener órdenes asociadas
+  let query: any = supabase
+    .from('ordenes_b2b')
+    .select(`
+      id, folio_proveedor, estado, total_cajas, total_piezas, cbm_orden, contenedor_id,
+      proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
+    `)
+    .in('contenedor_id', contIds)
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') {
+      // Retornar contenedores vacíos si no hay acceso a órdenes
+      return contenedores.map((c) => ({
+        ...c,
+        proveedores_nombres: 'Sin acceso',
+        folios_ordenes: '',
+        cajas_totales: 0,
+        piezas_totales: 0,
+        cbm_ocupado: 0,
+        ordenes: [],
+      }))
+    }
+    query = query.or(orderFilter)
+  }
+
+  const { data: ordenes } = await query
+
+  // Agrupar órdenes por contenedor
+  const ordenesPorContenedor: Record<number, any[]> = {}
+  for (const o of (ordenes ?? [])) {
+    const cid = o.contenedor_id
+    if (!cid) continue
+    if (!ordenesPorContenedor[cid]) ordenesPorContenedor[cid] = []
+    ordenesPorContenedor[cid].push(o)
+  }
+
+  return contenedores.map((c) => {
+    const ords = ordenesPorContenedor[c.id] ?? []
+    const proveedores = Array.from(
+      new Set(
+        ords
+          .map((o) => {
+            const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+            return prov?.nombre_completo ?? 'Desconocido'
+          })
+          .filter(Boolean)
+      )
+    )
+
+    const totalCajas = ords.reduce((sum, o) => sum + (o.total_cajas ?? 0), 0)
+    const totalPiezas = ords.reduce((sum, o) => sum + (o.total_piezas ?? 0), 0)
+    const cbmOcupado = ords.reduce((sum, o) => sum + (o.cbm_orden ?? 0), 0)
+
+    return {
+      ...c,
+      proveedores_nombres: proveedores.join(', '),
+      folios_ordenes: ords
+        .map((o) => o.folio_proveedor)
+        .filter(Boolean)
+        .join(', '),
+      cajas_totales: totalCajas,
+      piezas_totales: totalPiezas,
+      cbm_ocupado: cbmOcupado,
+      ordenes: ords.map((o) => {
+        const prov = Array.isArray(o.proveedor) ? o.proveedor[0] : o.proveedor
+        return {
+          id: o.id,
+          folio_proveedor: o.folio_proveedor,
+          estado: o.estado,
+          total_cajas: o.total_cajas,
+          total_piezas: o.total_piezas,
+          cbm_orden: o.cbm_orden,
+          proveedor_nombre: prov?.nombre_completo ?? 'Desconocido',
+        }
+      }),
+    }
+  })
+}
+

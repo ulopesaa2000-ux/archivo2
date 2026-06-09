@@ -7,6 +7,9 @@ import { ContenedoresFilters } from './ContenedoresFilters'
 import { ContenedoresTable } from './ContenedoresTable'
 import { Pagination } from '@/components/admin/Pagination'
 import { ContenedorFormDialog } from './ContenedorFormDialog'
+import { ContenedoresViewToggle } from './ContenedoresViewToggle'
+import { ContenedoresReporteAnual } from './ContenedoresReporteAnual'
+import { ExcelExportDialog } from './ExcelExportDialog'
 import type { FiltrosContenedores, ContenedorSortBy } from '@/modules/contenedores/types'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { requirePermission } from '@/lib/dal'
@@ -31,6 +34,7 @@ type ContenedoresSearchParams = {
   page?: string
   sort_by?: string
   order?: string
+  vista?: string
 }
 
 export default async function ContenedoresPage({
@@ -43,6 +47,8 @@ export default async function ContenedoresPage({
   const params = await searchParams
   const user = await getCurrentUser()
   const puedeCrear = can(user, 'b2b_contenedores', 'puede_crear')
+
+  const vista = params.vista === 'reporte' ? 'reporte' : 'lista'
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as ContenedorSortBy)
     ? params.sort_by
@@ -73,15 +79,29 @@ export default async function ContenedoresPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Contenedores</h1>
-          <p className="text-sm text-muted-foreground">
-            {total} contenedor{total !== 1 ? 'es' : ''}
-          </p>
+          {vista === 'lista' && (
+            <p className="text-sm text-muted-foreground">
+              {total} contenedor{total !== 1 ? 'es' : ''}
+            </p>
+          )}
         </div>
-        {puedeCrear && <ContenedorFormDialog mode="create" />}
+        <div className="flex items-center gap-3">
+          {vista === 'reporte' && <ExcelExportDialog />}
+          <ContenedoresViewToggle />
+          {puedeCrear && <ContenedorFormDialog mode="create" />}
+        </div>
       </div>
-      <ContenedoresFilters sortBy={sortBy} order={order} />
-      <ContenedoresTable items={items} sortBy={sortBy} order={order} initialFeatures={features} />
-      <Pagination total={total} />
+
+      {vista === 'reporte' ? (
+        <ContenedoresReporteAnual />
+      ) : (
+        <>
+          <ContenedoresFilters sortBy={sortBy} order={order} />
+          <ContenedoresTable items={items} sortBy={sortBy} order={order} initialFeatures={features} />
+          <Pagination total={total} />
+        </>
+      )}
     </div>
   )
 }
+
