@@ -97,8 +97,8 @@ Para optimizar el rendimiento y respetar los límites de renderizado de Next.js,
    import { createClient } from '@/lib/supabase/server'
    const supabase = await createClient()
    ```
-3. **Cliente Middleware (`middleware.ts`)**:
-   - Corre en el borde de la aplicación (`middleware.ts`). Valida la sesión del usuario con `supabase.auth.getUser()`, refresca los tokens expirados en las cabeceras HTTP y redirige de forma segura protegiendo las rutas administrativas del backoffice.
+3. **Cliente Middleware (`proxy.ts`)**:
+   - Corre en el borde de la aplicación (`proxy.ts`). Valida la sesión del usuario con `supabase.auth.getUser()`, refresca los tokens expirados en las cabeceras HTTP y redirige de forma segura protegiendo las rutas administrativas del backoffice.
 
 ---
 
