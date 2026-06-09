@@ -41,19 +41,19 @@ export function DespachoForm({
   const [chofer, setChofer] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
 
-  // Cargar stock si viene de inventario-virtual
-  useEffect(() => {
-    if (origenId) {
-      handleBodegaChange(origenId)
-    }
-  }, [origenId])
-
   const handleBodegaChange = async (id: number) => {
     setBodegaOrigenId(id)
     setProductos([])
     const items = await fetchStockVirtual(id)
     setStock(items)
   }
+
+  // Cargar stock si viene de inventario-virtual
+  useEffect(() => {
+    if (origenId) {
+      handleBodegaChange(origenId)
+    }
+  }, [origenId])
 
   const addProducto = (item: StockVirtualItem) => {
     if (productos.some(p => p.producto_id === item.producto_id)) return

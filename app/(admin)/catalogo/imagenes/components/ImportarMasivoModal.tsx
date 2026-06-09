@@ -214,27 +214,25 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     return allSkusRef.current
   }
 
-  const runDetection = async () => {
+  const runDetectionForFiles = async (currentFiles: FilePreview[]) => {
     setDetecting(true)
     try {
       const skus = await loadAllSkus()
-      const updated = files.map(f => {
+      const updated = currentFiles.map(f => {
         const match = findBestSkuMatch(f.file.name, skus)
         if (match) {
           return { ...f, sku: match.sku_base, productoId: match.id, productoNombre: match.nombre, alt_text: `Imagen de ${match.nombre}`, status: 'detected' as const, es_principal: true }
         }
-        // Sin match: pre-rellenar SKU limpio para que el usuario lo corrija
         const cleaned = f.file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, '/').toUpperCase()
         return { ...f, sku: cleaned, status: 'not_found' as const, es_principal: false }
       })
       setFiles(updated)
-    } catch (e) { console.error(e) }
-    finally { setDetecting(false) }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setDetecting(false)
+    }
   }
-
-  useEffect(() => {
-    if (step === 2 && files.length > 0 && files[0].status === 'pending') runDetection()
-  }, [step])
 
   const handleSkuChange = async (index: number, newSku: string) => {
     const updated = [...files]
@@ -270,6 +268,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
       .map(f => ({ file: f, preview: URL.createObjectURL(f), sku: '', alt_text: '', uso: 'galeria_secundaria', es_principal: false, status: 'pending' as const }))
     setFiles(valid)
     setStep(2)
+    runDetectionForFiles(valid)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -777,7 +776,16 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
           </Button>
           <div className="flex items-center gap-2">
             {step === 1 && mode === 'files' && (
-              <Button onClick={() => { if (files.length === 0) { fileInputRef.current?.click() } else setStep(2) }} disabled={false}>
+              <Button onClick={() => {
+                if (files.length === 0) {
+                  fileInputRef.current?.click()
+                } else {
+                  setStep(2)
+                  if (files[0] && files[0].status === 'pending') {
+                    runDetectionForFiles(files)
+                  }
+                }
+              }} disabled={false}>
                 {files.length === 0 ? 'Seleccionar imágenes' : `Continuar con ${files.length} imagen${files.length !== 1 ? 'es' : ''} →`}
               </Button>
             )}
@@ -810,15 +818,9 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
 }
 
 function BuscadorSku({ value, onChange, status }: { value: string; onChange: (sku: string) => void; status: string }) {
-  const [searchTerm, setSearchTerm] = useState(value)
   const [results, setResults] = useState<{ id: number; sku_base: string; nombre: string }[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(false)
-
-  // Sincronizar cuando el padre actualiza el valor (ej: detección automática)
-  useEffect(() => {
-    setSearchTerm(value)
-  }, [value])
 
   const search = useDebouncedCallback(async (term: string) => {
     if (term.length < 2) { setResults([]); return }
@@ -828,12 +830,13 @@ function BuscadorSku({ value, onChange, status }: { value: string; onChange: (sk
     setLoading(false)
   }, 300)
 
-  // Solo buscar en dropdown cuando el usuario escribe (no en auto-detección)
-  const [userTyped, setUserTyped] = useState(false)
-  useEffect(() => { if (userTyped) search(searchTerm) }, [searchTerm, userTyped])
+  const handleInputChange = (val: string) => {
+    onChange(val)
+    search(val)
+    setShowDropdown(true)
+  }
 
   const handleSelect = (p: { sku_base: string }) => {
-    setSearchTerm(p.sku_base)
     onChange(p.sku_base)
     setShowDropdown(false)
     setResults([])
@@ -844,8 +847,8 @@ function BuscadorSku({ value, onChange, status }: { value: string; onChange: (sk
   return (
     <div className="relative">
       <Input
-        value={searchTerm}
-        onChange={(e) => { setUserTyped(true); setSearchTerm(e.target.value); onChange(e.target.value); setShowDropdown(true) }}
+        value={value}
+        onChange={(e) => handleInputChange(e.target.value)}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
         placeholder="Buscar SKU..."

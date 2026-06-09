@@ -45,22 +45,10 @@ export function OrdenFormDialog(props: Props) {
     ? catalogos.clientesB2B.find(c => c.nombre_completo === orden.cliente_nombre)
     : undefined
 
-  const [provNombre, setProvNombre] = useState(defaultProv?.nombre_completo ?? '')
-  const [provId, setProvId] = useState(String(defaultProv?.id ?? ''))
-  const [cliNombre, setCliNombre] = useState(defaultCli?.nombre_completo ?? '')
-  const [cliId, setCliId] = useState(String(defaultCli?.id ?? ''))
-
-  // Reset state when dialog opens in edit mode with a different orden
-  useEffect(() => {
-    if (mode === 'edit' && orden) {
-      const p = catalogos.proveedores.find(x => x.nombre_completo === orden.proveedor_nombre)
-      const c = catalogos.clientesB2B.find(x => x.nombre_completo === orden.cliente_nombre)
-      setProvNombre(p?.nombre_completo ?? '')
-      setProvId(String(p?.id ?? ''))
-      setCliNombre(c?.nombre_completo ?? '')
-      setCliId(String(c?.id ?? ''))
-    }
-  }, [mode, orden, catalogos])
+  const [provNombre, setProvNombre] = useState(() => defaultProv?.nombre_completo ?? '')
+  const [provId, setProvId] = useState(() => String(defaultProv?.id ?? ''))
+  const [cliNombre, setCliNombre] = useState(() => defaultCli?.nombre_completo ?? '')
+  const [cliId, setCliId] = useState(() => String(defaultCli?.id ?? ''))
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()

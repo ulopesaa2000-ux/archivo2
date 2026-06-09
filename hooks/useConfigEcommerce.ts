@@ -1,77 +1,168 @@
 // hooks/useConfigEcommerce.ts
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useSyncExternalStore } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { ConfigEcommerce, ModoOperacion, TipoVenta, TipoPrecioVisible } from '@/modules/ecommerce/types'
+import type { ConfigEcommerce } from '@/modules/ecommerce/types'
+
+export interface ConfigSnapshot {
+  config: ConfigEcommerce | null
+  loading: boolean
+  error: string | null
+}
+
+// Singleton state to share one instance and one subscription globally
+let globalConfig: ConfigEcommerce | null = null
+let globalLoading = true
+let globalError: string | null = null
+let isSubscribed = false
+let supabaseClient: any = null
+let cleanupChannel: (() => void) | null = null
+
+const listeners = new Set<() => void>()
+
+function getSupabase() {
+  if (!supabaseClient) {
+    supabaseClient = createClient()
+  }
+  return supabaseClient
+}
+
+let snapshot: ConfigSnapshot = {
+  config: globalConfig,
+  loading: globalLoading,
+  error: globalError,
+}
+
+function updateSnapshot() {
+  snapshot = {
+    config: globalConfig,
+    loading: globalLoading,
+    error: globalError,
+  }
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+const store = {
+  subscribe(listener: () => void) {
+    listeners.add(listener)
+
+    if (!isSubscribed) {
+      isSubscribed = true
+      const supabase = getSupabase()
+
+      const fetchConfig = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('config_ecommerce')
+            .select('*')
+            .eq('id', 1)
+            .single()
+
+          if (error) throw error
+          globalConfig = data as ConfigEcommerce
+          globalError = null
+        } catch (err) {
+          globalError = err instanceof Error ? err.message : 'Error cargando configuración'
+          console.error('Error fetching config:', err)
+        } finally {
+          globalLoading = false
+          updateSnapshot()
+        }
+      }
+
+      fetchConfig()
+
+      const uniqueChannelName = `config_ecommerce_changes_${Math.random().toString(36).substring(2, 10)}`
+      const channel = supabase
+        .channel(uniqueChannelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'inv-tienda',
+            table: 'config_ecommerce',
+            filter: 'id=eq.1',
+          },
+          (payload: any) => {
+            globalConfig = payload.new as ConfigEcommerce
+            updateSnapshot()
+          }
+        )
+        .subscribe()
+
+      cleanupChannel = () => {
+        supabase.removeChannel(channel)
+      }
+    }
+
+    return () => {
+      listeners.delete(listener)
+      if (listeners.size === 0 && isSubscribed) {
+        if (cleanupChannel) {
+          cleanupChannel()
+          cleanupChannel = null
+        }
+        isSubscribed = false
+      }
+    };
+  },
+
+  getSnapshot(): ConfigSnapshot {
+    return snapshot
+  },
+
+  getServerSnapshot(): ConfigSnapshot {
+    return {
+      config: null,
+      loading: true,
+      error: null,
+    }
+  }
+}
 
 export function useConfigEcommerce() {
-  const [supabase] = useState(() => createClient())
-  const [config, setConfig] = useState<ConfigEcommerce | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getServerSnapshot
+  )
 
-  const fetchConfig = useCallback(async () => {
+  const refresh = async () => {
+    globalLoading = true
+    updateSnapshot()
+    const supabase = getSupabase()
     try {
-      setLoading(true)
       const { data, error } = await supabase
         .from('config_ecommerce')
         .select('*')
         .eq('id', 1)
         .single()
-
       if (error) throw error
-      setConfig(data as ConfigEcommerce)
+      globalConfig = data as ConfigEcommerce
+      globalError = null
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando configuración')
-      console.error('Error fetching config:', err)
+      globalError = err instanceof Error ? err.message : 'Error'
     } finally {
-      setLoading(false)
+      globalLoading = false
+      updateSnapshot()
     }
-  }, [supabase])
+  }
 
-  useEffect(() => {
-    fetchConfig()
-
-    // Generar un ID de canal único para evitar colisiones entre múltiples instancias del hook o en StrictMode
-    const uniqueChannelName = `config_ecommerce_changes_${Math.random().toString(36).substring(2, 10)}`
-
-    // Suscribirse a cambios en tiempo real
-    const channel = supabase
-      .channel(uniqueChannelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'inv-tienda',
-          table: 'config_ecommerce',
-          filter: 'id=eq.1',
-        },
-        (payload) => {
-          setConfig(payload.new as ConfigEcommerce)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [fetchConfig, supabase])
-
-  // Helpers derivados
-  const esCatalogo = config?.modo_operacion === 'catalogo'
-  const esEcommerce = config?.modo_operacion === 'ecommerce'
-  const esHibrido = config?.modo_operacion === 'hibrido'
-  const mostrarPrecios = config?.mostrar_precios ?? false
-  const ventaPorCajas = config?.tipo_venta === 'cajas'
-  const ventaPorPiezas = config?.tipo_venta === 'piezas'
+  const esCatalogo = state.config?.modo_operacion === 'catalogo'
+  const esEcommerce = state.config?.modo_operacion === 'ecommerce'
+  const esHibrido = state.config?.modo_operacion === 'hibrido'
+  const mostrarPrecios = state.config?.mostrar_precios ?? false
+  const ventaPorCajas = state.config?.tipo_venta === 'cajas'
+  const ventaPorPiezas = state.config?.tipo_venta === 'piezas'
 
   return {
-    config,
-    loading,
-    error,
-    refresh: fetchConfig,
-    // Helpers
+    config: state.config,
+    loading: state.loading,
+    error: state.error,
+    refresh,
     esCatalogo,
     esEcommerce,
     esHibrido,
@@ -80,4 +171,3 @@ export function useConfigEcommerce() {
     ventaPorPiezas,
   }
 }
-

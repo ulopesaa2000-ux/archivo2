@@ -52,7 +52,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev',
+    command: 'pnpm dev',
     url: baseURL,
     reuseExistingServer: true,
     timeout: 180_000,

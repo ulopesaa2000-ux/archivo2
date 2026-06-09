@@ -49,10 +49,7 @@ export function ProductosNoPublicados({ productos }: ProductosNoPublicadosProps)
     return productosFiltrados.slice(start, start + ITEMS_PER_PAGE)
   }, [productosFiltrados, currentPage])
 
-  // Reset a página 1 cuando cambia la búsqueda
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [busqueda])
+
 
   async function handlePublicar(productoId: number) {
     setPublicando(productoId)
@@ -92,7 +89,10 @@ export function ProductosNoPublicados({ productos }: ProductosNoPublicadosProps)
           <Input
             placeholder="Buscar por nombre, SKU o marca..."
             value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
+            onChange={(e) => {
+              setBusqueda(e.target.value)
+              setCurrentPage(1)
+            }}
             className="pl-9"
           />
         </div>
