@@ -4,6 +4,8 @@
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import { cacheLife, cacheTag } from 'next/cache'
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '@/lib/types/database.types'
 import type {
   FiltrosNotas,
   ResultadoListadoNotas,
@@ -262,7 +264,7 @@ export async function fetchNotaById(
 }
 
 async function fetchNotaDetalles(
-  supabase: any,
+  supabase: SupabaseClient<Database, 'inv-tienda'>,
   notaId: number
 ): Promise<NotaDetalleResuelto[]> {
   const { data, error } = await supabase
@@ -318,7 +320,7 @@ async function fetchNotaDetalles(
 }
 
 async function fetchNotaHistorial(
-  supabase: any,
+  supabase: SupabaseClient<Database, 'inv-tienda'>,
   notaId: number
 ): Promise<HistorialEstadoResuelto[]> {
   const { data, error } = await supabase

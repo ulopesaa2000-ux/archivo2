@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/modules/auth/queries'
 import sharp from 'sharp'
 import { can, type PermissionAction } from '@/lib/auth/permissions'
 import { generarSlugProducto } from '@/lib/utils/slug'
+import type { Database } from '@/lib/types/database.types'
 
 export type ActionResult = {
   success: boolean
@@ -271,10 +272,10 @@ export async function saveAcabadoAction(
   }
 
   if (id) {
-    const { error } = await (supabase.from('acabado_producto') as any).update(payload).eq('id', id)
+    const { error } = await supabase.from('acabado_producto').update(payload).eq('id', id)
     if (error) return { success: false, error: error.message }
   } else {
-    const { error } = await (supabase.from('acabado_producto') as any).insert(payload)
+    const { error } = await supabase.from('acabado_producto').insert(payload)
     if (error) return { success: false, error: error.message }
   }
 
@@ -290,7 +291,7 @@ export async function deleteAcabadoAction(
   if (!user) return { success: false, error: 'No autenticado' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('acabado_producto') as any).delete().eq('id', id)
+  const { error } = await supabase.from('acabado_producto').delete().eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
@@ -419,10 +420,10 @@ export async function saveTagAction(
   }
 
   if (id) {
-    const { error } = await (supabase.from('producto_tags') as any).update(payload).eq('id', id)
+    const { error } = await supabase.from('producto_tags').update(payload).eq('id', id)
     if (error) return { success: false, error: error.message }
   } else {
-    const { error } = await (supabase.from('producto_tags') as any).insert(payload)
+    const { error } = await supabase.from('producto_tags').insert(payload)
     if (error) return { success: false, error: error.message }
   }
 
@@ -445,21 +446,29 @@ export async function saveVarianteAction(
   
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
+  const talla_id = toInteger(formData, 'talla_id')
+  const color_id = toInteger(formData, 'color_id')
+  const sku_completo = toCleanText(formData, 'sku_completo')
+
+  if (!talla_id || !color_id || !sku_completo) {
+    return { success: false, error: 'Talla, Color y SKU completo son requeridos.' }
+  }
+
   const payload = {
     producto_id: productoId,
-    talla_id: toInteger(formData, 'talla_id'),
-    color_id: toInteger(formData, 'color_id'),
+    talla_id,
+    color_id,
     costo_promedio: toNumeric(formData, 'costo_promedio'),
     precio_venta: toNumeric(formData, 'precio_venta'),
     activo: toBoolean(formData, 'activo'),
-    sku_completo: toCleanText(formData, 'sku_completo'),
+    sku_completo,
   }
 
   if (id) {
-    const { error } = await (supabase.from('variantes_producto') as any).update(payload).eq('id', id)
+    const { error } = await supabase.from('variantes_producto').update(payload).eq('id', id)
     if (error) return { success: false, error: error.message }
   } else {
-    const { error } = await (supabase.from('variantes_producto') as any).insert(payload)
+    const { error } = await supabase.from('variantes_producto').insert(payload)
     if (error) return { success: false, error: error.message }
   }
 
@@ -475,7 +484,7 @@ export async function deleteVarianteAction(
   if (!user) return { success: false, error: 'No autenticado' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('variantes_producto') as any).delete().eq('id', id)
+  const { error } = await supabase.from('variantes_producto').delete().eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
@@ -493,7 +502,7 @@ export async function deleteVariantesBatchAction(
   if (!ids.length) return { success: false, error: 'No se seleccionaron variantes' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('variantes_producto') as any)
+  const { error } = await supabase.from('variantes_producto')
     .delete()
     .in('id', ids)
 
@@ -511,7 +520,7 @@ export async function deleteTagAction(
   if (!user) return { success: false, error: 'No autenticado' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('producto_tags') as any).delete().eq('id', id)
+  const { error } = await supabase.from('producto_tags').delete().eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
@@ -544,10 +553,10 @@ export async function saveComplementoAction(
   }
 
   if (id) {
-    const { error } = await (supabase.from('complemento_producto') as any).update(payload).eq('id', id)
+    const { error } = await supabase.from('complemento_producto').update(payload).eq('id', id)
     if (error) return { success: false, error: error.message }
   } else {
-    const { error } = await (supabase.from('complemento_producto') as any).insert(payload)
+    const { error } = await supabase.from('complemento_producto').insert(payload)
     if (error) return { success: false, error: error.message }
   }
 
@@ -563,7 +572,7 @@ export async function deleteComplementoAction(
   if (!user) return { success: false, error: 'No autenticado' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('complemento_producto') as any).delete().eq('id', id)
+  const { error } = await supabase.from('complemento_producto').delete().eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
@@ -595,10 +604,10 @@ export async function saveConjuntoItemAction(
   }
 
   if (id) {
-    const { error } = await (supabase.from('producto_conjunto') as any).update(payload).eq('id', id)
+    const { error } = await supabase.from('producto_conjunto').update(payload).eq('id', id)
     if (error) return { success: false, error: error.message }
   } else {
-    const { error } = await (supabase.from('producto_conjunto') as any).insert(payload)
+    const { error } = await supabase.from('producto_conjunto').insert(payload)
     if (error) return { success: false, error: error.message }
   }
 
@@ -614,7 +623,7 @@ export async function deleteConjuntoItemAction(
   if (!user) return { success: false, error: 'No autenticado' }
 
   const supabase = await createClient()
-  const { error } = await (supabase.from('producto_conjunto') as any).delete().eq('id', id)
+  const { error } = await supabase.from('producto_conjunto').delete().eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
@@ -644,7 +653,7 @@ export async function createColorAction(
     orden_display: 99,
   }
 
-  const { data, error } = await (supabase.from('cat_colores') as any).insert(payload).select('id').single()
+  const { data, error } = await supabase.from('cat_colores').insert(payload).select('id').single()
 
   if (error) {
     if (error.code === '23505') {
@@ -671,10 +680,9 @@ export async function createTallaAction(
   const payload = {
     nombre: nombre.toUpperCase(),
     codigo: codigo.toUpperCase(),
-    orden_display: 99,
   }
 
-  const { data, error } = await (supabase.from('cat_tallas') as any).insert(payload).select('id').single()
+  const { data, error } = await supabase.from('cat_tallas').insert(payload).select('id').single()
 
   if (error) {
     if (error.code === '23505') {
@@ -757,7 +765,7 @@ export async function saveMedidasAction(
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
   // 1. Eliminar medidas existentes
-  const { error: deleteError } = await (supabase.from('medidas_producto') as any)
+  const { error: deleteError } = await supabase.from('medidas_producto')
     .delete()
     .eq('producto_id', productoId)
 
@@ -770,9 +778,10 @@ export async function saveMedidasAction(
       talla_id: m.talla_id,
       punto_medida_id: m.punto_medida_id,
       medida_cm: m.medida_cm,
+      medida_ft: Math.round((m.medida_cm / 2.54) * 100) / 100,
     }))
 
-    const { error: insertError } = await (supabase.from('medidas_producto') as any).insert(payload)
+    const { error: insertError } = await supabase.from('medidas_producto').insert(payload)
     if (insertError) return { success: false, error: insertError.message }
   }
 
@@ -943,13 +952,13 @@ export async function uploadImagenAction(
 
   // ── Si es principal, quitar la anterior ───────────────────
   if (esPrincipal) {
-    await (supabase.from('producto_imagenes') as any)
+    await supabase.from('producto_imagenes')
       .update({ es_principal: false })
       .eq('producto_id', productoId)
   }
 
   // ── Registrar en BD ───────────────────────────────────────
-  const insertData: Record<string, unknown> = {
+  const insertData: Database['inv-tienda']['Tables']['producto_imagenes']['Insert'] = {
     producto_id:   productoId,
     url:           publicUrl,
     es_principal:  esPrincipal,
@@ -957,14 +966,10 @@ export async function uploadImagenAction(
     alt_text:      altText,
     uso_imagen:    usoImagen,
     origen_imagen: origenImagen,
+    ...(urlOg ? { url_og: urlOg } : {})
   }
 
-  // Agregar URL OG si existe
-  if (urlOg) {
-    insertData.url_og = urlOg
-  }
-
-  const { error: dbError } = await (supabase.from('producto_imagenes') as any)
+  const { error: dbError } = await supabase.from('producto_imagenes')
     .insert(insertData)
 
   if (dbError) {
@@ -1005,14 +1010,14 @@ export async function updateImagenAction(
   // 'url' solo viene si es imagen externa (enviado por ImagenCard al editar)
   const newUrl    = toCleanText(formData, 'url')
 
-  const updatePayload: Record<string, unknown> = {
-    alt_text:  altText,
-    uso_imagen: usoImagen,
+  const updatePayload: Database['inv-tienda']['Tables']['producto_imagenes']['Update'] = {
     orden,
   }
-  if (newUrl) updatePayload.url = newUrl
+  if (altText !== null) updatePayload.alt_text = altText
+  if (usoImagen !== null) updatePayload.uso_imagen = usoImagen
+  if (newUrl !== null) updatePayload.url = newUrl
 
-  const { error } = await (supabase.from('producto_imagenes') as any)
+  const { error } = await supabase.from('producto_imagenes')
     .update(updatePayload)
     .eq('id', id)
 
@@ -1035,14 +1040,14 @@ export async function setPrincipalImagenAction(
   const supabase = await createClient()
 
   // 1. Quitar principal de todas
-  const { error: clearError } = await (supabase.from('producto_imagenes') as any)
+  const { error: clearError } = await supabase.from('producto_imagenes')
     .update({ es_principal: false })
     .eq('producto_id', productoId)
 
   if (clearError) return { success: false, error: clearError.message }
 
   // 2. Marcar la nueva como principal
-  const { error: setError } = await (supabase.from('producto_imagenes') as any)
+  const { error: setError } = await supabase.from('producto_imagenes')
     .update({ es_principal: true })
     .eq('id', imagenId)
 
@@ -1066,8 +1071,8 @@ export async function deleteImagenAction(
   const supabase = await createClient()
 
   // 1. Obtener la URL de la imagen
-  const { data: imgData, error: fetchError } = await (supabase
-    .from('producto_imagenes') as any)
+  const { data: imgData, error: fetchError } = await supabase
+    .from('producto_imagenes')
     .select('url, origen_imagen')
     .eq('id', imagenId)
     .single()
@@ -1095,7 +1100,7 @@ export async function deleteImagenAction(
   }
 
   // 3. Eliminar de la BD
-  const { error: dbError } = await (supabase.from('producto_imagenes') as any)
+  const { error: dbError } = await supabase.from('producto_imagenes')
     .delete()
     .eq('id', imagenId)
 

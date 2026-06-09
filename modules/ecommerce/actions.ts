@@ -4,6 +4,7 @@
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
+import type { Database } from '@/lib/types/database.types'
 import type {
   ConfigEcommerceUpdate,
   ProductoWebInsert,
@@ -65,14 +66,16 @@ export async function publicarProductoWeb(data: ProductoWebInsert) {
     slug = `${slug}-${Date.now()}`
   }
 
+  const insertPayload: Database['inv-tienda']['Tables']['productos_web']['Insert'] = {
+    ...data,
+    slug,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+
   const { data: result, error } = await supabase
     .from('productos_web')
-    .insert({
-      ...data,
-      slug,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select()
     .single()
 
@@ -260,7 +263,7 @@ export async function convertirCotizacionAOrdenB2B(
   }
 
   let totalPiezas = 0
-  const itemsB2B = (items ?? []).map((item) => {
+  const itemsB2B: Database['inv-tienda']['Tables']['ordenes_b2b_detalles']['Insert'][] = (items ?? []).map((item) => {
     const precioFinal = preciosFinales?.[item.variante_id] || item.precio_unitario
     const subtotalItem = item.cantidad * precioFinal
     const productoId = productoIdByVariante.get(item.variante_id)
@@ -365,7 +368,7 @@ export async function crearCotizacion(
     throw new Error(`Error creando cotizacion: ${error?.message}`)
   }
 
-  const ordenItems = items.map((item) => ({
+  const ordenItems: Database['inv-tienda']['Tables']['orden_items']['Insert'][] = items.map((item) => ({
     orden_id: orden.id,
     variante_id: item.varianteId,
     cantidad: item.cantidad,
