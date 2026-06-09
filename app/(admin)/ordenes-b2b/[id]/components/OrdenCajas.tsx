@@ -475,20 +475,24 @@ export function OrdenCajas({
           <Package className="h-8 w-8" />
           <p className="text-sm mt-2">Sin cajas vinculadas.</p>
         </div>
-        <VincularCajaDialog
-          open={vincularOpen}
-          onOpenChange={setVincularOpen}
-          ordenId={ordenId}
-          linkedCajaIds={linkedCajaIds}
-        />
-        <CrearCajaDialog
-          open={crearOpen}
-          onOpenChange={setCrearOpen}
-          ordenId={ordenId}
-          detalles={detalles ?? []}
-          tallasDisponibles={tallasDisponibles}
-          coloresDisponibles={coloresDisponibles}
-        />
+        {vincularOpen && (
+          <VincularCajaDialog
+            open={vincularOpen}
+            onOpenChange={setVincularOpen}
+            ordenId={ordenId}
+            linkedCajaIds={linkedCajaIds}
+          />
+        )}
+        {crearOpen && (
+          <CrearCajaDialog
+            open={crearOpen}
+            onOpenChange={setCrearOpen}
+            ordenId={ordenId}
+            detalles={detalles ?? []}
+            tallasDisponibles={tallasDisponibles}
+            coloresDisponibles={coloresDisponibles}
+          />
+        )}
       </div>
     )
   }
@@ -515,20 +519,24 @@ export function OrdenCajas({
         )}
       </div>
 
-      <VincularCajaDialog
-        open={vincularOpen}
-        onOpenChange={setVincularOpen}
-        ordenId={ordenId}
-        linkedCajaIds={linkedCajaIds}
-      />
-      <CrearCajaDialog
-        open={crearOpen}
-        onOpenChange={setCrearOpen}
-        ordenId={ordenId}
-        detalles={detalles ?? []}
-        tallasDisponibles={tallasDisponibles}
-        coloresDisponibles={coloresDisponibles}
-      />
+      {vincularOpen && (
+        <VincularCajaDialog
+          open={vincularOpen}
+          onOpenChange={setVincularOpen}
+          ordenId={ordenId}
+          linkedCajaIds={linkedCajaIds}
+        />
+      )}
+      {crearOpen && (
+        <CrearCajaDialog
+          open={crearOpen}
+          onOpenChange={setCrearOpen}
+          ordenId={ordenId}
+          detalles={detalles ?? []}
+          tallasDisponibles={tallasDisponibles}
+          coloresDisponibles={coloresDisponibles}
+        />
+      )}
 
       <div className="space-y-4 max-w-5xl">
         {cajas.map((c) => {

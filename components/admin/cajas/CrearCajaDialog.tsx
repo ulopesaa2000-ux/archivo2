@@ -85,35 +85,33 @@ export function CrearCajaDialog({
     }
   }, 300)
 
-  // Cargar productos iniciales al abrir
+  // Cargar productos iniciales al abrir (ejecutar solo al montar)
   useEffect(() => {
-    if (open) {
-      setSearch('')
-      if (productoOptions.length === 1) {
-        // Si hay exactamente 1 producto en la orden, auto-seleccionarlo
-        setSelectedProduct({
-          id: productoOptions[0].id,
-          sku_base: productoOptions[0].sku ?? ''
-        })
+    setSearch('')
+    if (productoOptions.length === 1) {
+      // Si hay exactamente 1 producto en la orden, auto-seleccionarlo
+      setSelectedProduct({
+        id: productoOptions[0].id,
+        sku_base: productoOptions[0].sku ?? ''
+      })
+    } else {
+      setSelectedProduct(null)
+      if (productoOptions.length > 1) {
+        // Si hay múltiples productos en la orden, mostrarlos inicialmente
+        const initial = productoOptions.map(p => ({
+          id: p.id,
+          sku_base: p.sku ?? '',
+          nombre: '',
+          descripcion: 'Producto de la orden'
+        }))
+        setSearchResults(initial)
       } else {
-        setSelectedProduct(null)
-        if (productoOptions.length > 1) {
-          // Si hay múltiples productos en la orden, mostrarlos inicialmente
-          const initial = productoOptions.map(p => ({
-            id: p.id,
-            sku_base: p.sku ?? '',
-            nombre: '',
-            descripcion: 'Producto de la orden'
-          }))
-          setSearchResults(initial)
-        } else {
-          // Si no hay orden o está vacía, cargar el catálogo general
-          debouncedSearch('')
-        }
+        // Si no hay orden o está vacía, cargar el catálogo general
+        debouncedSearch('')
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [])
 
   const handleCreate = async (data: {
     base: Partial<SharedCajaData>

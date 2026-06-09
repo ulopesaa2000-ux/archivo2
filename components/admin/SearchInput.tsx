@@ -32,12 +32,14 @@ export function SearchInput({
 }: Props) {
   const [localValue, setLocalValue] = useState(currentValue ?? '')
   const [isTyping, setIsTyping] = useState(false)
+  const [prevCurrentValue, setPrevCurrentValue] = useState(currentValue)
 
-  // Sincronizar cuando cambia la URL
-  useEffect(() => {
+  // Sincronizar cuando cambia la URL en la render-phase
+  if (currentValue !== prevCurrentValue) {
+    setPrevCurrentValue(currentValue)
     setLocalValue(currentValue ?? '')
     setIsTyping(false)
-  }, [currentValue])
+  }
 
   // Debounce para búsqueda automática mientras escribe
   const debouncedSearch = useDebouncedCallback(

@@ -80,8 +80,8 @@ function AgregarOrdenDialog({
   }, 300)
 
   useEffect(() => {
-    if (open) { setSearch(''); debouncedSearch('') }
-  }, [open])
+    debouncedSearch('')
+  }, [])
 
   const handleVincular = async () => {
     if (!selectedId) return
@@ -436,7 +436,7 @@ export function ContenedorOrdenes({
         <div className="flex flex-col items-center py-12 text-muted-foreground rounded-lg border">
           <ShoppingCart className="h-8 w-8" /><p className="text-sm mt-2">Sin órdenes vinculadas.</p>
         </div>
-        {canEditContenedor && (
+        {canEditContenedor && dialogOpen && (
           <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
         )}
       </div>
@@ -456,7 +456,7 @@ export function ContenedorOrdenes({
       </div>
 
       {/* Dialog */}
-      {canEditContenedor && (
+      {canEditContenedor && dialogOpen && (
         <AgregarOrdenDialog open={dialogOpen} onOpenChange={setDialogOpen} contenedorId={contenedorId} catalogos={catalogos} />
       )}
 
