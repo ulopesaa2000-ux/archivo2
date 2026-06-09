@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { Database } from "../types/database.types";
+import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from "./constants";
 
 function getSupabaseEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,7 +39,7 @@ export async function createClient() {
 
   const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
 
-  return createServerClient<Database, "inv-tienda">(
+  return createServerClient<Database, typeof SUPABASE_SCHEMA>(
     supabaseUrl,
     supabaseAnonKey,
     {
@@ -57,9 +58,7 @@ export async function createClient() {
           }
         },
       },
-      db: {
-        schema: "inv-tienda",
-      },
+      ...SUPABASE_OPTIONS,
     }
   );
 }
@@ -72,13 +71,9 @@ export async function createClient() {
 export function createStaticClient() {
   const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
 
-  return createSupabaseClient<Database, "inv-tienda">(
+  return createSupabaseClient<Database, typeof SUPABASE_SCHEMA>(
     supabaseUrl,
     supabaseAnonKey,
-    {
-      db: {
-        schema: "inv-tienda",
-      },
-    }
+    SUPABASE_OPTIONS
   );
 }

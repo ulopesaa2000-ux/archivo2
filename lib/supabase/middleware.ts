@@ -2,6 +2,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { permissionForPath, type PermissionAction } from '@/lib/auth/permissions'
+import { Database } from '../types/database.types'
+import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from './constants'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
@@ -23,7 +25,7 @@ const PROTECTED_ROUTES = [
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database, typeof SUPABASE_SCHEMA>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -41,6 +43,7 @@ export async function updateSession(request: NextRequest) {
           )
         },
       },
+      ...SUPABASE_OPTIONS,
     }
   )
 
