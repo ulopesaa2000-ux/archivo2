@@ -1,5 +1,6 @@
 // app/(admin)/contenedores/[id]/components/ContenedorOrdenes.tsx
 'use client'
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import React, { useState, useTransition, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'

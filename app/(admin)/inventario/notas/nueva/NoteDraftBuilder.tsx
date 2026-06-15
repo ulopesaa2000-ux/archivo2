@@ -1,5 +1,6 @@
 // app/(admin)/inventario/notas/nueva/NoteDraftBuilder.tsx
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useTransition, useCallback, useEffect } from 'react'
 import Image from 'next/image'

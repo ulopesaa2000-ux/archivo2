@@ -2,7 +2,7 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { fetchBodegasVirtuales, fetchStockVirtual } from '@/modules/despachos/queries'
+import { fetchBodegasVirtuales, fetchStockVirtualResumenes } from '@/modules/despachos/queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ADMIN_ROUTES } from '@/lib/constants'
@@ -13,16 +13,16 @@ export const metadata: Metadata = { title: 'Bodegas Virtuales — Inventario' }
 
 export default async function InventarioVirtualPage() {
   const bodegas = await fetchBodegasVirtuales()
+  const resumenes = await fetchStockVirtualResumenes(bodegas.map((bodega) => bodega.id))
+  const stocks = bodegas.map((bodega) => {
+    const resumen = resumenes.get(bodega.id)
 
-  // Obtener resumen de stock por bodega
-  const stocks = await Promise.all(
-    bodegas.map(async (b) => {
-      const items = await fetchStockVirtual(b.id)
-      const totalCajas = items.reduce((a, i) => a + i.cajas_disponibles, 0)
-      const totalProductos = items.length
-      return { ...b, totalCajas, totalProductos }
-    })
-  )
+    return {
+      ...bodega,
+      totalCajas: resumen?.totalCajas ?? 0,
+      totalProductos: resumen?.totalProductos ?? 0,
+    }
+  })
 
   return (
     <div className="space-y-4">

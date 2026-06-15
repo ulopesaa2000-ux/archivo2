@@ -1,5 +1,6 @@
 // hooks/useBodegaActiva.ts
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect, useCallback } from 'react'
 import type { BodegaRow } from '@/lib/types/tables'

@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { B2B_CHAT_ATTACHMENTS_BUCKET } from '@/lib/constants'
+import { getCommercialScope } from '@/lib/dal'
 import {
   canAccessCommercialOrder,
-  getCommercialScope,
 } from '@/lib/auth/commercial-scope'
 import type {
   OrdenB2BUpdate,
@@ -32,11 +32,9 @@ async function requireB2BPermission(action: PermissionAction): Promise<ActionRes
 }
 
 async function validateCommercialTargets(
-  supabase: any,
-  user: UsuarioConRol,
   payload: { cliente_b2b_id?: number | null; proveedor_id?: number | null }
 ): Promise<ActionResult | null> {
-  const scope = await getCommercialScope(supabase, user)
+  const scope = await getCommercialScope()
   if (scope.is_super_admin) return null
 
   if (!canAccessCommercialOrder(scope, payload)) {
@@ -67,7 +65,7 @@ async function requireCommercialOrderAccess(
   const orden = await fetchOrderForAccess(supabase, ordenId)
   if (!orden) return { success: false, error: 'No se encontró la orden.' }
 
-  const denied = await validateCommercialTargets(supabase, user, orden)
+  const denied = await validateCommercialTargets(orden)
   if (denied) return denied
 
   return { user }
@@ -162,7 +160,7 @@ export async function crearOrdenB2BAction(
   if (!proveedor_id) return { success: false, error: 'Proveedor obligatorio.' }
 
   const cliente_b2b_id = parseInt(formData.get('cliente_b2b_id') as string) || null
-  const deniedByScope = await validateCommercialTargets(supabase, user, {
+  const deniedByScope = await validateCommercialTargets({
     proveedor_id,
     cliente_b2b_id,
   })
@@ -218,7 +216,7 @@ export async function actualizarOrdenB2BAction(
     payload.contenedor_id = parseInt(contenedorIdRaw as string) || null
   }
 
-  const deniedByScope = await validateCommercialTargets(supabase, user, {
+  const deniedByScope = await validateCommercialTargets({
     proveedor_id: payload.proveedor_id ?? null,
     cliente_b2b_id: payload.cliente_b2b_id ?? null,
   })

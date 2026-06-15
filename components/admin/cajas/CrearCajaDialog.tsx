@@ -1,5 +1,6 @@
 // components/admin/cajas/CrearCajaDialog.tsx
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'

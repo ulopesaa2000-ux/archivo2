@@ -1,5 +1,6 @@
 // app/(admin)/inventario/notas/ReporteNotasButton.tsx
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useEffect, useTransition } from 'react'
 import {

@@ -2,8 +2,6 @@
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix, fetchNotasPendientesPorBodega } from '@/modules/inventario/queries'
-import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
-import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { StockFilters } from '@/app/(admin)/inventario/stock/StockFilters'
 import { StockTable } from '@/app/(admin)/inventario/stock/StockTable'
 import { StockMatrixFilters } from '@/app/(admin)/inventario/stock/StockMatrixFilters'
@@ -52,12 +50,15 @@ async function StockMatrixData({
   bodegaActivaId: number
   agruparPor?: string
 }) {
+  const stockMatrixPromise = isNone
+    ? Promise.resolve({ items: [] as StockMatrixItem[], total: 0 })
+    : fetchStockMatrix(filtros, bodegas)
   let items: StockMatrixItem[] = []
   let total = 0
   let bodegasColumnas = bodegas
 
   if (!isNone) {
-    const res = await fetchStockMatrix(filtros, bodegas)
+    const res = await stockMatrixPromise
     items = res.items
     total = res.total
 
@@ -69,12 +70,6 @@ async function StockMatrixData({
     }
   } else {
     bodegasColumnas = []
-  }
-
-  const tableConfig = await fetchUserTableConfig('/inventario/stock')
-  const features = {
-    ...getDefaultFeatures('/inventario/stock'),
-    ...tableConfig.config,
   }
 
   return (
@@ -105,15 +100,11 @@ async function StockNormalData({
   const { items, total } = await fetchStockByBodega(bodegaActivaId, filtros)
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
 
-  const tableConfig = await fetchUserTableConfig('/inventario/stock')
-  const features = {
-    ...getDefaultFeatures('/inventario/stock'),
-    ...tableConfig.config,
-  }
-
   return (
     <div className="space-y-4">
-      <NotasPendientesPanel bodegaId={bodegaActivaId} />
+      <Suspense fallback={null}>
+        <NotasPendientesPanel bodegaId={bodegaActivaId} />
+      </Suspense>
       <StockPageHeader
         title="Stock por Bodega"
         subtitle={`${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`}
@@ -186,9 +177,12 @@ async function StockPageContent({
   searchParams: Promise<StockPageSearchParams>
 }) {
   const { user } = await verifySession()
-  const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
-
-  const cookieStore = await cookies()
+  const [userBodegas, cookieStore, sp, catalogos] = await Promise.all([
+    fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99),
+    cookies(),
+    searchParams,
+    fetchCatalogosInventario(),
+  ])
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
   let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
 
@@ -211,9 +205,6 @@ async function StockPageContent({
       </div>
     )
   }
-
-  const sp = await searchParams
-  const catalogos = await fetchCatalogosInventario()
 
   // Si es nivel 3, limitar bodegas permitidas a las suyas
   const bodegasPermitidas = user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2

@@ -1,7 +1,7 @@
 // app/(admin)/inventario/bodegas/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { fetchBodegas, fetchUsuariosBodega } from '@/modules/inventario/queries'
+import { fetchBodegas, fetchUsuariosBodega, fetchUsuariosBodegasMap } from '@/modules/inventario/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -112,9 +112,7 @@ function BodegasSkeleton() {
 
 async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) {
   const bodegas = await fetchBodegas()
-  const usuariosPorBodega = await Promise.all(
-    bodegas.map(b => fetchUsuariosBodega(b.id))
-  )
+  const usuariosPorBodega = await fetchUsuariosBodegasMap(bodegas.map((bodega) => bodega.id))
 
   if (agruparPorCiudad) {
     return (
@@ -130,11 +128,11 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
           <div key={city} className="space-y-4">
             <h2 className="text-lg font-semibold border-b pb-2">{city}</h2>
             <div className="grid gap-4">
-              {items.map(({ bodega, index }) => (
+              {items.map(({ bodega }) => (
                 <BodegaCard
                   key={bodega.id}
                   bodega={bodega}
-                  usuarios={usuariosPorBodega[index]}
+                  usuarios={usuariosPorBodega.get(bodega.id) ?? []}
                 />
               ))}
             </div>
@@ -146,11 +144,11 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
 
   return (
     <div className="grid gap-4">
-      {bodegas.map((bodega, index) => (
+      {bodegas.map((bodega) => (
         <BodegaCard
           key={bodega.id}
           bodega={bodega}
-          usuarios={usuariosPorBodega[index]}
+          usuarios={usuariosPorBodega.get(bodega.id) ?? []}
         />
       ))}
     </div>

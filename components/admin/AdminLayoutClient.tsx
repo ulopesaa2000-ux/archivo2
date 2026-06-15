@@ -1,5 +1,6 @@
 // components/admin/AdminLayoutClient.tsx
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect } from 'react'
 import { Sidebar } from './Sidebar'

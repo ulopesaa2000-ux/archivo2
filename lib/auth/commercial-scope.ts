@@ -127,7 +127,7 @@ export async function fetchAssignedCommercialPersonas(
   }
 }
 
-export async function getCommercialScope(
+export async function resolveCommercialScope(
   supabase: any,
   user: UsuarioConRol | null
 ): Promise<CommercialScope> {

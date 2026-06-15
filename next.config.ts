@@ -1,23 +1,23 @@
-import type {NextConfig} from 'next';
+// C:\Users\uriel\Downloads\enero 26\archivo2\next.config.ts
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   cacheComponents: true,
   output: 'standalone',
+  typedRoutes: true,
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',
     },
+    turbopackFileSystemCacheForBuild: true,
   },
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Performance optimizations
   poweredByHeader: false,
   generateEtags: false,
   compress: true,
-  // Using webpack instead of Turbopack to avoid ChunkLoadError issues
-  // Allow access to remote image placeholder.
   images: {
     formats: ['image/webp', 'image/avif'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'picsum.photos',
         port: '',
-        pathname: '/**', // This allows any path under the hostname
+        pathname: '/**',
       },
       {
         protocol: 'https',
@@ -41,7 +41,6 @@ const nextConfig: NextConfig = {
         pathname: '/storage/v1/object/public/**',
       },
       {
-        // imgproxy render endpoint (image transformations)
         protocol: 'https',
         hostname: 'supabase.sistemaindumentaria.com',
         pathname: '/storage/v1/render/image/public/**',
@@ -49,17 +48,6 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion'],
-  webpack: (config, {dev}) => {
-    // HMR is disabled in AI Studio via DISABLE_HMR env var.
-    // Do not modify—file watching is disabled to prevent flickering during agent edits.
-    if (dev && process.env.DISABLE_HMR === 'true') {
-      config.watchOptions = {
-        ignored: /.*/,
-      };
-    }
+}
 
-    return config;
-  },
-};
-
-export default nextConfig;
+export default nextConfig

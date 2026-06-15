@@ -13,11 +13,10 @@ import type {
   OrdenDetalleComentario,
   OrdenDetalleEvento,
 } from '@/lib/types/tables'
-import { getCurrentUser } from '@/modules/auth/queries'
+import { getCommercialScope } from '@/lib/dal'
 import {
   buildCommercialOrderFilter,
   canAccessCommercialOrder,
-  getCommercialScope,
 } from '@/lib/auth/commercial-scope'
 
 function applyCommercialScopeToOrderQuery(query: any, scope: Awaited<ReturnType<typeof getCommercialScope>>) {
@@ -185,8 +184,7 @@ export async function fetchOrdenesB2B(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -266,8 +264,7 @@ export async function fetchOrdenB2BById(
   id: number
 ): Promise<OrdenB2BListItem | null> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -465,8 +462,7 @@ export async function fetchOrdenCajas(
 
 export async function fetchCatalogosB2B(): Promise<CatalogosB2B> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let proveedoresQuery: any = supabase
     .from('personas')
@@ -537,8 +533,7 @@ export async function fetchCajasListado(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   // Query base desde cajas_producto con JOINs
   let query = supabase
@@ -653,8 +648,7 @@ export async function fetchCajaDetalle(
   cajaId: number
 ): Promise<CajaDetalle | null> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   if (!scope.is_super_admin) {
     const { data: cajaBase } = await supabase
