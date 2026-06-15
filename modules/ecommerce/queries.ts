@@ -1,6 +1,7 @@
 // modules/ecommerce/queries.ts
 'use server'
 
+import { cache } from 'react'
 import { cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
@@ -361,10 +362,10 @@ export async function fetchProductosWebPublicos(
 // PRODUCTO POR SLUG (PDP)
 // ═══════════════════════════════════════════════════════════════
 
-export async function fetchProductoWebBySlug(
-  slug: string
-): Promise<ProductoWebPublico | null> {
-  const supabase = await createClient()
+const fetchProductoWebBySlugCached = cache(async (
+  normalizedSlug: string
+): Promise<ProductoWebPublico | null> => {
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('productos_web')
@@ -387,7 +388,7 @@ export async function fetchProductoWebBySlug(
       )
       `
     )
-    .eq('slug', decodeURIComponent(slug).toLowerCase())
+    .eq('slug', normalizedSlug)
     .eq('activo', true)
     .eq('productos.activo', true)
     .single()
@@ -404,12 +405,6 @@ export async function fetchProductoWebBySlug(
     .eq('producto_id', data.producto_id)
     .eq('es_principal', true)
     .single()) as any
-
-  // Incrementar visitas
-  await supabase
-    .from('productos_web')
-    .update({ visitas: (data.visitas || 0) + 1 })
-    .eq('id', data.id)
 
   const prod = data.productos as any
 
@@ -439,7 +434,30 @@ export async function fetchProductoWebBySlug(
     modo_override: data.modo_override,
     unidad_venta: data.unidad_venta,
     activo: data.activo,
+    visitas: data.visitas ?? null,
   } as ProductoWebPublico
+})
+
+export async function fetchProductoWebBySlug(
+  slug: string
+): Promise<ProductoWebPublico | null> {
+  return fetchProductoWebBySlugCached(decodeURIComponent(slug).toLowerCase())
+}
+
+export async function incrementProductoWebVisitas(
+  productoWebId: number,
+  visitasActuales: number | null | undefined
+): Promise<void> {
+  const supabase = createStaticClient()
+
+  const { error } = await supabase
+    .from('productos_web')
+    .update({ visitas: (visitasActuales ?? 0) + 1 })
+    .eq('id', productoWebId)
+
+  if (error) {
+    console.error('Error incrementProductoWebVisitas:', error)
+  }
 }
 
 /**
@@ -471,7 +489,11 @@ export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at
 export async function fetchVariantesProducto(
   productoId: number
 ): Promise<VariantePublica[]> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag(`producto-variantes-${productoId}`)
+
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('variantes_producto')
@@ -512,7 +534,11 @@ export async function fetchVariantesProducto(
 export async function fetchImagenesProducto(
   productoId: number
 ): Promise<{ url: string; es_principal: boolean; orden: number }[]> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag(`producto-imagenes-${productoId}`)
+
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('producto_imagenes')
@@ -541,7 +567,11 @@ export async function fetchMedidasPublicas(productoId: number): Promise<{
   tallas: string[]
   tabla: Record<string, Record<string, number | null>>
 }> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag(`producto-medidas-${productoId}`)
+
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('medidas_producto')

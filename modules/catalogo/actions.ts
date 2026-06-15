@@ -1,7 +1,6 @@
 // modules/catalogo/actions.ts
 // Barrel de re-exportaciones — mantiene la API pública intacta para todos los consumidores.
 // Los módulos reales viven en modules/catalogo/actions/*.ts
-'use server'
 
 export type { ActionResult } from './actions/_shared'
 

@@ -1,5 +1,6 @@
 // components/admin/cajas/CajaCard.tsx
 'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

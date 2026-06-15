@@ -1,0 +1,532 @@
+﻿node.exe : $ eslint .
+En C:\Users\uriel\AppData\Roaming\npm\pnpm.ps1: 24 Carácter: 5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.mjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ($ eslint .:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\CatalogoCreateDialog.tsx
+  40:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\CatalogoCreateDialog.tsx:40:7
+  38 |   useEffect(() => {
+  39 |     if (!isOpen) {
+> 40 |       setProducto(null)
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  41 |       return
+  42 |     }
+  43 |  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx
+  83:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:83:16
+  81 |           <TableRow className="bg-muted/40 hover:bg-muted/40">
+  82 |             <TableHead className="w-[120px] font-semibold text-foreground">
+> 83 |               <SortableHeader field="sku_base">SKU</SortableHeader>
+     |                ^^^^^^^^^^^^^^ This component is created during render
+  84 |             </TableHead>
+  85 |             <TableHead className="font-semibold text-foreground">Descripción</TableHead>
+  86 |             <TableHead className="font-semibold text-foreground">
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (  react-hooks/static-components
+  87:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:87:16
+  85 |             <TableHead className="font-semibold text-foreground">Descripción</TableHead>
+  86 |             <TableHead className="font-semibold text-foreground">
+> 87 |               <SortableHeader field="familia">Familia</SortableHeader>
+     |                ^^^^^^^^^^^^^^ This component is created during render
+  88 |             </TableHead>
+  89 |             <TableHead className="font-semibold text-foreground">
+  90 |               <SortableHeader field="marca_id">Marca</SortableHeader>
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (  react-hooks/static-components
+  90:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:90:16
+  88 |             </TableHead>
+  89 |             <TableHead className="font-semibold text-foreground">
+> 90 |               <SortableHeader field="marca_id">Marca</SortableHeader>
+     |                ^^^^^^^^^^^^^^ This component is created during render
+  91 |             </TableHead>
+  92 |             <TableHead className="w-[100px] text-right font-semibold text-foreground">
+  93 |               <SortableHeader field="pz_en_caja">Pz/Caja</SortableHeader>
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (                                          react-hooks/static-components
+  93:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:93:16
+  91 |             </TableHead>
+  92 |             <TableHead className="w-[100px] text-right font-semibold text-foreground">
+> 93 |               <SortableHeader field="pz_en_caja">Pz/Caja</SortableHeader>
+     |                ^^^^^^^^^^^^^^ This component is created during render
+  94 |             </TableHead>
+  95 |             <TableHead className="w-[120px] text-right font-semibold text-foreground">
+  96 |               <SortableHeader field="precio_ec">Precio EC</SortableHeader>
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (                react-hooks/static-components
+  96:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:96:16
+  94 |             </TableHead>
+  95 |             <TableHead className="w-[120px] text-right font-semibold text-foreground">
+> 96 |               <SortableHeader field="precio_ec">Precio EC</SortableHeader>
+     |                ^^^^^^^^^^^^^^ This component is created during render
+  97 |             </TableHead>
+  98 |             <TableHead className="w-[140px] font-semibold text-foreground">
+  99 |               <SortableHeader field="estado">Estado</SortableHeader>
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (                                react-hooks/static-components
+  99:16  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:99:16
+   97 |             </TableHead>
+   98 |             <TableHead className="w-[140px] font-semibold text-foreground">
+>  99 |               <SortableHeader field="estado">Estado</SortableHeader>
+      |                ^^^^^^^^^^^^^^ This component is created during render
+  100 |             </TableHead>
+  101 |             <TableHead className="w-[100px]"></TableHead>
+  102 |             <TableHead className="w-[80px]"></TableHead>
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\catalogos\components\CatalogosReadOnlyTable.tsx:49:26
+  47 |   }
+  48 |
+> 49 |   const SortableHeader = ({ field, children }: { field: CatalogoSortBy; children: React.ReactNode }) => {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 50 |     const active = sortBy === field
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 51 |     return (
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 60 |     )
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 61 |   }
+     | ^^^^ The component is created during render here
+  62 |
+  63 |   if (productos.length === 0) {
+  64 |     return (                                                                        react-hooks/static-components
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx
+   263:5    error    Error: Cannot access variable before it is declared
+
+`loadProductsForFamily` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx:263:5
+  261 |   // --- Efecto: Cargar F000-000C por defecto ---
+  262 |   useEffect(() => {
+> 263 |     loadProductsForFamily('F000-000C')
+      |     ^^^^^^^^^^^^^^^^^^^^^ `loadProductsForFamily` accessed before it is declared
+  264 |   }, [])
+  265 |
+  266 |   // --- Efecto: Sincronizar familias iniciales ---
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx:298:3
+  296 |
+  297 |   // --- Cargar productos de una familia bajo demanda ---
+> 298 |   const loadProductsForFamily = async (familyCode: string) => {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 299 |     if (loadedProducts[familyCode] || loadingProducts[familyCode]) return
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 300 |
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 310 |     }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 311 |   };
+      | ^^^^^ `loadProductsForFamily` is declared here
+  312 |
+  313 |   // --- Manejo de Drag & Drop ---
+  314 |   const handleDragStart = (e: React.DragEvent, productId: number, skuLabel?: string) => {  react-hooks/immutability
+   264:6    warning  React Hook useEffect has a missing dependency: 'loadProductsForFamily'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+   268:5    error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx:268:5
+  266 |   // --- Efecto: Sincronizar familias iniciales ---
+  267 |   useEffect(() => {
+> 268 |     setFamilias(initialFamilias)
+      |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  269 |   }, [initialFamilias])
+  270 |
+  271 |   // --- Efecto: Ajustar layout para ocupar 100% de la pantalla (sin márgenes ni paddings) ---                                                                                                                                                                                                                                                                                                                                                                                react-hooks/set-state-in-effect
+   996:7    error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx:996:7
+  994 |     if (refFamilyName) {
+  995 |       const keywords = getKeywordsFromFamily(refFamilyName)
+> 996 |       setSuggestedKeywords(keywords)
+      |       ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  997 |     } else {
+  998 |       setSuggestedKeywords([])
+  999 |     }                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/set-state-in-effect
+  1000:6    warning  React Hook useEffect has a missing dependency: 'getKeywordsFromFamily'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+  1189:7    error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\familias\FamiliasOrganizerClient.tsx:1189:7
+  1187 |     const isLoading = !!loadingProducts['F000-000C']
+  1188 |     if (hasLoaded && !isLoading && unassignedProducts.length === 0) {
+> 1189 |       setIsSinAsignarCollapsed(true)
+       |       ^^^^^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  1190 |     }
+  1191 |   }, [unassignedProducts.length, loadingProducts['F000-000C'], loadedProducts['F000-000C']])
+  1192 |                                                                                                                                                                                                                                                                                                                      react-hooks/set-state-in-effect
+  1191:6    warning  React Hook useEffect has missing dependencies: 'loadedProducts' and 'loadingProducts'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/exhaustive-deps
+  1191:34   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+  1191:64   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+  1383:29   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @next/next/no-img-element
+  1896:45   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @next/next/no-img-element
+  2003:19   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @next/next/no-img-element
+  2187:139  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react/no-unescaped-entities
+  2187:155  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react/no-unescaped-entities
+  2383:98   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react/no-unescaped-entities
+  2383:113  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react/no-unescaped-entities
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\configuracion\auditoria_producto\AuditoriaProductosClient.tsx
+  54:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\configuracion\auditoria_producto\AuditoriaProductosClient.tsx:54:5
+  52 |   // Reiniciar página al buscar o filtrar
+  53 |   useEffect(() => {
+> 54 |     setCurrentPage(1)
+     |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  55 |   }, [searchTerm, accionFilter])
+  56 |
+  57 |   const filteredData = useMemo(() => {  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\contenedores\[id]\components\ContenedorOrdenes.tsx
+  84:6  warning  React Hook useEffect has a missing dependency: 'debouncedSearch'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\despachos\nuevo\DespachoForm.tsx
+  54:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\despachos\nuevo\DespachoForm.tsx:54:7
+  52 |   useEffect(() => {
+  53 |     if (origenId) {
+> 54 |       handleBodegaChange(origenId)
+     |       ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  55 |     }
+  56 |   }, [origenId])
+  57 |  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\inventario\notas\ReporteNotasButton.tsx
+  101:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\inventario\notas\ReporteNotasButton.tsx:101:7
+   99 |   useEffect(() => {
+  100 |     if (isOpen) {
+> 101 |       setSelectedBodegas(bodegas.map(b => b.id))
+      |       ^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  102 |       setFechaDesde('')
+  103 |       setFechaHasta('')
+  104 |       setSelectedMes('custom')  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\inventario\notas\nueva\NoteDraftBuilder.tsx
+  194:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\inventario\notas\nueva\NoteDraftBuilder.tsx:194:7
+  192 |   useEffect(() => {
+  193 |     if (selectedProduct && draft.bodega_origen_id) {
+> 194 |       fetchStock(selectedProduct.id, draft.bodega_origen_id)
+      |       ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  195 |     }
+  196 |   }, [draft.bodega_origen_id, selectedProduct, fetchStock])
+  197 |  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\[id]\components\OrdenCabecera.tsx
+  38:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\[id]\components\OrdenCabecera.tsx:38:5
+  36 |   // Resetear edición al cambiar de orden (evita que persista al navegar)
+  37 |   useEffect(() => {
+> 38 |     setIsEditing(false)
+     |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  39 |     setError(null)
+  40 |   }, [orden.id])
+  41 |  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\cajas\DetalleCajaSheet.tsx
+  23:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\cajas\DetalleCajaSheet.tsx:23:5
+  21 |
+  22 |   useEffect(() => {
+> 23 |     setIsLoading(true)
+     |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  24 |     Promise.all([
+  25 |       fetch(`/api/ordenes-b2b/caja-detalle?id=${cajaId}`).then(res => res.json()),
+  26 |       import('@/modules/catalogo/queries').then(m => m.fetchCatalogosEdicion())  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\AdminLayoutClient.tsx
+  30:9  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\AdminLayoutClient.tsx:30:9
+  28 |       const savedState = localStorage.getItem('sidebar-collapsed')
+  29 |       if (savedState !== null) {
+> 30 |         setIsCollapsed(savedState === 'true')
+     |         ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  31 |       }
+  32 |     } catch (e) {
+  33 |       console.warn('No se pudo acceder a localStorage para la barra lateral:', e)  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CajaCard.tsx
+  170:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CajaCard.tsx:170:7
+  168 |   useEffect(() => {
+  169 |     if (totalesEdicion.totalGeneral > 0) {
+> 170 |       setEditData((prev: any) => {
+      |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  171 |         if (prev.piezas_por_caja !== totalesEdicion.totalGeneral) {
+  172 |           return { ...prev, piezas_por_caja: totalesEdicion.totalGeneral }
+  173 |         }  react-hooks/set-state-in-effect
+  190:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CajaCard.tsx:190:7
+  188 |         }
+  189 |       })
+> 190 |       setEditData((prev: any) => {
+      |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  191 |         const isSame = JSON.stringify(prev.tallas_summary) === JSON.stringify(syncTallas)
+  192 |         return isSame ? prev : { ...prev, tallas_summary: syncTallas }
+  193 |       })                             react-hooks/set-state-in-effect
+  204:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CajaCard.tsx:204:7
+  202 |         value: f.colorNombre
+  203 |       }))
+> 204 |       setEditData((prev: any) => {
+      |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  205 |         const isSame = JSON.stringify(prev.colores_summary) === JSON.stringify(syncColores)
+  206 |         return isSame ? prev : { ...prev, colores_summary: syncColores }
+  207 |       })     react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CrearCajaDialog.tsx
+  90:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\cajas\CrearCajaDialog.tsx:90:5
+  88 |   // Cargar productos iniciales al abrir (ejecutar solo al montar)
+  89 |   useEffect(() => {
+> 90 |     setSearch('')
+     |     ^^^^^^^^^ Avoid calling setState() directly within an effect
+  91 |     if (productoOptions.length === 1) {
+  92 |       // Si hay exactamente 1 producto en la orden, auto-seleccionarlo
+  93 |       setSelectedProduct({  react-hooks/set-state-in-effect
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\ecommerce\ConfigForm.tsx
+  102:25  warning  Compilation Skipped: Use of incompatible library
+
+This API returns functions which cannot be memoized without leading to stale UI. To prevent this, by default React Compiler will skip memoizing this component/hook. However, you may see issues if values from this API are passed to other components/hooks that are memoized.
+
+C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\ecommerce\ConfigForm.tsx:102:25
+  100 |   })
+  101 |
+> 102 |   const modoOperacion = form.watch('modo_operacion')
+      |                         ^^^^ React Hook Form's `useForm()` API returns a `watch()` function which cannot be memoized safely.
+  103 |
+  104 |   async function onSubmit(data: FormData) {
+  105 |     try {  react-hooks/incompatible-library
+
+C:\Users\uriel\Downloads\enero 26\archivo2\hooks\useBodegaActiva.ts
+  36:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\uriel\Downloads\enero 26\archivo2\hooks\useBodegaActiva.ts:36:7
+  34 |
+  35 |     if (isValidId) {
+> 36 |       setBodegaActivaId(savedId)
+     |       ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  37 |       return
+  38 |     }
+  39 |  react-hooks/set-state-in-effect
+
+✖ 37 problems (27 errors, 10 warnings)
+
+[ELIFECYCLE] Command failed with exit code 1.

@@ -9,8 +9,8 @@ import type {
   OrdenDisponible, CajaEnContenedor, ContenedorReporteItem,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
-import { getCurrentUser } from '@/modules/auth/queries'
-import { buildCommercialOrderFilter, getCommercialScope } from '@/lib/auth/commercial-scope'
+import { getCommercialScope } from '@/lib/dal'
+import { buildCommercialOrderFilter } from '@/lib/auth/commercial-scope'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO (usa v_contenedor_resumen)
@@ -26,8 +26,7 @@ export async function fetchContenedores(
   const sortBy: ContenedorSortBy = filtros.sort_by ?? 'fecha_eta'
   const ascending = filtros.order === 'asc'
 
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query = supabase
     .from('v_contenedor_resumen')
@@ -95,8 +94,7 @@ export async function fetchContenedorById(
   id: number
 ): Promise<ContenedorRow | null> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   if (!scope.is_super_admin) {
     const orderFilter = buildCommercialOrderFilter(scope)
@@ -141,8 +139,7 @@ export async function fetchOrdenesDeContenedor(
   contenedorId: number
 ): Promise<OrdenEnContenedor[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -192,8 +189,7 @@ export async function fetchContenedorPacking(
   contenedorId: number
 ): Promise<ContenedorPackingItem[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   const { data: cont } = await supabase
     .from('contenedores')
@@ -247,8 +243,7 @@ export async function fetchOrdenesDisponibles(
   q?: string,
 ): Promise<OrdenDisponible[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -301,8 +296,7 @@ export async function fetchCajasDeContenedor(
   contenedorId: number,
 ): Promise<CajaEnContenedor[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   // 1. Obtener órdenes del contenedor con filtro de alcance comercial
   let query = supabase
@@ -402,8 +396,7 @@ export async function fetchCajasDeContenedor(
 
 export async function fetchContenedoresReporteAnual(): Promise<ContenedorReporteItem[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -489,8 +482,7 @@ export async function fetchContenedoresDetalleAnual(
   anio: number
 ): Promise<any[]> {
   const supabase = await createClient()
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   // 1. Obtener contenedores del año
   const { data: contenedores, error } = await supabase
@@ -587,4 +579,3 @@ export async function fetchContenedoresDetalleAnual(
     }
   })
 }
-

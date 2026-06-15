@@ -8,8 +8,10 @@ import { ProductosNoPublicados } from '@/components/admin/ecommerce/ProductosNoP
 export const metadata: Metadata = { title: 'Catálogo Web' }
 
 async function ProductosWebData() {
-  const { productos, total } = await fetchProductosWebAdmin({ page: 1 })
-  const noPublicados = await fetchProductosNoPublicados()
+  const [{ productos, total }, noPublicados] = await Promise.all([
+    fetchProductosWebAdmin({ page: 1 }),
+    fetchProductosNoPublicados(),
+  ])
 
   return (
     <>

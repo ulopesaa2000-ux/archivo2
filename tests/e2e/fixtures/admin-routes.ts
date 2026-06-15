@@ -33,6 +33,7 @@ export const ADMIN_STATIC_ROUTES: AdminRouteDef[] = [
     },
     timeoutMs: 120_000,
   },
+  { path: '/inventario-virtual', ready: { type: 'h1', name: /Bodegas Virtuales/ }, timeoutMs: 120_000 },
   { path: '/inventario/bodegas', ready: { type: 'h1', name: /^Bodegas$/ } },
   { path: '/inventario/notas', ready: { type: 'h1', name: /Notas de Inventario/ }, timeoutMs: 120_000 },
   { path: '/inventario/notas/nueva', ready: { type: 'h1', name: /Nueva Nota de Inventario/ } },

@@ -747,6 +747,46 @@ export async function fetchUsuariosBodega(
   })
 }
 
+export async function fetchUsuariosBodegasMap(
+  bodegaIds: number[]
+): Promise<Map<number, (UsuarioBodegaRow & { usuario_nombre: string })[]>> {
+  const result = new Map<number, (UsuarioBodegaRow & { usuario_nombre: string })[]>()
+
+  if (bodegaIds.length === 0) {
+    return result
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('usuario_bodegas')
+    .select('*')
+    .in('bodega_id', bodegaIds)
+
+  if (error || !data) {
+    return result
+  }
+
+  const userIds = Array.from(new Set((data ?? []).map((item: any) => item.usuario_id).filter(Boolean)))
+  const { data: usersData } = userIds.length > 0
+    ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
+    : { data: [] }
+  const usersMap = new Map(usersData?.map((u: any) => [u.id, u]) || [])
+
+  for (const rawItem of data as any[]) {
+    const current = result.get(rawItem.bodega_id) ?? []
+    const usuario = usersMap.get(rawItem.usuario_id)
+
+    current.push({
+      ...rawItem,
+      usuario_nombre: usuario?.nombre_completo ?? '',
+    })
+
+    result.set(rawItem.bodega_id, current)
+  }
+
+  return result
+}
+
 // ════════════════════════════════════════════════════════════
 // NOTAS PENDIENTES POR BODEGA (para panel en stock)
 // ════════════════════════════════════════════════════════════

@@ -1,10 +1,44 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\modules\auth\queries.ts
-'use server'
+import 'server-only'
 
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import type { UsuarioConRol, BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
+import type { UsuarioConRol, BodegaRow, UsuarioBodegaRow, UsuarioRow } from '@/lib/types/tables'
 import { buildPermissionMatrix, type PermissionMatrix } from '@/lib/auth/permissions'
+
+const ULTIMO_ACCESO_THROTTLE_MS = 15 * 60 * 1000
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+function shouldRefreshUltimoAcceso(ultimoAcceso: string | null | undefined): boolean {
+  if (!ultimoAcceso) return true
+
+  const ultimoAccesoMs = new Date(ultimoAcceso).getTime()
+  if (Number.isNaN(ultimoAccesoMs)) return true
+
+  return Date.now() - ultimoAccesoMs >= ULTIMO_ACCESO_THROTTLE_MS
+}
+
+function queueUltimoAccesoRefresh(
+  supabase: SupabaseServerClient,
+  usuarioId: number,
+  ultimoAcceso: string | null | undefined
+) {
+  if (!shouldRefreshUltimoAcceso(ultimoAcceso)) {
+    return
+  }
+
+  supabase
+    .from('usuarios')
+    .update({ ultimo_acceso: new Date().toISOString() })
+    .eq('id', usuarioId)
+    .then(
+      () => {},
+      (error: unknown) => {
+        console.error('[getCurrentUser] No se pudo refrescar ultimo_acceso:', error)
+      }
+    )
+}
 
 export async function getSession() {
   const supabase = await createClient()
@@ -40,12 +74,6 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
       : undefined
 
     if (claims && effectivePermissions) {
-      ;(supabase as any)
-        .from('usuarios')
-        .update({ ultimo_acceso: new Date().toISOString() })
-        .eq('id', claims.usuario_id)
-        .then(() => {})
-
       return {
         id: claims.usuario_id,
         auth_user_id: authUser.id,
@@ -55,7 +83,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
         rol_id: claims.rol_id,
         activo: true,
         tenant: 'inv-tienda',
-        ultimo_acceso: new Date().toISOString(),
+        ultimo_acceso: authUser.last_sign_in_at ?? null,
         rol: {
           id: claims.rol_id,
           nombre: claims.rol_nombre,
@@ -79,8 +107,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
       .eq('auth_user_id', authUser.id)
       .eq('activo', true)
       .single()
-
-    const usuario = usuarioData as any
+    const usuario = usuarioData as UsuarioRow | null
 
     if (userError || !usuario) {
       console.error('getCurrentUser query error:', userError)
@@ -137,11 +164,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
       .eq('activo', true)
       .maybeSingle()
 
-    ;(supabase as any)
-      .from('usuarios')
-      .update({ ultimo_acceso: new Date().toISOString() })
-      .eq('id', usuario.id)
-      .then(() => {})
+    queueUltimoAccesoRefresh(supabase, usuario.id, usuario.ultimo_acceso)
 
     const { syncUserClaims } = await import('./actions')
     syncUserClaims(authUser.id).catch((err) => {

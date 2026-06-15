@@ -84,6 +84,7 @@ export interface ProductoWebPublico {
   modo_override: 'default' | 'catalogo' | 'ecommerce' | null
   unidad_venta: 'pieza' | 'caja' | 'ambas' | null
   activo: boolean
+  visitas?: number | null
 }
 
 // ═══════════════════════════════════════════════════════════════

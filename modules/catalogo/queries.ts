@@ -1,7 +1,8 @@
 // modules/catalogo/queries.ts
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { cacheLife, cacheTag } from 'next/cache'
+import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros, CatalogosEdicion,
@@ -11,11 +12,10 @@ import type {
 } from './types'
 import type {
   ProductoRow, ProductoWebRow, ProductoImagenRow,
-  TipoPrendaRow, EdadRow, PersonaRow,
+  TipoPrendaRow, EdadRow, PersonaRow, MarcaRow, GeneroRow, TelaRow,
 } from '@/lib/types/tables'
 
-import { getCurrentUser } from '@/modules/auth/queries'
-import { getCommercialScope } from '@/lib/auth/commercial-scope'
+import { getCommercialScope } from '@/lib/dal'
 import { buildCajaContenidoMap } from '@/modules/cajas/utils'
 
 // ═══════════════════════════════════════════════════════════════
@@ -30,9 +30,7 @@ export async function fetchProductosCatalogo(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  // Obtener el alcance comercial del usuario
-  const currentUser = await getCurrentUser()
-  const scope = await getCommercialScope(supabase, currentUser)
+  const scope = await getCommercialScope()
 
   // ── Catálogos en paralelo (para filtros y lookup) ─────────
   const catalogos = await fetchCatalogosParaFiltros()
@@ -137,7 +135,11 @@ export async function fetchProductosCatalogo(
 }
 
 export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag('catalogo-filtros')
+
+  const supabase = createStaticClient()
 
   const [marcasRes, generosRes, telasRes] = await Promise.all([
     supabase
@@ -157,9 +159,9 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
   ])
 
   return {
-    marcas: marcasRes.data ?? [],
-    generos: generosRes.data ?? [],
-    telas: telasRes.data ?? [],
+    marcas: (marcasRes.data ?? []) as MarcaRow[],
+    generos: (generosRes.data ?? []) as GeneroRow[],
+    telas: (telasRes.data ?? []) as TelaRow[],
   }
 }
 

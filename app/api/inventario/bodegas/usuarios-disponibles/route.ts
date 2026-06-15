@@ -2,11 +2,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchUsuarios } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from '@/lib/auth/permissions'
 
 export async function GET(request: NextRequest) {
+  void request
   const currentUser = await getCurrentUser()
   if (!currentUser) {
-    return NextResponse.json([], { status: 401 })
+    return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+  }
+
+  if (!can(currentUser, 'inventario_bodegas', 'puede_editar')) {
+    return NextResponse.json({ error: 'No autorizado.' }, { status: 403 })
   }
 
   const usuarios = await fetchUsuarios()

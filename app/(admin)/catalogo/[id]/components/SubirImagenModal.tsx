@@ -278,10 +278,12 @@ export function SubirImagenModal({
                 {/* Preview de URL */}
                 {urlPreview && (
                   <div className="relative aspect-video w-full rounded-lg overflow-hidden border bg-muted/30">
-                    <img
+                    <Image
                       src={urlPreview}
                       alt="preview"
-                      className="w-full h-full object-contain"
+                      fill
+                      unoptimized
+                      className="object-contain"
                       onError={() => { setUrlError('No se pudo cargar la imagen desde esa URL.'); setUrlPreview(null) }}
                     />
                     <div className="absolute top-2 right-2 text-[10px] bg-orange-500/90 text-white rounded-full px-2 py-0.5 font-semibold">

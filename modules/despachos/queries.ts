@@ -95,6 +95,50 @@ export async function fetchStockVirtual(
   return Array.from(map.values())
 }
 
+export async function fetchStockVirtualResumenes(
+  bodegaIds: number[]
+): Promise<Map<number, { totalCajas: number; totalProductos: number }>> {
+  const resumenes = new Map<number, { totalCajas: number; totalProductos: number }>()
+
+  if (bodegaIds.length === 0) {
+    return resumenes
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('inventario_stock')
+    .select('bodega_id, producto_id, cajas')
+    .in('bodega_id', bodegaIds)
+    .gt('cajas', 0)
+
+  if (error || !data) {
+    console.error('Error fetchStockVirtualResumenes:', error)
+    return resumenes
+  }
+
+  const productosPorBodega = new Map<number, Set<number>>()
+
+  for (const row of data) {
+    const current = resumenes.get(row.bodega_id) ?? { totalCajas: 0, totalProductos: 0 }
+    current.totalCajas += Number(row.cajas ?? 0)
+    resumenes.set(row.bodega_id, current)
+
+    if (!productosPorBodega.has(row.bodega_id)) {
+      productosPorBodega.set(row.bodega_id, new Set())
+    }
+
+    productosPorBodega.get(row.bodega_id)!.add(row.producto_id)
+  }
+
+  for (const [bodegaId, productos] of productosPorBodega.entries()) {
+    const current = resumenes.get(bodegaId) ?? { totalCajas: 0, totalProductos: 0 }
+    current.totalProductos = productos.size
+    resumenes.set(bodegaId, current)
+  }
+
+  return resumenes
+}
+
 // ════════════════════════════════════════════════════════════
 // LISTADO DE DESPACHOS CON PAGINACIÓN
 // ════════════════════════════════════════════════════════════

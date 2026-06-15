@@ -1,80 +1,148 @@
-// app/(store)/shop/[slug]/page.tsx
+// C:\Users\uriel\Downloads\enero 26\archivo2\app\(store)\shop\[slug]\page.tsx
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { headers } from 'next/headers'
+import { after } from 'next/server'
 import { Suspense } from 'react'
-import { fetchProductoWebBySlug, fetchVariantesProducto, fetchImagenesProducto, fetchConfigEcommerce, fetchMedidasPublicas } from '@/modules/ecommerce/queries'
-import { getSmartImagenUrl } from '@/lib/utils/imagen'
-import { slugify } from '@/lib/utils'
-import { ProductGalleryClient } from './components/ProductGalleryClient'
+import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
-import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
+import { SITE_NAME, SITE_URL, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
+import { slugify } from '@/lib/utils'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import {
+  fetchConfigEcommerce,
+  fetchImagenesProducto,
+  fetchMedidasPublicas,
+  fetchProductoWebBySlug,
+  fetchVariantesProducto,
+  incrementProductoWebVisitas,
+} from '@/modules/ecommerce/queries'
+import { ProductGalleryClient } from './components/ProductGalleryClient'
 
-import { SITE_URL, SITE_NAME, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
 const PRICE_VALID_UNTIL = '2027-12-31'
 
-interface ProductPageProps {
-  params: Promise<{ slug: string }>
-}
-
-// Helper para garantizar URLs absolutas (Meta/Facebook las requiere)
 function toAbsolute(url: string, base: string): string {
-  if (!url) return DEFAULT_OG_IMAGE
+  if (!url) {
+    return DEFAULT_OG_IMAGE
+  }
+
   return url.startsWith('http') ? url : `${base}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
-export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
-  const { slug } = await params
-  const producto = await fetchProductoWebBySlug(slug)
-
-  let dynamicSiteUrl = SITE_URL
+async function resolveSiteUrl(): Promise<string> {
   try {
     const headersList = await headers()
     const host = headersList.get('x-forwarded-host') || headersList.get('host')
-    const protocol = headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
-    if (host) dynamicSiteUrl = `${protocol}://${host}`
+    const protocol =
+      headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
+
+    if (host) {
+      return `${protocol}://${host}`
+    }
   } catch {
-    // Fallback a SITE_URL
+    // Fallback a SITE_URL cuando headers no esten disponibles.
   }
+
+  return SITE_URL
+}
+
+async function ProductGallerySection({
+  productoId,
+  nombre,
+}: {
+  productoId: number
+  nombre: string
+}) {
+  const imagenes = await fetchImagenesProducto(productoId)
+  return <ProductGalleryClient imagenes={imagenes} nombre={nombre} />
+}
+
+async function VariantSelectorSection({
+  productoId,
+  config,
+}: {
+  productoId: number
+  config: Awaited<ReturnType<typeof fetchConfigEcommerce>>
+}) {
+  const variantes = await fetchVariantesProducto(productoId)
+  return <VariantSelector variantes={variantes} config={config} />
+}
+
+async function MeasurementsSection({ productoId }: { productoId: number }) {
+  const medidas = await fetchMedidasPublicas(productoId)
+
+  if (medidas.puntos.length === 0 || medidas.tallas.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-8 border-t border-store-border pt-6">
+      <h3 className="text-[11px] tracking-[0.1em] uppercase font-medium text-store-ink mb-4">
+        Tabla de Medidas
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b border-store-border">
+              <th className="text-left font-normal text-store-ink3 pb-2 pr-4">Medida</th>
+              {medidas.tallas.map((talla) => (
+                <th key={talla} className="text-center font-medium text-store-ink pb-2 px-3">
+                  {talla}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {medidas.puntos.map((punto, index) => (
+              <tr key={punto} className={index % 2 === 0 ? 'bg-transparent' : 'bg-[var(--surface)]'}>
+                <td className="py-2 pr-4 text-store-ink2">{punto} (cm)</td>
+                {medidas.tallas.map((talla) => (
+                  <td key={talla} className="text-center py-2 px-3 text-store-ink">
+                    {medidas.tabla[punto]?.[talla] ?? '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export async function generateMetadata({
+  params,
+}: PageProps<'/shop/[slug]'>): Promise<Metadata> {
+  const { slug } = await params
+  const producto = await fetchProductoWebBySlug(slug)
+  const dynamicSiteUrl = await resolveSiteUrl()
 
   if (!producto) {
     return {
       title: `Producto no encontrado | ${SITE_NAME}`,
-      description: 'El producto que buscas no está disponible en nuestro catálogo actual.'
+      description: 'El producto que buscas no está disponible en nuestro catálogo actual.',
     }
   }
 
-  // Lógica de título: SEO > SKU + Desc > SKU
   const productTitle = producto.titulo_seo
     ? producto.titulo_seo
-    : (producto.sku_base && producto.descripcion)
+    : producto.sku_base && producto.descripcion
       ? `${producto.sku_base} - ${producto.descripcion}`
       : producto.sku_base || 'Producto'
 
-  const productDescription = producto.descripcion_seo || producto.descripcion || `Descubre ${producto.sku_base} en ${SITE_NAME}`
+  const productDescription =
+    producto.descripcion_seo || producto.descripcion || `Descubre ${producto.sku_base} en ${SITE_NAME}`
 
-  // ✅ CORREGIDO: Se ignora producto.url_og por completo (incluso si existe en la BD)
-  // para evitar fallos de 404 en imágenes sintéticas '_seo.jpg' antiguas o rotas.
-  // Usamos siempre la imagen principal real directamente.
-  /*
-  const rawOgImage = producto.url_og
-    ? producto.url_og
-    : producto.imagen_principal
-      ? getSmartImagenUrl(producto.imagen_principal, 'og')
-      : DEFAULT_OG_IMAGE
-  */
   const rawOgImage = producto.imagen_principal
     ? getSmartImagenUrl(producto.imagen_principal, 'og')
     : DEFAULT_OG_IMAGE
   const ogImageUrl = toAbsolute(rawOgImage, dynamicSiteUrl)
-
-  // URL canónica: misma lógica que sitemap.ts (slugify elimina espacios/mayúsculas)
   const productUrl = `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`
 
   return {
-    title: productTitle, // ✅ CORREGIDO: Evita duplicación de marca al heredar de layout global
+    title: productTitle,
     description: productDescription,
     keywords: producto.keywords || undefined,
     openGraph: {
@@ -89,9 +157,13 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
           url: ogImageUrl,
           width: 1200,
           height: 630,
-          type: ogImageUrl.toLowerCase().endsWith('.png') ? 'image/png' : ogImageUrl.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg',
+          type: ogImageUrl.toLowerCase().endsWith('.png')
+            ? 'image/png'
+            : ogImageUrl.toLowerCase().endsWith('.webp')
+              ? 'image/webp'
+              : 'image/jpeg',
           alt: productTitle,
-        }
+        },
       ],
     },
     twitter: {
@@ -103,7 +175,6 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     alternates: {
       canonical: productUrl,
     },
-    // ✅ NUEVO: Meta tags de producto para catálogo de Meta/Instagram
     other: {
       'product:price:amount': String(producto.precio_oferta || producto.precio_publico || 0),
       'product:price:currency': CURRENCY,
@@ -115,260 +186,200 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   }
 }
 
-export default async function ProductPage({ params }: ProductPageProps) {
+export default async function ProductPage({ params }: PageProps<'/shop/[slug]'>) {
   const { slug } = await params
+  const dynamicSiteUrl = await resolveSiteUrl()
+  const [producto, config] = await Promise.all([fetchProductoWebBySlug(slug), fetchConfigEcommerce()])
 
-  let dynamicSiteUrl = SITE_URL
-  try {
-    const headersList = await headers()
-    const host = headersList.get('x-forwarded-host') || headersList.get('host')
-    const protocol = headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
-    if (host) dynamicSiteUrl = `${protocol}://${host}`
-  } catch {
-    // Fallback
+  if (!producto) {
+    notFound()
   }
 
-  try {
-    const [producto, config] = await Promise.all([
-      fetchProductoWebBySlug(slug),
-      fetchConfigEcommerce(),
-    ])
+  const canonicalSlug = slugify(producto.slug)
+  if (slug !== canonicalSlug) {
+    redirect(`/shop/${canonicalSlug}`)
+  }
 
-    if (!producto) {
-      notFound()
-    }
+  after(async () => {
+    await incrementProductoWebVisitas(producto.id, producto.visitas)
+  })
 
-    // Redirect 301 si la URL no es la canónica
-    // Next.js decodifica %20 → espacio en params, por eso comparamos el slug
-    // crudo contra el canónico directamente (no slugify vs slugify, que siempre serían iguales)
-    const canonicalSlug = slugify(producto.slug)
-    if (slug !== canonicalSlug) {
-      redirect(`/shop/${canonicalSlug}`)
-    }
+  const productTitle = producto.titulo_seo
+    ? producto.titulo_seo
+    : producto.sku_base && producto.descripcion
+      ? `${producto.sku_base} - ${producto.descripcion}`
+      : producto.sku_base || 'Producto'
 
-    const [variantes, imagenes, medidas] = await Promise.all([
-      fetchVariantesProducto(producto.producto_id) ?? [],
-      fetchImagenesProducto(producto.producto_id) ?? [],
-      fetchMedidasPublicas(producto.producto_id) ?? { puntos: [], tallas: [], tabla: {} },
-    ])
+  const productSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: productTitle,
+    description: producto.descripcion_seo || producto.descripcion || productTitle,
+    sku: producto.sku_base,
+    image: producto.imagen_principal
+      ? [toAbsolute(getSmartImagenUrl(producto.imagen_principal, 'hero'), dynamicSiteUrl)]
+      : [],
+    brand: {
+      '@type': 'Brand',
+      name: producto.marca || SITE_NAME,
+    },
+    offers: {
+      '@type': 'Offer',
+      url: `${dynamicSiteUrl}/shop/${canonicalSlug}`,
+      priceCurrency: CURRENCY,
+      price: producto.precio_oferta || producto.precio_publico,
+      priceValidUntil: PRICE_VALID_UNTIL,
+      itemCondition: 'https://schema.org/NewCondition',
+      availability: producto.activo
+        ? 'https://schema.org/InStock'
+        : 'https://schema.org/OutOfStock',
+    },
+  }
 
-    const productTitle = producto.titulo_seo
-      ? producto.titulo_seo
-      : (producto.sku_base && producto.descripcion)
-        ? `${producto.sku_base} - ${producto.descripcion}`
-        : producto.sku_base || 'Producto'
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Inicio', item: `${dynamicSiteUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Catálogo', item: `${dynamicSiteUrl}/shop` },
+      { '@type': 'ListItem', position: 3, name: productTitle, item: `${dynamicSiteUrl}/shop/${canonicalSlug}` },
+    ],
+  }
 
-    // ✅ CORREGIDO: Imágenes absolutas en Schema.org
-    const productSchema = {
-      "@context": "https://schema.org",
-      "@type": "Product",
-      name: productTitle,
-      description: producto.descripcion_seo || producto.descripcion || productTitle,
-      sku: producto.sku_base,
-      image: producto.imagen_principal
-        ? [
-          toAbsolute(getSmartImagenUrl(producto.imagen_principal, 'hero'), dynamicSiteUrl),
-          ...imagenes.map(img => toAbsolute(img.url, dynamicSiteUrl))
-        ]
-        : [],
-      brand: {
-        "@type": "Brand",
-        name: producto.marca || SITE_NAME
-      },
-      offers: {
-        "@type": "Offer",
-        url: `${dynamicSiteUrl}/shop/${slugify(producto.slug)}`,
-        priceCurrency: CURRENCY,
-        price: producto.precio_oferta || producto.precio_publico,
-        priceValidUntil: PRICE_VALID_UNTIL,
-        itemCondition: "https://schema.org/NewCondition",
-        availability: producto.activo ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
-      },
-    }
+  return (
+    <div className="bg-[var(--bg)] min-h-screen pb-16">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+      />
 
-    const breadcrumbSchema = {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Inicio", item: `${dynamicSiteUrl}/` },
-        { "@type": "ListItem", position: 2, name: "Catálogo", item: `${dynamicSiteUrl}/shop` },
-        { "@type": "ListItem", position: 3, name: productTitle, item: `${dynamicSiteUrl}/shop/${encodeURIComponent(producto.slug)}` }
-      ]
-    }
+      <div className="py-4 px-4 md:px-8 bg-[var(--surface)] border-b border-store-border">
+        <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
+          <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
+            <li>
+              <Link href="/" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
+                Inicio
+              </Link>
+            </li>
+            <li className="flex items-center">
+              <span className="mx-2">/</span>
+              <Link href="/shop" className="hover:text-store-ink transition-colors" aria-label="Ver catálogo">
+                Catálogo
+              </Link>
+            </li>
+            <li className="flex items-center">
+              <span className="mx-2">/</span>
+              <span className="text-store-ink font-medium" aria-current="page">
+                {productTitle}
+              </span>
+            </li>
+          </ol>
+        </nav>
+      </div>
 
-    return (
-      <div className="bg-[var(--bg)] min-h-screen pb-16">
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
-        />
-
-        <div className="py-4 px-4 md:px-8 bg-[var(--surface)] border-b border-store-border">
-          <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
-            <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
-              <li>
-                <Link href="/" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
-                  Inicio
-                </Link>
-              </li>
-              <li className="flex items-center">
-                <span className="mx-2">/</span>
-                <Link href="/shop" className="hover:text-store-ink transition-colors" aria-label="Ver catálogo">
-                  Catálogo
-                </Link>
-              </li>
-              <li className="flex items-center">
-                <span className="mx-2">/</span>
-                <span className="text-store-ink font-medium" aria-current="page">
-                  {productTitle}
-                </span>
-              </li>
-            </ol>
-          </nav>
-        </div>
-
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <Suspense fallback={
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          <Suspense
+            fallback={
               <div className="aspect-square bg-[var(--surface)] border border-store-border animate-pulse rounded-md" />
-            }>
-              <ProductGalleryClient
-                imagenes={imagenes}
-                nombre={producto.nombre}
-              />
+            }
+          >
+            <ProductGallerySection productoId={producto.producto_id} nombre={producto.nombre} />
+          </Suspense>
+
+          <div>
+            <ProductInfo producto={producto} config={config} />
+
+            <Suspense
+              fallback={
+                <div className="h-24 bg-[var(--surface)] border border-store-border animate-pulse rounded-md mt-6" />
+              }
+            >
+              <VariantSelectorSection productoId={producto.producto_id} config={config} />
             </Suspense>
 
-            <div>
-              <ProductInfo
-                producto={producto}
-                config={config}
-              />
-
-              <Suspense fallback={
-                <div className="h-24 bg-[var(--surface)] border border-store-border animate-pulse rounded-md mt-6" />
-              }>
-                <VariantSelector
-                  variantes={variantes}
-                  config={config}
-                />
-              </Suspense>
-
-              <div className="pt-4">
-                <AddToQuoteButton
-                  producto={producto}
-                  config={config}
-                />
-              </div>
-
-              {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && (
-                <p className="text-[12px] text-store-ink3 italic mt-3">
-                  {config.mensaje_precio_variable}
-                </p>
-              )}
-
-              {(producto.descripcion || producto.composicion || producto.descripcion_seo || producto.keywords) && (
-                <div className="mt-8 text-[14px] leading-[1.75] text-store-ink2 space-y-4 border-t border-store-border pt-6">
-                  {producto.descripcion && producto.descripcion !== producto.nombre && (
-                    <p>{producto.descripcion}</p>
-                  )}
-
-                  {producto.descripcion_seo && (
-                    <p>{producto.descripcion_seo}</p>
-                  )}
-
-                  {producto.keywords && (
-                    <div className="pt-2 flex flex-wrap gap-2">
-                      {producto.keywords.split(',').map((k, idx) => (
-                        <span
-                          key={idx}
-                          className="bg-[var(--surface)] border border-store-border text-store-ink2 text-[11px] px-3 py-1 rounded-full font-medium"
-                        >
-                          {k.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {producto.composicion && (
-                    <div className="pt-2">
-                      <span className="text-[10px] tracking-[0.1em] uppercase text-store-ink3 block mb-1">Composición</span>
-                      <p>{producto.composicion}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {(producto.tipo_prenda || producto.genero || producto.tela_exterior || producto.tela_forro) && (
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  {producto.tipo_prenda && (
-                    <div className="bg-[var(--surface)] border border-store-border rounded p-3">
-                      <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tipo</div>
-                      <div className="text-[14px] font-medium text-store-ink">{producto.tipo_prenda}</div>
-                    </div>
-                  )}
-                  {producto.genero && (
-                    <div className="bg-[var(--surface)] border border-store-border rounded p-3">
-                      <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Género</div>
-                      <div className="text-[14px] font-medium text-store-ink">{producto.genero}</div>
-                    </div>
-                  )}
-                  {producto.tela_exterior && (
-                    <div className="bg-[var(--surface)] border border-store-border rounded p-3">
-                      <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tela Exterior</div>
-                      <div className="text-[14px] font-medium text-store-ink">{producto.tela_exterior}</div>
-                    </div>
-                  )}
-                  {producto.tela_forro && (
-                    <div className="bg-[var(--surface)] border border-store-border rounded p-3">
-                      <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tela Forro</div>
-                      <div className="text-[14px] font-medium text-store-ink">{producto.tela_forro}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {medidas?.puntos?.length > 0 && medidas.tallas?.length > 0 && (
-                <div className="mt-8 border-t border-store-border pt-6">
-                  <h3 className="text-[11px] tracking-[0.1em] uppercase font-medium text-store-ink mb-4">
-                    Tabla de Medidas
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-[13px]">
-                      <thead>
-                        <tr className="border-b border-store-border">
-                          <th className="text-left font-normal text-store-ink3 pb-2 pr-4">Medida</th>
-                          {medidas.tallas.map(t => (
-                            <th key={t} className="text-center font-medium text-store-ink pb-2 px-3">{t}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {medidas.puntos.map((punto, i) => (
-                          <tr key={punto} className={i % 2 === 0 ? 'bg-transparent' : 'bg-[var(--surface)]'}>
-                            <td className="py-2 pr-4 text-store-ink2">{punto} (cm)</td>
-                            {medidas.tallas.map(t => (
-                              <td key={t} className="text-center py-2 px-3 text-store-ink">
-                                {medidas.tabla[punto]?.[t] ?? '—'}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+            <div className="pt-4">
+              <AddToQuoteButton producto={producto} config={config} />
             </div>
+
+            {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && (
+              <p className="text-[12px] text-store-ink3 italic mt-3">{config.mensaje_precio_variable}</p>
+            )}
+
+            {(producto.descripcion ||
+              producto.composicion ||
+              producto.descripcion_seo ||
+              producto.keywords) && (
+              <div className="mt-8 text-[14px] leading-[1.75] text-store-ink2 space-y-4 border-t border-store-border pt-6">
+                {producto.descripcion && producto.descripcion !== producto.nombre && (
+                  <p>{producto.descripcion}</p>
+                )}
+
+                {producto.descripcion_seo && <p>{producto.descripcion_seo}</p>}
+
+                {producto.keywords && (
+                  <div className="pt-2 flex flex-wrap gap-2">
+                    {producto.keywords.split(',').map((keyword, index) => (
+                      <span
+                        key={index}
+                        className="bg-[var(--surface)] border border-store-border text-store-ink2 text-[11px] px-3 py-1 rounded-full font-medium"
+                      >
+                        {keyword.trim()}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {producto.composicion && (
+                  <div className="pt-2">
+                    <span className="text-[10px] tracking-[0.1em] uppercase text-store-ink3 block mb-1">
+                      Composición
+                    </span>
+                    <p>{producto.composicion}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(producto.tipo_prenda || producto.genero || producto.tela_exterior || producto.tela_forro) && (
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                {producto.tipo_prenda && (
+                  <div className="bg-[var(--surface)] border border-store-border rounded p-3">
+                    <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tipo</div>
+                    <div className="text-[14px] font-medium text-store-ink">{producto.tipo_prenda}</div>
+                  </div>
+                )}
+                {producto.genero && (
+                  <div className="bg-[var(--surface)] border border-store-border rounded p-3">
+                    <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Género</div>
+                    <div className="text-[14px] font-medium text-store-ink">{producto.genero}</div>
+                  </div>
+                )}
+                {producto.tela_exterior && (
+                  <div className="bg-[var(--surface)] border border-store-border rounded p-3">
+                    <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tela Exterior</div>
+                    <div className="text-[14px] font-medium text-store-ink">{producto.tela_exterior}</div>
+                  </div>
+                )}
+                {producto.tela_forro && (
+                  <div className="bg-[var(--surface)] border border-store-border rounded p-3">
+                    <div className="text-[9px] tracking-[0.1em] uppercase text-store-ink3 mb-1">Tela Forro</div>
+                    <div className="text-[14px] font-medium text-store-ink">{producto.tela_forro}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Suspense fallback={null}>
+              <MeasurementsSection productoId={producto.producto_id} />
+            </Suspense>
           </div>
         </div>
       </div>
-    )
-  } catch (error) {
-    console.error('Error cargando producto:', error)
-    notFound()
-  }
+    </div>
+  )
 }

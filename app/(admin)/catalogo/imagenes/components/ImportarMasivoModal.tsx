@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useRef, useTransition, useEffect } from 'react'
+import Image from 'next/image'
 import Papa from 'papaparse'
 import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -495,7 +496,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                   <div className="grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-8 gap-2">
                     {files.map((f, i) => (
                       <div key={i} className="relative aspect-square rounded-lg border overflow-hidden group bg-muted">
-                        <img src={f.preview} alt={f.file.name} className="w-full h-full object-cover" />
+                        <Image src={f.preview} alt={f.file.name} fill unoptimized className="object-cover" />
                         <div className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5">
                           <span className="text-[8px] text-white block truncate">{f.file.name}</span>
                         </div>
@@ -624,10 +625,12 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                     >
                       {/* Imagen contenida */}
                       <div className="relative w-full aspect-[4/3] bg-muted shrink-0 overflow-hidden">
-                        <img
+                        <Image
                           src={f.preview}
                           alt={f.file.name}
-                          className="absolute inset-0 w-full h-full object-contain"
+                          fill
+                          unoptimized
+                          className="object-contain"
                         />
                         {f.es_principal && (
                           <div className="absolute top-2 left-2 bg-amber-400 text-amber-900 text-[10px] font-bold rounded px-2 py-0.5">

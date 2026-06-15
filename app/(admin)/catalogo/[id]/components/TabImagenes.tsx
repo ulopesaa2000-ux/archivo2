@@ -2,6 +2,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { ImageIcon, Plus, LayoutGrid, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ProductoImagenRow } from '@/lib/types/tables'
@@ -126,10 +127,12 @@ export function TabImagenes({ imagenes, productoId, skuBase }: TabImagenesProps)
                   <tr key={img.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-2">
                       <div className="relative h-10 w-10 rounded overflow-hidden border bg-muted/30">
-                        <img
+                        <Image
                           src={img.url}
                           alt={img.alt_text ?? ''}
-                          className="object-contain h-full w-full"
+                          fill
+                          unoptimized
+                          className="object-contain"
                         />
                       </div>
                     </td>
