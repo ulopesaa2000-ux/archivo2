@@ -37,6 +37,7 @@ export interface ImportItem {
   status: 'nuevo' | 'duplicado' | 'omitido' | 'error'
   existingId?: number
   errors: string[]
+  warnings: string[]
   action: 'crear' | 'omitir' | 'actualizar'
 }
 
@@ -98,8 +99,8 @@ export async function validateCsvBeforeImportAction(
   // 1. Extraer todos los SKUs del CSV
   const csvSkus = rows.map(r => cleanSku(r.sku_base)).filter(Boolean)
 
-  // 2. Verificar existencia en BD (una sola query)
-  let existingMap = new Map<string, number>()
+  // 2. Verificar existencia en BD (una sola query exacta)
+  const existingMap = new Map<string, number>()
   if (csvSkus.length > 0) {
     const { data } = await (supabase.from('productos') as any)
       .select('id, sku_base')
@@ -109,10 +110,58 @@ export async function validateCsvBeforeImportAction(
     }
   }
 
+  // 2b. Búsqueda parcial para SKUs con "AND" (proveedor MOTI)
+  //     Ej: CSV "3JA2132 AND260023" → busca "AND260023" vía ilike
+  const andTokenRegex = /\b(AND\d+)/i
+  const andEntries: Array<{ csvSku: string; andToken: string }> = []
+  for (const sku of csvSkus) {
+    const match = sku.match(andTokenRegex)
+    if (match && !existingMap.has(sku)) {
+      andEntries.push({ csvSku: sku, andToken: match[1].toUpperCase() })
+    }
+  }
+
+  if (andEntries.length > 0) {
+    const uniqueTokens = [...new Set(andEntries.map(e => e.andToken))]
+    const tokenToDbId = new Map<string, number>()
+
+    for (const token of uniqueTokens) {
+      const { data } = await (supabase.from('productos') as any)
+        .select('id, sku_base')
+        .ilike('sku_base', `%${token}%`)
+        .limit(5)
+      for (const item of data ?? []) {
+        if (!tokenToDbId.has(token)) {
+          tokenToDbId.set(token, item.id)
+        }
+      }
+    }
+
+    for (const { csvSku, andToken } of andEntries) {
+      const dbId = tokenToDbId.get(andToken)
+      if (dbId && !existingMap.has(csvSku)) {
+        existingMap.set(csvSku, dbId)
+      }
+    }
+  }
+
+  // 2c. Detectar SKUs con "ADN" (posible typo de "AND") que no matchearon
+  const adnTokenRegex = /\bADN\d+/i
+  const adnSuggestions = new Map<string, string>() // sku original → sugerencia AND
+  for (const sku of csvSkus) {
+    if (existingMap.has(sku)) continue
+    const match = sku.match(adnTokenRegex)
+    if (match) {
+      const suggestion = sku.replace(/ADN/i, 'AND')
+      adnSuggestions.set(sku, suggestion)
+    }
+  }
+
   // 3. Construir items con estado
   const items: ImportItem[] = rows.map(row => {
     const sku = cleanSku(row.sku_base)
     const errors: string[] = []
+    const warnings: string[] = []
 
     if (!sku) errors.push('SKU vacío')
     if (!row.descripcion) errors.push('Descripción vacía')
@@ -122,12 +171,21 @@ export async function validateCsvBeforeImportAction(
       errors.push(`SKU "${sku}" ya existe en la base de datos (ID: ${existingId})`)
     }
 
+    // Advertencia ADN: posible error de digitación
+    if (!existingId && adnSuggestions.has(sku)) {
+      const suggestion = adnSuggestions.get(sku)!
+      warnings.push(
+        `Posible error de digitación: "${sku}" contiene "ADN". ¿Quiso decir "${suggestion}"? Use el botón "Probar AND" para verificar.`
+      )
+    }
+
     return {
       data: row,
       sku,
       status: existingId ? 'duplicado' : errors.length > 0 ? 'error' : 'nuevo',
       existingId,
       errors,
+      warnings,
       action: existingId ? 'omitir' : 'crear',
     }
   })
