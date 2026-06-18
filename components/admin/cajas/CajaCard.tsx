@@ -11,6 +11,11 @@ import { Label } from '@/components/ui/label'
 import { Pencil, Trash2, X, Check, Loader2, Calculator, Star } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
+
+function roundTo(value: number, decimals: number): number {
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
 import type { SharedCajaData } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
 import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
@@ -809,18 +814,18 @@ export function CajaCard({
             </div>
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">CBM / caja</span>
-              <p className="font-semibold text-foreground text-sm tabular-nums">{caja.cbm ?? '—'}</p>
+              <p className="font-semibold text-foreground text-sm tabular-nums">{caja.cbm != null ? roundTo(caja.cbm, 6) : '—'}</p>
             </div>
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso bruto/caja</span>
               <p className="font-semibold text-foreground text-sm tabular-nums">
-                {caja.peso_bruto_kg ? `${caja.peso_bruto_kg} kg` : '—'}
+                {caja.peso_bruto_kg ? `${roundTo(caja.peso_bruto_kg, 3)} kg` : '—'}
               </p>
             </div>
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-tight">Peso neto/caja</span>
               <p className="font-semibold text-foreground text-sm tabular-nums">
-                {caja.peso_neto ? `${caja.peso_neto} kg` : '—'}
+                {caja.peso_neto ? `${roundTo(caja.peso_neto, 3)} kg` : '—'}
               </p>
             </div>
             {caja.costo_total_caja !== undefined && (

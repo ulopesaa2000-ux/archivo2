@@ -10,6 +10,7 @@ import {
   FileText,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   ChevronRight,
   Check,
   Download,
@@ -176,8 +177,60 @@ export function ImportCsvModal({ open, onOpenChange }: Props) {
 
   const duplicados = items.filter((i) => i.status === 'duplicado')
   const nuevos = items.filter((i) => i.status === 'nuevo')
+  const advertencias = items.filter((i) => i.warnings?.length > 0 && i.status === 'nuevo')
   const todosOmitidos = duplicados.length > 0 && duplicados.every((d) => d.action === 'omitir')
   const puedeImportar = items.some((it) => it.action !== 'omitir')
+
+  // ── Probar AND para SKUs con advertencia ADN ──────────────────────
+
+  const handleTryAnd = async (index: number) => {
+    const item = items[index]
+    if (!item) return
+    const adnSku = item.sku
+    const andSku = adnSku.replace(/\bADN/i, 'AND')
+
+    // Actualizar el SKU localmente
+    setItems((prev) =>
+      prev.map((it, i) =>
+        i === index
+          ? {
+              ...it,
+              sku: andSku,
+              data: { ...it.data, sku_base: andSku },
+              warnings: [],
+            }
+          : it
+      )
+    )
+
+    // Re-validar solo este SKU contra la BD
+    try {
+      const res = await validateCsvBeforeImportAction([{ ...item.data, sku_base: andSku }])
+      if (res.items.length > 0) {
+        const validated = res.items[0]
+        setItems((prev) =>
+          prev.map((it, i) =>
+            i === index
+              ? {
+                  ...it,
+                  sku: validated.sku,
+                  status: validated.status,
+                  existingId: validated.existingId,
+                  errors: validated.errors,
+                  warnings: validated.warnings,
+                  action: validated.action,
+                }
+              : it
+          )
+        )
+        if (validated.status === 'duplicado') {
+          toast.info(`SKU "${andSku}" encontrado en la base de datos (ID: ${validated.existingId})`)
+        }
+      }
+    } catch {
+      // Si falla la re-validación, al menos quedamos con el SKU modificado
+    }
+  }
 
   // =====================================================================
   return (
@@ -271,6 +324,11 @@ export function ImportCsvModal({ open, onOpenChange }: Props) {
                 <span className="flex items-center gap-1 text-amber-600">
                   <AlertCircle className="h-3 w-3" />{duplicados.length} duplicados
                 </span>
+                {advertencias.length > 0 && (
+                  <span className="flex items-center gap-1 text-amber-600">
+                    <AlertTriangle className="h-3 w-3" />{advertencias.length} advertencias
+                  </span>
+                )}
                 {duplicados.length > 0 && (
                   <Button
                     variant="outline"
@@ -321,6 +379,12 @@ export function ImportCsvModal({ open, onOpenChange }: Props) {
                               Error
                             </Badge>
                           )}
+                          {item.warnings?.length > 0 && item.status === 'nuevo' && (
+                            <div className="mt-1.5 flex items-start gap-1 text-amber-600">
+                              <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                              <span className="text-[10px] leading-tight">{item.warnings[0]}</span>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm">{item.data.descripcion ?? item.data.nombre ?? '—'}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -344,9 +408,21 @@ export function ImportCsvModal({ open, onOpenChange }: Props) {
                             </div>
                           )}
                           {item.status === 'nuevo' && (
-                            <Badge className="text-[10px] bg-green-100 text-green-800 border-green-200">
-                              Crear nuevo
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge className="text-[10px] bg-green-100 text-green-800 border-green-200">
+                                Crear nuevo
+                              </Badge>
+                              {item.warnings?.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] text-amber-700 border-amber-300 hover:bg-amber-50"
+                                  onClick={() => handleTryAnd(index)}
+                                >
+                                  Probar AND
+                                </Button>
+                              )}
+                            </div>
                           )}
                           {item.status === 'error' && (
                             <span className="text-xs text-red-600">{item.errors[0]}</span>
