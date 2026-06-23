@@ -21,6 +21,8 @@ import type {
   CajaParaSelector,
   FiltrosStockMatrix,
   StockMatrixItem,
+  NotaOcrPropuesta,
+  FiltrosOcrPropuestas,
 } from './types'
 import type {
   BodegaRow,
@@ -1043,5 +1045,160 @@ export async function fetchResumenReporteNotas(filtros: {
   return {
     total: data.length,
     porTipo,
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// PROPUESTAS OCR
+// ════════════════════════════════════════════════════════════
+
+export async function fetchOcrPropuestas(
+  filtros: { estado?: string; page?: number }
+): Promise<{ propuestas: NotaOcrPropuesta[]; total: number }> {
+  const supabase = await createClient()
+  const page = filtros.page ?? 1
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  let query = (supabase as any)
+    .from('nota_ocr_propuestas')
+    .select(`
+      *,
+      tipo_movimiento:cat_tipos_movimiento(id, nombre, codigo),
+      bodega_origen:bodegas!nota_ocr_propuestas_bodega_origen_id_fkey(id, nombre, codigo),
+      bodega_destino:bodegas!nota_ocr_propuestas_bodega_destino_id_fkey(id, nombre, codigo),
+      nota:notas_inventario(id, numero_nota)
+    `, { count: 'exact' })
+
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado)
+  }
+
+  query = query
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  const { data, count, error } = await query
+
+  if (error) {
+    console.error('Error fetchOcrPropuestas:', error)
+    return { propuestas: [], total: 0 }
+  }
+
+  const rawData = (data ?? []) as any[]
+
+  // Resolver los nombres de los usuarios revisores
+  const revisorIds = Array.from(new Set(rawData.map(d => d.revisado_por).filter(Boolean)))
+  const { data: usersData } = revisorIds.length > 0
+    ? await supabase.from('usuarios').select('id, nombre_completo').in('id', revisorIds)
+    : { data: [] }
+  const usersMap = new Map(usersData?.map(u => [u.id, u.nombre_completo]) || [])
+
+  const propuestas: NotaOcrPropuesta[] = rawData.map((p: any) => {
+    const tm = Array.isArray(p.tipo_movimiento) ? p.tipo_movimiento[0] : p.tipo_movimiento
+    const bo = Array.isArray(p.bodega_origen) ? p.bodega_origen[0] : p.bodega_origen
+    const bd = Array.isArray(p.bodega_destino) ? p.bodega_destino[0] : p.bodega_destino
+    const nt = Array.isArray(p.nota) ? p.nota[0] : p.nota
+
+    return {
+      id: Number(p.id),
+      created_at: p.created_at,
+      client_request_id: p.client_request_id,
+      comprobante_url: p.comprobante_url,
+      storage_path: p.storage_path,
+      folio_detectado: p.folio_detectado,
+      fecha_detectada: p.fecha_detectada,
+      tipo_movimiento_detectado: p.tipo_movimiento_detectado,
+      origen_detectado: p.origen_detectado,
+      destino_detectado: p.destino_detectado,
+      lineas: p.lineas || [],
+      json_crudo: p.json_crudo,
+      confianza_global: p.confianza_global ? Number(p.confianza_global) : null,
+      tipo_movimiento_id: p.tipo_movimiento_id ? Number(p.tipo_movimiento_id) : null,
+      bodega_origen_id: p.bodega_origen_id ? Number(p.bodega_origen_id) : null,
+      bodega_destino_id: p.bodega_destino_id ? Number(p.bodega_destino_id) : null,
+      lineas_confirmadas: p.lineas_confirmadas || [],
+      revisado_por: p.revisado_por ? Number(p.revisado_por) : null,
+      revisado_en: p.revisado_en,
+      nota_id: p.nota_id ? Number(p.nota_id) : null,
+      estado: p.estado,
+      tipo_movimiento_nombre: tm?.nombre,
+      tipo_movimiento_codigo: tm?.codigo,
+      bodega_origen_nombre: bo?.nombre,
+      bodega_destino_nombre: bd?.nombre,
+      revisado_por_nombre: p.revisado_por ? usersMap.get(Number(p.revisado_por)) : undefined,
+      nota_numero: nt?.numero_nota
+    }
+  })
+
+  return { propuestas, total: count ?? 0 }
+}
+
+export async function fetchOcrPropuestaById(
+  id: number
+): Promise<NotaOcrPropuesta | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await (supabase as any)
+    .from('nota_ocr_propuestas')
+    .select(`
+      *,
+      tipo_movimiento:cat_tipos_movimiento(id, nombre, codigo),
+      bodega_origen:bodegas!nota_ocr_propuestas_bodega_origen_id_fkey(id, nombre, codigo),
+      bodega_destino:bodegas!nota_ocr_propuestas_bodega_destino_id_fkey(id, nombre, codigo),
+      nota:notas_inventario(id, numero_nota)
+    `)
+    .eq('id', id)
+    .single()
+
+  if (error || !data) {
+    console.error('Error fetchOcrPropuestaById:', error)
+    return null
+  }
+
+  const p: any = data
+  const tm = Array.isArray(p.tipo_movimiento) ? p.tipo_movimiento[0] : p.tipo_movimiento
+  const bo = Array.isArray(p.bodega_origen) ? p.bodega_origen[0] : p.bodega_origen
+  const bd = Array.isArray(p.bodega_destino) ? p.bodega_destino[0] : p.bodega_destino
+  const nt = Array.isArray(p.nota) ? p.nota[0] : p.nota
+
+  let revisadoPorNombre: string | undefined = undefined
+  if (p.revisado_por) {
+    const { data: userData } = await supabase
+      .from('usuarios')
+      .select('nombre_completo')
+      .eq('id', p.revisado_por)
+      .single()
+    revisadoPorNombre = userData?.nombre_completo
+  }
+
+  return {
+    id: Number(p.id),
+    created_at: p.created_at,
+    client_request_id: p.client_request_id,
+    comprobante_url: p.comprobante_url,
+    storage_path: p.storage_path,
+    folio_detectado: p.folio_detectado,
+    fecha_detectada: p.fecha_detectada,
+    tipo_movimiento_detectado: p.tipo_movimiento_detectado,
+    origen_detectado: p.origen_detectado,
+    destino_detectado: p.destino_detectado,
+    lineas: p.lineas || [],
+    json_crudo: p.json_crudo,
+    confianza_global: p.confianza_global ? Number(p.confianza_global) : null,
+    tipo_movimiento_id: p.tipo_movimiento_id ? Number(p.tipo_movimiento_id) : null,
+    bodega_origen_id: p.bodega_origen_id ? Number(p.bodega_origen_id) : null,
+    bodega_destino_id: p.bodega_destino_id ? Number(p.bodega_destino_id) : null,
+    lineas_confirmadas: p.lineas_confirmadas || [],
+    revisado_por: p.revisado_por ? Number(p.revisado_por) : null,
+    revisado_en: p.revisado_en,
+    nota_id: p.nota_id ? Number(p.nota_id) : null,
+    estado: p.estado,
+    tipo_movimiento_nombre: tm?.nombre,
+    tipo_movimiento_codigo: tm?.codigo,
+    bodega_origen_nombre: bo?.nombre,
+    bodega_destino_nombre: bd?.nombre,
+    revisado_por_nombre: revisadoPorNombre,
+    nota_numero: nt?.numero_nota
   }
 }

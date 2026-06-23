@@ -4,7 +4,11 @@
     "lib": [
       "dom",
       "dom.iterable",
-      "esnext"
+      "esnext",
+      "webworker"
+    ],
+    "types": [
+      "@serwist/next/typings"
     ],
     "allowJs": true,
     "skipLibCheck": true,
@@ -42,6 +46,7 @@
     "scratch/**",
     "**/__tests__/**",
     "**/mocks/**",
-    "tests/**"
+    "tests/**",
+    "public/sw.js"
   ]
 }

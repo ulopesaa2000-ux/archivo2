@@ -1,10 +1,20 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\lib\seo\store-metadata.ts
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { LOCALE, SITE_NAME, SITE_URL } from '@/lib/seo/site'
 
-export const storeViewport = 'width=device-width, initial-scale=1'
+export const storeViewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#0a0e17',
+}
 
 export const storeMetadata: Metadata = {
+  applicationName: SITE_NAME,
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: SITE_NAME,
+  },
   title: {
     default: `${SITE_NAME} | Moda que te define`,
     template: `%s | ${SITE_NAME}`,

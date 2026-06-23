@@ -207,3 +207,57 @@ export type CajaParaSelector = {
   nombre_pack: string | null
   piezas_por_caja: number | null
 }
+
+// ── Propuestas OCR ──────────────────────────────────────────
+export type NotaOcrPropuestaLineRaw = {
+  cantidad_cajas: number | null
+  piezas_por_caja: number | null
+  estilo_raw: string | null
+  descripcion_raw: string | null
+  confianza: number
+}
+
+export type NotaOcrPropuestaLineConfirmed = {
+  producto_id: number
+  cajas: number
+  piezas_sueltas: number
+  caja_id: number | null
+  producto_sku?: string | null
+  producto_nombre?: string | null
+}
+
+export type NotaOcrPropuesta = {
+  id: number
+  created_at: string
+  client_request_id: string | null
+  comprobante_url: string | null
+  storage_path: string | null
+  folio_detectado: string | null
+  fecha_detectada: string | null
+  tipo_movimiento_detectado: string | null
+  origen_detectado: string | null
+  destino_detectado: string | null
+  lineas: NotaOcrPropuestaLineRaw[]
+  json_crudo: any
+  confianza_global: number | null
+  tipo_movimiento_id: number | null
+  bodega_origen_id: number | null
+  bodega_destino_id: number | null
+  lineas_confirmadas: NotaOcrPropuestaLineConfirmed[]
+  revisado_por: number | null
+  revisado_en: string | null
+  nota_id: number | null
+  estado: 'PENDIENTE_REVISION' | 'REVISADO'
+  // Atributos de joins descriptivos
+  tipo_movimiento_nombre?: string
+  tipo_movimiento_codigo?: string
+  bodega_origen_nombre?: string
+  bodega_destino_nombre?: string
+  revisado_por_nombre?: string
+  nota_numero?: string
+}
+
+export type FiltrosOcrPropuestas = {
+  estado?: string
+  page?: number
+}
