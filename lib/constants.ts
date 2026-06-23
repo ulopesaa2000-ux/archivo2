@@ -66,6 +66,7 @@ export const ADMIN_ROUTES = {
     notas: '/inventario/notas',
     notaNueva: '/inventario/notas/nueva',
     notaDetalle: (id: number) => `/inventario/notas/${id}`,
+    notaPropuestas: '/inventario/notas/propuestas',
     stock: '/inventario/stock',
     bodegas: '/inventario/bodegas',
   },

@@ -56,3 +56,8 @@ tests/e2e/.auth/
 *.log
 *.ps1
 *.sql
+
+# Serwist
+/public/sw*
+/public/swe-worker*
+

@@ -2,6 +2,8 @@
 
 // app/(admin)/inventario/notas/NotasTable.tsx
 
+import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { DataTable, DataTableProvider } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
@@ -11,7 +13,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreHorizontal, Eye, FileText } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { MoreHorizontal, Eye, FileText, Image as ImageIcon } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
 import type { NotaListItem } from '@/modules/inventario/types'
@@ -32,6 +35,44 @@ const FALLBACK_FEATURES = {
   columnSelector: false,
 } as const
 
+function ComprobantePreviewButton({ url }: { url: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger
+        render={
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setIsOpen(true)
+            }}
+            className="text-muted-foreground hover:text-foreground p-1 hover:bg-muted rounded-md transition-colors leading-none"
+            title="Ver comprobante firmado"
+          />
+        }
+      >
+        <ImageIcon className="h-4 w-4" />
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] p-0 overflow-hidden bg-background border">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Previsualización de Comprobante</DialogTitle>
+        </DialogHeader>
+        <div className="relative w-full aspect-[4/3] max-h-[80vh] flex items-center justify-center p-4">
+          <Image
+            src={url}
+            alt="Comprobante firmado"
+            fill
+            className="object-contain p-2"
+            sizes="(max-w-768px) 100vw, 800px"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function NotasTableInner({
   notas,
   sortKey,
@@ -43,14 +84,19 @@ function NotasTableInner({
       key: 'numero_nota',
       header: 'N° Nota',
       sortKey: 'numero_nota',
-      headerClassName: 'w-[160px]',
+      headerClassName: 'w-[180px]',
       cell: (row: NotaListItem) => (
-        <Link
-          href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
-          className="font-mono text-sm font-medium text-primary hover:underline"
-        >
-          {row.numero_nota}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
+            className="font-mono text-sm font-medium text-primary hover:underline animate-in fade-in"
+          >
+            {row.numero_nota}
+          </Link>
+          {row.comprobante_url && (
+            <ComprobantePreviewButton url={row.comprobante_url} />
+          )}
+        </div>
       ),
     },
     {

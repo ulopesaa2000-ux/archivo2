@@ -21,7 +21,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   Loader2, Search, Plus, Trash2, Save, CheckCircle2, AlertCircle,
-  Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X
+  Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
+  ZoomIn, ZoomOut, RotateCw
 } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -45,6 +46,7 @@ type Props = {
   initialData?: NotaCompleta
   currentUserLevel: number
   userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
+  ocrProposalId?: number
 }
 
 const TIPO_MOV_ICONS_COMP = {
@@ -57,12 +59,23 @@ const TIPO_MOV_ICONS_COMP = {
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas,
+  currentUserLevel, userBodegas, ocrProposalId,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const [zoomScale, setZoomScale] = useState(1)
+  const [rotateDeg, setRotateDeg] = useState(0)
+
+  const handleZoomIn = () => setZoomScale(s => Math.min(s + 0.25, 3))
+  const handleZoomOut = () => setZoomScale(s => Math.max(s - 0.25, 0.5))
+  const handleRotate = () => setRotateDeg(d => (d + 90) % 360)
+  const handleReset = () => {
+    setZoomScale(1)
+    setRotateDeg(0)
+  }
 
   const esCreador = mode === 'create' || initialData?.cabecera.usuario_id === usuarioId
   const esAdmin = currentUserLevel <= 2
@@ -104,6 +117,19 @@ export function NoteDraftBuilder({
           stock_origen_cajas: 0,
           stock_origen_piezas: 0,
         })),
+      }
+    }
+    // Si viene de propuesta OCR
+    if (initialData && (initialData.cabecera as any).productos_draft) {
+      const hc = initialData.cabecera as any
+      return {
+        tipo_movimiento_id: hc.tipo_movimiento_id ?? null,
+        bodega_origen_id: hc.bodega_origen_id ?? null,
+        bodega_destino_id: hc.bodega_destino_id ?? null,
+        nota_referencia: hc.nota_referencia ?? '',
+        observaciones: hc.observaciones ?? '',
+        costo_total: 0,
+        productos: hc.productos_draft || [],
       }
     }
     return {
@@ -359,7 +385,7 @@ export function NoteDraftBuilder({
       if (mode === 'edit' && notaId) {
         result = await actualizarNotaAction(notaId, draft, confirmar)
       } else {
-        result = await guardarNotaAction(draft, confirmar)
+        result = await guardarNotaAction(draft, confirmar, ocrProposalId)
       }
 
       if (!result.success) {
@@ -428,8 +454,10 @@ export function NoteDraftBuilder({
         </div>
       )}
 
-      {/* ── Configuración de la nota ────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={cn("grid grid-cols-1 gap-6", ocrProposalId ? "lg:grid-cols-12" : "")}>
+        <div className={cn("space-y-6", ocrProposalId ? "lg:col-span-7 xl:col-span-8" : "")}>
+          {/* ── Configuración de la nota ────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Detalles Generales</CardTitle>
@@ -956,6 +984,106 @@ export function NoteDraftBuilder({
             </Button>
           )}
         </div>
+      </div>
+
+        </div>
+
+        {/* Panel lateral de la imagen (OCR) */}
+        {ocrProposalId && (
+          <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24 lg:h-[calc(100vh-140px)] flex flex-col gap-4">
+            <Card className="flex flex-col h-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden">
+              <CardHeader className="pb-2 border-b flex flex-row items-center justify-between space-y-0">
+                <div>
+                  <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground">
+                    Nota Original (OCR)
+                  </CardTitle>
+                  <CardDescription className="text-[10px]">
+                    Propuesta #{ocrProposalId}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-lg"
+                    onClick={handleZoomOut}
+                    title="Alejar"
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-lg"
+                    onClick={handleZoomIn}
+                    title="Acercar"
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-lg"
+                    onClick={handleRotate}
+                    title="Rotar 90°"
+                  >
+                    <RotateCw className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-lg"
+                    onClick={handleReset}
+                    title="Restaurar"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                  {comprobantePreview && (
+                    <a
+                      href={comprobantePreview}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                      title="Ver original en pestaña nueva"
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[300px]">
+                {comprobantePreview ? (
+                  <div className="w-full h-full overflow-auto flex items-center justify-center relative">
+                    <div 
+                      className="relative w-full h-full min-h-[350px] transition-transform duration-200 ease-out"
+                      style={{
+                        transform: `scale(${zoomScale}) rotate(${rotateDeg}deg)`,
+                        transformOrigin: 'center center',
+                      }}
+                    >
+                      <Image
+                        src={comprobantePreview}
+                        alt="Nota escaneada"
+                        fill
+                        className="object-contain"
+                        unoptimized
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-muted-foreground p-6">
+                    <ImageIcon className="h-10 w-10 opacity-30 mb-2" />
+                    <span className="text-xs">No hay imagen de comprobante</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* ── Diálogo de confirmación ──────────────────────── */}

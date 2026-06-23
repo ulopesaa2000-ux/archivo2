@@ -28,7 +28,8 @@ export type ActionResult = {
  */
 export async function guardarNotaAction(
   draft: DraftNota,
-  confirmar: boolean = false
+  confirmar: boolean = false,
+  propuestaId?: number
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
@@ -144,6 +145,22 @@ export async function guardarNotaAction(
         nota_id: notaId,
         numero_nota: numeroNota,
       }
+    }
+  }
+
+  // Vincular propuesta de OCR
+  if (propuestaId) {
+    const { error: linkError } = await (supabase as any)
+      .from('nota_ocr_propuestas')
+      .update({
+        estado: 'REVISADO',
+        nota_id: notaId,
+        revisado_por: user.id,
+        revisado_en: new Date().toISOString(),
+      })
+      .eq('id', propuestaId)
+    if (linkError) {
+      console.error('Error linking proposal:', linkError)
     }
   }
 
@@ -899,3 +916,48 @@ export async function eliminarComprobanteNotaAction(
 
   return { success: true }
 }
+
+export async function eliminarOcrPropuestaAction(
+  id: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // Obtener propuesta para eliminar su imagen si existiera en storage
+  const { data: prop, error: fetchError } = await (supabase as any)
+    .from('nota_ocr_propuestas')
+    .select('storage_path')
+    .eq('id', id)
+    .single()
+
+  if (fetchError || !prop) {
+    return { success: false, error: 'Propuesta no encontrada.' }
+  }
+
+  // Eliminar la imagen del storage si tiene storage_path
+  if (prop.storage_path) {
+    const { error: storageError } = await supabase.storage
+      .from('comprobantes')
+      .remove([prop.storage_path])
+    if (storageError) {
+      console.warn('[eliminarOcrPropuestaAction] Warning removing from storage:', storageError.message)
+    }
+  }
+
+  const { error: deleteError } = await (supabase as any)
+    .from('nota_ocr_propuestas')
+    .delete()
+    .eq('id', id)
+
+  if (deleteError) {
+    return { success: false, error: `Error al eliminar propuesta de la BD: ${deleteError.message}` }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath('/inventario/notas/propuestas')
+
+  return { success: true }
+}
+
