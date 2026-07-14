@@ -61,3 +61,7 @@ tests/e2e/.auth/
 /public/sw*
 /public/swe-worker*
 
+# Scratch folder
+/scratch/
+
+
