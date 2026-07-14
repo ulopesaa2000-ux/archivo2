@@ -1062,32 +1062,46 @@ export async function fetchOcrPropuestas(
 
   let query = (supabase as any)
     .from('nota_ocr_propuestas')
-    .select(`
-      *,
-      tipo_movimiento:cat_tipos_movimiento(id, nombre, codigo),
-      bodega_origen:bodegas!nota_ocr_propuestas_bodega_origen_id_fkey(id, nombre, codigo),
-      bodega_destino:bodegas!nota_ocr_propuestas_bodega_destino_id_fkey(id, nombre, codigo),
-      nota:notas_inventario(id, numero_nota)
-    `, { count: 'exact' })
+    .select('*', { count: 'exact' })
 
   if (filtros.estado) {
     query = query.eq('estado', filtros.estado)
   }
 
   query = query
-    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .range(from, to)
 
   const { data, count, error } = await query
 
   if (error) {
-    console.error('Error fetchOcrPropuestas:', error)
+    console.error('Error fetchOcrPropuestas:', JSON.stringify(error, null, 2))
     return { propuestas: [], total: 0 }
   }
 
   const rawData = (data ?? []) as any[]
 
-  // Resolver los nombres de los usuarios revisores
+  // Fetch related catalog tables in parallel
+  // 1. Fetch all cat_tipos_movimiento
+  const { data: tiposMovimiento } = await supabase
+    .from('cat_tipos_movimiento')
+    .select('id, nombre, codigo')
+  const tiposMap = new Map(tiposMovimiento?.map(tm => [tm.id, tm]) || [])
+
+  // 2. Fetch all bodegas
+  const { data: bodegas } = await supabase
+    .from('bodegas')
+    .select('id, nombre, codigo')
+  const bodegasMap = new Map(bodegas?.map(b => [b.id, b]) || [])
+
+  // 3. Fetch referenced notas_inventario
+  const notaIds = Array.from(new Set(rawData.map(d => d.nota_id).filter(Boolean)))
+  const { data: notasData } = notaIds.length > 0
+    ? await supabase.from('notas_inventario').select('id, numero_nota').in('id', notaIds)
+    : { data: [] }
+  const notasMap = new Map(notasData?.map(n => [n.id, n.numero_nota]) || [])
+
+  // 4. Resolver los nombres de los usuarios revisores
   const revisorIds = Array.from(new Set(rawData.map(d => d.revisado_por).filter(Boolean)))
   const { data: usersData } = revisorIds.length > 0
     ? await supabase.from('usuarios').select('id, nombre_completo').in('id', revisorIds)
@@ -1095,14 +1109,14 @@ export async function fetchOcrPropuestas(
   const usersMap = new Map(usersData?.map(u => [u.id, u.nombre_completo]) || [])
 
   const propuestas: NotaOcrPropuesta[] = rawData.map((p: any) => {
-    const tm = Array.isArray(p.tipo_movimiento) ? p.tipo_movimiento[0] : p.tipo_movimiento
-    const bo = Array.isArray(p.bodega_origen) ? p.bodega_origen[0] : p.bodega_origen
-    const bd = Array.isArray(p.bodega_destino) ? p.bodega_destino[0] : p.bodega_destino
-    const nt = Array.isArray(p.nota) ? p.nota[0] : p.nota
+    const tm = p.tipo_movimiento_id ? tiposMap.get(Number(p.tipo_movimiento_id)) : null
+    const bo = p.bodega_origen_id ? bodegasMap.get(Number(p.bodega_origen_id)) : null
+    const bd = p.bodega_destino_id ? bodegasMap.get(Number(p.bodega_destino_id)) : null
+    const notaNumero = p.nota_id ? notasMap.get(Number(p.nota_id)) : null
 
     return {
-      id: Number(p.id),
-      created_at: p.created_at,
+      id: p.id,
+      created_at: p.creado_en,
       client_request_id: p.client_request_id,
       comprobante_url: p.comprobante_url,
       storage_path: p.storage_path,
@@ -1127,7 +1141,7 @@ export async function fetchOcrPropuestas(
       bodega_origen_nombre: bo?.nombre,
       bodega_destino_nombre: bd?.nombre,
       revisado_por_nombre: p.revisado_por ? usersMap.get(Number(p.revisado_por)) : undefined,
-      nota_numero: nt?.numero_nota
+      nota_numero: notaNumero || undefined
     }
   })
 
@@ -1135,19 +1149,13 @@ export async function fetchOcrPropuestas(
 }
 
 export async function fetchOcrPropuestaById(
-  id: number
+  id: string
 ): Promise<NotaOcrPropuesta | null> {
   const supabase = await createClient()
 
   const { data, error } = await (supabase as any)
     .from('nota_ocr_propuestas')
-    .select(`
-      *,
-      tipo_movimiento:cat_tipos_movimiento(id, nombre, codigo),
-      bodega_origen:bodegas!nota_ocr_propuestas_bodega_origen_id_fkey(id, nombre, codigo),
-      bodega_destino:bodegas!nota_ocr_propuestas_bodega_destino_id_fkey(id, nombre, codigo),
-      nota:notas_inventario(id, numero_nota)
-    `)
+    .select('*')
     .eq('id', id)
     .single()
 
@@ -1157,10 +1165,50 @@ export async function fetchOcrPropuestaById(
   }
 
   const p: any = data
-  const tm = Array.isArray(p.tipo_movimiento) ? p.tipo_movimiento[0] : p.tipo_movimiento
-  const bo = Array.isArray(p.bodega_origen) ? p.bodega_origen[0] : p.bodega_origen
-  const bd = Array.isArray(p.bodega_destino) ? p.bodega_destino[0] : p.bodega_destino
-  const nt = Array.isArray(p.nota) ? p.nota[0] : p.nota
+
+  // Fetch specific cat_tipos_movimiento
+  let tm: any = null
+  if (p.tipo_movimiento_id) {
+    const { data: tmData } = await supabase
+      .from('cat_tipos_movimiento')
+      .select('id, nombre, codigo')
+      .eq('id', p.tipo_movimiento_id)
+      .single()
+    tm = tmData
+  }
+
+  // Fetch bodega_origen
+  let bo: any = null
+  if (p.bodega_origen_id) {
+    const { data: boData } = await supabase
+      .from('bodegas')
+      .select('id, nombre, codigo')
+      .eq('id', p.bodega_origen_id)
+      .single()
+    bo = boData
+  }
+
+  // Fetch bodega_destino
+  let bd: any = null
+  if (p.bodega_destino_id) {
+    const { data: bdData } = await supabase
+      .from('bodegas')
+      .select('id, nombre, codigo')
+      .eq('id', p.bodega_destino_id)
+      .single()
+    bd = bdData
+  }
+
+  // Fetch referenced nota_inventario
+  let notaNumero: string | undefined = undefined
+  if (p.nota_id) {
+    const { data: notaData } = await supabase
+      .from('notas_inventario')
+      .select('numero_nota')
+      .eq('id', p.nota_id)
+      .single()
+    notaNumero = notaData?.numero_nota
+  }
 
   let revisadoPorNombre: string | undefined = undefined
   if (p.revisado_por) {
@@ -1173,8 +1221,8 @@ export async function fetchOcrPropuestaById(
   }
 
   return {
-    id: Number(p.id),
-    created_at: p.created_at,
+    id: p.id,
+    created_at: p.creado_en,
     client_request_id: p.client_request_id,
     comprobante_url: p.comprobante_url,
     storage_path: p.storage_path,
@@ -1199,6 +1247,6 @@ export async function fetchOcrPropuestaById(
     bodega_origen_nombre: bo?.nombre,
     bodega_destino_nombre: bd?.nombre,
     revisado_por_nombre: revisadoPorNombre,
-    nota_numero: nt?.numero_nota
+    nota_numero: notaNumero
   }
 }

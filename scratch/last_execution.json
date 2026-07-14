@@ -1,0 +1,12 @@
+{
+  "id": "133",
+  "finished": false,
+  "mode": "webhook",
+  "retryOf": null,
+  "retrySuccessId": null,
+  "status": "error",
+  "startedAt": "2026-07-14T18:29:53.040Z",
+  "stoppedAt": "2026-07-14T18:29:53.503Z",
+  "workflowId": "DtZOqR4-9_DnULEjWW78b",
+  "waitTill": null
+}

@@ -74,6 +74,7 @@ export function FamiliasOrganizerClient({
   // --- Listados de Familias y buscador ---
   const [familias, setFamilias] = useState<FamiliaResumen[]>(initialFamilias)
   const [searchQuery, setSearchQuery] = useState('')
+  const [mostrarInactivos, setMostrarInactivos] = useState(false)
 
   // --- Bandeja de Trabajo (Bandeja Izquierda) ---
   const [pinnedFamilies, setPinnedFamilies] = useState<string[]>(['F000-000C'])
@@ -198,7 +199,9 @@ export function FamiliasOrganizerClient({
     // 1. Inicializar con los SKUs originales de la base de datos
     familias.forEach(f => {
       const familyKey = f.familia || 'null'
-      netSkus[familyKey] = f.skus ? [...f.skus] : []
+      const originalSkus = f.skus ? [...f.skus] : []
+      // Filtrar por activo si mostrarInactivos es false
+      netSkus[familyKey] = mostrarInactivos ? originalSkus : originalSkus.filter(s => s.activo !== false)
     })
 
     // 2. Aplicar los staged moves
@@ -226,7 +229,8 @@ export function FamiliasOrganizerClient({
             foundSku = {
               id: item.id,
               sku_base: item.sku_base,
-              descripcion: item.descripcion || null
+              descripcion: item.descripcion || null,
+              activo: item.activo
             }
             break
           }
@@ -238,7 +242,8 @@ export function FamiliasOrganizerClient({
         foundSku = {
           id: prodId,
           sku_base: `ID #${prodId}`,
-          descripcion: null
+          descripcion: null,
+          activo: true
         }
       }
 
@@ -251,8 +256,12 @@ export function FamiliasOrganizerClient({
       if (!netSkus[targetKey]) {
         netSkus[targetKey] = []
       }
-      if (!netSkus[targetKey].some(s => s.id === prodId)) {
-        netSkus[targetKey].push(foundSku)
+      if (foundSku) {
+        if (mostrarInactivos || foundSku.activo !== false) {
+          if (!netSkus[targetKey].some(s => s.id === prodId)) {
+            netSkus[targetKey].push(foundSku)
+          }
+        }
       }
     })
 
@@ -760,7 +769,8 @@ export function FamiliasOrganizerClient({
       })
       .filter(p => {
         const currentFam = p.familia || 'F000-000C'
-        return currentFam === familyCode
+        if (currentFam !== familyCode) return false
+        return mostrarInactivos || p.activo !== false
       })
   }
 
@@ -1004,37 +1014,111 @@ export function FamiliasOrganizerClient({
   const handleExportToExcel = async () => {
     const toastId = toast.loading('Generando reporte de Excel...')
     try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+
+      // 1. Obtener todas las bodegas activas
+      const { data: bodegas, error: bodegasError } = await supabase
+        .from('bodegas')
+        .select('id, nombre, es_virtual, activa')
+        .eq('activa', true)
+
+      if (bodegasError) {
+        throw new Error(`Error al obtener bodegas: ${bodegasError.message}`)
+      }
+
+      // Separar y ordenar bodegas: normales primero, virtuales al final
+      const normalBodegas = (bodegas || [])
+        .filter(b => !b.es_virtual)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
+
+      const virtualBodegas = (bodegas || [])
+        .filter(b => b.es_virtual)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
+
+      const sortedBodegas = [...normalBodegas, ...virtualBodegas]
+
+      // 2. Formato en blanco (sin consulta a base de datos de inventario)
+
+
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Familias Agrupadas', {
         views: [{ showGridLines: true }]
       })
 
       // Definir columnas y anchos de columnas
-      worksheet.columns = [
+      const columnsList = [
         { header: 'DESCRIPCION', key: 'descripcion', width: 55 },
         { header: 'ESTILO', key: 'estilo', width: 18 },
         { header: 'FAMILIA', key: 'familia', width: 18 },
       ]
+
+      sortedBodegas.forEach(b => {
+        columnsList.push({
+          header: b.nombre.toUpperCase(),
+          key: `b_${b.id}`,
+          width: 12
+        })
+      })
+
+      columnsList.push({
+        header: 'GLOBAL',
+        key: 'global',
+        width: 14
+      })
+
+      worksheet.columns = columnsList
 
       const thinStyle: ExcelJS.BorderStyle = 'thin'
       const mediumStyle: ExcelJS.BorderStyle = 'medium'
 
       // Estilo para la fila de encabezados (Fila 1)
       const headerRow = worksheet.getRow(1)
-      headerRow.height = 28
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } }
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFB4C6E7' }, // Fondo azul acero claro/celeste
-        }
-        cell.alignment = { horizontal: 'center', vertical: 'middle' }
-        cell.border = {
-          top: { style: thinStyle, color: { argb: 'FF8596B0' } },
-          left: { style: thinStyle, color: { argb: 'FF8596B0' } },
-          bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
-          right: { style: thinStyle, color: { argb: 'FF8596B0' } },
+      headerRow.height = 90
+      headerRow.eachCell((cell, colNumber) => {
+        if (colNumber <= 3) {
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFB4C6E7' }, // Fondo azul acero claro/celeste
+          }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          cell.border = {
+            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
+            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
+          }
+        } else if (colNumber === 3 + sortedBodegas.length + 1) {
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFDC2626' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFEE2E2' }, // Rojo suave
+          }
+          cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'middle' }
+          cell.border = {
+            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
+            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
+          }
+        } else {
+          const b = sortedBodegas[colNumber - 4]
+          cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: b.es_virtual ? 'FFFCE4D6' : 'FFDDEBF7' }, // Durazno si es virtual, azul claro si es normal
+          }
+          cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'middle' }
+          cell.border = {
+            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
+            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
+            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
+          }
         }
       })
 
@@ -1053,52 +1137,115 @@ export function FamiliasOrganizerClient({
         right: { style: thinStyle, color: { argb: 'FFD3D3D3' } },
       }
 
+      // Función auxiliar local para obtener letras de columna
+      function getColumnLetter(colIndex: number): string {
+        let temp = colIndex
+        let letter = ''
+        while (temp > 0) {
+          const modulo = (temp - 1) % 26
+          letter = String.fromCharCode(65 + modulo) + letter
+          temp = Math.floor((temp - modulo) / 26)
+        }
+        return letter
+      }
+
       sorted.forEach((f) => {
         const name = f.familia || 'Sin Clasificar'
         const desc = f.descripcion || ''
-        const skusList = f.skus || []
+        
+        // Filtrar skus en base a mostrarInactivos
+        const skusList = (f.skus || []).filter(s => {
+          const currentDest = stagedMoves[s.id]
+          const isHere = currentDest !== undefined ? currentDest === f.familia : true
+          if (!isHere) return false
+          return mostrarInactivos || s.activo !== false
+        })
 
-        if (skusList.length === 0) {
-          // Si no tiene SKUs asignados, creamos una sola fila
-          const row = worksheet.addRow({
-            descripcion: desc,
-            estilo: '',
-            familia: name,
-          })
-          row.height = 24
-          
-          for (let c = 1; c <= 3; c++) {
-            const cell = row.getCell(c)
-            cell.font = { name: 'Calibri', size: 10.5 }
-            cell.border = thinBorder
-            if (c === 1) {
-              cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
-            } else {
-              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        // Agregar los staged moves que pertenecen a esta familia
+        Object.entries(stagedMoves).forEach(([prodIdStr, destFamily]) => {
+          if (destFamily === f.familia) {
+            const prodId = parseInt(prodIdStr, 10)
+            if (!skusList.some(s => s.id === prodId)) {
+              let foundSku: FamiliaResumenSku | undefined
+              for (const origFam of familias) {
+                const item = origFam.skus?.find(s => s.id === prodId)
+                if (item) {
+                  foundSku = item
+                  break
+                }
+              }
+              if (!foundSku) {
+                for (const prods of Object.values(loadedProducts)) {
+                  const item = prods.find(p => p.id === prodId)
+                  if (item) {
+                    foundSku = {
+                      id: item.id,
+                      sku_base: item.sku_base,
+                      descripcion: item.descripcion || null,
+                      activo: item.activo
+                    }
+                    break
+                  }
+                }
+              }
+              if (foundSku && (mostrarInactivos || foundSku.activo !== false)) {
+                skusList.push(foundSku)
+              }
             }
           }
-          currentRow++
-        } else {
+        })
+
+        if (skusList.length > 0) {
           const startMerge = currentRow
           skusList.forEach((sku, idx) => {
-            const row = worksheet.addRow({
+            const rowValues: any = {
               descripcion: idx === 0 ? desc : '',
-              estilo: sku,
+              estilo: sku.sku_base, // SKU limpio
               familia: name,
+            }
+
+            // Existencias por bodega inicializadas vacías (en blanco)
+            sortedBodegas.forEach(b => {
+              rowValues[`b_${b.id}`] = ''
             })
+
+            // Suma global horizontal
+            const startColLetter = getColumnLetter(4)
+            const endColLetter = getColumnLetter(4 + sortedBodegas.length - 1)
+            rowValues['global'] = { formula: `=SUM(${startColLetter}${currentRow}:${endColLetter}${currentRow})` }
+
+            const row = worksheet.addRow(rowValues)
             row.height = 24
 
-            for (let c = 1; c <= 3; c++) {
+            const maxCols = 3 + sortedBodegas.length + 1
+            for (let c = 1; c <= maxCols; c++) {
               const cell = row.getCell(c)
               cell.font = { name: 'Calibri', size: 10.5 }
               cell.border = thinBorder
+              
               if (c === 1) {
                 cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
               } else if (c === 2) {
-                cell.font = { name: 'Calibri', size: 10.5, bold: true }
+                cell.font = { 
+                  name: 'Calibri', 
+                  size: 10.5, 
+                  bold: true,
+                  color: { argb: sku.activo === false ? 'FFFF0000' : 'FF000000' } // Rojo si es inactivo
+                }
                 cell.alignment = { horizontal: 'center', vertical: 'middle' }
               } else if (c === 3) {
                 cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              } else if (c === maxCols) {
+                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFDC2626' } }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              } else {
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                cell.font = {
+                  name: 'Calibri',
+                  size: 10.5,
+                  bold: false,
+                  color: { argb: 'FF000000' }
+                }
               }
             }
             currentRow++
@@ -1119,6 +1266,82 @@ export function FamiliasOrganizerClient({
         }
       })
 
+      // 3. Bloque de Totales al final
+      // 1 espacio de fila vacío después del último producto
+      currentRow++
+
+      const totalsRowIdx = currentRow
+      const namesRowIdx = currentRow + 1
+
+      const totalsRow = worksheet.getRow(totalsRowIdx)
+      const namesRow = worksheet.getRow(namesRowIdx)
+
+      totalsRow.height = 24
+      namesRow.height = 24
+
+      // Etiquetas en la columna C (FAMILIA)
+      const cellTotalesLabel = worksheet.getCell(totalsRowIdx, 3)
+      cellTotalesLabel.value = 'TOTALES:'
+      cellTotalesLabel.font = { name: 'Calibri', size: 11, bold: true }
+      cellTotalesLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+
+      const cellBodegasLabel = worksheet.getCell(namesRowIdx, 3)
+      cellBodegasLabel.value = 'BODEGAS:'
+      cellBodegasLabel.font = { name: 'Calibri', size: 11, bold: true }
+      cellBodegasLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+
+      // Bordes del bloque de etiquetas en A, B, C
+      for (let c = 1; c <= 3; c++) {
+        worksheet.getCell(totalsRowIdx, c).border = thinBorder
+        worksheet.getCell(namesRowIdx, c).border = thinBorder
+      }
+
+      // Fórmulas de suma por columna y repetición de nombres de bodega
+      sortedBodegas.forEach((b, idx) => {
+        const colNumber = 4 + idx
+        const colLetter = getColumnLetter(colNumber)
+
+        // Fila de suma (arriba)
+        const sumCell = worksheet.getCell(totalsRowIdx, colNumber)
+        sumCell.value = { formula: `=SUM(${colLetter}2:${colLetter}${totalsRowIdx - 2})` }
+        sumCell.font = { name: 'Calibri', size: 11, bold: true }
+        sumCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        sumCell.border = thinBorder
+
+        // Fila de nombre (abajo)
+        const nameCell = worksheet.getCell(namesRowIdx, colNumber)
+        nameCell.value = b.nombre.toUpperCase()
+        nameCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF555555' } }
+        nameCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+        nameCell.border = thinBorder
+        nameCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFEAEAEA' }
+        }
+      })
+
+      // Suma global en columna GLOBAL
+      const globalColNumber = 4 + sortedBodegas.length
+      const globalColLetter = getColumnLetter(globalColNumber)
+
+      const globalSumCell = worksheet.getCell(totalsRowIdx, globalColNumber)
+      globalSumCell.value = { formula: `=SUM(${globalColLetter}2:${globalColLetter}${totalsRowIdx - 2})` }
+      globalSumCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFDC2626' } }
+      globalSumCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      globalSumCell.border = thinBorder
+
+      const globalNameCell = worksheet.getCell(namesRowIdx, globalColNumber)
+      globalNameCell.value = 'TOTAL'
+      globalNameCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFDC2626' } }
+      globalNameCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      globalNameCell.border = thinBorder
+      globalNameCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFEE2E2' }
+      }
+
       // Generar buffer y desencadenar descarga en el navegador
       const buffer = await workbook.xlsx.writeBuffer()
       const blob = new Blob([buffer], {
@@ -1132,9 +1355,9 @@ export function FamiliasOrganizerClient({
       window.URL.revokeObjectURL(url)
 
       toast.success('¡Reporte exportado con éxito!', { id: toastId })
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al exportar reporte Excel:', err)
-      toast.error('Ocurrió un error al exportar el reporte Excel', { id: toastId })
+      toast.error(err.message || 'Ocurrió un error al exportar el reporte Excel', { id: toastId })
     }
   }
 
@@ -1393,8 +1616,12 @@ export function FamiliasOrganizerClient({
                           )}
 
                           <div className="min-w-0 flex-1">
-                            <div className="font-mono text-xs font-bold truncate tracking-wide">
+                            <div className={cn(
+                              "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
+                              p.activo === false && "text-red-500 dark:text-red-400"
+                            )}>
                               {p.sku_base}
+                              {p.activo === false && <span className="text-[8px] bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-red-200 dark:border-red-900">Inactivo</span>}
                             </div>
                             <p className="text-[11px] text-muted-foreground truncate leading-normal">
                               {p.descripcion ?? 'Sin descripción'}
@@ -1547,6 +1774,21 @@ export function FamiliasOrganizerClient({
                 />
               </div>
 
+              <div className="flex items-center gap-2 bg-muted/40 px-2 py-1 rounded-md border text-xs">
+                <Checkbox
+                  id="mostrar-inactivos"
+                  checked={mostrarInactivos}
+                  onCheckedChange={(checked) => setMostrarInactivos(!!checked)}
+                  className="h-3.5 w-3.5"
+                />
+                <label
+                  htmlFor="mostrar-inactivos"
+                  className="text-[11px] font-medium cursor-pointer text-muted-foreground select-none hover:text-foreground"
+                >
+                  Mostrar inactivos (Andrés Mendoza)
+                </label>
+              </div>
+
               {/* Selector de Pestaña de Vista */}
               <div className="flex bg-muted p-0.5 rounded-lg text-xs">
                 <button
@@ -1691,12 +1933,15 @@ export function FamiliasOrganizerClient({
                                       onClick={() => handleInspectProduct(sku.id, sku.sku_base, sku.descripcion)}
                                       className={cn(
                                         "font-mono text-xs py-0.5 px-2 transition-colors border shadow-sm rounded-md tracking-wide cursor-grab active:cursor-grabbing hover:scale-105 active:scale-95 duration-75 select-none",
-                                        match 
-                                          ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
-                                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700/60 font-semibold"
+                                        sku.activo === false
+                                          ? "bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900"
+                                          : match 
+                                            ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
+                                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700/60 font-semibold"
                                       )}
                                     >
                                       {sku.sku_base}
+                                      {sku.activo === false && " (I)"}
                                     </Badge>
                                   )
                                 })}
@@ -1906,8 +2151,12 @@ export function FamiliasOrganizerClient({
                                           )}
 
                                           <div className="min-w-0 flex-1">
-                                            <div className="font-mono text-xs font-bold truncate tracking-wide">
+                                            <div className={cn(
+                                              "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
+                                              p.activo === false && "text-red-500 dark:text-red-400"
+                                            )}>
                                               {p.sku_base}
+                                              {p.activo === false && <span className="text-[8px] bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-red-200 dark:border-red-900">Inactivo</span>}
                                             </div>
                                             <p className="text-[11px] text-muted-foreground truncate leading-normal">
                                               {p.descripcion ?? 'Sin descripción'}

@@ -34,6 +34,12 @@ let snapshot: ConfigSnapshot = {
   error: globalError,
 }
 
+const serverSnapshot: ConfigSnapshot = {
+  config: null,
+  loading: true,
+  error: null,
+}
+
 function updateSnapshot() {
   snapshot = {
     config: globalConfig,
@@ -115,11 +121,7 @@ const store = {
   },
 
   getServerSnapshot(): ConfigSnapshot {
-    return {
-      config: null,
-      loading: true,
-      error: null,
-    }
+    return serverSnapshot
   }
 }
 

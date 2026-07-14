@@ -15,8 +15,10 @@ import { toast } from 'sonner'
 
 export function OcrUploadModal({
   trigger,
+  redirectToNueva = false,
 }: {
   trigger?: React.ReactNode
+  redirectToNueva?: boolean
 }) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
@@ -70,12 +72,26 @@ export function OcrUploadModal({
           throw new Error(result.error || 'Error al procesar la propuesta con OCR.')
         }
 
-        toast.success('Nota enviada al OCR exitosamente. Procesando en segundo plano...')
         setIsOpen(false)
         clearSelection()
         
-        // Redirigir a propuestas para ver el estado de la digitalización
-        router.push('/inventario/notas/propuestas')
+        if (redirectToNueva) {
+          const notaId = result.data?.nota_id;
+          const propuestaId = result.data?.propuesta_id;
+          if (notaId) {
+            toast.success('¡Nota creada y procesada por la IA exitosamente!');
+            router.push(`/inventario/notas/${notaId}`);
+          } else if (propuestaId) {
+            toast.warning('Propuesta creada. Faltan datos de bodega; redirigiendo para completar.');
+            router.push(`/inventario/notas/nueva?propuesta_id=${propuestaId}`);
+          } else {
+            toast.success('Procesada con éxito.');
+            router.push('/inventario/notas/propuestas');
+          }
+        } else {
+          toast.success('Nota enviada al OCR exitosamente. Procesando en segundo plano...');
+          router.push('/inventario/notas/propuestas');
+        }
         router.refresh()
       } catch (err) {
         console.error(err)
