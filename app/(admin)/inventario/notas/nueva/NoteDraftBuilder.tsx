@@ -46,7 +46,7 @@ type Props = {
   initialData?: NotaCompleta
   currentUserLevel: number
   userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
-  ocrProposalId?: number
+  ocrProposalId?: string
 }
 
 const TIPO_MOV_ICONS_COMP = {

@@ -7,6 +7,7 @@ import { NoteDraftBuilder } from './NoteDraftBuilder'
 import { createStaticClient } from '@/lib/supabase/server'
 import type { DraftNota, DraftProducto, NotaCompleta } from '@/modules/inventario/types'
 import { AlertCircle } from 'lucide-react'
+import { OcrUploadModal } from '../propuestas/OcrUploadModal'
 
 export const metadata: Metadata = {
   title: 'Nueva Nota de Inventario',
@@ -18,7 +19,7 @@ export default async function NuevaNotaPage({
   searchParams: Promise<{ propuesta_id?: string }>
 }) {
   const sp = await searchParams
-  const propuestaId = sp.propuesta_id ? parseInt(sp.propuesta_id, 10) : undefined
+  const propuestaId = sp.propuesta_id || undefined
 
   const catalogosPromise = fetchCatalogosInventario()
   const [{ user }, catalogos] = await Promise.all([
@@ -30,9 +31,9 @@ export default async function NuevaNotaPage({
 
   let initialData: NotaCompleta | undefined = undefined
   let ocrUnmatchedLines: { estilo_raw: string; descripcion_raw: string; cajas: number; pz_por_caja: number | null }[] = []
-  let ocrProposalId: number | undefined = propuestaId
+  let ocrProposalId: string | undefined = propuestaId
 
-  if (propuestaId && !isNaN(propuestaId)) {
+  if (propuestaId) {
     const propuesta = await fetchOcrPropuestaById(propuestaId)
     if (propuesta) {
       const supabase = createStaticClient()
@@ -184,15 +185,22 @@ export default async function NuevaNotaPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {propuestaId ? 'Confirmar Propuesta OCR' : 'Nueva Nota de Inventario'}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {propuestaId 
-            ? 'Revisa y ajusta los productos detectados por la IA antes de generar la nota oficial.'
-            : 'Configura y agrega productos. Nada se guarda hasta que presiones un botón.'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {propuestaId ? 'Confirmar Propuesta OCR' : 'Nueva Nota de Inventario'}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {propuestaId 
+              ? 'Revisa y ajusta los productos detectados por la IA antes de generar la nota oficial.'
+              : 'Configura y agrega productos. Nada se guarda hasta que presiones un botón.'}
+          </p>
+        </div>
+        {!propuestaId && (
+          <div className="flex items-center gap-2">
+            <OcrUploadModal redirectToNueva />
+          </div>
+        )}
       </div>
 
       {ocrUnmatchedLines.length > 0 && (

@@ -671,6 +671,7 @@ export interface FamiliaResumenSku {
   id: number
   sku_base: string
   descripcion: string | null
+  activo?: boolean | null
 }
 
 export interface FamiliaResumen {
@@ -684,10 +685,10 @@ export interface FamiliaResumen {
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
 
-  // Obtenemos id, familia, descripcion y sku_base para realizar la agrupación y mapeo en JS (solo activos)
+  // Obtenemos id, familia, descripcion, sku_base y activo para el cliente 27 (Andrés Mendoza)
   const { data, error } = await supabase.from('productos')
-    .select('id, familia, descripcion, sku_base')
-    .eq('activo', true)
+    .select('id, familia, descripcion, sku_base, activo')
+    .eq('cliente_b2b_id' as any, 27)
 
   if (error) {
     console.error('Error fetchResumenFamilias:', error)
@@ -712,7 +713,8 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
         skusPorFamilia[p.familia].push({
           id: p.id,
           sku_base: p.sku_base,
-          descripcion: p.descripcion || null
+          descripcion: p.descripcion || null,
+          activo: p.activo
         })
       }
     } else {
@@ -743,7 +745,8 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
         .map((p: any) => ({
           id: p.id,
           sku_base: p.sku_base,
-          descripcion: p.descripcion || null
+          descripcion: p.descripcion || null,
+          activo: p.activo
         })),
     })
   }
@@ -766,7 +769,7 @@ export async function fetchProductosPorFamilia(
 
   let query = supabase.from('productos')
     .select('id, sku_base, nombre, descripcion, familia, precio_ec, pz_en_caja, activo')
-    .eq('activo', true)
+    .eq('cliente_b2b_id' as any, 27)
 
   if (familia === null) {
     query = query.is('familia', null)

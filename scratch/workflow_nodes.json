@@ -1,0 +1,392 @@
+{
+  "workflow": {
+    "id": "DtZOqR4-9_DnULEjWW78b",
+    "name": "OCR Notas Movimiento - Ollama local",
+    "active": true,
+    "isArchived": false,
+    "versionId": "a451342f-1f87-48ec-92c3-af65b61db59f",
+    "triggerCount": 2,
+    "createdAt": "2026-06-24T16:03:35.729Z",
+    "updatedAt": "2026-06-24T19:34:14.979Z",
+    "settings": {
+      "executionOrder": "v1",
+      "availableInMCP": true
+    },
+    "connections": {
+      "Form de prueba": {
+        "main": [
+          [
+            {
+              "node": "Normalizar imagen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Subir imagen al bucket": {
+        "main": [
+          [
+            {
+              "node": "Construir prompt + body2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar propuesta staging": {
+        "main": [
+          [
+            {
+              "node": "Promover a nota (auto)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Promover a nota (auto)": {
+        "main": [
+          [
+            {
+              "node": "Armar respuesta2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (sitio/telefono)2": {
+        "main": [
+          [
+            {
+              "node": "Normalizar imagen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalizar imagen2": {
+        "main": [
+          [
+            {
+              "node": "Subir imagen al bucket",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Construir prompt + body2": {
+        "main": [
+          [
+            {
+              "node": "OpenRouter Gemma 4 (vision)1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OpenRouter Gemma 4 (vision)1": {
+        "main": [
+          [
+            {
+              "node": "Parsear JSON2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear JSON2": {
+        "main": [
+          [
+            {
+              "node": "Insertar propuesta staging",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Armar respuesta2": {
+        "main": [
+          [
+            {
+              "node": "Responder Webhook2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodes": [
+      {
+        "parameters": {
+          "formTitle": "Test - Nota de movimiento",
+          "formDescription": "Sube una foto de la ORDEN DE MOVIMIENTO DE MERCANCIA",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Foto de la nota",
+                "fieldType": "file",
+                "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Tipo (opcional)",
+                "fieldType": "dropdown",
+                "fieldOptions": {
+                  "values": [
+                    {
+                      "option": "entrada"
+                    },
+                    {
+                      "option": "salida"
+                    },
+                    {
+                      "option": "traspaso"
+                    }
+                  ]
+                }
+              },
+              {
+                "fieldLabel": "client_request_id (opcional)"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "3932aae5-2632-4ff7-bd45-3cfe7ae2abce",
+        "name": "Form de prueba",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.2,
+        "position": [
+          -256,
+          96
+        ],
+        "webhookId": "cb75405a-d2a5-48a1-bea1-aae38b466716"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://TU-SUPABASE.supabase.co/storage/v1/object/comprobantes/{{ $json.storage_path }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer SERVICE_ROLE_KEY_REEMPLAZA"
+              },
+              {
+                "name": "apikey",
+                "value": "SERVICE_ROLE_KEY_REEMPLAZA"
+              },
+              {
+                "name": "x-upsert",
+                "value": "true"
+              },
+              {
+                "name": "Content-Type",
+                "value": "={{ $json.mimeType }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "binaryData",
+          "inputDataFieldName": "foto",
+          "options": {}
+        },
+        "id": "2dbfb8ea-c945-4ff8-8138-2c2eecbab2a3",
+        "name": "Subir imagen al bucket",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          256,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH src AS (SELECT $1::jsonb AS j)\nINSERT INTO \"inv-tienda\".nota_ocr_propuestas\n  (client_request_id, comprobante_url, folio_detectado, fecha_detectada,\n   tipo_movimiento_detectado, origen_detectado, destino_detectado,\n   lineas, json_crudo, confianza_global)\nSELECT j->>'client_request_id', j->>'comprobante_url', j->>'folio',\n       NULLIF(j->>'fecha', '')::date, j->>'tipo_movimiento',\n       j->>'origen', j->>'destino',\n       COALESCE(j->'lineas', '[]'::jsonb), j->'json_crudo',\n       NULLIF(j->>'confianza_global', '')::numeric\nFROM src\nON CONFLICT (client_request_id) DO UPDATE SET comprobante_url = EXCLUDED.comprobante_url\nRETURNING id;",
+          "options": {
+            "queryReplacement": "={{ [$json.payload_json] }}"
+          }
+        },
+        "id": "8f8fd1df-93bf-4900-a3ca-98c123d8ab7e",
+        "name": "Insertar propuesta staging",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1216,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT \"inv-tienda\".sp_promover_propuesta_auto($1::uuid, $2::bigint) AS resultado;",
+          "options": {
+            "queryReplacement": "={{ [$('Insertar propuesta staging').first().json.id, 1] }}"
+          }
+        },
+        "id": "68928571-844b-49fd-bdbd-5506770283ea",
+        "name": "Promover a nota (auto)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1456,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## OCR Notas de Movimiento - MODO AUTOMATICO (OpenRouter + Gemma 4)\n\nEntradas:\n1) Webhook (POST /nota-movimiento) para Next.js / Android (multipart: foto + tipo + client_request_id).\n2) Form Trigger para pruebas.\n\nFlujo: Normalizar imagen -> Subir a bucket PUBLICO -> OpenRouter Gemma 4 -> Parsear ->\nInsertar en nota_ocr_propuestas -> Promover AUTO (crea nota BORRADOR en notas_inventario) -> Responder.\n\nIMPORTANTE: el stock NO se ajusta aqui. La nota queda en PEND; tu admin la APRUEBA y tu trigger ajusta el inventario.\n\nCONFIGURAR:\n- Code 'Normalizar imagen': cambia SUPABASE_URL por tu dominio.\n- HTTP 'Subir imagen': Authorization Bearer SERVICE_ROLE_KEY + apikey.\n- HTTP 'OpenRouter': Authorization Bearer sk-or-v1-...\n- Postgres (2 nodos): credencial de tu Supabase self-hosted.\n- Corre antes setup_ocr_auto.sql en tu base.",
+          "height": 460,
+          "width": 460,
+          "color": 4
+        },
+        "id": "5c29fe75-de18-40c2-81ee-a3308fa798c5",
+        "name": "LEEME2",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -800,
+          -64
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "nota-movimiento",
+          "responseMode": "responseNode",
+          "options": {
+            "binaryPropertyName": "foto"
+          }
+        },
+        "id": "80621be6-ba25-4c11-a315-1f16687dfac6",
+        "name": "Webhook (sitio/telefono)2",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -256,
+          -144
+        ],
+        "webhookId": "nota-movimiento-ocr"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Unifica la imagen (Webhook o Form), produce data URL base64 para OpenRouter\n// y precalcula la ruta + URL PUBLICA del bucket de Supabase.\n// Usa getBinaryDataBuffer para que funcione tambien en binaryDataMode=database.\nconst SUPABASE_URL = 'https://TU-SUPABASE.supabase.co'; // <-- CAMBIA por tu dominio de Supabase\nconst BUCKET = 'comprobantes';\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (keys.length === 0) { throw new Error('No se recibio ninguna imagen (binary vacio).'); }\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const base64 = buffer.toString('base64');\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const meta = item.json || {};\n  const ext = (mimeType.indexOf('png') >= 0) ? 'png' : ((mimeType.indexOf('webp') >= 0) ? 'webp' : 'jpg');\n  const now = new Date();\n  const yyyy = now.getFullYear();\n  const mm = ('0' + (now.getMonth() + 1)).slice(-2);\n  const rand = Math.floor(Math.random() * 1000000);\n  const storagePath = yyyy + '/' + mm + '/nota_' + now.getTime() + '_' + rand + '.' + ext;\n  const comprobanteUrl = SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/' + storagePath;\n  out.push({\n    json: {\n      mimeType: mimeType,\n      dataUrl: 'data:' + mimeType + ';base64,' + base64,\n      storage_path: storagePath,\n      comprobante_url: comprobanteUrl,\n      client_request_id: meta.client_request_id || meta['client_request_id (opcional)'] || null,\n      tipo_hint: meta.tipo || meta['Tipo (opcional)'] || null\n    },\n    binary: { foto: bin[key] }\n  });\n}\nreturn out;"
+        },
+        "id": "0774b27b-fa84-4f41-8d77-cc62c8385ab8",
+        "name": "Normalizar imagen2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          16,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const meta = $('Normalizar imagen2').first().json;\nconst prompt = `Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano. Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta:\n{\n  \"folio\": string|null,\n  \"fecha\": string|null,\n  \"tipo_movimiento\": null,\n  \"origen\": string|null,\n  \"destino\": string|null,\n  \"lineas\": [\n    { \"cantidad_cajas\": number|null, \"piezas_por_caja\": number|null, \"estilo_raw\": string|null, \"descripcion_raw\": string|null, \"confianza\": number }\n  ],\n  \"confianza_global\": number\n}\nReglas:\n- Incluye solo renglones CON contenido. No inventes lineas vacias.\n- CANTIDAD suele venir como 'N X M' (N cajas de M piezas). Si solo hay un numero, ponlo en cantidad_cajas y piezas_por_caja=null.\n- La columna DESCRIPCION es el codigo/SKU (letras+numeros). Copialo EXACTO, respetando mayusculas. Cada renglon tiene su PROPIA descripcion; NO repitas el mismo SKU salvo que este escrito identico.\n- Si el encabezado trae 'A / B', A=origen y B=destino.\n- tipo_movimiento: devuelve SIEMPRE null (el sistema lo deduce de origen/destino).\n- FECHA en formato YYYY-MM-DD (interpreta DD-MM-YY del encabezado). Si no es legible, usa null.\n- Devuelve SOLO el JSON, sin markdown ni texto adicional.`;\nconst body = {\n  model: 'google/gemma-4-26b-a4b-it:free',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'user', content: [\n      { type: 'text', text: prompt },\n      { type: 'image_url', image_url: { url: meta.dataUrl } }\n    ] }\n  ]\n};\nreturn [{ json: { body: body, client_request_id: meta.client_request_id, comprobante_url: meta.comprobante_url, tipo_hint: meta.tipo_hint } }];"
+        },
+        "id": "b571d184-8933-4957-a24e-c7a3870d3104",
+        "name": "Construir prompt + body2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          496,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://openrouter.ai/api/v1/chat/completions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer sk-or-v1-REEMPLAZA"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "X-Title",
+                "value": "OCR Notas Inventario"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.body }}",
+          "options": {}
+        },
+        "id": "7b7c9ece-5f21-4096-8832-934da7790c8a",
+        "name": "OpenRouter Gemma 4 (vision)1",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          736,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const resp = $json;\nlet text = '';\ntry { text = resp.choices[0].message.content; }\ncatch (e) { throw new Error('Respuesta inesperada de OpenRouter: ' + JSON.stringify(resp).slice(0, 600)); }\ntext = String(text).replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();\nlet data;\ntry { data = JSON.parse(text); }\ncatch (e) {\n  const m = text.match(/\\{[\\s\\S]*\\}/);\n  if (!m) { throw new Error('El modelo no devolvio JSON valido: ' + text.slice(0, 300)); }\n  data = JSON.parse(m[0]);\n}\nconst meta = $('Construir prompt + body2').first().json;\nif ((!data.tipo_movimiento) && meta.tipo_hint) { data.tipo_movimiento = meta.tipo_hint; }\nconst payload = {\n  client_request_id: meta.client_request_id || null,\n  comprobante_url: meta.comprobante_url || null,\n  folio: data.folio || null,\n  fecha: data.fecha || null,\n  tipo_movimiento: data.tipo_movimiento || null,\n  origen: data.origen || null,\n  destino: data.destino || null,\n  lineas: data.lineas || [],\n  confianza_global: data.confianza_global || null,\n  json_crudo: data\n};\nreturn [{ json: Object.assign({}, payload, { payload_json: JSON.stringify(payload), lineas_json: JSON.stringify(data.lineas || []) }) }];"
+        },
+        "id": "d7d31499-410f-401a-96b2-5baebe45a0e2",
+        "name": "Parsear JSON2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          976,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $('Parsear JSON2').first().json;\nlet prom = {};\ntry { prom = $('Promover a nota (auto)').first().json; } catch (e) { prom = {}; }\nconst res = prom.resultado || prom || {};\nreturn [{ json: {\n  ok: true,\n  nota_id: (res && res.nota_id) || null,\n  comprobante_url: parsed.comprobante_url,\n  propuesta: {\n    folio: parsed.folio,\n    fecha: parsed.fecha,\n    tipo_movimiento: parsed.tipo_movimiento,\n    origen: parsed.origen,\n    destino: parsed.destino,\n    confianza_global: parsed.confianza_global\n  },\n  lineas: parsed.lineas,\n  advertencias: (res && res.advertencias) || [],\n  mensaje: 'Nota creada como BORRADOR (PEND) en notas_inventario. Un admin debe aprobarla para que el trigger ajuste el inventario.'\n} }];"
+        },
+        "id": "092a7b4f-65ed-47ca-8eb8-007a3e39ce04",
+        "name": "Armar respuesta2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1696,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        },
+        "id": "c55db160-3284-4885-bc7d-9efc74e419af",
+        "name": "Responder Webhook2",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1936,
+          -16
+        ]
+      }
+    ],
+    "tags": [],
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "parentFolderId": null
+  },
+  "triggerInfo": "This workflow has the following trigger(s):\n\n\nWebhook trigger(s):\n\n\n\t\t\t\t<trigger 1>\n\t\t\t\t\t - Node name: Webhook (sitio/telefono)2\n\t\t\t\t\t - Base URL: https://n8n.sistemaindumentaria.com/\n\t\t\t\t\t - Production path: /webhook/nota-movimiento\n\t\t\t\t\t - Test path: /webhook-test/nota-movimiento\n\t\t\t\t\t - HTTP Method: POST\n\t\t\t\t\t - Response Mode: Webhook is configured to respond using \"Respond to Webhook\" node.\n\t\t\t\t\t - No credentials required for this webhook.\n\t\t\t\t</trigger 1>\n\nForm trigger(s):\n\n\n\t\t\t\t<trigger 1>\n\t\t\t\t\t - Node name: Form de prueba\n\t\t\t\t\t - Form fields: {\"values\":[{\"fieldLabel\":\"Foto de la nota\",\"fieldType\":\"file\",\"acceptFileTypes\":\".jpg,.jpeg,.png,.webp\",\"requiredField\":true},{\"fieldLabel\":\"Tipo (opcional)\",\"fieldType\":\"dropdown\",\"fieldOptions\":{\"values\":[{\"option\":\"entrada\"},{\"option\":\"salida\"},{\"option\":\"traspaso\"}]}},{\"fieldLabel\":\"client_request_id (opcional)\"}]}\n\t\t\t\t</trigger 1>\n\nUse the following input format when directly executing this workflow using any of the form triggers: { inputs { formData: Array<{ FIELD_NAME: VALUE }> } }"
+}

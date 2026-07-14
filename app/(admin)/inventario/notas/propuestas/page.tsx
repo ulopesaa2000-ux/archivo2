@@ -92,10 +92,10 @@ export default async function PropuestasOcrPage({
       {/* Tabs de Filtro de Estado */}
       <Tabs defaultValue={estadoFiltro} className="w-full">
         <TabsList className="grid w-full sm:w-[400px] grid-cols-2 rounded-xl">
-          <TabsTrigger value="PENDIENTE_REVISION" render={<Link href="?estado=PENDIENTE_REVISION" replace />} className="rounded-lg font-bold text-xs uppercase tracking-wider">
+          <TabsTrigger value="PENDIENTE_REVISION" render={<Link href="?estado=PENDIENTE_REVISION" replace />} nativeButton={false} className="rounded-lg font-bold text-xs uppercase tracking-wider">
             Pendientes
           </TabsTrigger>
-          <TabsTrigger value="REVISADO" render={<Link href="?estado=REVISADO" replace />} className="rounded-lg font-bold text-xs uppercase tracking-wider">
+          <TabsTrigger value="REVISADO" render={<Link href="?estado=REVISADO" replace />} nativeButton={false} className="rounded-lg font-bold text-xs uppercase tracking-wider">
             Procesadas
           </TabsTrigger>
         </TabsList>

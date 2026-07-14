@@ -12,6 +12,7 @@ import { NotaHistorial } from '@/app/(admin)/inventario/notas/[id]/components/No
 import { NotaAcciones } from '@/app/(admin)/inventario/notas/[id]/components/NotaAcciones'
 import { NoteDraftBuilder } from '../nueva/NoteDraftBuilder'
 import { Separator } from '@/components/ui/separator'
+import { NotaComparadorLayout } from '@/app/(admin)/inventario/notas/[id]/components/NotaComparadorLayout'
 
 export async function generateMetadata({
   params,
@@ -80,52 +81,56 @@ export default async function NotaDetallePage({
     ])
 
     return (
-      <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Editar Nota {nota.cabecera.numero_nota}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Estado: {nota.cabecera.estado_nombre} — Los cambios se guardan al presionar un botón.
-          </p>
+      <NotaComparadorLayout comprobanteUrl={nota.cabecera.comprobante_url}>
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Editar Nota {nota.cabecera.numero_nota}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Estado: {nota.cabecera.estado_nombre} — Los cambios se guardan al presionar un botón.
+            </p>
+          </div>
+
+          <NoteDraftBuilder
+            catalogos={catalogos}
+            usuarioId={user.id}
+            mode="edit"
+            notaId={id}
+            initialData={nota}
+            currentUserLevel={user.rol?.nivel_acceso ?? 3}
+            userBodegas={userBodegas}
+          />
+
+          <Separator className="my-6" />
+
+          {/* Historial de estados (siempre visible) */}
+          <NotaHistorial historial={nota.historial} />
         </div>
-
-        <NoteDraftBuilder
-          catalogos={catalogos}
-          usuarioId={user.id}
-          mode="edit"
-          notaId={id}
-          initialData={nota}
-          currentUserLevel={user.rol?.nivel_acceso ?? 3}
-          userBodegas={userBodegas}
-        />
-
-        <Separator className="my-6" />
-
-        {/* Historial de estados (siempre visible) */}
-        <NotaHistorial historial={nota.historial} />
-      </div>
+      </NotaComparadorLayout>
     )
   }
 
   // Vista solo lectura (CONF o CANC)
   return (
-    <div className="space-y-6">
-      {/* Cabecera */}
-      <NotaCabecera nota={nota.cabecera} />
+    <NotaComparadorLayout comprobanteUrl={nota.cabecera.comprobante_url}>
+      <div className="space-y-6">
+        {/* Cabecera */}
+        <NotaCabecera nota={nota.cabecera} showComprobante={!nota.cabecera.comprobante_url} />
 
-      {/* Acciones (cancelar si procede, duplicar, etc.) */}
-      <NotaAcciones nota={nota.cabecera} notaId={id} />
+        {/* Acciones (cancelar si procede, duplicar, etc.) */}
+        <NotaAcciones nota={nota.cabecera} notaId={id} />
 
-      <Separator />
+        <Separator />
 
-      {/* Productos */}
-      <NotaProductos detalles={nota.detalles} />
+        {/* Productos */}
+        <NotaProductos detalles={nota.detalles} />
 
-      <Separator />
+        <Separator />
 
-      {/* Historial */}
-      <NotaHistorial historial={nota.historial} />
-    </div>
+        {/* Historial */}
+        <NotaHistorial historial={nota.historial} />
+      </div>
+    </NotaComparadorLayout>
   )
 }

@@ -227,7 +227,7 @@ export type NotaOcrPropuestaLineConfirmed = {
 }
 
 export type NotaOcrPropuesta = {
-  id: number
+  id: string
   created_at: string
   client_request_id: string | null
   comprobante_url: string | null

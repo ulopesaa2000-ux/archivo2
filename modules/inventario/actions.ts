@@ -29,7 +29,7 @@ export type ActionResult = {
 export async function guardarNotaAction(
   draft: DraftNota,
   confirmar: boolean = false,
-  propuestaId?: number
+  propuestaId?: string
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
@@ -918,7 +918,7 @@ export async function eliminarComprobanteNotaAction(
 }
 
 export async function eliminarOcrPropuestaAction(
-  id: number
+  id: string
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }

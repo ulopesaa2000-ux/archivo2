@@ -1,0 +1,1890 @@
+{
+  "updatedAt": "2026-07-14T20:24:12.949Z",
+  "createdAt": "2026-06-24T16:03:35.729Z",
+  "id": "DtZOqR4-9_DnULEjWW78b",
+  "name": "OCR Notas Movimiento - Ollama local",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Test - Nota de movimiento",
+        "formDescription": "Sube una foto de la ORDEN DE MOVIMIENTO DE MERCANCIA",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Foto de la nota",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Tipo (opcional)",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "entrada"
+                  },
+                  {
+                    "option": "salida"
+                  },
+                  {
+                    "option": "traspaso"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "client_request_id (opcional)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3932aae5-2632-4ff7-bd45-3cfe7ae2abce",
+      "name": "Form de prueba",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -256,
+        96
+      ],
+      "webhookId": "cb75405a-d2a5-48a1-bea1-aae38b466716"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://supabase.sistemaindumentaria.com/storage/v1/object/comprobantes/{{ $json.storage_path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer JWT_REPLACED_FOR_SECURITY"
+            },
+            {
+              "name": "apikey",
+              "value": "JWT_REPLACED_FOR_SECURITY"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            },
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.mimeType }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "foto",
+        "options": {}
+      },
+      "id": "2dbfb8ea-c945-4ff8-8138-2c2eecbab2a3",
+      "name": "Subir imagen al bucket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        256,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH src AS (SELECT $1::jsonb AS j)\nINSERT INTO \"inv-tienda\".nota_ocr_propuestas\n  (client_request_id, comprobante_url, folio_detectado, fecha_detectada,\n   tipo_movimiento_detectado, origen_detectado, destino_detectado,\n   lineas, json_crudo, confianza_global)\nSELECT j->>'client_request_id', j->>'comprobante_url', j->>'folio',\n       NULLIF(j->>'fecha', '')::date, j->>'tipo_movimiento',\n       j->>'origen', j->>'destino',\n       COALESCE(j->'lineas', '[]'::jsonb), j->'json_crudo',\n       NULLIF(j->>'confianza_global', '')::numeric\nFROM src\nON CONFLICT (client_request_id) DO UPDATE SET comprobante_url = EXCLUDED.comprobante_url\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.payload_json] }}"
+        }
+      },
+      "id": "8f8fd1df-93bf-4900-a3ca-98c123d8ab7e",
+      "name": "Insertar propuesta staging",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YgDwsBMSmHIX6EeX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \"inv-tienda\".sp_promover_propuesta_auto($1::uuid, $2::bigint) AS resultado;",
+        "options": {
+          "queryReplacement": "={{ [$('Insertar propuesta staging').first().json.id, 1] }}"
+        }
+      },
+      "id": "68928571-844b-49fd-bdbd-5506770283ea",
+      "name": "Promover a nota (auto)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1456,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YgDwsBMSmHIX6EeX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## OCR Notas de Movimiento - MODO AUTOMATICO (OpenRouter + Gemma 4)\n\nEntradas:\n1) Webhook (POST /nota-movimiento) para Next.js / Android (multipart: foto + tipo + client_request_id).\n2) Form Trigger para pruebas.\n\nFlujo: Normalizar imagen -> Subir a bucket PUBLICO -> OpenRouter Gemma 4 -> Parsear ->\nInsertar en nota_ocr_propuestas -> Promover AUTO (crea nota BORRADOR en notas_inventario) -> Responder.\n\nIMPORTANTE: el stock NO se ajusta aqui. La nota queda en PEND; tu admin la APRUEBA y tu trigger ajusta el inventario.\n\nCONFIGURAR:\n- Code 'Normalizar imagen': cambia SUPABASE_URL por tu dominio.\n- HTTP 'Subir imagen': Authorization Bearer SERVICE_ROLE_KEY + apikey.\n- HTTP 'OpenRouter': Authorization Bearer sk-or-v1-...\n- Postgres (2 nodos): credencial de tu Supabase self-hosted.\n- Corre antes setup_ocr_auto.sql en tu base.",
+        "height": 460,
+        "width": 460,
+        "color": 4
+      },
+      "id": "5c29fe75-de18-40c2-81ee-a3308fa798c5",
+      "name": "LEEME2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nota-movimiento",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "foto"
+        }
+      },
+      "id": "80621be6-ba25-4c11-a315-1f16687dfac6",
+      "name": "Webhook (sitio/telefono)2",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -144
+      ],
+      "webhookId": "nota-movimiento-ocr"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unifica la imagen (Webhook o Form), produce data URL base64 para OpenRouter\n// y precalcula la ruta + URL PUBLICA del bucket de Supabase.\n// Usa getBinaryDataBuffer para que funcione tambien en binaryDataMode=database.\nconst SUPABASE_URL = 'https://supabase.sistemaindumentaria.com';\nconst BUCKET = 'comprobantes';\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (keys.length === 0) { throw new Error('No se recibio ninguna imagen (binary vacio).'); }\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const base64 = buffer.toString('base64');\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const meta = item.json || {};\n  const ext = (mimeType.indexOf('png') >= 0) ? 'png' : ((mimeType.indexOf('webp') >= 0) ? 'webp' : 'jpg');\n  const now = new Date();\n  const yyyy = now.getFullYear();\n  const mm = ('0' + (now.getMonth() + 1)).slice(-2);\n  const rand = Math.floor(Math.random() * 1000000);\n  const storagePath = yyyy + '/' + mm + '/nota_' + now.getTime() + '_' + rand + '.' + ext;\n  const comprobanteUrl = SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/' + storagePath;\n  \n  // Extract body values if webhook\n  const body = meta.body || {};\n  const clientRequestId = meta.client_request_id || meta['client_request_id (opcional)'] || body.client_request_id || null;\n  const tipoHint = meta.tipo || meta['Tipo (opcional)'] || body.tipo || body.tipo_hint || null;\n\n  out.push({\n    json: {\n      mimeType: mimeType,\n      dataUrl: 'data:' + mimeType + ';base64,' + base64,\n      storage_path: storagePath,\n      comprobante_url: comprobanteUrl,\n      client_request_id: clientRequestId,\n      tipo_hint: tipoHint\n    },\n    binary: { foto: bin[key] }\n  });\n}\nreturn out;"
+      },
+      "id": "0774b27b-fa84-4f41-8d77-cc62c8385ab8",
+      "name": "Normalizar imagen2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Normalizar imagen2').first().json;\nconst prompt = `Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano. Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta:\n{\n  \"folio\": string|null,\n  \"fecha\": string|null,\n  \"tipo_movimiento\": null,\n  \"origen\": string|null,\n  \"destino\": string|null,\n  \"lineas\": [\n    { \"cantidad_cajas\": number|null, \"piezas_por_caja\": number|null, \"estilo_raw\": string|null, \"descripcion_raw\": string|null, \"confianza\": number }\n  ],\n  \"confianza_global\": number\n}\nReglas:\n- Incluye solo renglones CON contenido. No inventes lineas vacias.\n- CANTIDAD suele venir como 'N X M' (N cajas de M piezas). Si solo hay un numero, ponlo en cantidad_cajas y piezas_por_caja=null.\n- La columna DESCRIPCION es el codigo/SKU (letras+numeros). Copialo EXACTO, respetando mayusculas. Cada renglon tiene su PROPIA descripcion; NO repitas el mismo SKU salvo que este escrito identico.\n- Si el encabezado trae 'A / B', A=origen y B=destino.\n- tipo_movimiento: devuelve SIEMPRE null (el sistema lo deduce de origen/destino).\n- FECHA en formato YYYY-MM-DD (interpreta DD-MM-YY del encabezado). Si no es legible, usa null.\n- Devuelve SOLO el JSON, sin markdown ni texto adicional.`;\nconst body = {\n  model: 'google/gemma-4-26b-a4b-it:free',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'user', content: [\n      { type: 'text', text: prompt },\n      { type: 'image_url', image_url: { url: meta.dataUrl } }\n    ] }\n  ]\n};\nreturn [{ json: { body: body, client_request_id: meta.client_request_id, comprobante_url: meta.comprobante_url, tipo_hint: meta.tipo_hint } }];"
+      },
+      "id": "b571d184-8933-4957-a24e-c7a3870d3104",
+      "name": "Construir prompt + body2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer sk-or-v1-REPLACED_FOR_SECURITY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Title",
+              "value": "OCR Notas Inventario"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "7b7c9ece-5f21-4096-8832-934da7790c8a",
+      "name": "OpenRouter Gemma 4 (vision)1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        -16
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nlet text = '';\ntry { text = resp.choices[0].message.content; }\ncatch (e) { throw new Error('Respuesta inesperada de OpenRouter: ' + JSON.stringify(resp).slice(0, 600)); }\ntext = String(text).replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();\nlet data;\ntry { data = JSON.parse(text); }\ncatch (e) {\n  const m = text.match(/\\{[\\s\\S]*\\}/);\n  if (!m) { throw new Error('El modelo no devolvio JSON valido: ' + text.slice(0, 300)); }\n  data = JSON.parse(m[0]);\n}\nconst meta = $('Construir prompt + body2').first().json;\nif ((!data.tipo_movimiento) && meta.tipo_hint) { data.tipo_movimiento = meta.tipo_hint; }\nconst payload = {\n  client_request_id: meta.client_request_id || null,\n  comprobante_url: meta.comprobante_url || null,\n  folio: data.folio || null,\n  fecha: data.fecha || null,\n  tipo_movimiento: data.tipo_movimiento || null,\n  origen: data.origen || null,\n  destino: data.destino || null,\n  lineas: data.lineas || [],\n  confianza_global: data.confianza_global || null,\n  json_crudo: data\n};\nreturn [{ json: Object.assign({}, payload, { payload_json: JSON.stringify(payload), lineas_json: JSON.stringify(data.lineas || []) }) }];"
+      },
+      "id": "d7d31499-410f-401a-96b2-5baebe45a0e2",
+      "name": "Parsear JSON2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $('Parsear JSON2').first().json;\nlet prom = {};\ntry { prom = $('Promover a nota (auto)').first().json; } catch (e) { prom = {}; }\nconst res = prom.resultado || prom || {};\nlet propuestaId = null;\ntry { propuestaId = $('Insertar propuesta staging').first().json.id; } catch(e) {}\nreturn [{ json: {\n  ok: true,\n  nota_id: (res && res.nota_id) || null,\n  propuesta_id: propuestaId,\n  comprobante_url: parsed.comprobante_url,\n  propuesta: {\n    folio: parsed.folio,\n    fecha: parsed.fecha,\n    tipo_movimiento: parsed.tipo_movimiento,\n    origen: parsed.origen,\n    destino: parsed.destino,\n    confianza_global: parsed.confianza_global\n  },\n  lineas: parsed.lineas,\n  advertencias: (res && res.advertencias) || [],\n  mensaje: 'Nota creada como BORRADOR (PEND) en notas_inventario. Un admin debe aprobarla para que el trigger ajuste el inventario.'\n} }];"
+      },
+      "id": "092a7b4f-65ed-47ca-8eb8-007a3e39ce04",
+      "name": "Armar respuesta2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "c55db160-3284-4885-bc7d-9efc74e419af",
+      "name": "Responder Webhook2",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1936,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "gemma3:latest",
+          "mode": "list",
+          "cachedResultName": "gemma3:latest"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        288,
+        160
+      ],
+      "id": "2669f89c-6bc6-457f-a20d-4f0569399486",
+      "name": "Analyze image",
+      "credentials": {
+        "ollamaApi": {
+          "id": "Fviy5p5AxURS7wuv",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Test OCR local (Ollama CPU)",
+        "formDescription": "Sube una foto de la nota para probar Gemma 3 en CPU",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Foto de la nota",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "591fb9a9-f930-4578-ba44-bf7de335f2c6",
+      "name": "Form de prueba1",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        624
+      ],
+      "webhookId": "c6b1c966-5009-469e-8ab3-4322c8127648"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (keys.length === 0) { throw new Error('No se recibió ninguna imagen (binary vacío).'); }\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');\n  const fotoBinary = await this.helpers.prepareBinaryData(buffer, 'foto.' + ext, mimeType);\n  out.push({ json: { mimeType }, binary: { foto: fotoBinary }, pairedItem: { item: i } });\n}\nreturn out;"
+      },
+      "id": "08bf36e7-73e4-42ed-bf78-ba933cebc557",
+      "name": "Normalizar imagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "gemma3:latest",
+          "mode": "list",
+          "cachedResultName": "gemma3:latest"
+        },
+        "text": "Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano. Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta: {\"folio\": string|null, \"fecha\": string|null, \"tipo_movimiento\": null, \"origen\": string|null, \"destino\": string|null, \"lineas\": [{\"cantidad_cajas\": number|null, \"piezas_por_caja\": number|null, \"estilo_raw\": string|null, \"descripcion_raw\": string|null, \"confianza\": number}], \"confianza_global\": number}. Reglas: incluye solo renglones con contenido; CANTIDAD suele venir como 'N X M'; DESCRIPCION es el codigo/SKU, copialo EXACTO; fecha en YYYY-MM-DD; devuelve SOLO el JSON sin markdown.",
+        "binaryPropertyName": "foto",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        784,
+        624
+      ],
+      "id": "e085f150-6d36-424d-b1d9-62f0dab680eb",
+      "name": "Analyze image1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "Fviy5p5AxURS7wuv",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nota-movimiento-local",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "foto"
+        }
+      },
+      "id": "8f0a5536-d8ac-46ac-8dfd-79bf410c0f9d",
+      "name": "Webhook (sitio/telefono)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        1184
+      ],
+      "webhookId": "nota-movimiento-ocr"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (!keys.length) throw new Error('No llego ninguna imagen.');\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mime = bin[key].mimeType || 'image/jpeg';\n  const fileName = bin[key].fileName || ('entrada.' + (mime.split('/')[1] || 'jpg'));\n  const reBin = await this.helpers.prepareBinaryData(buffer, fileName, mime);\n  out.push({ json: item.json || {}, binary: { foto: reBin }, pairedItem: { item: i } });\n}\nreturn out;"
+      },
+      "id": "76d229e7-453b-4fc4-ac9d-c918cb1fe6d1",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "resize",
+        "dataPropertyName": "foto",
+        "width": 1600,
+        "height": 1600,
+        "options": {
+          "format": "jpeg",
+          "quality": 80
+        }
+      },
+      "id": "1b8e8d3e-8836-4d89-8071-038017aaf866",
+      "name": "Optimizar imagen",
+      "type": "n8n-nodes-base.editImage",
+      "typeVersion": 1,
+      "position": [
+        688,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const SUPABASE_URL = 'https://supabase.sistemaindumentaria.com';\nconst BUCKET = 'comprobantes';\nconst PROMPT = [\n  \"Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano.\",\n  'Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta:',\n  '{\"folio\":string|null,\"fecha\":string|null,\"tipo_movimiento\":\"entrada\"|\"salida\"|\"traspaso\"|null,\"origen\":string|null,\"destino\":string|null,\"lineas\":[{\"cantidad_cajas\":number|null,\"piezas_por_caja\":number|null,\"estilo_raw\":string|null,\"descripcion_raw\":string|null,\"confianza\":number}],\"confianza_global\":number}',\n  'Reglas:',\n  '- Solo incluye renglones CON contenido. No inventes lineas vacias.',\n  \"- CANTIDAD suele venir como 'N X M' (N cajas de M piezas). Si solo hay un numero, ponlo en cantidad_cajas y piezas_por_caja=null.\",\n  '- DESCRIPCION suele ser el codigo/SKU; copialo EXACTO respetando mayusculas.',\n  \"- Si el encabezado trae 'A / B', A=origen y B=destino.\",\n  '- FECHA en formato YYYY-MM-DD. Si no es legible, null.',\n  '- Devuelve SOLO el JSON, sin markdown ni texto adicional.'\n].join('\\n');\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const key = bin.foto ? 'foto' : Object.keys(bin)[0];\n  if (!key) throw new Error('No hay imagen optimizada (binary foto).');\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const base64 = buffer.toString('base64');\n  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');\n  const now = new Date();\n  const mm = ('0' + (now.getMonth() + 1)).slice(-2);\n  const rand = Math.floor(Math.random() * 1e6);\n  const storagePath = now.getFullYear() + '/' + mm + '/nota_' + now.getTime() + '_' + rand + '.' + ext;\n  const meta = item.json || {};\n  const fotoBinary = await this.helpers.prepareBinaryData(buffer, 'foto.' + ext, mimeType);\n  out.push({\n    json: {\n      mimeType: mimeType,\n      prompt: PROMPT,\n      base64Raw: base64,\n      storage_path: storagePath,\n      comprobante_url: SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/' + storagePath,\n      client_request_id: meta.client_request_id || meta['client_request_id (opcional)'] || null,\n      tipo_hint: meta.tipo || meta['Tipo (opcional)'] || null\n    },\n    binary: { foto: fotoBinary },\n    pairedItem: { item: i }\n  });\n}\nreturn out;"
+      },
+      "id": "1eddfe2a-eae5-4889-9608-f4e2763dab6b",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://supabase.sistemaindumentaria.com/storage/v1/object/comprobantes/ $('Preparar').first().json.storage_path ",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer JWT_REPLACED_FOR_SECURITY"
+            },
+            {
+              "name": "apikey",
+              "value": "JWT_REPLACED_FOR_SECURITY"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            },
+            {
+              "name": "Content-Type",
+              "value": "= $('Preparar').first().json.mimeType "
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "foto",
+        "options": {}
+      },
+      "id": "1756fcdc-4312-4643-abcc-4bcf69065cb7",
+      "name": "Subir al bucket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1168,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gemma3:latest', prompt: $('Preparar').first().json.prompt, images: [$('Preparar').first().json.base64Raw], stream: false, format: 'json', options: { temperature: 0 } }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "9d4a886d-f2ff-4d42-a3e3-af5f09920598",
+      "name": "OCR Ollama (vision)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let text = String($json.response ?? $json.content ?? '').trim();\ntext = text.replace('```json', '').replace('```', '').trim();\nconst a = text.indexOf('{');\nconst b = text.lastIndexOf('}');\nconst data = JSON.parse(text.slice(a, b + 1));\nif (data.origen && !data.destino && String(data.origen).includes('/')) {\n  const p = String(data.origen).split('/').map(s => s.trim());\n  data.origen = p[0] || null;\n  data.destino = p[1] || null;\n}\nreturn [{ json: data }];"
+      },
+      "id": "e6b8b090-a132-4a28-825d-5552ee695a56",
+      "name": "Parsear JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select 'origen' as campo, b.id, b.codigo, b.nombre, greatest(similarity(upper(b.codigo), upper($1)), similarity(upper(b.nombre), upper($1))) as score from \"inv-tienda\".bodegas b where b.activa and $1 <> '' union all select 'destino', b.id, b.codigo, b.nombre, greatest(similarity(upper(b.codigo), upper($2)), similarity(upper(b.nombre), upper($2))) from \"inv-tienda\".bodegas b where b.activa and $2 <> '' order by campo, score desc, id asc;",
+        "options": {
+          "queryReplacement": "= [$json.origen || '', $json.destino || ''] "
+        }
+      },
+      "id": "67351138-5c59-4771-837b-f4675c5ab0c5",
+      "name": "Candidatos bodega",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1888,
+        1072
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YgDwsBMSmHIX6EeX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cands = $input.all().map(x => x.json);\nconst ocr = $('Parsear JSON').first().json;\nconst prep = $('Preparar').first().json;\nconst OLLAMA_URL = 'http://ollama:11434';\nconst MODEL = 'gemma3:latest';\nconst TH = 0.45;\nconst GAP = 0.07;\nconst self = this;\nfunction top(campo) {\n  return cands.filter(r => r.campo === campo).sort((a, b) => b.score - a.score || a.id - b.id);\n}\nasync function resolver(campo, texto) {\n  const c = top(campo);\n  if (!c.length || !texto) return null;\n  if (c[0].score >= TH && (!c[1] || (c[0].score - c[1].score) >= GAP)) return c[0].id;\n  const lista = c.slice(0, 5).map(x => x.codigo + ' - ' + x.nombre).join('; ');\n  const prompt = 'Detecte la bodega \"' + texto + '\". Opciones validas (codigo - nombre): ' + lista + '. Devuelve SOLO {\"codigo\":\"<exacto de la lista>\"} de la mas probable, o {\"codigo\":null} si ninguna encaja.';\n  try {\n    const resp = await self.helpers.httpRequest({ method: 'POST', url: OLLAMA_URL + '/api/generate', body: { model: MODEL, prompt: prompt, stream: false, format: 'json', options: { temperature: 0 } }, json: true });\n    const pick = JSON.parse(resp.response);\n    if (pick && pick.codigo) { const hit = c.find(x => x.codigo === pick.codigo); if (hit) return hit.id; }\n  } catch (e) {}\n  return c[0].id;\n}\nconst bodega_origen_id = await resolver('origen', ocr.origen);\nconst bodega_destino_id = await resolver('destino', ocr.destino);\nconst params = [ prep.client_request_id || '', prep.comprobante_url || '', prep.storage_path || '', ocr.folio || '', ocr.fecha || '', ocr.tipo_movimiento || '', ocr.origen || '', ocr.destino || '', JSON.stringify(ocr.lineas || []), JSON.stringify(ocr), (ocr.confianza_global != null ? String(ocr.confianza_global) : ''), (bodega_origen_id != null ? String(bodega_origen_id) : ''), (bodega_destino_id != null ? String(bodega_destino_id) : '') ];\nreturn [{ json: { params: params, resumen: { folio: ocr.folio || null, origen: ocr.origen || null, destino: ocr.destino || null, bodega_origen_id: bodega_origen_id, bodega_destino_id: bodega_destino_id, tipo_movimiento: ocr.tipo_movimiento || null, confianza_global: ocr.confianza_global || null } } }];"
+      },
+      "id": "ac993c74-00a1-47d4-bfc4-33123307895e",
+      "name": "Resolver bodegas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into \"inv-tienda\".nota_ocr_propuestas (client_request_id, comprobante_url, storage_path, folio_detectado, fecha_detectada, tipo_movimiento_detectado, origen_detectado, destino_detectado, lineas, json_crudo, confianza_global, tipo_movimiento_id, bodega_origen_id, bodega_destino_id, estado) values (nullif($1,''), $2, $3, nullif($4,''), nullif($5,'')::date, nullif($6,''), nullif($7,''), nullif($8,''), $9::jsonb, $10::jsonb, nullif($11,'')::numeric, (select id from \"inv-tienda\".cat_tipos_movimiento where codigo = nullif($6,'')), nullif($12,'')::bigint, nullif($13,'')::bigint, 'PENDIENTE_REVISION') on conflict (client_request_id) do update set comprobante_url = excluded.comprobante_url, json_crudo = excluded.json_crudo, lineas = excluded.lineas returning id;",
+        "options": {
+          "queryReplacement": "= $json.params "
+        }
+      },
+      "id": "561c3b93-858c-4fee-b56d-ae8ee7a4d3b9",
+      "name": "Insertar propuesta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2368,
+        1072
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YgDwsBMSmHIX6EeX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ins = $json || {};\nconst r = (($('Resolver bodegas').first().json) || {}).resumen || {};\nreturn [{ json: Object.assign({ ok: true, propuesta_id: (ins.id != null ? ins.id : null) }, r, { mensaje: 'Propuesta creada en PENDIENTE_REVISION. Un admin la confirma en la plataforma para mover stock.' }) }];"
+      },
+      "id": "e2499cdc-6415-4d57-9e55-6bce9de82e11",
+      "name": "Armar respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2608,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "= $json ",
+        "options": {}
+      },
+      "id": "de1cfe2f-ff70-4c6c-badb-14001bedd64b",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2848,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "Nota de movimiento",
+        "formDescription": "Sube la foto de la ORDEN DE MOVIMIENTO DE MERCANCIA",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Foto de la nota",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Tipo (opcional)",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "entrada"
+                  },
+                  {
+                    "option": "salida"
+                  },
+                  {
+                    "option": "traspaso"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "client_request_id (opcional)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "07ff22cf-2731-4c00-a73d-2425014aab6a",
+      "name": "Form de prueba2",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        960
+      ],
+      "webhookId": "b0700e1f-a926-46d2-95b0-24747d43f6c9"
+    }
+  ],
+  "connections": {
+    "Form de prueba": {
+      "main": [
+        [
+          {
+            "node": "Normalizar imagen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir imagen al bucket": {
+      "main": [
+        [
+          {
+            "node": "Construir prompt + body2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar propuesta staging": {
+      "main": [
+        [
+          {
+            "node": "Promover a nota (auto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Promover a nota (auto)": {
+      "main": [
+        [
+          {
+            "node": "Armar respuesta2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (sitio/telefono)2": {
+      "main": [
+        [
+          {
+            "node": "Normalizar imagen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar imagen2": {
+      "main": [
+        [
+          {
+            "node": "Subir imagen al bucket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir prompt + body2": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter Gemma 4 (vision)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Gemma 4 (vision)1": {
+      "main": [
+        [
+          {
+            "node": "Parsear JSON2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear JSON2": {
+      "main": [
+        [
+          {
+            "node": "Insertar propuesta staging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar respuesta2": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form de prueba1": {
+      "main": [
+        [
+          {
+            "node": "Normalizar imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar imagen": {
+      "main": [
+        [
+          {
+            "node": "Analyze image1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (sitio/telefono)": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Optimizar imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optimizar imagen": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar": {
+      "main": [
+        [
+          {
+            "node": "Subir al bucket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir al bucket": {
+      "main": [
+        [
+          {
+            "node": "OCR Ollama (vision)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Ollama (vision)": {
+      "main": [
+        [
+          {
+            "node": "Parsear JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear JSON": {
+      "main": [
+        [
+          {
+            "node": "Candidatos bodega",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidatos bodega": {
+      "main": [
+        [
+          {
+            "node": "Resolver bodegas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver bodegas": {
+      "main": [
+        [
+          {
+            "node": "Insertar propuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar propuesta": {
+      "main": [
+        [
+          {
+            "node": "Armar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form de prueba2": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "d7236d9a-6299-40a1-a834-054e7cba39d7",
+  "activeVersionId": "d7236d9a-6299-40a1-a834-054e7cba39d7",
+  "versionCounter": 31,
+  "triggerCount": 5,
+  "shared": [
+    {
+      "updatedAt": "2026-06-24T16:03:35.729Z",
+      "createdAt": "2026-06-24T16:03:35.729Z",
+      "role": "workflow:owner",
+      "workflowId": "DtZOqR4-9_DnULEjWW78b",
+      "projectId": "6sBo6bsUZHDm6iL2",
+      "project": {
+        "updatedAt": "2026-06-02T17:12:48.490Z",
+        "createdAt": "2026-06-02T16:35:06.337Z",
+        "id": "6sBo6bsUZHDm6iL2",
+        "name": "Admin Uriel L <ulopesaa2000@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1fd536cc-73b5-422d-9d28-6718723736eb",
+        "projectRelations": [
+          {
+            "updatedAt": "2026-06-02T16:35:06.337Z",
+            "createdAt": "2026-06-02T16:35:06.337Z",
+            "userId": "1fd536cc-73b5-422d-9d28-6718723736eb",
+            "projectId": "6sBo6bsUZHDm6iL2",
+            "user": {
+              "updatedAt": "2026-07-14T18:51:42.376Z",
+              "createdAt": "2026-06-02T16:35:04.311Z",
+              "id": "1fd536cc-73b5-422d-9d28-6718723736eb",
+              "email": "ulopesaa2000@gmail.com",
+              "firstName": "Admin Uriel",
+              "lastName": "L",
+              "personalizationAnswers": null,
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "DtZOqR4-9_DnULEjWW78b",
+                "userActivatedAt": 1784055091513
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-07-13",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-07-14T20:24:12.975Z",
+    "createdAt": "2026-07-14T20:24:12.975Z",
+    "versionId": "d7236d9a-6299-40a1-a834-054e7cba39d7",
+    "workflowId": "DtZOqR4-9_DnULEjWW78b",
+    "nodes": [
+      {
+        "parameters": {
+          "formTitle": "Test - Nota de movimiento",
+          "formDescription": "Sube una foto de la ORDEN DE MOVIMIENTO DE MERCANCIA",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Foto de la nota",
+                "fieldType": "file",
+                "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Tipo (opcional)",
+                "fieldType": "dropdown",
+                "fieldOptions": {
+                  "values": [
+                    {
+                      "option": "entrada"
+                    },
+                    {
+                      "option": "salida"
+                    },
+                    {
+                      "option": "traspaso"
+                    }
+                  ]
+                }
+              },
+              {
+                "fieldLabel": "client_request_id (opcional)"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "3932aae5-2632-4ff7-bd45-3cfe7ae2abce",
+        "name": "Form de prueba",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.2,
+        "position": [
+          -256,
+          96
+        ],
+        "webhookId": "cb75405a-d2a5-48a1-bea1-aae38b466716"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://supabase.sistemaindumentaria.com/storage/v1/object/comprobantes/{{ $json.storage_path }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer JWT_REPLACED_FOR_SECURITY"
+              },
+              {
+                "name": "apikey",
+                "value": "JWT_REPLACED_FOR_SECURITY"
+              },
+              {
+                "name": "x-upsert",
+                "value": "true"
+              },
+              {
+                "name": "Content-Type",
+                "value": "={{ $json.mimeType }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "binaryData",
+          "inputDataFieldName": "foto",
+          "options": {}
+        },
+        "id": "2dbfb8ea-c945-4ff8-8138-2c2eecbab2a3",
+        "name": "Subir imagen al bucket",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          256,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH src AS (SELECT $1::jsonb AS j)\nINSERT INTO \"inv-tienda\".nota_ocr_propuestas\n  (client_request_id, comprobante_url, folio_detectado, fecha_detectada,\n   tipo_movimiento_detectado, origen_detectado, destino_detectado,\n   lineas, json_crudo, confianza_global)\nSELECT j->>'client_request_id', j->>'comprobante_url', j->>'folio',\n       NULLIF(j->>'fecha', '')::date, j->>'tipo_movimiento',\n       j->>'origen', j->>'destino',\n       COALESCE(j->'lineas', '[]'::jsonb), j->'json_crudo',\n       NULLIF(j->>'confianza_global', '')::numeric\nFROM src\nON CONFLICT (client_request_id) DO UPDATE SET comprobante_url = EXCLUDED.comprobante_url\nRETURNING id;",
+          "options": {
+            "queryReplacement": "={{ [$json.payload_json] }}"
+          }
+        },
+        "id": "8f8fd1df-93bf-4900-a3ca-98c123d8ab7e",
+        "name": "Insertar propuesta staging",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1216,
+          -16
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "YgDwsBMSmHIX6EeX",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT \"inv-tienda\".sp_promover_propuesta_auto($1::uuid, $2::bigint) AS resultado;",
+          "options": {
+            "queryReplacement": "={{ [$('Insertar propuesta staging').first().json.id, 1] }}"
+          }
+        },
+        "id": "68928571-844b-49fd-bdbd-5506770283ea",
+        "name": "Promover a nota (auto)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1456,
+          -16
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "YgDwsBMSmHIX6EeX",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "## OCR Notas de Movimiento - MODO AUTOMATICO (OpenRouter + Gemma 4)\n\nEntradas:\n1) Webhook (POST /nota-movimiento) para Next.js / Android (multipart: foto + tipo + client_request_id).\n2) Form Trigger para pruebas.\n\nFlujo: Normalizar imagen -> Subir a bucket PUBLICO -> OpenRouter Gemma 4 -> Parsear ->\nInsertar en nota_ocr_propuestas -> Promover AUTO (crea nota BORRADOR en notas_inventario) -> Responder.\n\nIMPORTANTE: el stock NO se ajusta aqui. La nota queda en PEND; tu admin la APRUEBA y tu trigger ajusta el inventario.\n\nCONFIGURAR:\n- Code 'Normalizar imagen': cambia SUPABASE_URL por tu dominio.\n- HTTP 'Subir imagen': Authorization Bearer SERVICE_ROLE_KEY + apikey.\n- HTTP 'OpenRouter': Authorization Bearer sk-or-v1-...\n- Postgres (2 nodos): credencial de tu Supabase self-hosted.\n- Corre antes setup_ocr_auto.sql en tu base.",
+          "height": 460,
+          "width": 460,
+          "color": 4
+        },
+        "id": "5c29fe75-de18-40c2-81ee-a3308fa798c5",
+        "name": "LEEME2",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -800,
+          -64
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "nota-movimiento",
+          "responseMode": "responseNode",
+          "options": {
+            "binaryPropertyName": "foto"
+          }
+        },
+        "id": "80621be6-ba25-4c11-a315-1f16687dfac6",
+        "name": "Webhook (sitio/telefono)2",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -256,
+          -144
+        ],
+        "webhookId": "nota-movimiento-ocr"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Unifica la imagen (Webhook o Form), produce data URL base64 para OpenRouter\n// y precalcula la ruta + URL PUBLICA del bucket de Supabase.\n// Usa getBinaryDataBuffer para que funcione tambien en binaryDataMode=database.\nconst SUPABASE_URL = 'https://supabase.sistemaindumentaria.com';\nconst BUCKET = 'comprobantes';\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (keys.length === 0) { throw new Error('No se recibio ninguna imagen (binary vacio).'); }\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const base64 = buffer.toString('base64');\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const meta = item.json || {};\n  const ext = (mimeType.indexOf('png') >= 0) ? 'png' : ((mimeType.indexOf('webp') >= 0) ? 'webp' : 'jpg');\n  const now = new Date();\n  const yyyy = now.getFullYear();\n  const mm = ('0' + (now.getMonth() + 1)).slice(-2);\n  const rand = Math.floor(Math.random() * 1000000);\n  const storagePath = yyyy + '/' + mm + '/nota_' + now.getTime() + '_' + rand + '.' + ext;\n  const comprobanteUrl = SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/' + storagePath;\n  \n  // Extract body values if webhook\n  const body = meta.body || {};\n  const clientRequestId = meta.client_request_id || meta['client_request_id (opcional)'] || body.client_request_id || null;\n  const tipoHint = meta.tipo || meta['Tipo (opcional)'] || body.tipo || body.tipo_hint || null;\n\n  out.push({\n    json: {\n      mimeType: mimeType,\n      dataUrl: 'data:' + mimeType + ';base64,' + base64,\n      storage_path: storagePath,\n      comprobante_url: comprobanteUrl,\n      client_request_id: clientRequestId,\n      tipo_hint: tipoHint\n    },\n    binary: { foto: bin[key] }\n  });\n}\nreturn out;"
+        },
+        "id": "0774b27b-fa84-4f41-8d77-cc62c8385ab8",
+        "name": "Normalizar imagen2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          16,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const meta = $('Normalizar imagen2').first().json;\nconst prompt = `Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano. Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta:\n{\n  \"folio\": string|null,\n  \"fecha\": string|null,\n  \"tipo_movimiento\": null,\n  \"origen\": string|null,\n  \"destino\": string|null,\n  \"lineas\": [\n    { \"cantidad_cajas\": number|null, \"piezas_por_caja\": number|null, \"estilo_raw\": string|null, \"descripcion_raw\": string|null, \"confianza\": number }\n  ],\n  \"confianza_global\": number\n}\nReglas:\n- Incluye solo renglones CON contenido. No inventes lineas vacias.\n- CANTIDAD suele venir como 'N X M' (N cajas de M piezas). Si solo hay un numero, ponlo en cantidad_cajas y piezas_por_caja=null.\n- La columna DESCRIPCION es el codigo/SKU (letras+numeros). Copialo EXACTO, respetando mayusculas. Cada renglon tiene su PROPIA descripcion; NO repitas el mismo SKU salvo que este escrito identico.\n- Si el encabezado trae 'A / B', A=origen y B=destino.\n- tipo_movimiento: devuelve SIEMPRE null (el sistema lo deduce de origen/destino).\n- FECHA en formato YYYY-MM-DD (interpreta DD-MM-YY del encabezado). Si no es legible, usa null.\n- Devuelve SOLO el JSON, sin markdown ni texto adicional.`;\nconst body = {\n  model: 'google/gemma-4-26b-a4b-it:free',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'user', content: [\n      { type: 'text', text: prompt },\n      { type: 'image_url', image_url: { url: meta.dataUrl } }\n    ] }\n  ]\n};\nreturn [{ json: { body: body, client_request_id: meta.client_request_id, comprobante_url: meta.comprobante_url, tipo_hint: meta.tipo_hint } }];"
+        },
+        "id": "b571d184-8933-4957-a24e-c7a3870d3104",
+        "name": "Construir prompt + body2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          496,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://openrouter.ai/api/v1/chat/completions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer sk-or-v1-REPLACED_FOR_SECURITY"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "X-Title",
+                "value": "OCR Notas Inventario"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.body }}",
+          "options": {}
+        },
+        "id": "7b7c9ece-5f21-4096-8832-934da7790c8a",
+        "name": "OpenRouter Gemma 4 (vision)1",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          736,
+          -16
+        ],
+        "retryOnFail": true
+      },
+      {
+        "parameters": {
+          "jsCode": "const resp = $json;\nlet text = '';\ntry { text = resp.choices[0].message.content; }\ncatch (e) { throw new Error('Respuesta inesperada de OpenRouter: ' + JSON.stringify(resp).slice(0, 600)); }\ntext = String(text).replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();\nlet data;\ntry { data = JSON.parse(text); }\ncatch (e) {\n  const m = text.match(/\\{[\\s\\S]*\\}/);\n  if (!m) { throw new Error('El modelo no devolvio JSON valido: ' + text.slice(0, 300)); }\n  data = JSON.parse(m[0]);\n}\nconst meta = $('Construir prompt + body2').first().json;\nif ((!data.tipo_movimiento) && meta.tipo_hint) { data.tipo_movimiento = meta.tipo_hint; }\nconst payload = {\n  client_request_id: meta.client_request_id || null,\n  comprobante_url: meta.comprobante_url || null,\n  folio: data.folio || null,\n  fecha: data.fecha || null,\n  tipo_movimiento: data.tipo_movimiento || null,\n  origen: data.origen || null,\n  destino: data.destino || null,\n  lineas: data.lineas || [],\n  confianza_global: data.confianza_global || null,\n  json_crudo: data\n};\nreturn [{ json: Object.assign({}, payload, { payload_json: JSON.stringify(payload), lineas_json: JSON.stringify(data.lineas || []) }) }];"
+        },
+        "id": "d7d31499-410f-401a-96b2-5baebe45a0e2",
+        "name": "Parsear JSON2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          976,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $('Parsear JSON2').first().json;\nlet prom = {};\ntry { prom = $('Promover a nota (auto)').first().json; } catch (e) { prom = {}; }\nconst res = prom.resultado || prom || {};\nlet propuestaId = null;\ntry { propuestaId = $('Insertar propuesta staging').first().json.id; } catch(e) {}\nreturn [{ json: {\n  ok: true,\n  nota_id: (res && res.nota_id) || null,\n  propuesta_id: propuestaId,\n  comprobante_url: parsed.comprobante_url,\n  propuesta: {\n    folio: parsed.folio,\n    fecha: parsed.fecha,\n    tipo_movimiento: parsed.tipo_movimiento,\n    origen: parsed.origen,\n    destino: parsed.destino,\n    confianza_global: parsed.confianza_global\n  },\n  lineas: parsed.lineas,\n  advertencias: (res && res.advertencias) || [],\n  mensaje: 'Nota creada como BORRADOR (PEND) en notas_inventario. Un admin debe aprobarla para que el trigger ajuste el inventario.'\n} }];"
+        },
+        "id": "092a7b4f-65ed-47ca-8eb8-007a3e39ce04",
+        "name": "Armar respuesta2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1696,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        },
+        "id": "c55db160-3284-4885-bc7d-9efc74e419af",
+        "name": "Responder Webhook2",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1936,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "image",
+          "modelId": {
+            "__rl": true,
+            "value": "gemma3:latest",
+            "mode": "list",
+            "cachedResultName": "gemma3:latest"
+          },
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.ollama",
+        "typeVersion": 1,
+        "position": [
+          288,
+          160
+        ],
+        "id": "2669f89c-6bc6-457f-a20d-4f0569399486",
+        "name": "Analyze image",
+        "credentials": {
+          "ollamaApi": {
+            "id": "Fviy5p5AxURS7wuv",
+            "name": "Ollama account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "formTitle": "Test OCR local (Ollama CPU)",
+          "formDescription": "Sube una foto de la nota para probar Gemma 3 en CPU",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Foto de la nota",
+                "fieldType": "file",
+                "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+                "requiredField": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "591fb9a9-f930-4578-ba44-bf7de335f2c6",
+        "name": "Form de prueba1",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.2,
+        "position": [
+          224,
+          624
+        ],
+        "webhookId": "c6b1c966-5009-469e-8ab3-4322c8127648"
+      },
+      {
+        "parameters": {
+          "jsCode": "const out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (keys.length === 0) { throw new Error('No se recibió ninguna imagen (binary vacío).'); }\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');\n  const fotoBinary = await this.helpers.prepareBinaryData(buffer, 'foto.' + ext, mimeType);\n  out.push({ json: { mimeType }, binary: { foto: fotoBinary }, pairedItem: { item: i } });\n}\nreturn out;"
+        },
+        "id": "08bf36e7-73e4-42ed-bf78-ba933cebc557",
+        "name": "Normalizar imagen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          496,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "image",
+          "modelId": {
+            "__rl": true,
+            "value": "gemma3:latest",
+            "mode": "list",
+            "cachedResultName": "gemma3:latest"
+          },
+          "text": "Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano. Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta: {\"folio\": string|null, \"fecha\": string|null, \"tipo_movimiento\": null, \"origen\": string|null, \"destino\": string|null, \"lineas\": [{\"cantidad_cajas\": number|null, \"piezas_por_caja\": number|null, \"estilo_raw\": string|null, \"descripcion_raw\": string|null, \"confianza\": number}], \"confianza_global\": number}. Reglas: incluye solo renglones con contenido; CANTIDAD suele venir como 'N X M'; DESCRIPCION es el codigo/SKU, copialo EXACTO; fecha en YYYY-MM-DD; devuelve SOLO el JSON sin markdown.",
+          "binaryPropertyName": "foto",
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.ollama",
+        "typeVersion": 1,
+        "position": [
+          784,
+          624
+        ],
+        "id": "e085f150-6d36-424d-b1d9-62f0dab680eb",
+        "name": "Analyze image1",
+        "credentials": {
+          "ollamaApi": {
+            "id": "Fviy5p5AxURS7wuv",
+            "name": "Ollama account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "nota-movimiento-local",
+          "responseMode": "responseNode",
+          "options": {
+            "binaryPropertyName": "foto"
+          }
+        },
+        "id": "8f0a5536-d8ac-46ac-8dfd-79bf410c0f9d",
+        "name": "Webhook (sitio/telefono)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          208,
+          1184
+        ],
+        "webhookId": "nota-movimiento-ocr"
+      },
+      {
+        "parameters": {
+          "jsCode": "const out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const keys = Object.keys(bin);\n  if (!keys.length) throw new Error('No llego ninguna imagen.');\n  const key = bin.foto ? 'foto' : keys[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mime = bin[key].mimeType || 'image/jpeg';\n  const fileName = bin[key].fileName || ('entrada.' + (mime.split('/')[1] || 'jpg'));\n  const reBin = await this.helpers.prepareBinaryData(buffer, fileName, mime);\n  out.push({ json: item.json || {}, binary: { foto: reBin }, pairedItem: { item: i } });\n}\nreturn out;"
+        },
+        "id": "76d229e7-453b-4fc4-ac9d-c918cb1fe6d1",
+        "name": "Normalizar entrada",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "resize",
+          "dataPropertyName": "foto",
+          "width": 1600,
+          "height": 1600,
+          "options": {
+            "format": "jpeg",
+            "quality": 80
+          }
+        },
+        "id": "1b8e8d3e-8836-4d89-8071-038017aaf866",
+        "name": "Optimizar imagen",
+        "type": "n8n-nodes-base.editImage",
+        "typeVersion": 1,
+        "position": [
+          688,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const SUPABASE_URL = 'https://supabase.sistemaindumentaria.com';\nconst BUCKET = 'comprobantes';\nconst PROMPT = [\n  \"Eres un extractor de datos de 'ORDENES DE MOVIMIENTO DE MERCANCIA' escritas a mano.\",\n  'Analiza la imagen y devuelve UNICAMENTE un JSON valido con esta forma exacta:',\n  '{\"folio\":string|null,\"fecha\":string|null,\"tipo_movimiento\":\"entrada\"|\"salida\"|\"traspaso\"|null,\"origen\":string|null,\"destino\":string|null,\"lineas\":[{\"cantidad_cajas\":number|null,\"piezas_por_caja\":number|null,\"estilo_raw\":string|null,\"descripcion_raw\":string|null,\"confianza\":number}],\"confianza_global\":number}',\n  'Reglas:',\n  '- Solo incluye renglones CON contenido. No inventes lineas vacias.',\n  \"- CANTIDAD suele venir como 'N X M' (N cajas de M piezas). Si solo hay un numero, ponlo en cantidad_cajas y piezas_por_caja=null.\",\n  '- DESCRIPCION suele ser el codigo/SKU; copialo EXACTO respetando mayusculas.',\n  \"- Si el encabezado trae 'A / B', A=origen y B=destino.\",\n  '- FECHA en formato YYYY-MM-DD. Si no es legible, null.',\n  '- Devuelve SOLO el JSON, sin markdown ni texto adicional.'\n].join('\\n');\nconst out = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const bin = item.binary || {};\n  const key = bin.foto ? 'foto' : Object.keys(bin)[0];\n  if (!key) throw new Error('No hay imagen optimizada (binary foto).');\n  const buffer = await this.helpers.getBinaryDataBuffer(i, key);\n  const mimeType = bin[key].mimeType || 'image/jpeg';\n  const base64 = buffer.toString('base64');\n  const ext = mimeType.includes('png') ? 'png' : (mimeType.includes('webp') ? 'webp' : 'jpg');\n  const now = new Date();\n  const mm = ('0' + (now.getMonth() + 1)).slice(-2);\n  const rand = Math.floor(Math.random() * 1e6);\n  const storagePath = now.getFullYear() + '/' + mm + '/nota_' + now.getTime() + '_' + rand + '.' + ext;\n  const meta = item.json || {};\n  const fotoBinary = await this.helpers.prepareBinaryData(buffer, 'foto.' + ext, mimeType);\n  out.push({\n    json: {\n      mimeType: mimeType,\n      prompt: PROMPT,\n      base64Raw: base64,\n      storage_path: storagePath,\n      comprobante_url: SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/' + storagePath,\n      client_request_id: meta.client_request_id || meta['client_request_id (opcional)'] || null,\n      tipo_hint: meta.tipo || meta['Tipo (opcional)'] || null\n    },\n    binary: { foto: fotoBinary },\n    pairedItem: { item: i }\n  });\n}\nreturn out;"
+        },
+        "id": "1eddfe2a-eae5-4889-9608-f4e2763dab6b",
+        "name": "Preparar",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          928,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://supabase.sistemaindumentaria.com/storage/v1/object/comprobantes/ $('Preparar').first().json.storage_path ",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer JWT_REPLACED_FOR_SECURITY"
+              },
+              {
+                "name": "apikey",
+                "value": "JWT_REPLACED_FOR_SECURITY"
+              },
+              {
+                "name": "x-upsert",
+                "value": "true"
+              },
+              {
+                "name": "Content-Type",
+                "value": "= $('Preparar').first().json.mimeType "
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "binaryData",
+          "inputDataFieldName": "foto",
+          "options": {}
+        },
+        "id": "1756fcdc-4312-4643-abcc-4bcf69065cb7",
+        "name": "Subir al bucket",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1168,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ollama:11434/api/generate",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ model: 'gemma3:latest', prompt: $('Preparar').first().json.prompt, images: [$('Preparar').first().json.base64Raw], stream: false, format: 'json', options: { temperature: 0 } }) }}",
+          "options": {
+            "timeout": 180000
+          }
+        },
+        "id": "9d4a886d-f2ff-4d42-a3e3-af5f09920598",
+        "name": "OCR Ollama (vision)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1408,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "let text = String($json.response ?? $json.content ?? '').trim();\ntext = text.replace('```json', '').replace('```', '').trim();\nconst a = text.indexOf('{');\nconst b = text.lastIndexOf('}');\nconst data = JSON.parse(text.slice(a, b + 1));\nif (data.origen && !data.destino && String(data.origen).includes('/')) {\n  const p = String(data.origen).split('/').map(s => s.trim());\n  data.origen = p[0] || null;\n  data.destino = p[1] || null;\n}\nreturn [{ json: data }];"
+        },
+        "id": "e6b8b090-a132-4a28-825d-5552ee695a56",
+        "name": "Parsear JSON",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1648,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "select 'origen' as campo, b.id, b.codigo, b.nombre, greatest(similarity(upper(b.codigo), upper($1)), similarity(upper(b.nombre), upper($1))) as score from \"inv-tienda\".bodegas b where b.activa and $1 <> '' union all select 'destino', b.id, b.codigo, b.nombre, greatest(similarity(upper(b.codigo), upper($2)), similarity(upper(b.nombre), upper($2))) from \"inv-tienda\".bodegas b where b.activa and $2 <> '' order by campo, score desc, id asc;",
+          "options": {
+            "queryReplacement": "= [$json.origen || '', $json.destino || ''] "
+          }
+        },
+        "id": "67351138-5c59-4771-837b-f4675c5ab0c5",
+        "name": "Candidatos bodega",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1888,
+          1072
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "YgDwsBMSmHIX6EeX",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const cands = $input.all().map(x => x.json);\nconst ocr = $('Parsear JSON').first().json;\nconst prep = $('Preparar').first().json;\nconst OLLAMA_URL = 'http://ollama:11434';\nconst MODEL = 'gemma3:latest';\nconst TH = 0.45;\nconst GAP = 0.07;\nconst self = this;\nfunction top(campo) {\n  return cands.filter(r => r.campo === campo).sort((a, b) => b.score - a.score || a.id - b.id);\n}\nasync function resolver(campo, texto) {\n  const c = top(campo);\n  if (!c.length || !texto) return null;\n  if (c[0].score >= TH && (!c[1] || (c[0].score - c[1].score) >= GAP)) return c[0].id;\n  const lista = c.slice(0, 5).map(x => x.codigo + ' - ' + x.nombre).join('; ');\n  const prompt = 'Detecte la bodega \"' + texto + '\". Opciones validas (codigo - nombre): ' + lista + '. Devuelve SOLO {\"codigo\":\"<exacto de la lista>\"} de la mas probable, o {\"codigo\":null} si ninguna encaja.';\n  try {\n    const resp = await self.helpers.httpRequest({ method: 'POST', url: OLLAMA_URL + '/api/generate', body: { model: MODEL, prompt: prompt, stream: false, format: 'json', options: { temperature: 0 } }, json: true });\n    const pick = JSON.parse(resp.response);\n    if (pick && pick.codigo) { const hit = c.find(x => x.codigo === pick.codigo); if (hit) return hit.id; }\n  } catch (e) {}\n  return c[0].id;\n}\nconst bodega_origen_id = await resolver('origen', ocr.origen);\nconst bodega_destino_id = await resolver('destino', ocr.destino);\nconst params = [ prep.client_request_id || '', prep.comprobante_url || '', prep.storage_path || '', ocr.folio || '', ocr.fecha || '', ocr.tipo_movimiento || '', ocr.origen || '', ocr.destino || '', JSON.stringify(ocr.lineas || []), JSON.stringify(ocr), (ocr.confianza_global != null ? String(ocr.confianza_global) : ''), (bodega_origen_id != null ? String(bodega_origen_id) : ''), (bodega_destino_id != null ? String(bodega_destino_id) : '') ];\nreturn [{ json: { params: params, resumen: { folio: ocr.folio || null, origen: ocr.origen || null, destino: ocr.destino || null, bodega_origen_id: bodega_origen_id, bodega_destino_id: bodega_destino_id, tipo_movimiento: ocr.tipo_movimiento || null, confianza_global: ocr.confianza_global || null } } }];"
+        },
+        "id": "ac993c74-00a1-47d4-bfc4-33123307895e",
+        "name": "Resolver bodegas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2128,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "insert into \"inv-tienda\".nota_ocr_propuestas (client_request_id, comprobante_url, storage_path, folio_detectado, fecha_detectada, tipo_movimiento_detectado, origen_detectado, destino_detectado, lineas, json_crudo, confianza_global, tipo_movimiento_id, bodega_origen_id, bodega_destino_id, estado) values (nullif($1,''), $2, $3, nullif($4,''), nullif($5,'')::date, nullif($6,''), nullif($7,''), nullif($8,''), $9::jsonb, $10::jsonb, nullif($11,'')::numeric, (select id from \"inv-tienda\".cat_tipos_movimiento where codigo = nullif($6,'')), nullif($12,'')::bigint, nullif($13,'')::bigint, 'PENDIENTE_REVISION') on conflict (client_request_id) do update set comprobante_url = excluded.comprobante_url, json_crudo = excluded.json_crudo, lineas = excluded.lineas returning id;",
+          "options": {
+            "queryReplacement": "= $json.params "
+          }
+        },
+        "id": "561c3b93-858c-4fee-b56d-ae8ee7a4d3b9",
+        "name": "Insertar propuesta",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2368,
+          1072
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "YgDwsBMSmHIX6EeX",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const ins = $json || {};\nconst r = (($('Resolver bodegas').first().json) || {}).resumen || {};\nreturn [{ json: Object.assign({ ok: true, propuesta_id: (ins.id != null ? ins.id : null) }, r, { mensaje: 'Propuesta creada en PENDIENTE_REVISION. Un admin la confirma en la plataforma para mover stock.' }) }];"
+        },
+        "id": "e2499cdc-6415-4d57-9e55-6bce9de82e11",
+        "name": "Armar respuesta",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2608,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "= $json ",
+          "options": {}
+        },
+        "id": "de1cfe2f-ff70-4c6c-badb-14001bedd64b",
+        "name": "Responder",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          2848,
+          1072
+        ]
+      },
+      {
+        "parameters": {
+          "formTitle": "Nota de movimiento",
+          "formDescription": "Sube la foto de la ORDEN DE MOVIMIENTO DE MERCANCIA",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Foto de la nota",
+                "fieldType": "file",
+                "acceptFileTypes": ".jpg,.jpeg,.png,.webp",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Tipo (opcional)",
+                "fieldType": "dropdown",
+                "fieldOptions": {
+                  "values": [
+                    {
+                      "option": "entrada"
+                    },
+                    {
+                      "option": "salida"
+                    },
+                    {
+                      "option": "traspaso"
+                    }
+                  ]
+                }
+              },
+              {
+                "fieldLabel": "client_request_id (opcional)"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "07ff22cf-2731-4c00-a73d-2425014aab6a",
+        "name": "Form de prueba2",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.2,
+        "position": [
+          208,
+          960
+        ],
+        "webhookId": "b0700e1f-a926-46d2-95b0-24747d43f6c9"
+      }
+    ],
+    "connections": {
+      "Form de prueba": {
+        "main": [
+          [
+            {
+              "node": "Normalizar imagen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Subir imagen al bucket": {
+        "main": [
+          [
+            {
+              "node": "Construir prompt + body2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar propuesta staging": {
+        "main": [
+          [
+            {
+              "node": "Promover a nota (auto)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Promover a nota (auto)": {
+        "main": [
+          [
+            {
+              "node": "Armar respuesta2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (sitio/telefono)2": {
+        "main": [
+          [
+            {
+              "node": "Normalizar imagen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalizar imagen2": {
+        "main": [
+          [
+            {
+              "node": "Subir imagen al bucket",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Construir prompt + body2": {
+        "main": [
+          [
+            {
+              "node": "OpenRouter Gemma 4 (vision)1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OpenRouter Gemma 4 (vision)1": {
+        "main": [
+          [
+            {
+              "node": "Parsear JSON2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear JSON2": {
+        "main": [
+          [
+            {
+              "node": "Insertar propuesta staging",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Armar respuesta2": {
+        "main": [
+          [
+            {
+              "node": "Responder Webhook2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Form de prueba1": {
+        "main": [
+          [
+            {
+              "node": "Normalizar imagen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalizar imagen": {
+        "main": [
+          [
+            {
+              "node": "Analyze image1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (sitio/telefono)": {
+        "main": [
+          [
+            {
+              "node": "Normalizar entrada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalizar entrada": {
+        "main": [
+          [
+            {
+              "node": "Optimizar imagen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Optimizar imagen": {
+        "main": [
+          [
+            {
+              "node": "Preparar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar": {
+        "main": [
+          [
+            {
+              "node": "Subir al bucket",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Subir al bucket": {
+        "main": [
+          [
+            {
+              "node": "OCR Ollama (vision)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OCR Ollama (vision)": {
+        "main": [
+          [
+            {
+              "node": "Parsear JSON",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear JSON": {
+        "main": [
+          [
+            {
+              "node": "Candidatos bodega",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Candidatos bodega": {
+        "main": [
+          [
+            {
+              "node": "Resolver bodegas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resolver bodegas": {
+        "main": [
+          [
+            {
+              "node": "Insertar propuesta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar propuesta": {
+        "main": [
+          [
+            {
+              "node": "Armar respuesta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Armar respuesta": {
+        "main": [
+          [
+            {
+              "node": "Responder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Form de prueba2": {
+        "main": [
+          [
+            {
+              "node": "Normalizar entrada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Admin Uriel L",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-07-14T20:24:13.555Z",
+        "id": 10,
+        "workflowId": "DtZOqR4-9_DnULEjWW78b",
+        "versionId": "d7236d9a-6299-40a1-a834-054e7cba39d7",
+        "event": "activated",
+        "userId": "1fd536cc-73b5-422d-9d28-6718723736eb"
+      }
+    ]
+  }
+}

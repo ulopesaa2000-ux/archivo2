@@ -46,7 +46,13 @@ const ICONS_MAP: Record<string, any> = {
   DEV: RotateCcw,
 }
 
-export function NotaCabecera({ nota }: { nota: NotaListItem }) {
+export function NotaCabecera({ 
+  nota,
+  showComprobante = true
+}: { 
+  nota: NotaListItem
+  showComprobante?: boolean 
+}) {
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(nota.comprobante_url)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -234,96 +240,98 @@ export function NotaCabecera({ nota }: { nota: NotaListItem }) {
           </div>
 
           {/* Comprobante Físico Integration */}
-          <div className="border-t bg-background/20 p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              {(nota.nota_referencia || nota.observaciones) && (
-                <div className="flex flex-col gap-4">
-                  {nota.nota_referencia && (
-                    <div className="flex items-start gap-2">
-                      <Hash className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter leading-none">Referencia Externa</span>
-                        <p className="text-sm font-medium leading-tight">{nota.nota_referencia}</p>
+          {showComprobante && (
+            <div className="border-t bg-background/20 p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                {(nota.nota_referencia || nota.observaciones) && (
+                  <div className="flex flex-col gap-4">
+                    {nota.nota_referencia && (
+                      <div className="flex items-start gap-2">
+                        <Hash className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter leading-none">Referencia Externa</span>
+                          <p className="text-sm font-medium leading-tight">{nota.nota_referencia}</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {nota.observaciones && (
-                    <div className="flex items-start gap-2">
-                      <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter leading-none">Observaciones</span>
-                        <p className="text-sm leading-tight text-muted-foreground">{nota.observaciones}</p>
+                    )}
+                    {nota.observaciones && (
+                      <div className="flex items-start gap-2">
+                        <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter leading-none">Observaciones</span>
+                          <p className="text-sm leading-tight text-muted-foreground">{nota.observaciones}</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-            {/* Comprobante Físico Uploader / Viewer on Details Page */}
-            <div className="border-l lg:pl-6 space-y-3">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none block mb-1">Comprobante Firmado</span>
-              {comprobanteUrl ? (
-                <div className="relative group rounded-xl overflow-hidden border bg-background aspect-video shadow-sm">
-                  <Image
-                    src={comprobanteUrl}
-                    alt="Comprobante de entrega firmado"
-                    fill
-                    className="object-contain"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <a
-                      href={comprobanteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-2 bg-white text-gray-800 rounded-full hover:bg-gray-100 shadow-md text-xs font-bold flex items-center justify-center"
-                      title="Ver en pantalla completa"
-                    >
-                      <FileText className="h-4 w-4" />
-                    </a>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="icon"
-                      className="h-8 w-8 rounded-full"
-                      onClick={handleDelete}
+              {/* Comprobante Físico Uploader / Viewer on Details Page */}
+              <div className="border-l lg:pl-6 space-y-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none block mb-1">Comprobante Firmado</span>
+                {comprobanteUrl ? (
+                  <div className="relative group rounded-xl overflow-hidden border bg-background aspect-video shadow-sm">
+                    <Image
+                      src={comprobanteUrl}
+                      alt="Comprobante de entrega firmado"
+                      fill
+                      className="object-contain"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <a
+                        href={comprobanteUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-2 bg-white text-gray-800 rounded-full hover:bg-gray-100 shadow-md text-xs font-bold flex items-center justify-center"
+                        title="Ver en pantalla completa"
+                      >
+                        <FileText className="h-4 w-4" />
+                      </a>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="h-8 w-8 rounded-full"
+                        onClick={handleDelete}
+                        disabled={isPending}
+                      >
+                        {isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full">
+                    <Input
+                      type="file"
+                      id="comprobante-viewer-uploader"
+                      accept="image/*"
+                      onChange={handleUpload}
+                      className="hidden"
                       disabled={isPending}
+                    />
+                    <Label
+                      htmlFor="comprobante-viewer-uploader"
+                      className="flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-muted-foreground/30 hover:border-primary/50 cursor-pointer bg-background hover:bg-muted/10 transition-all text-center min-h-[90px]"
                     >
                       {isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-6 w-6 text-primary animate-spin" />
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <>
+                          <Upload className="h-6 w-6 text-muted-foreground opacity-60 mb-1" />
+                          <span className="text-[10px] font-black uppercase tracking-tight text-foreground/80">Subir foto firmada</span>
+                        </>
                       )}
-                    </Button>
+                    </Label>
                   </div>
-                </div>
-              ) : (
-                <div className="w-full">
-                  <Input
-                    type="file"
-                    id="comprobante-viewer-uploader"
-                    accept="image/*"
-                    onChange={handleUpload}
-                    className="hidden"
-                    disabled={isPending}
-                  />
-                  <Label
-                    htmlFor="comprobante-viewer-uploader"
-                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-muted-foreground/30 hover:border-primary/50 cursor-pointer bg-background hover:bg-muted/10 transition-all text-center min-h-[90px]"
-                  >
-                    {isPending ? (
-                      <Loader2 className="h-6 w-6 text-primary animate-spin" />
-                    ) : (
-                      <>
-                        <Upload className="h-6 w-6 text-muted-foreground opacity-60 mb-1" />
-                        <span className="text-[10px] font-black uppercase tracking-tight text-foreground/80">Subir foto firmada</span>
-                      </>
-                    )}
-                  </Label>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

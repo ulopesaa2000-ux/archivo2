@@ -70,9 +70,9 @@ function ImageLightbox({ url, title }: { url: string; title: string }) {
 export function PropuestasTable({ propuestas, total, page, estado }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (!window.confirm('¿Seguro que deseas eliminar/descartar esta propuesta OCR?')) return
 
     setDeletingId(id)
