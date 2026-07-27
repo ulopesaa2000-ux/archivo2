@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
+import { guardarOrdenRapidaB2BAction } from '@/modules/ordenes-b2b/actions'
 
 type ContainerMock = {
   id: number
@@ -777,9 +778,32 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
 
   const handleConfirmReview = () => {
     startTransition(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      toast.success('Revision lista. Guardado definitivo en Supabase pendiente para la siguiente fase.')
-      setStep(5)
+      try {
+        if (!selectedProveedor || !selectedCliente) {
+          toast.error('Faltan socios comerciales.')
+          return
+        }
+
+        const res = await guardarOrdenRapidaB2BAction({
+          proveedorId: Number(selectedProveedor),
+          clienteB2bId: Number(selectedCliente),
+          contenedorId: selectedContenedor === 'new' ? null : Number(selectedContenedor),
+          newContainerCode: selectedContenedor === 'new' ? newContainerCode : null,
+          productos: editableProductos,
+          cajas: editableCajas,
+          detalles: parsedData?.detalles || [],
+        })
+
+        if (!res.success) {
+          toast.error(res.error || 'Error al guardar la orden.')
+          return
+        }
+
+        toast.success('Orden guardada exitosamente en Supabase.')
+        setStep(5)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error al guardar la orden.')
+      }
     })
   }
 

@@ -43,8 +43,8 @@ export async function fetchProductosCatalogo(
       { count: 'exact' }
     )
 
-  // Aplicar filtro de alcance comercial para no-superadmins
-  if (!scope.is_super_admin) {
+  // Aplicar filtro de alcance comercial ÚNICAMENTE si el alcance restringe B2B
+  if (scope.restricts_b2b) {
     const clauses: string[] = []
     if (scope.allowed_cliente_ids.length > 0) {
       clauses.push(`cliente_b2b_id.in.(${scope.allowed_cliente_ids.join(',')})`)

@@ -39,12 +39,14 @@ export function TabVariantes({
   skuBase,
   catalogos,
   cajaPrincipal,
+  canEdit = true,
 }: {
   variantes: VarianteResuelta[]
   productoId: number
   skuBase: string
   catalogos: CatalogosEdicion
   cajaPrincipal: CajaConDetalle | null
+  canEdit?: boolean
 }) {
   const router = useRouter()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -190,33 +192,35 @@ export function TabVariantes({
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {cajaPrincipal ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleGenerarVariantes}
-              disabled={isGenerating}
-              className="h-8 gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-              title={`Generar variantes desde caja principal: ${cajaPrincipal.codigo_caja}`}
-            >
-              {isGenerating ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              Generar desde caja
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {cajaPrincipal ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleGenerarVariantes}
+                disabled={isGenerating}
+                className="h-8 gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                title={`Generar variantes desde caja principal: ${cajaPrincipal.codigo_caja}`}
+              >
+                {isGenerating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                Generar desde caja
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+                <Star className="h-3 w-3 fill-amber-500 text-amber-500" />
+                Sin caja principal
+              </div>
+            )}
+            <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
+              <Plus className="h-3.5 w-3.5" /> Agregar Variante
             </Button>
-          ) : (
-            <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
-              <Star className="h-3 w-3 fill-amber-500 text-amber-500" />
-              Sin caja principal
-            </div>
-          )}
-          <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> Agregar Variante
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
 
       {cajaPrincipal && (
@@ -239,34 +243,38 @@ export function TabVariantes({
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <tr>
-                <th className="px-2 py-2 w-8">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded border-muted-foreground/30"
-                    checked={variantes.length > 0 && selectedIds.size === variantes.length}
-                    onChange={toggleSelectAll}
-                  />
-                </th>
+                {canEdit && (
+                  <th className="px-2 py-2 w-8">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-muted-foreground/30"
+                      checked={variantes.length > 0 && selectedIds.size === variantes.length}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-2 text-left">SKU</th>
                 <th className="px-4 py-2 text-left">Talla</th>
                 <th className="px-4 py-2 text-left">Color</th>
                 <th className="px-4 py-2 text-right">Costo</th>
                 <th className="px-4 py-2 text-right">Precio</th>
                 <th className="px-4 py-2 text-center">Estado</th>
-                <th className="px-4 py-2 w-10"></th>
+                {canEdit && <th className="px-4 py-2 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
               {variantes.map((v) => (
                 <tr key={v.id} className={cn("hover:bg-muted/30 transition-colors", selectedIds.has(v.id) && "bg-primary/5")}>
-                  <td className="px-2 py-2.5">
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 rounded border-muted-foreground/30"
-                      checked={selectedIds.has(v.id)}
-                      onChange={() => toggleSelectOne(v.id)}
-                    />
-                  </td>
+                  {canEdit && (
+                    <td className="px-2 py-2.5">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-muted-foreground/30"
+                        checked={selectedIds.has(v.id)}
+                        onChange={() => toggleSelectOne(v.id)}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2.5 font-mono text-xs">{v.sku_completo ?? '—'}</td>
                   <td className="px-4 py-2.5 font-medium">{v.talla_codigo ?? '—'}</td>
                   <td className="px-4 py-2.5">
@@ -297,15 +305,16 @@ export function TabVariantes({
                       </Badge>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleOpenEdit(v)}>
+                  {canEdit && (
+                    <td className="px-4 py-2.5 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleOpenEdit(v)}>
                           <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem 
@@ -317,6 +326,7 @@ export function TabVariantes({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
+                )}
                 </tr>
               ))}
             </tbody>

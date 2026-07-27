@@ -23,13 +23,15 @@ export function TabMedidas({
   puntosCat,
   productoId,
   edadNombre,
-  tipoPrendaNombre
+  tipoPrendaNombre,
+  canEdit = true
 }: { 
   medidas: MedidaResuelta[]
   puntosCat: any[]
   productoId: number
   edadNombre?: string | null
   tipoPrendaNombre?: string | null
+  canEdit?: boolean
 }) {
   const [unit, setUnit] = useState<'cm' | 'ft'>('cm')
   const [isEditing, setIsEditing] = useState(false)
@@ -281,41 +283,43 @@ export function TabMedidas({
           <Ruler className="h-4 w-4 text-muted-foreground" />
           <CardTitle className="text-sm font-semibold tracking-tight uppercase">Medidas del Producto</CardTitle>
         </div>
-        <div className="flex items-center gap-2">
-          {!isEditing ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs font-semibold"
-              onClick={toggleEdit}
-            >
-              <Edit2 className="h-3.5 w-3.5 mr-1.5" />
-              Editar Medidas
-            </Button>
-          ) : (
-            <div className="flex gap-2">
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {!isEditing ? (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="h-8 text-xs font-semibold"
                 onClick={toggleEdit}
-                disabled={isPending}
               >
-                Cancelar
+                <Edit2 className="h-3.5 w-3.5 mr-1.5" />
+                Editar Medidas
               </Button>
-              <Button
-                variant="default"
-                size="sm"
-                className="h-8 text-xs font-semibold"
-                onClick={handleSave}
-                disabled={isPending}
-              >
-                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
-                Guardar
-              </Button>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs font-semibold"
+                  onClick={toggleEdit}
+                  disabled={isPending}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 text-xs font-semibold"
+                  onClick={handleSave}
+                  disabled={isPending}
+                >
+                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+                  Guardar
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-5 space-y-6">
         {isEditing ? (

@@ -1,5 +1,6 @@
 // app/(admin)/inventario/notas/nueva/page.tsx
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import { fetchCatalogosInventario, fetchOcrPropuestaById } from '@/modules/inventario/queries'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
@@ -26,6 +27,10 @@ export default async function NuevaNotaPage({
     verifySession(),
     catalogosPromise,
   ])
+
+  const cookieStore = await cookies()
+  const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
+  const activeBodegaId = bodegaCookie ? parseInt(bodegaCookie, 10) : undefined
 
   const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 3)
 
@@ -193,14 +198,9 @@ export default async function NuevaNotaPage({
           <p className="text-sm text-muted-foreground">
             {propuestaId 
               ? 'Revisa y ajusta los productos detectados por la IA antes de generar la nota oficial.'
-              : 'Configura y agrega productos. Nada se guarda hasta que presiones un botón.'}
+              : 'Selecciona el tipo de movimiento, verifica la bodega y agrega productos.'}
           </p>
         </div>
-        {!propuestaId && (
-          <div className="flex items-center gap-2">
-            <OcrUploadModal redirectToNueva />
-          </div>
-        )}
       </div>
 
       {ocrUnmatchedLines.length > 0 && (
@@ -231,6 +231,7 @@ export default async function NuevaNotaPage({
         userBodegas={userBodegas}
         initialData={initialData}
         ocrProposalId={ocrProposalId}
+        defaultBodegaOrigenId={activeBodegaId}
       />
     </div>
   )

@@ -10,6 +10,7 @@ import { getCurrentUser } from '@/modules/auth/queries'
 import type { UsuarioConRol } from '@/lib/types/tables'
 import {
   can,
+  canReadCatalog,
   getEffectivePermissions,
   isSuperAdmin,
   type PermissionAction,
@@ -178,6 +179,16 @@ export const requirePermission = cache(async (
   const session = await verifySession()
 
   if (!can(session.user, modulo, action)) {
+    redirect('/unauthorized')
+  }
+
+  return session
+})
+
+export const requireCatalogReadPermission = cache(async (): Promise<{ isAuth: true; user: UsuarioConRol }> => {
+  const session = await verifySession()
+
+  if (!canReadCatalog(session.user)) {
     redirect('/unauthorized')
   }
 

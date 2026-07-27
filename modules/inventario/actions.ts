@@ -66,12 +66,21 @@ export async function guardarNotaAction(
     return { success: false, error: 'Agrega al menos un producto.' }
   }
 
-  // Validar requiere_destino
+  // Validar requiere_destino y restricción de tipo para roles no-admin
   const { data: tipoMov } = await supabase
     .from('cat_tipos_movimiento')
-    .select('requiere_destino')
+    .select('codigo, requiere_destino')
     .eq('id', draft.tipo_movimiento_id)
     .single()
+
+  if (user.rol && user.rol.nivel_acceso > 2) {
+    if (tipoMov?.codigo === 'AJU' || tipoMov?.codigo === 'DEV') {
+      return {
+        success: false,
+        error: 'Los tipos de movimiento Ajuste y Devolución están reservados exclusivamente para administradores.',
+      }
+    }
+  }
 
   if (tipoMov?.requiere_destino && !draft.bodega_destino_id) {
     return { success: false, error: 'Este tipo de movimiento requiere bodega destino.' }

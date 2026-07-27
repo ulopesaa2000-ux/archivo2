@@ -17,9 +17,12 @@ import type { CatalogosParaFiltros, CatalogosEdicion } from '@/modules/catalogo/
 interface CatalogoDetailActionsProps {
   productoId: number
   catalogos: CatalogosParaFiltros | CatalogosEdicion
+  canEdit?: boolean
 }
 
-export function CatalogoDetailActions({ productoId, catalogos }: CatalogoDetailActionsProps) {
+export function CatalogoDetailActions({ productoId, catalogos, canEdit = true }: CatalogoDetailActionsProps) {
+  if (!canEdit) return null
+
   const router = useRouter()
   const pathname = usePathname()
   

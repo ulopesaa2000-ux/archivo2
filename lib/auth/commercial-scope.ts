@@ -72,7 +72,14 @@ export function buildCommercialScope(
     ...assignedSplit.allowedProveedorIds,
   ])
 
-  scope.restricts_b2b = true
+  const hasExternalAssignments =
+    primaryTipo === 'Cliente B2B' ||
+    primaryTipo === 'Proveedor' ||
+    scope.allowed_cliente_ids.length > 0 ||
+    scope.allowed_proveedor_ids.length > 0 ||
+    (user?.rol?.nivel_acceso ?? 99) >= 4
+
+  scope.restricts_b2b = hasExternalAssignments
   return scope
 }
 

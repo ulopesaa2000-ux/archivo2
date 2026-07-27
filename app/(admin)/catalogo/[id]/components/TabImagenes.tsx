@@ -21,9 +21,10 @@ interface TabImagenesProps {
   imagenes: ProductoImagenRow[]
   productoId: number
   skuBase: string
+  canEdit?: boolean
 }
 
-export function TabImagenes({ imagenes, productoId, skuBase }: TabImagenesProps) {
+export function TabImagenes({ imagenes, productoId, skuBase, canEdit = true }: TabImagenesProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const [vista, setVista]         = useState<'grid' | 'list'>('grid')
 
@@ -84,16 +85,18 @@ export function TabImagenes({ imagenes, productoId, skuBase }: TabImagenesProps)
             </button>
           </div>
 
-          <Button size="sm" className="h-8 gap-1.5" onClick={() => setModalOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            Agregar imagen
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="h-8 gap-1.5" onClick={() => setModalOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Agregar imagen
+            </Button>
+          )}
         </div>
       </div>
 
       {/* ── Contenido ────────────────────────────────────────── */}
       {imagenes.length === 0 ? (
-        <EmptyState onAdd={() => setModalOpen(true)} />
+        <EmptyState onAdd={canEdit ? () => setModalOpen(true) : undefined} />
       ) : vista === 'grid' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {imagenes
@@ -103,7 +106,7 @@ export function TabImagenes({ imagenes, productoId, skuBase }: TabImagenesProps)
               return (a.orden ?? 0) - (b.orden ?? 0)
             })
             .map((img) => (
-              <ImagenCard key={img.id} imagen={img} productoId={productoId} />
+              <ImagenCard key={img.id} imagen={img} productoId={productoId} canEdit={canEdit} />
             ))}
         </div>
       ) : (
@@ -179,7 +182,7 @@ export function TabImagenes({ imagenes, productoId, skuBase }: TabImagenesProps)
 
 // ─── Empty state ───────────────────────────────────────────────────────────────
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({ onAdd }: { onAdd?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-xl text-muted-foreground gap-3">
       <div className="rounded-full bg-muted p-4">
@@ -188,13 +191,15 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <div className="text-center">
         <p className="text-sm font-medium">Sin imágenes registradas</p>
         <p className="text-xs opacity-70 mt-1">
-          Sube la primera imagen del producto para empezar
+          {onAdd ? 'Sube la primera imagen del producto para empezar' : 'No hay imágenes disponibles'}
         </p>
       </div>
-      <Button size="sm" variant="outline" className="gap-1.5" onClick={onAdd}>
-        <Plus className="h-3.5 w-3.5" />
-        Agregar primera imagen
-      </Button>
+      {onAdd && (
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={onAdd}>
+          <Plus className="h-3.5 w-3.5" />
+          Agregar primera imagen
+        </Button>
+      )}
     </div>
   )
 }

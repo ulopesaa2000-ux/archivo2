@@ -37,10 +37,12 @@ export function TabComplementos({
   complementos,
   productoId,
   catalogos,
+  canEdit = true,
 }: {
   complementos: ComplementoResuelto[]
   productoId: number
   catalogos: CatalogosEdicion
+  canEdit?: boolean
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingComp, setEditingComp] = useState<ComplementoResuelto | null>(null)
@@ -144,11 +146,13 @@ export function TabComplementos({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
-          <Plus className="h-3.5 w-3.5" /> Agregar Complemento
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Agregar Complemento
+          </Button>
+        </div>
+      )}
 
       {complementos.length === 0 ? (
         <div className="flex flex-col items-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
@@ -165,7 +169,7 @@ export function TabComplementos({
                 <th className="px-4 py-2 text-left">Material</th>
                 <th className="px-4 py-2 text-left">Corte/Forma</th>
                 <th className="px-4 py-2 text-left">Descripción</th>
-                <th className="px-4 py-2 w-10"></th>
+                {canEdit && <th className="px-4 py-2 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -178,26 +182,28 @@ export function TabComplementos({
                   <td className="px-4 py-2.5 text-muted-foreground italic truncate max-w-[200px]">
                     {c.descripcion_adicional ?? '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
-                          <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeletingComp(c)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Eliminar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
+                  {canEdit && (
+                    <td className="px-4 py-2.5 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
+                            <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeletingComp(c)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

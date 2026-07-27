@@ -46,6 +46,7 @@ type Props = {
   tipoPrenda: string | null
   genero: string | null
   marca: string | null
+  canEdit?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ function WebFormFields({ web }: { web?: ProductoWebRow | null }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Componente principal
 // ─────────────────────────────────────────────────────────────────────────────
-export function TabEcommerce({ web, productoId, estado, skuBase, tipoPrenda, genero, marca }: Props) {
+export function TabEcommerce({ web, productoId, estado, skuBase, tipoPrenda, genero, marca, canEdit = true }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -173,10 +174,10 @@ export function TabEcommerce({ web, productoId, estado, skuBase, tipoPrenda, gen
   // Estado local del switch de publicación
   const [publishPending, startPublishTransition] = useTransition()
 
-  const puedePublicar = ESTADOS_PUBLICABLES.includes(estado)
+  // ── Derivados ──────────────────────────────────────────────────
   const esPublicado = estado === 'publicado'
+  const puedePublicar = ESTADOS_PUBLICABLES.includes(estado)
 
-  // Slug generado automáticamente a partir de los datos del producto
   const slugGenerado = useMemo(
     () => generarSlugProducto({ sku_base: skuBase, tipo_prenda: tipoPrenda, genero, marca }),
     [skuBase, tipoPrenda, genero, marca]
@@ -252,7 +253,7 @@ export function TabEcommerce({ web, productoId, estado, skuBase, tipoPrenda, gen
         )}
 
         {/* ── Switch rápido (borrador | pendiente → publicado) ── */}
-        {puedePublicar && !web && (
+        {canEdit && puedePublicar && !web && (
           <span
             className="ml-3 flex items-center gap-1.5 text-xs text-muted-foreground"
             onClick={(e) => e.preventDefault()}

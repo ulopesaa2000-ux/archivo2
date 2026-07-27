@@ -115,13 +115,15 @@ export function NotaCabecera({
           </span>
         </div>
 
-        {/* Botón de Impresión Membretada Premium */}
-        <Link href={`/print/inventario/notas/${nota.id}`} target="_blank">
-          <Button variant="outline" className="rounded-xl font-bold uppercase tracking-wider h-10 border shadow-sm group">
-            <Printer className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
-            Imprimir Formato
-          </Button>
-        </Link>
+        {/* Acciones de Impresión Directa Membretada */}
+        <div className="flex items-center gap-2">
+          <Link href={`/print/inventario/notas/${nota.id}`} target="_blank" className="w-full sm:w-auto">
+            <Button variant="default" className="w-full sm:w-auto rounded-xl font-bold uppercase tracking-wider h-11 border shadow-md group bg-primary hover:bg-primary/90 text-primary-foreground">
+              <Printer className="mr-2 h-4 w-4 group-hover:scale-110 transition-transform" />
+              Imprimir Comprobante Directo
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {error && (

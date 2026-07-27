@@ -70,7 +70,11 @@ export async function updateSession(request: NextRequest) {
     if (modulo && claims?.version === 2) {
       const action: PermissionAction = 'puede_leer'
       const isSuperAdmin = claims.permisos?.es_super_admin === true || (claims.nivel_acceso ?? 99) <= 1
-      const hasAccess = isSuperAdmin || claims.permissions?.modules?.[modulo]?.[action] === true
+      let hasAccess = isSuperAdmin || claims.permissions?.modules?.[modulo]?.[action] === true
+
+      if (!hasAccess && modulo === 'catalogo_productos') {
+        hasAccess = claims.permissions?.modules?.catalogo_catalogos?.puede_leer === true
+      }
 
       if (!hasAccess) {
         const url = request.nextUrl.clone()

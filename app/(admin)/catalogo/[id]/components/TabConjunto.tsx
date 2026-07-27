@@ -33,9 +33,11 @@ import { saveConjuntoItemAction, deleteConjuntoItemAction } from '@/modules/cata
 export function TabConjunto({
   conjunto,
   productoId,
+  canEdit = true,
 }: {
   conjunto: ConjuntoResuelto[]
   productoId: number
+  canEdit?: boolean
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ConjuntoResuelto | null>(null)
@@ -76,11 +78,13 @@ export function TabConjunto({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
-          <Plus className="h-3.5 w-3.5" /> Agregar Componente
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Agregar Componente
+          </Button>
+        </div>
+      )}
 
       {conjunto.length === 0 ? (
         <div className="flex flex-col items-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
@@ -97,7 +101,7 @@ export function TabConjunto({
                 <th className="px-4 py-2 text-center">Cant.</th>
                 <th className="px-4 py-2 text-center">Req.</th>
                 <th className="px-4 py-2 text-center">Orden</th>
-                <th className="px-4 py-2 w-10"></th>
+                {canEdit && <th className="px-4 py-2 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -132,26 +136,28 @@ export function TabConjunto({
                     )}
                   </td>
                   <td className="px-4 py-2 text-center text-muted-foreground">#{c.orden}</td>
-                  <td className="px-4 py-2 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
-                          <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeletingItem(c)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Eliminar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
+                  {canEdit && (
+                    <td className="px-4 py-2 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
+                            <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeletingItem(c)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
