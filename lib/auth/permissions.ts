@@ -168,6 +168,24 @@ export function can(
   return getEffectivePermissions(user)[modulo]?.[action] === true
 }
 
+export function canReadCatalog(user: UsuarioConRol | null | undefined): boolean {
+  if (!user) return false
+  if (isSuperAdmin(user)) return true
+  return (
+    can(user, 'catalogo_productos', 'puede_leer') ||
+    can(user, 'catalogo_catalogos', 'puede_leer')
+  )
+}
+
+export function canEditCatalog(user: UsuarioConRol | null | undefined): boolean {
+  if (!user) return false
+  if (isSuperAdmin(user)) return true
+  return (
+    can(user, 'catalogo_productos', 'puede_editar') ||
+    can(user, 'catalogo_productos', 'puede_crear')
+  )
+}
+
 export function permissionForPath(pathname: string): PermissionModule | null {
   const match = ROUTE_PERMISSION_MAP.find((item) =>
     pathname === item.prefix || pathname.startsWith(`${item.prefix}/`)

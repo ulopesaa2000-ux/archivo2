@@ -36,10 +36,12 @@ export function TabTags({
   tags,
   productoId,
   catalogos,
+  canEdit = true,
 }: {
   tags: TagResuelto[]
   productoId: number
   catalogos: CatalogosEdicion
+  canEdit?: boolean
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingTag, setEditingTag] = useState<TagResuelto | null>(null)
@@ -104,11 +106,13 @@ export function TabTags({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
-          <Plus className="h-3.5 w-3.5" /> Agregar Tag
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Agregar Tag
+          </Button>
+        </div>
+      )}
 
       {tags.length === 0 ? (
         <EmptyState message="Sin tags asignados." />
@@ -121,7 +125,7 @@ export function TabTags({
                 <th className="px-4 py-2 text-left">Código</th>
                 <th className="px-4 py-2 text-left">Referencia</th>
                 <th className="px-4 py-2 text-left">Valor</th>
-                <th className="px-4 py-2 w-10"></th>
+                {canEdit && <th className="px-4 py-2 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -133,11 +137,12 @@ export function TabTags({
                   </td>
                   <td className="px-4 py-2.5">{t.ref_tag_nombre ?? '—'}</td>
                   <td className="px-4 py-2.5 text-muted-foreground">{t.valor_texto ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
+                  {canEdit && (
+                    <td className="px-4 py-2.5 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -153,6 +158,7 @@ export function TabTags({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
+                )}
                 </tr>
               ))}
             </tbody>

@@ -15,8 +15,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Pencil, Save, X, Loader2, AlertCircle, Star, Layers, Package,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Pencil, Save, X, Loader2, AlertCircle, Star, Layers, Package, ZoomIn,
 } from 'lucide-react'
+import { ProductImageViewer } from './ProductImageViewer'
 import { formatCurrency } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
 import { updateProductAction } from '@/modules/catalogo/actions'
@@ -38,12 +42,13 @@ type Props = {
   fk: FKDescriptivas
   imagenPrincipal: string | null
   catalogos: CatalogosEdicion
+  canEdit?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Componente
 // ─────────────────────────────────────────────────────────────────────────────
-export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props) {
+export function HeroProducto({ producto, fk, imagenPrincipal, catalogos, canEdit = true }: Props) {
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -372,23 +377,13 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
               </div>
             </form>
           ) : (
-            // ════════════════════════════════════════════════════
-            // MODO LECTURA
-            // ════════════════════════════════════════════════════
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Imagen */}
-              <div className="relative flex items-center justify-center bg-muted rounded-lg aspect-square overflow-hidden">
-                {imagenPrincipal ? (
-                  <Image
-                    src={imagenPrincipal}
-                    alt={producto.nombre ?? producto.sku_base}
-                    fill
-                    className="object-contain"
-                  />
-                ) : (
-                  <Package className="h-16 w-16 text-muted-foreground/30" />
-                )}
-              </div>
+              {/* Imagen con Lupa y Zoom Interactivo */}
+              <ProductImageViewer
+                src={imagenPrincipal}
+                alt={producto.nombre ?? producto.sku_base}
+                sku={producto.sku_base}
+              />
 
               {/* Info principal */}
               <div className="md:col-span-2 space-y-4">
@@ -410,14 +405,20 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos }: Props
                       </Badge>
                     )}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={startEdit}
-                    className="shrink-0"
-                  >
-                    <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
-                  </Button>
+                  {canEdit ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={startEdit}
+                      className="shrink-0"
+                    >
+                      <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="shrink-0 bg-muted/50 text-muted-foreground text-xs">
+                      Solo lectura
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Precio */}

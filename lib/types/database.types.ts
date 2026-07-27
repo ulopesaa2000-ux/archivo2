@@ -102,6 +102,12 @@ export type Database = {
           {
             foreignKeyName: "acabado_producto_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "acabado_producto_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -226,6 +232,12 @@ export type Database = {
           {
             foreignKeyName: "auditoria_inventario_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_inventario_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -240,6 +252,94 @@ export type Database = {
             columns: ["producto_id"]
             referencedRelation: "v_stock_alertas"
             referencedColumns: ["producto_id"]
+          },
+        ]
+      }
+      auditoria_productos: {
+        Row: {
+          accion: string
+          campos_modificados: string[] | null
+          datos_anteriores: Json | null
+          datos_nuevos: Json | null
+          fechaauditoria: string
+          id: number
+          productoid: number
+          usuarioid: number | null
+        }
+        Insert: {
+          accion: string
+          campos_modificados?: string[] | null
+          datos_anteriores?: Json | null
+          datos_nuevos?: Json | null
+          fechaauditoria?: string
+          id?: never
+          productoid: number
+          usuarioid?: number | null
+        }
+        Update: {
+          accion?: string
+          campos_modificados?: string[] | null
+          datos_anteriores?: Json | null
+          datos_nuevos?: Json | null
+          fechaauditoria?: string
+          id?: never
+          productoid?: number
+          usuarioid?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_catalogo_listado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_inventario_disponible"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_producto_detalle"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_stock_alertas"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_usuarioid_fkey"
+            columns: ["usuarioid"]
+            referencedRelation: "appsheet_login"
+            referencedColumns: ["usuario_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_usuarioid_fkey"
+            columns: ["usuarioid"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -374,6 +474,7 @@ export type Database = {
           colores: string | null
           costo_total_caja: number | null
           created_at: string | null
+          es_principal: boolean | null
           id: number
           largo_cm: number | null
           nombre_pack: string | null
@@ -393,6 +494,7 @@ export type Database = {
           colores?: string | null
           costo_total_caja?: number | null
           created_at?: string | null
+          es_principal?: boolean | null
           id?: number
           largo_cm?: number | null
           nombre_pack?: string | null
@@ -412,6 +514,7 @@ export type Database = {
           colores?: string | null
           costo_total_caja?: number | null
           created_at?: string | null
+          es_principal?: boolean | null
           id?: number
           largo_cm?: number | null
           nombre_pack?: string | null
@@ -439,6 +542,12 @@ export type Database = {
             foreignKeyName: "cajas_producto_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "cajas_producto_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -926,6 +1035,12 @@ export type Database = {
           {
             foreignKeyName: "complemento_producto_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "complemento_producto_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -1051,73 +1166,73 @@ export type Database = {
           buque: string | null
           cbm_total: number | null
           codigo_contenedor: string
+          comentarios: string | null
+          costo_desaduanamiento: number | null
+          costo_flete_maritimo: number | null
           created_at: string | null
+          documentos_checklist: Json | null
           estado: string | null
           fecha_eta: string | null
           fecha_etd: string | null
+          fecha_llegada_real: string | null
           id: number
           naviera: string | null
           numero_bl: string | null
           numero_contenedor: string | null
           orden: number | null
+          pago_flete_detalles: string | null
           peso_total_kg: number | null
           puerto_destino: string | null
           puerto_origen: string | null
           updated_at: string | null
-          fecha_llegada_real: string | null
-          costo_flete_maritimo: number | null
-          costo_desaduanamiento: number | null
-          comentarios: string | null
-          pago_flete_detalles: string | null
-          documentos_checklist: Json | null
         }
         Insert: {
           buque?: string | null
           cbm_total?: number | null
           codigo_contenedor: string
+          comentarios?: string | null
+          costo_desaduanamiento?: number | null
+          costo_flete_maritimo?: number | null
           created_at?: string | null
+          documentos_checklist?: Json | null
           estado?: string | null
           fecha_eta?: string | null
           fecha_etd?: string | null
+          fecha_llegada_real?: string | null
           id?: number
           naviera?: string | null
           numero_bl?: string | null
           numero_contenedor?: string | null
           orden?: number | null
+          pago_flete_detalles?: string | null
           peso_total_kg?: number | null
           puerto_destino?: string | null
           puerto_origen?: string | null
           updated_at?: string | null
-          fecha_llegada_real?: string | null
-          costo_flete_maritimo?: number | null
-          costo_desaduanamiento?: number | null
-          comentarios?: string | null
-          pago_flete_detalles?: string | null
-          documentos_checklist?: Json | null
         }
         Update: {
           buque?: string | null
           cbm_total?: number | null
           codigo_contenedor?: string
+          comentarios?: string | null
+          costo_desaduanamiento?: number | null
+          costo_flete_maritimo?: number | null
           created_at?: string | null
+          documentos_checklist?: Json | null
           estado?: string | null
           fecha_eta?: string | null
           fecha_etd?: string | null
+          fecha_llegada_real?: string | null
           id?: number
           naviera?: string | null
           numero_bl?: string | null
           numero_contenedor?: string | null
           orden?: number | null
+          pago_flete_detalles?: string | null
           peso_total_kg?: number | null
           puerto_destino?: string | null
           puerto_origen?: string | null
           updated_at?: string | null
-          fecha_llegada_real?: string | null
-          costo_flete_maritimo?: number | null
-          costo_desaduanamiento?: number | null
-          comentarios?: string | null
-          pago_flete_detalles?: string | null
-          documentos_checklist?: Json | null
         }
         Relationships: []
       }
@@ -1284,6 +1399,12 @@ export type Database = {
             foreignKeyName: "despachos_detalles_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "despachos_detalles_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -1468,6 +1589,12 @@ export type Database = {
           {
             foreignKeyName: "inventario_stock_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "inventario_stock_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -1505,7 +1632,7 @@ export type Database = {
           created_at: string | null
           id: number
           medida_cm: number
-          medida_ft: number
+          medida_ft: number | null
           producto_id: number
           punto_medida_id: number
           talla_id: number
@@ -1514,7 +1641,7 @@ export type Database = {
           created_at?: string | null
           id?: number
           medida_cm: number
-          medida_ft: number
+          medida_ft?: number | null
           producto_id: number
           punto_medida_id: number
           talla_id: number
@@ -1523,7 +1650,7 @@ export type Database = {
           created_at?: string | null
           id?: number
           medida_cm?: number
-          medida_ft?: number
+          medida_ft?: number | null
           producto_id?: number
           punto_medida_id?: number
           talla_id?: number
@@ -1545,6 +1672,12 @@ export type Database = {
             foreignKeyName: "medidas_producto_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "medidas_producto_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -1650,6 +1783,12 @@ export type Database = {
           {
             foreignKeyName: "nota_detalle_productos_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "nota_detalle_productos_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -1697,10 +1836,89 @@ export type Database = {
           },
         ]
       }
-      notas_inventario: {
+      nota_ocr_propuestas: {
         Row: {
           bodega_destino_id: number | null
+          bodega_origen_id: number | null
+          client_request_id: string | null
+          comprobante_url: string | null
+          confianza_global: number | null
+          creado_en: string
+          destino_detectado: string | null
+          estado: string
+          fecha_detectada: string | null
+          folio_detectado: string | null
+          id: string
+          json_crudo: Json | null
+          lineas: Json
+          lineas_confirmadas: Json | null
+          nota_id: number | null
+          origen_detectado: string | null
+          revisado_en: string | null
+          revisado_por: number | null
+          tipo_movimiento_detectado: string | null
+          tipo_movimiento_id: number | null
+        }
+        Insert: {
+          bodega_destino_id?: number | null
+          bodega_origen_id?: number | null
+          client_request_id?: string | null
+          comprobante_url?: string | null
+          confianza_global?: number | null
+          creado_en?: string
+          destino_detectado?: string | null
+          estado?: string
+          fecha_detectada?: string | null
+          folio_detectado?: string | null
+          id?: string
+          json_crudo?: Json | null
+          lineas?: Json
+          lineas_confirmadas?: Json | null
+          nota_id?: number | null
+          origen_detectado?: string | null
+          revisado_en?: string | null
+          revisado_por?: number | null
+          tipo_movimiento_detectado?: string | null
+          tipo_movimiento_id?: number | null
+        }
+        Update: {
+          bodega_destino_id?: number | null
+          bodega_origen_id?: number | null
+          client_request_id?: string | null
+          comprobante_url?: string | null
+          confianza_global?: number | null
+          creado_en?: string
+          destino_detectado?: string | null
+          estado?: string
+          fecha_detectada?: string | null
+          folio_detectado?: string | null
+          id?: string
+          json_crudo?: Json | null
+          lineas?: Json
+          lineas_confirmadas?: Json | null
+          nota_id?: number | null
+          origen_detectado?: string | null
+          revisado_en?: string | null
+          revisado_por?: number | null
+          tipo_movimiento_detectado?: string | null
+          tipo_movimiento_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nota_ocr_propuestas_nota_id_fkey"
+            columns: ["nota_id"]
+            referencedRelation: "notas_inventario"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notas_inventario: {
+        Row: {
+          activo: boolean | null
+          bodega_destino_id: number | null
           bodega_origen_id: number
+          comprobante_url: string | null
+          costo_total: number | null
           created_at: string | null
           estado_id: number
           fecha_confirmacion: string | null
@@ -1713,12 +1931,13 @@ export type Database = {
           tipo_movimiento_id: number
           total_cajas: number | null
           usuario_id: number
-          costo_total: number | null
-          comprobante_url: string | null
         }
         Insert: {
+          activo?: boolean | null
           bodega_destino_id?: number | null
           bodega_origen_id: number
+          comprobante_url?: string | null
+          costo_total?: number | null
           created_at?: string | null
           estado_id: number
           fecha_confirmacion?: string | null
@@ -1731,12 +1950,13 @@ export type Database = {
           tipo_movimiento_id: number
           total_cajas?: number | null
           usuario_id: number
-          costo_total?: number | null
-          comprobante_url?: string | null
         }
         Update: {
+          activo?: boolean | null
           bodega_destino_id?: number | null
           bodega_origen_id?: number
+          comprobante_url?: string | null
+          costo_total?: number | null
           created_at?: string | null
           estado_id?: number
           fecha_confirmacion?: string | null
@@ -1749,8 +1969,6 @@ export type Database = {
           tipo_movimiento_id?: number
           total_cajas?: number | null
           usuario_id?: number
-          costo_total?: number | null
-          comprobante_url?: string | null
         }
         Relationships: [
           {
@@ -1855,6 +2073,74 @@ export type Database = {
             columns: ["orden_id"]
             referencedRelation: "v_contenedor_packing"
             referencedColumns: ["orden_id"]
+          },
+        ]
+      }
+      orden_detalle_eventos: {
+        Row: {
+          created_at: string
+          datos: Json
+          id: number
+          orden_detalle_id: number
+          tipo_evento: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          datos: Json
+          id?: number
+          orden_detalle_id: number
+          tipo_evento: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          datos?: Json
+          id?: number
+          orden_detalle_id?: number
+          tipo_evento?: string
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orden_detalle_eventos_orden_detalle_id_fkey"
+            columns: ["orden_detalle_id"]
+            referencedRelation: "ordenes_b2b_detalles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orden_detalles_comentarios: {
+        Row: {
+          archivo_adjunto_url: string | null
+          comentario: string
+          created_at: string
+          id: number
+          orden_detalle_id: number
+          usuario_id: string
+        }
+        Insert: {
+          archivo_adjunto_url?: string | null
+          comentario: string
+          created_at?: string
+          id?: number
+          orden_detalle_id: number
+          usuario_id: string
+        }
+        Update: {
+          archivo_adjunto_url?: string | null
+          comentario?: string
+          created_at?: string
+          id?: number
+          orden_detalle_id?: number
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orden_detalles_comentarios_orden_detalle_id_fkey"
+            columns: ["orden_detalle_id"]
+            referencedRelation: "ordenes_b2b_detalles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2085,6 +2371,12 @@ export type Database = {
             foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -2360,6 +2652,12 @@ export type Database = {
           {
             foreignKeyName: "producto_conjunto_producto_hijo_id_fkey"
             columns: ["producto_hijo_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_conjunto_producto_hijo_id_fkey"
+            columns: ["producto_hijo_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -2391,6 +2689,12 @@ export type Database = {
             foreignKeyName: "producto_conjunto_producto_padre_id_fkey"
             columns: ["producto_padre_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_conjunto_producto_padre_id_fkey"
+            columns: ["producto_padre_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -2423,6 +2727,7 @@ export type Database = {
           origen_imagen: string
           producto_id: number
           url: string
+          url_og: string | null
           uso_imagen: string
         }
         Insert: {
@@ -2434,6 +2739,7 @@ export type Database = {
           origen_imagen?: string
           producto_id: number
           url: string
+          url_og?: string | null
           uso_imagen?: string
         }
         Update: {
@@ -2445,6 +2751,7 @@ export type Database = {
           origen_imagen?: string
           producto_id?: number
           url?: string
+          url_og?: string | null
           uso_imagen?: string
         }
         Relationships: [
@@ -2464,6 +2771,12 @@ export type Database = {
             foreignKeyName: "producto_imagenes_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_imagenes_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -2533,6 +2846,12 @@ export type Database = {
           {
             foreignKeyName: "producto_tags_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_tags_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -2565,6 +2884,7 @@ export type Database = {
       productos: {
         Row: {
           activo: boolean | null
+          cliente_b2b_id: number | null
           composicion: string | null
           created_at: string | null
           descripcion: string | null
@@ -2579,7 +2899,6 @@ export type Database = {
           nombre: string | null
           persona_id: number | null
           precio_ec: number | null
-          proveedor_id: number | null
           pz_en_caja: number | null
           sku_base: string
           tela_ext_id: number | null
@@ -2589,6 +2908,7 @@ export type Database = {
         }
         Insert: {
           activo?: boolean | null
+          cliente_b2b_id?: number | null
           composicion?: string | null
           created_at?: string | null
           descripcion?: string | null
@@ -2603,7 +2923,6 @@ export type Database = {
           nombre?: string | null
           persona_id?: number | null
           precio_ec?: number | null
-          proveedor_id?: number | null
           pz_en_caja?: number | null
           sku_base: string
           tela_ext_id?: number | null
@@ -2613,6 +2932,7 @@ export type Database = {
         }
         Update: {
           activo?: boolean | null
+          cliente_b2b_id?: number | null
           composicion?: string | null
           created_at?: string | null
           descripcion?: string | null
@@ -2627,7 +2947,6 @@ export type Database = {
           nombre?: string | null
           persona_id?: number | null
           precio_ec?: number | null
-          proveedor_id?: number | null
           pz_en_caja?: number | null
           sku_base?: string
           tela_ext_id?: number | null
@@ -2636,6 +2955,12 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "productos_cliente_b2b_id_fkey"
+            columns: ["cliente_b2b_id"]
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "productos_edad_id_fkey"
             columns: ["edad_id"]
@@ -2767,6 +3092,12 @@ export type Database = {
             foreignKeyName: "productos_web_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "productos_web_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -2932,6 +3263,36 @@ export type Database = {
         }
         Relationships: []
       }
+      table_config_defaults: {
+        Row: {
+          columnas_visibles: Json | null
+          created_at: string | null
+          description: string | null
+          features: Json
+          id: number
+          route: string
+          updated_at: string | null
+        }
+        Insert: {
+          columnas_visibles?: Json | null
+          created_at?: string | null
+          description?: string | null
+          features?: Json
+          id?: never
+          route: string
+          updated_at?: string | null
+        }
+        Update: {
+          columnas_visibles?: Json | null
+          created_at?: string | null
+          description?: string | null
+          features?: Json
+          id?: never
+          route?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       tipo_acabado: {
         Row: {
           id: number
@@ -3004,6 +3365,52 @@ export type Database = {
         }
         Relationships: []
       }
+      user_table_configs: {
+        Row: {
+          columnas_visibles: Json | null
+          created_at: string | null
+          features: Json
+          id: number
+          is_default: boolean
+          route: string
+          updated_at: string | null
+          user_id: number
+        }
+        Insert: {
+          columnas_visibles?: Json | null
+          created_at?: string | null
+          features?: Json
+          id?: never
+          is_default?: boolean
+          route: string
+          updated_at?: string | null
+          user_id: number
+        }
+        Update: {
+          columnas_visibles?: Json | null
+          created_at?: string | null
+          features?: Json
+          id?: never
+          is_default?: boolean
+          route?: string
+          updated_at?: string | null
+          user_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_table_configs_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "appsheet_login"
+            referencedColumns: ["usuario_id"]
+          },
+          {
+            foreignKeyName: "user_table_configs_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       usuario_bodegas: {
         Row: {
           bodega_id: number
@@ -3054,6 +3461,18 @@ export type Database = {
             referencedRelation: "v_stock_alertas"
             referencedColumns: ["bodega_id"]
           },
+          {
+            foreignKeyName: "usuario_bodegas_usuario_id_fkey"
+            columns: ["usuario_id"]
+            referencedRelation: "appsheet_login"
+            referencedColumns: ["usuario_id"]
+          },
+          {
+            foreignKeyName: "usuario_bodegas_usuario_id_fkey"
+            columns: ["usuario_id"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
         ]
       }
       usuario_permisos: {
@@ -3102,6 +3521,46 @@ export type Database = {
           },
           {
             foreignKeyName: "usuario_permisos_usuario_id_fkey"
+            columns: ["usuario_id"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      usuario_personas: {
+        Row: {
+          created_at: string
+          id: number
+          persona_id: number
+          usuario_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          persona_id: number
+          usuario_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          persona_id?: number
+          usuario_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usuario_personas_persona_id_fkey"
+            columns: ["persona_id"]
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "usuario_personas_usuario_id_fkey"
+            columns: ["usuario_id"]
+            referencedRelation: "appsheet_login"
+            referencedColumns: ["usuario_id"]
+          },
+          {
+            foreignKeyName: "usuario_personas_usuario_id_fkey"
             columns: ["usuario_id"]
             referencedRelation: "usuarios"
             referencedColumns: ["id"]
@@ -3223,6 +3682,12 @@ export type Database = {
             foreignKeyName: "variantes_producto_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "variantes_producto_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -3370,6 +3835,77 @@ export type Database = {
           },
         ]
       }
+      v_auditoria_productos: {
+        Row: {
+          accion: string | null
+          campos_modificados: string[] | null
+          datos_anteriores: Json | null
+          datos_nuevos: Json | null
+          fechaauditoria: string | null
+          id: number | null
+          productoid: number | null
+          productonombre: string | null
+          sku_base: string | null
+          usuarioid: number | null
+          usuarionombre: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_catalogo_listado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_inventario_disponible"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_producto_detalle"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_productoid_fkey"
+            columns: ["productoid"]
+            referencedRelation: "v_stock_alertas"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_usuarioid_fkey"
+            columns: ["usuarioid"]
+            referencedRelation: "appsheet_login"
+            referencedColumns: ["usuario_id"]
+          },
+          {
+            foreignKeyName: "auditoria_productos_usuarioid_fkey"
+            columns: ["usuarioid"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_catalogo_listado: {
         Row: {
           activo: boolean | null
@@ -3434,78 +3970,29 @@ export type Database = {
       }
       v_contenedor_packing: {
         Row: {
-          cajas_pedidas: number | null
+          cajas_planeadas: number | null
           cantidad_cajas: number | null
           cbm_detalle: number | null
-          cbm_por_caja: number | null
-          cbm_subtotal_caja: number | null
           codigo_caja: string | null
           codigo_contenedor: string | null
-          colores_caja: string | null
-          composicion: string | null
           estado_contenedor: string | null
           estado_orden: string | null
-          fecha_eta: string | null
-          fecha_etd: string | null
           folio_proveedor: string | null
           importe_total: number | null
-          marca: string | null
-          moneda: string | null
           nombre_pack: string | null
-          numero_bl: string | null
           numero_contenedor: string | null
           orden_id: number | null
-          peso_bruto_caja: number | null
-          peso_total_caja: number | null
-          piezas_pedidas: number | null
+          piezas_planeadas: number | null
           piezas_por_caja: number | null
-          piezas_solicitadas: number | null
+          piezas_reales: number | null
           precio_unitario: number | null
           precio_yuan: number | null
+          producto_descripcion: string | null
           producto_id: number | null
           producto_nombre: string | null
-          proveedor: string | null
           sku_base: string | null
-          tallas_caja: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "productos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "v_catalogo_listado"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "v_catalogo_web"
-            referencedColumns: ["producto_id"]
-          },
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "v_inventario_disponible"
-            referencedColumns: ["producto_id"]
-          },
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "v_producto_detalle"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordenes_b2b_detalles_producto_id_fkey"
-            columns: ["producto_id"]
-            referencedRelation: "v_stock_alertas"
-            referencedColumns: ["producto_id"]
-          },
-        ]
+        Relationships: []
       }
       v_contenedor_resumen: {
         Row: {
@@ -3598,6 +4085,12 @@ export type Database = {
             foreignKeyName: "nota_detalle_productos_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "nota_detalle_productos_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -3708,6 +4201,12 @@ export type Database = {
           {
             foreignKeyName: "acabado_producto_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "acabado_producto_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -3769,6 +4268,12 @@ export type Database = {
             foreignKeyName: "cajas_producto_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "cajas_producto_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -3857,6 +4362,12 @@ export type Database = {
           {
             foreignKeyName: "complemento_producto_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "complemento_producto_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -3920,6 +4431,12 @@ export type Database = {
           {
             foreignKeyName: "producto_conjunto_producto_hijo_id_fkey"
             columns: ["producto_hijo_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_conjunto_producto_hijo_id_fkey"
+            columns: ["producto_hijo_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -3956,6 +4473,12 @@ export type Database = {
           {
             foreignKeyName: "producto_conjunto_producto_padre_id_fkey"
             columns: ["producto_padre_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_conjunto_producto_padre_id_fkey"
+            columns: ["producto_padre_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -3976,6 +4499,8 @@ export type Database = {
       v_producto_detalle: {
         Row: {
           activo: boolean | null
+          cliente_b2b_id: number | null
+          cliente_b2b_nombre: string | null
           composicion: string | null
           created_at: string | null
           descripcion: string | null
@@ -3999,7 +4524,6 @@ export type Database = {
           persona_nombre: string | null
           persona_tipo: string | null
           precio_ec: number | null
-          proveedor_id: number | null
           pz_en_caja: number | null
           sku_base: string | null
           tela_ext_composicion: string | null
@@ -4042,6 +4566,12 @@ export type Database = {
           web_visitas: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "productos_cliente_b2b_id_fkey"
+            columns: ["cliente_b2b_id"]
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "productos_edad_id_fkey"
             columns: ["edad_id"]
@@ -4142,6 +4672,12 @@ export type Database = {
           {
             foreignKeyName: "producto_imagenes_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_imagenes_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -4194,6 +4730,12 @@ export type Database = {
             foreignKeyName: "medidas_producto_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "medidas_producto_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -4266,6 +4808,12 @@ export type Database = {
             foreignKeyName: "producto_tags_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "producto_tags_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -4353,6 +4901,12 @@ export type Database = {
           {
             foreignKeyName: "variantes_producto_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "variantes_producto_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -4426,6 +4980,12 @@ export type Database = {
             foreignKeyName: "inventario_stock_producto_id_fkey"
             columns: ["producto_id"]
             referencedRelation: "v_catalogo_web"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "inventario_stock_producto_id_fkey"
+            columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
             referencedColumns: ["producto_id"]
           },
           {
@@ -4516,6 +5076,12 @@ export type Database = {
           {
             foreignKeyName: "inventario_stock_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "inventario_stock_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -4587,6 +5153,12 @@ export type Database = {
           {
             foreignKeyName: "inventario_stock_producto_id_fkey"
             columns: ["producto_id"]
+            referencedRelation: "v_contenedor_packing"
+            referencedColumns: ["producto_id"]
+          },
+          {
+            foreignKeyName: "inventario_stock_producto_id_fkey"
+            columns: ["producto_id"]
             referencedRelation: "v_inventario_disponible"
             referencedColumns: ["producto_id"]
           },
@@ -4646,6 +5218,7 @@ export type Database = {
         Args: { p_bodega_id: number; p_usuario_id: number }
         Returns: boolean
       }
+      get_current_usuario_id: { Args: never; Returns: number }
       sp_agregar_producto_nota: {
         Args: {
           p_caja_id?: number
@@ -4674,6 +5247,10 @@ export type Database = {
           nota_id: number
           numero_nota: string
         }[]
+      }
+      sp_promover_propuesta_auto: {
+        Args: { p_propuesta_id: string; p_usuario_id: number }
+        Returns: Json
       }
     }
     Enums: {
@@ -4750,8 +5327,6 @@ export type Database = {
           tipo_movimiento_id: number | null
           total_cajas: number | null
           usuario_id: number | null
-          costo_total: number | null
-          comprobante_url: string | null
         }
         Insert: {
           bodega_destino_id?: number | null
@@ -4768,8 +5343,6 @@ export type Database = {
           tipo_movimiento_id?: number | null
           total_cajas?: number | null
           usuario_id?: number | null
-          costo_total?: number | null
-          comprobante_url?: string | null
         }
         Update: {
           bodega_destino_id?: number | null
@@ -4786,8 +5359,6 @@ export type Database = {
           tipo_movimiento_id?: number | null
           total_cajas?: number | null
           usuario_id?: number | null
-          costo_total?: number | null
-          comprobante_url?: string | null
         }
         Relationships: [
           {
@@ -4881,6 +5452,8 @@ export type Database = {
     Functions: {
       es_super_admin: { Args: never; Returns: boolean }
       get_tenant: { Args: never; Returns: string }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never

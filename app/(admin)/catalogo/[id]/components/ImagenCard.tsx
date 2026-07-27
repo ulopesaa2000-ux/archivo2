@@ -3,7 +3,10 @@
 
 import { useState, useTransition } from 'react'
 import Image from 'next/image'
-import { Star, Pencil, Trash2, Loader2, Check, X, Link2 } from 'lucide-react'
+import { Star, Pencil, Trash2, Loader2, Check, X, Link2, ZoomIn } from 'lucide-react'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,11 +35,13 @@ import { getSmartImagenUrl, IMAGEN_SIZES } from '@/lib/utils/imagen'
 interface ImagenCardProps {
   imagen: ProductoImagenRow
   productoId: number
+  canEdit?: boolean
 }
 
-export function ImagenCard({ imagen, productoId }: ImagenCardProps) {
+export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardProps) {
   const [isEditing, setIsEditing]               = useState(false)
   const [showDeleteModal, setShowDeleteModal]    = useState(false)
+  const [showZoomModal, setShowZoomModal]        = useState(false)
   const [editAltText, setEditAltText]           = useState(imagen.alt_text ?? '')
   const [editUso, setEditUso]                   = useState<UsoImagen>(imagen.uso_imagen as UsoImagen)
   const [editOrden, setEditOrden]               = useState(imagen.orden ?? 0)
@@ -130,45 +135,75 @@ export function ImagenCard({ imagen, productoId }: ImagenCardProps) {
 
           {/* Overlay de controles — aparece en hover */}
           {!isEditing && (
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-              {/* Hacer principal */}
-              {!imagen.es_principal && (
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="h-8 w-8 bg-white/90 text-amber-600 hover:bg-amber-50 hover:text-amber-700 shadow"
-                  onClick={handleSetPrincipal}
-                  disabled={isPrincipalPending}
-                  title="Hacer imagen principal"
-                >
-                  {isPrincipalPending
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Star className="h-3.5 w-3.5" />
-                  }
-                </Button>
-              )}
-
-              {/* Editar */}
+            <div
+              className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 cursor-pointer"
+              onClick={() => imagen.url && setShowZoomModal(true)}
+            >
+              {/* Ver en grande */}
               <Button
                 size="icon"
                 variant="secondary"
-                className="h-8 w-8 bg-white/90 shadow"
-                onClick={() => setIsEditing(true)}
-                title="Editar metadatos"
+                className="h-8 w-8 bg-white/90 text-slate-800 hover:bg-white shadow"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowZoomModal(true)
+                }}
+                title="Ver en grande"
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <ZoomIn className="h-3.5 w-3.5" />
               </Button>
 
-              {/* Eliminar */}
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-8 w-8 shadow"
-                onClick={() => setShowDeleteModal(true)}
-                title="Eliminar imagen"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              {canEdit && (
+                <>
+                  {/* Hacer principal */}
+                  {!imagen.es_principal && (
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="h-8 w-8 bg-white/90 text-amber-600 hover:bg-amber-50 hover:text-amber-700 shadow"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSetPrincipal()
+                      }}
+                      disabled={isPrincipalPending}
+                      title="Hacer imagen principal"
+                    >
+                      {isPrincipalPending
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Star className="h-3.5 w-3.5" />
+                      }
+                    </Button>
+                  )}
+
+                  {/* Editar */}
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="h-8 w-8 bg-white/90 shadow"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setIsEditing(true)
+                    }}
+                    title="Editar metadatos"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+
+                  {/* Eliminar */}
+                  <Button
+                    size="icon"
+                    variant="destructive"
+                    className="h-8 w-8 shadow"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowDeleteModal(true)
+                    }}
+                    title="Eliminar imagen"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
             </div>
           )}
 
@@ -307,6 +342,30 @@ export function ImagenCard({ imagen, productoId }: ImagenCardProps) {
         description={`Esta acción eliminará la imagen del bucket de Storage y de la base de datos. No se puede deshacer.${imagen.es_principal ? ' ⚠️ Esta es la imagen PRINCIPAL del producto.' : ''}`}
         elementName={imagen.alt_text ?? imagen.uso_imagen ?? `Imagen #${imagen.id}`}
       />
+
+      {/* ── Modal Lightbox de Imagen Ampliada ─────────────────── */}
+      {imagen.url && (
+        <Dialog open={showZoomModal} onOpenChange={setShowZoomModal}>
+          <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] max-h-[92vh] p-4 flex flex-col items-center justify-center bg-black/95 border-none text-white overflow-hidden">
+            <DialogHeader className="w-full flex flex-row items-center justify-between border-b border-white/10 pb-2 mb-2">
+              <DialogTitle className="text-sm font-mono font-bold text-white flex items-center gap-2">
+                <span>{imagen.uso_imagen}</span>
+                <span className="text-xs text-white/60 font-normal">({imagen.alt_text ?? `Imagen #${imagen.id}`})</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="relative w-full h-[78vh] flex items-center justify-center overflow-hidden">
+              <Image
+                src={imagen.url}
+                alt={imagen.alt_text ?? imagen.uso_imagen}
+                fill
+                className="object-contain"
+                sizes="90vw"
+                priority
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   )
 }

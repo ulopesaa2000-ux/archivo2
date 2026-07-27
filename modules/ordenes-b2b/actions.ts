@@ -668,3 +668,314 @@ export async function eliminarOrdenB2BAction(
   revalidatePath('/ordenes-b2b')
   return { success: true }
 }
+
+// ════════════════════════════════════════════════════════════
+// GUARDAR ORDEN RÁPIDA B2B (IMPORTACIÓN DE PACKING LIST)
+// ════════════════════════════════════════════════════════════
+
+export async function guardarOrdenRapidaB2BAction(payload: {
+  proveedorId: number
+  clienteB2bId: number
+  contenedorId: number | null
+  newContainerCode?: string | null
+  observaciones?: string | null
+  productos: any[]
+  cajas: any[]
+  detalles: any[]
+}): Promise<ActionResult> {
+  const denied = await requireB2BPermission('puede_crear')
+  if (denied) return denied
+
+  const supabase = await createClient()
+
+  // 1. Resolver o Crear Contenedor
+  let contenedorId = payload.contenedorId
+  if (!contenedorId && payload.newContainerCode?.trim()) {
+    const code = payload.newContainerCode.trim()
+    const { data: existingCont } = await supabase
+      .from('contenedores')
+      .select('id')
+      .eq('codigo_contenedor', code)
+      .maybeSingle()
+
+    if (existingCont) {
+      contenedorId = existingCont.id
+    } else {
+      const { data: newCont, error: contErr } = await supabase
+        .from('contenedores')
+        .insert({
+          codigo_contenedor: code,
+          estado: 'borrador'
+        })
+        .select('id')
+        .single()
+
+      if (contErr) {
+        return { success: false, error: `Error al crear contenedor: ${contErr.message}` }
+      }
+      contenedorId = newCont.id
+    }
+  }
+
+  // 2. Resolver o Crear/Actualizar Productos
+  const skuBases = payload.productos.map((p: any) => String(p.sku_base).trim().toUpperCase())
+  const { data: existingProds } = await supabase
+    .from('productos')
+    .select('id, sku_base')
+    .in('sku_base', skuBases)
+
+  const prodIdMap = new Map<string, number>()
+  if (existingProds) {
+    existingProds.forEach((p: any) => {
+      prodIdMap.set(p.sku_base.toUpperCase(), p.id)
+    })
+  }
+
+  for (const p of payload.productos) {
+    const sku = String(p.sku_base).trim()
+    const skuUpper = sku.toUpperCase()
+    let prodId = prodIdMap.get(skuUpper)
+
+    if (prodId) {
+      // Actualizar descripción si ya existe
+      const { error: updErr } = await supabase
+        .from('productos')
+        .update({
+          descripcion: p.descripcion || null,
+          composicion: p.composicion || null,
+          nombre: p.nombre || p.descripcion || sku
+        })
+        .eq('id', prodId)
+
+      if (updErr) {
+        return { success: false, error: `Error al actualizar producto ${sku}: ${updErr.message}` }
+      }
+    } else {
+      // Insertar nuevo producto
+      const { data: newProd, error: insErr } = await supabase
+        .from('productos')
+        .insert({
+          sku_base: sku,
+          nombre: p.nombre || p.descripcion || sku,
+          descripcion: p.descripcion || null,
+          composicion: p.composicion || null,
+          cliente_b2b_id: payload.clienteB2bId,
+          activo: true,
+          estado: 'pendiente'
+        })
+        .select('id')
+        .single()
+
+      if (insErr) {
+        return { success: false, error: `Error al crear producto ${sku}: ${insErr.message}` }
+      }
+      prodId = newProd.id
+      prodIdMap.set(skuUpper, prodId)
+    }
+  }
+
+  // 3. Cargar Catálogos de Tallas y Colores para desgloses
+  const [coloresRes, tallasRes] = await Promise.all([
+    supabase.from('cat_colores').select('id, nombre, codigo').eq('activo', true),
+    supabase.from('cat_tallas').select('id, codigo, talla_us')
+  ])
+
+  const tallasMap = new Map<string, number>()
+  if (tallasRes.data) {
+    tallasRes.data.forEach((t: any) => {
+      if (t.codigo) tallasMap.set(t.codigo.trim().toUpperCase(), t.id)
+      if (t.talla_us) tallasMap.set(t.talla_us.trim().toUpperCase(), t.id)
+    })
+  }
+
+  const coloresList = coloresRes.data || []
+  function findColorId(identificador: string | null): number | null {
+    if (!identificador) return null
+    const cleanId = identificador.trim().toUpperCase()
+
+    // Coincidencia exacta por ID
+    const idNum = parseInt(cleanId)
+    if (!isNaN(idNum)) {
+      const match = coloresList.find((c: any) => c.id === idNum)
+      if (match) return match.id
+    }
+
+    // Coincidencia exacta por código
+    const matchCod = coloresList.find((c: any) => c.codigo?.trim().toUpperCase() === cleanId)
+    if (matchCod) return matchCod.id
+
+    // Coincidencia exacta por nombre
+    const matchNom = coloresList.find((c: any) => c.nombre?.trim().toUpperCase() === cleanId)
+    if (matchNom) return matchNom.id
+
+    // Coincidencia normalizada
+    function normalize(str: string) {
+      return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    }
+    const normId = normalize(identificador)
+    const matchFlex = coloresList.find((c: any) => normalize(c.nombre || '') === normId || normalize(c.codigo || '') === normId)
+    if (matchFlex) return matchFlex.id
+
+    return null
+  }
+
+  // 4. Crear/Actualizar Cajas y sus Detalles
+  const cajaMap = new Map<string, number>()
+  for (const c of payload.cajas) {
+    const code = String(c.codigo_caja || c.codigo_caja_temporal).trim()
+    const prodId = prodIdMap.get(c.sku_base.toUpperCase()) || null
+
+    const payloadCaja = {
+      codigo_caja: code,
+      nombre_pack: c.nombre_pack || 'PACK UNICO',
+      producto_id: prodId,
+      proveedor_id: payload.proveedorId,
+      piezas_por_caja: c.piezas_por_caja || 0,
+      largo_cm: c.largo_cm || null,
+      ancho_cm: c.ancho_cm || null,
+      alto_cm: c.alto_cm || null,
+      cbm: c.cbm || c.cbm_por_caja || null,
+      peso_bruto_kg: c.peso_bruto_kg || null,
+      peso_neto: c.peso_neto_kg || null,
+      tallas: Array.isArray(c.tallas) ? c.tallas.join('|') : (c.tallas || null),
+      colores: Array.isArray(c.colores) ? c.colores.join('|') : (c.colores || null),
+      activo: true
+    }
+
+    const { data: cajaRes, error: cajaErr } = await supabase
+      .from('cajas_producto')
+      .upsert(payloadCaja as any, { onConflict: 'codigo_caja' })
+      .select('id')
+      .single()
+
+    if (cajaErr) {
+      return { success: false, error: `Error al registrar caja ${code}: ${cajaErr.message}` }
+    }
+    const cajaId = cajaRes.id
+    cajaMap.set(code.toUpperCase(), cajaId)
+
+    // Sobrescribir caja_detalles
+    await supabase.from('caja_detalles').delete().eq('caja_id', cajaId)
+
+    const boxDetails = payload.detalles.filter(
+      (d: any) => String(d.codigo_caja_temporal).toUpperCase() === code.toUpperCase()
+    )
+
+    if (boxDetails.length > 0) {
+      const payloadDetails = boxDetails.map((d: any) => {
+        const tallaId = tallasMap.get(String(d.talla_codigo || '').trim().toUpperCase()) || null
+        const colorId = findColorId(d.color_raw)
+        return {
+          caja_id: cajaId,
+          cantidad: d.cantidad_por_caja || 0,
+          talla_id: tallaId,
+          color_id: colorId
+        }
+      })
+
+      const { error: detErr } = await supabase
+        .from('caja_detalles')
+        .insert(payloadDetails)
+
+      if (detErr) {
+        return { success: false, error: `Error al registrar desglose de caja ${code}: ${detErr.message}` }
+      }
+    }
+  }
+
+  // 5. Crear la Cabecera de la Orden B2B
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const randomStr = Math.random().toString(36).slice(2, 6).toUpperCase()
+  const autoFolio = `B2B-PL-${dateStr}-${randomStr}`
+
+  const totalCajas = payload.cajas.reduce((sum: number, c: any) => sum + (c.cantidad_cajas || 0), 0)
+  const totalPiezas = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)), 0)
+  const totalCbm = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.cbm_por_caja || c.cbm || 0)), 0)
+
+  const { data: newOrder, error: orderErr } = await supabase
+    .from('ordenes_b2b')
+    .insert({
+      proveedor_id: payload.proveedorId,
+      cliente_b2b_id: payload.clienteB2bId,
+      contenedor_id: contenedorId,
+      folio_proveedor: autoFolio,
+      estado: 'Borrador',
+      moneda: 'USD',
+      total_cajas: totalCajas,
+      total_piezas: totalPiezas,
+      cbm_orden: totalCbm,
+      observaciones: payload.observaciones || `Importado vía Packing List. Folio automático: ${autoFolio}`
+    })
+    .select('id')
+    .single()
+
+  if (orderErr) {
+    return { success: false, error: `Error al crear orden B2B: ${orderErr.message}` }
+  }
+  const ordenId = newOrder.id
+
+  // 6. Crear los Detalles de la Orden B2B
+  const orderDetailsPayload = payload.productos.map((p: any) => {
+    const prodId = prodIdMap.get(p.sku_base.toUpperCase()) || null
+    const prodBoxes = payload.cajas
+      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
+      .reduce((sum: number, c: any) => sum + (c.cantidad_cajas || 0), 0)
+    const prodPieces = payload.cajas
+      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
+      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)), 0)
+    const prodCbm = payload.cajas
+      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
+      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.cbm_por_caja || c.cbm || 0)), 0)
+    const prodWeight = payload.cajas
+      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
+      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.peso_bruto_kg || 0)), 0)
+
+    return {
+      orden_id: ordenId,
+      producto_id: prodId,
+      cantidad_solicitada: prodPieces,
+      piezas_pedidas: prodPieces,
+      cajas_pedidas: prodBoxes,
+      cbm_detalle: prodCbm || null,
+      peso_bruto_kg: prodWeight || null,
+      precio_unitario: p.precio_unitario_usd || null,
+      precio_yuan: p.precio_yuan || null,
+      estado_producto: 'Pendiente'
+    }
+  })
+
+  const { error: detErr } = await supabase
+    .from('ordenes_b2b_detalles')
+    .insert(orderDetailsPayload)
+
+  if (detErr) {
+    return { success: false, error: `Error al crear detalles de la orden B2B: ${detErr.message}` }
+  }
+
+  // 7. Crear la relación de Cajas de la Orden (orden_cajas)
+  const orderCajasPayload = []
+  for (const c of payload.cajas) {
+    const codeUpper = String(c.codigo_caja || c.codigo_caja_temporal).trim().toUpperCase()
+    const dbCajaId = cajaMap.get(codeUpper)
+    if (dbCajaId) {
+      orderCajasPayload.push({
+        orden_id: ordenId,
+        caja_id: dbCajaId,
+        cantidad_cajas: c.cantidad_cajas || 0
+      })
+    }
+  }
+
+  if (orderCajasPayload.length > 0) {
+    const { error: linkErr } = await supabase
+      .from('orden_cajas')
+      .insert(orderCajasPayload)
+
+    if (linkErr) {
+      return { success: false, error: `Error al vincular cajas a la orden: ${linkErr.message}` }
+    }
+  }
+
+  revalidatePath('/ordenes-b2b')
+  return { success: true, id: ordenId }
+}

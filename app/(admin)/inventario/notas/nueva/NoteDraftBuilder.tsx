@@ -38,6 +38,8 @@ import { cn } from '@/lib/utils'
 
 const NO_CAJA_VALUE = '_none'
 
+import { OcrUploadModal } from '../propuestas/OcrUploadModal'
+
 type Props = {
   catalogos: CatalogosInventario
   usuarioId: number
@@ -47,6 +49,7 @@ type Props = {
   currentUserLevel: number
   userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
   ocrProposalId?: string
+  defaultBodegaOrigenId?: number
 }
 
 const TIPO_MOV_ICONS_COMP = {
@@ -59,7 +62,7 @@ const TIPO_MOV_ICONS_COMP = {
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas, ocrProposalId,
+  currentUserLevel, userBodegas, ocrProposalId, defaultBodegaOrigenId,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -143,7 +146,7 @@ export function NoteDraftBuilder({
     }
   })
 
-  // Bodegas permitidas según el nivel de acceso del usuario (incluyendo siempre las seleccionadas en la nota para evitar ID en Select)
+  // Bodegas permitidas según el nivel de acceso del usuario
   const allowedBodegas = currentUserLevel <= 2
     ? catalogos.bodegas
     : catalogos.bodegas.filter((b) => 
@@ -151,6 +154,28 @@ export function NoteDraftBuilder({
         b.id === draft.bodega_origen_id || 
         b.id === draft.bodega_destino_id
       )
+
+  // Tipos de movimiento permitidos (para bodegueros y encargados solo ENT, SAL, TRF; admins ven todos)
+  const tiposMovimientoVisibles = catalogos.tiposMovimiento.filter((t) => {
+    if (esAdmin) return true
+    return ['ENT', 'SAL', 'TRF'].includes(t.codigo)
+  })
+
+  // Pre-selección sutil de bodega de origen si no está establecida
+  useEffect(() => {
+    if (mode === 'create' && !draft.bodega_origen_id && allowedBodegas.length > 0) {
+      const sugerida = defaultBodegaOrigenId && allowedBodegas.some(b => b.id === defaultBodegaOrigenId)
+        ? defaultBodegaOrigenId
+        : (userBodegas[0]?.id ?? allowedBodegas[0]?.id)
+
+      if (sugerida) {
+        setDraft((prev) => ({ ...prev, bodega_origen_id: sugerida }))
+      }
+    }
+  }, [mode, defaultBodegaOrigenId, allowedBodegas, userBodegas, draft.bodega_origen_id])
+
+  // Estado para desplegar herramientas secundarias opcionales (OCR/Foto)
+  const [showOpcionesOpcionales, setShowOpcionesOpcionales] = useState<boolean>(!!ocrProposalId || !!initialData?.cabecera.comprobante_url)
 
   // ── Comprobante Físico ───────────────────────────────────
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
@@ -466,8 +491,11 @@ export function NoteDraftBuilder({
             {/* Tipo Movimiento Selector Premium */}
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tipo de Movimiento *</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {catalogos.tiposMovimiento.map((t) => {
+              <div className={cn(
+                "grid gap-2 sm:gap-3",
+                tiposMovimientoVisibles.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-5"
+              )}>
+                {tiposMovimientoVisibles.map((t) => {
                   const Icon = TIPO_MOV_ICONS_COMP[t.codigo as keyof typeof TIPO_MOV_ICONS_COMP] || Package
                   const isSelected = draft.tipo_movimiento_id === t.id
                   const colorMap = TIPO_MOVIMIENTO_COLORS[t.codigo] || 'bg-primary text-primary-foreground'
@@ -484,15 +512,15 @@ export function NoteDraftBuilder({
                         }))
                       }}
                       className={cn(
-                        "flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center gap-1 group",
+                        "flex flex-col items-center justify-center p-3.5 sm:p-4 rounded-2xl border transition-all text-center gap-1.5 group min-h-[64px] sm:min-h-[72px]",
                         (mode === 'edit' || todoBloqueado || soloEditaDestino) && "opacity-50 cursor-not-allowed",
                         isSelected 
-                          ? cn("border-transparent font-bold shadow-lg shadow-black/5 scale-102", colorMap.split(' ')[0], colorMap.split(' ')[1])
+                          ? cn("border-transparent font-bold shadow-lg shadow-black/10 scale-102 ring-2 ring-primary/20", colorMap.split(' ')[0], colorMap.split(' ')[1])
                           : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
                       )}
                     >
-                      <Icon className="h-5 w-5 transition-transform group-hover:scale-110" />
-                      <span className="text-[9px] font-black uppercase tracking-tighter leading-none">{t.nombre}</span>
+                      <Icon className="h-5 w-5 sm:h-6 sm:w-6 transition-transform group-hover:scale-110" />
+                      <span className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none">{t.nombre}</span>
                     </button>
                   )
                 })}
@@ -541,15 +569,18 @@ export function NoteDraftBuilder({
                   >
                     <SelectTrigger className="h-11 rounded-xl">
                       <SelectValue placeholder="Seleccionar destino...">
-                        {allowedBodegas.find((b) => String(b.id) === draft.bodega_destino_id?.toString())?.nombre}
+                        {catalogos.bodegas.find((b) => String(b.id) === draft.bodega_destino_id?.toString())?.nombre}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {allowedBodegas
-                        .filter((b) => b.id !== draft.bodega_origen_id)
+                      {catalogos.bodegas
+                        .filter((b) => b.id !== draft.bodega_origen_id && (esAdmin || !b.es_virtual))
                         .map((b) => (
                           <SelectItem key={b.id} value={String(b.id)}>
                             {b.nombre}
+                            {b.es_virtual && (
+                              <Badge variant="secondary" className="ml-2 text-[9px] font-black uppercase leading-none">Virtual</Badge>
+                            )}
                           </SelectItem>
                         ))}
                     </SelectContent>
@@ -610,7 +641,7 @@ export function NoteDraftBuilder({
               )}
             </div>
 
-            {/* Observaciones */}
+            {/* Observaciones (Opcional) */}
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observaciones (opcional)</Label>
               <Textarea
@@ -624,58 +655,80 @@ export function NoteDraftBuilder({
                 disabled={todoBloqueado || soloEditaDestino}
               />
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Comprobante Físico Card */}
-        <Card className="shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
-          <CardHeader>
-            <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Comprobante Físico</CardTitle>
-            <CardDescription className="text-xs">Sube la firma o factura de entrega para auditoría</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center justify-center min-h-[160px] p-6">
-            {comprobantePreview ? (
-              <div className="relative w-full aspect-video rounded-xl overflow-hidden border bg-background group shadow-sm">
-                <Image
-                  src={comprobantePreview}
-                  alt="Vista previa comprobante"
-                  fill
-                  className="object-contain"
-                />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Label htmlFor="comprobante-uploader" className="p-2 bg-white text-gray-800 rounded-full cursor-pointer hover:bg-gray-100 shadow-md">
-                    <Camera className="h-4 w-4" />
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon"
-                    className="h-8 w-8 rounded-full"
-                    onClick={handleClearFile}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+            {/* Herramientas opcionales secundarias (Foto de comprobante / OCR) */}
+            <div className="border border-dashed rounded-2xl p-4 bg-muted/20 space-y-3 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowOpcionesOpcionales(!showOpcionesOpcionales)}
+                className="flex items-center justify-between w-full text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-muted-foreground" />
+                  <span>Herramientas Opcionales (Foto Comprobante / Escáner OCR)</span>
+                  {comprobantePreview && <Badge variant="secondary" className="text-[9px]">Foto adjunta</Badge>}
                 </div>
-              </div>
-            ) : (
-              <div className="w-full">
-                <Input
-                  type="file"
-                  id="comprobante-uploader"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <Label
-                  htmlFor="comprobante-uploader"
-                  className="flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 cursor-pointer bg-background hover:bg-muted/30 transition-all text-center"
-                >
-                  <Upload className="h-10 w-10 text-muted-foreground opacity-60 mb-2" />
-                  <span className="text-xs font-black uppercase tracking-tight text-foreground/80">Tomar foto o subir archivo</span>
-                  <span className="text-[10px] text-muted-foreground mt-1">Cámara de celular o archivo de imagen</span>
-                </Label>
-              </div>
-            )}
+                <span className="text-[10px] uppercase font-mono">{showOpcionesOpcionales ? '▲ Ocultar' : '▼ Desplegar'}</span>
+              </button>
+
+              {showOpcionesOpcionales && (
+                <div className="pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Foto de comprobante */}
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Adjuntar Foto Comprobante</Label>
+                    {comprobantePreview ? (
+                      <div className="relative w-full aspect-video rounded-xl overflow-hidden border bg-background group shadow-sm">
+                        <Image
+                          src={comprobantePreview}
+                          alt="Vista previa comprobante"
+                          fill
+                          className="object-contain"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <Label htmlFor="comprobante-uploader" className="p-2 bg-white text-gray-800 rounded-full cursor-pointer hover:bg-gray-100 shadow-md">
+                            <Camera className="h-4 w-4" />
+                          </Label>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8 rounded-full"
+                            onClick={handleClearFile}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <Input
+                          type="file"
+                          id="comprobante-uploader"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                        <Label
+                          htmlFor="comprobante-uploader"
+                          className="flex items-center justify-center gap-2 p-3 rounded-xl border border-dashed border-muted-foreground/30 hover:border-primary/50 cursor-pointer bg-background hover:bg-muted/30 transition-all text-center text-xs font-semibold"
+                        >
+                          <Upload className="h-4 w-4 text-muted-foreground" />
+                          <span>Tomar foto o subir archivo</span>
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Escáner OCR si es modo creación */}
+                  {mode === 'create' && (
+                    <div className="space-y-2 flex flex-col justify-center">
+                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Escanear Nota Física con IA</Label>
+                      <OcrUploadModal redirectToNueva />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
