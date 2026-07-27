@@ -124,7 +124,7 @@ export default async function CatalogoReadOnlyPage({
     order,
   }
 
-  const vista = params.vista === 'grid' ? 'grid' : 'tabla'
+  const vista = params.vista === 'tabla' ? 'tabla' : 'grid'
 
   return (
     <div className="space-y-4">

@@ -12,11 +12,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { CatalogoCreateDialog } from '../../CatalogoCreateDialog'
-import type { CatalogosParaFiltros, CatalogosEdicion } from '@/modules/catalogo/types'
+import type { CatalogosParaFiltros } from '@/modules/catalogo/types'
 
 interface CatalogoDetailActionsProps {
   productoId: number
-  catalogos: CatalogosParaFiltros | CatalogosEdicion
+  catalogos: CatalogosParaFiltros
   canEdit?: boolean
 }
 

@@ -25,7 +25,7 @@ import { formatCurrency } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
 import { updateProductAction } from '@/modules/catalogo/actions'
 import type { ProductoRow } from '@/lib/types/tables'
-import type { FKDescriptivas, CatalogosEdicion } from '@/modules/catalogo/types'
+import type { FKDescriptivas, CatalogosHero } from '@/modules/catalogo/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Opciones de estado
@@ -41,7 +41,7 @@ type Props = {
   producto: ProductoRow
   fk: FKDescriptivas
   imagenPrincipal: string | null
-  catalogos: CatalogosEdicion
+  catalogos: CatalogosHero
   canEdit?: boolean
 }
 

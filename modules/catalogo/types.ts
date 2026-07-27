@@ -89,6 +89,12 @@ export type CatalogosEdicion = {
   colores:          CatalogoItem[]
 }
 
+/** Catálogos que necesita el hero; evita enviar opciones de todos los tabs al inicio. */
+export type CatalogosHero = Pick<
+  CatalogosEdicion,
+  'marcas' | 'generos' | 'telas' | 'tipos_prenda' | 'edades' | 'personas'
+>
+
 // ── Resultado del listado ───────────────────────────────────
 export type ResultadoListado = {
   productos: ProductoListItem[]

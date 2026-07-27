@@ -1,10 +1,11 @@
-// app/(admin)/catalogo/[id]/page.tsx
+// C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\[id]\page.tsx
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import {
   fetchProductoPorId,
-  fetchFKDescriptivas,
+  fetchCatalogosHero,
+  resolveFKDescriptivas,
   fetchNavegacionProducto,
   fetchProductoWeb,
   fetchImagenesProducto,
@@ -18,7 +19,8 @@ import {
   fetchCatalogosEdicion,
   fetchPuntosMedida,
 } from '@/modules/catalogo/queries'
-import type { CatalogosEdicion } from '@/modules/catalogo/types'
+import type { CatalogosEdicion, FKDescriptivas } from '@/modules/catalogo/types'
+import type { ProductoRow } from '@/lib/types/tables'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { HeroProducto } from './components/HeroProducto'
@@ -39,37 +41,21 @@ import { Separator } from '@/components/ui/separator'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { requireCatalogReadPermission } from '@/lib/dal'
-import { getCurrentUser } from '@/modules/auth/queries'
 import { can, canEditCatalog } from '@/lib/auth/permissions'
 
 export async function generateMetadata(props: {
   params: Promise<{ id: string }>
 }): Promise<Metadata> {
-  const params = await props.params;
-  const id = parseInt(params.id)
-  if (isNaN(id)) return { title: 'Producto no encontrado' }
+  const { id: rawId } = await props.params
+  const id = Number.parseInt(rawId, 10)
+  if (Number.isNaN(id)) return { title: 'Producto no encontrado' }
 
   const producto = await fetchProductoPorId(id)
   if (!producto) return { title: 'Producto no encontrado' }
 
-  return {
-    title: `${producto.sku_base} — Catálogo`,
-  }
+  return { title: `${producto.sku_base} — Catálogo` }
 }
 
-/**
- * Detalle de producto con STREAMING.
- * 
- * FLUJO DE CARGA PROGRESIVA:
- *   0ms:    loading.tsx → skeleton completo
- *   ~50ms:  Hero se resuelve (1 query rápida) → aparece con datos
- *   ~200ms: FK descriptivas y navegación se resuelven
- *   ~300ms: Tabs empiezan a resolverse independientemente
- *   ~500ms: Todos los tabs listos
- * 
- * Cada tab es un async Server Component en <Suspense>.
- * Los tabs que no están activos cargan en background.
- */
 export default async function CatalogoDetallePage(props: {
   params: Promise<{ id: string }>
 }) {
@@ -79,62 +65,97 @@ export default async function CatalogoDetallePage(props: {
   const hasFullCatalogAccess = can(user, 'catalogo_productos', 'puede_leer')
   const backHref = hasFullCatalogAccess ? '/catalogo' : '/catalogo/catalogos'
 
-  const params = await props.params;
-  const id = parseInt(params.id)
-  if (isNaN(id)) notFound()
+  const { id: rawId } = await props.params
+  const id = Number.parseInt(rawId, 10)
+  if (Number.isNaN(id)) notFound()
 
-  // ── Query rápida: producto base ───────────────────────────
+  // Solo el producto base bloquea la decisión de 404. El resto se inicia en paralelo.
   const producto = await fetchProductoPorId(id)
   if (!producto) notFound()
 
-  // ── Queries en paralelo para el hero ──────────────────────
-  const [fk, navegacion, imagenes, catalogos] = await Promise.all([
-    fetchFKDescriptivas(producto),
+  const [catalogosHero, navegacion, imagenes] = await Promise.all([
+    fetchCatalogosHero(),
     fetchNavegacionProducto(producto.id),
     fetchImagenesProducto(producto.id),
-    fetchCatalogosEdicion(),
   ])
-
-  const imagenPrincipal = imagenes.find((i) => i.es_principal)?.url
-    ?? imagenes[0]?.url
-    ?? null
+  const fk = await resolveFKDescriptivas(producto, catalogosHero)
+  const catalogosEdicionPromise = fetchCatalogosEdicion()
+  const cajasPromise = fetchCajasProducto(producto.id)
+  const imagenesPromise = Promise.resolve(imagenes)
 
   return (
     <div className="space-y-6">
-      {/* ── Breadcrumb + Navegación ──────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Link
-            href={backHref}
-            className="hover:text-foreground transition-colors flex items-center gap-1"
-          >
+          <Link href={backHref} className="hover:text-foreground transition-colors flex items-center gap-1">
             <ArrowLeft className="h-3.5 w-3.5" />
             Catálogo
           </Link>
           <span>/</span>
-          <span className="text-foreground font-medium font-mono">
-            {producto.sku_base}
-          </span>
+          <span className="text-foreground font-medium font-mono">{producto.sku_base}</span>
         </div>
 
         <div className="flex items-center gap-2">
-          {navegacion && (
-            <ProductoNavigation navegacion={navegacion} />
-          )}
-          <CatalogoDetailActions productoId={producto.id} catalogos={catalogos} canEdit={canEdit} />
+          {navegacion && <ProductoNavigation navegacion={navegacion} />}
+          <CatalogoDetailActions productoId={producto.id} catalogos={catalogosHero} canEdit={canEdit} />
         </div>
       </div>
 
-      {/* ── Hero del producto ────────────────────────────── */}
-      <HeroProducto
-        producto={producto}
-        fk={fk}
-        imagenPrincipal={imagenPrincipal}
-        catalogos={catalogos}
-        canEdit={canEdit}
-      />
+      <Suspense fallback={<TabSkeleton rows={5} />}>
+        <HeroProducto
+          producto={producto}
+          fk={fk}
+          imagenPrincipal={imagenes.find((item) => item.es_principal)?.url ?? imagenes[0]?.url ?? null}
+          catalogos={catalogosHero}
+          canEdit={canEdit}
+        />
+      </Suspense>
 
-      {/* ── Bloque E-commerce/SEO (desplegable) ───────────────── */}
+      <Suspense fallback={<TabSkeleton rows={6} />}>
+        <CatalogoTabsAsync
+          producto={producto}
+          fk={fk}
+          userCanEdit={canEdit}
+          canEditCajas={Boolean(canEdit && can(user, 'b2b_cajas', 'puede_editar'))}
+          canDeleteCajas={Boolean(canEdit && can(user, 'b2b_cajas', 'puede_eliminar'))}
+          catalogosPromise={catalogosEdicionPromise}
+          imagenesPromise={imagenesPromise}
+          cajasPromise={cajasPromise}
+        />
+      </Suspense>
+
+      <Separator />
+      <div className="flex items-center gap-6 text-xs text-muted-foreground">
+        <span>Creado: <Fecha valor={producto.created_at} formato="fecha-hora" /></span>
+        <span>Actualizado: <Fecha valor={producto.updated_at} formato="relativo" /></span>
+      </div>
+    </div>
+  )
+}
+
+async function CatalogoTabsAsync({
+  producto,
+  fk,
+  userCanEdit,
+  canEditCajas,
+  canDeleteCajas,
+  catalogosPromise,
+  imagenesPromise,
+  cajasPromise,
+}: {
+  producto: ProductoRow
+  fk: FKDescriptivas
+  userCanEdit: boolean
+  canEditCajas: boolean
+  canDeleteCajas: boolean
+  catalogosPromise: Promise<CatalogosEdicion>
+  imagenesPromise: ReturnType<typeof fetchImagenesProducto>
+  cajasPromise: ReturnType<typeof fetchCajasProducto>
+}) {
+  const catalogos = await catalogosPromise
+
+  return (
+    <>
       <Suspense fallback={<TabSkeleton rows={3} />}>
         <TabEcommerceAsync
           productoId={producto.id}
@@ -143,13 +164,12 @@ export default async function CatalogoDetallePage(props: {
           tipoPrenda={fk.tipo_prenda}
           genero={fk.genero}
           marca={fk.marca}
-          canEdit={canEdit}
+          canEdit={userCanEdit}
         />
       </Suspense>
 
       <Separator />
 
-      {/* ── Tabs de contenido ────────────────────────────── */}
       <Tabs defaultValue="catalogos" className="flex-col">
         <TabsList className="flex-wrap h-auto group-data-[orientation=horizontal]/tabs:h-auto gap-1 mb-4 p-1">
           <TabsTrigger value="catalogos">Catálogos</TabsTrigger>
@@ -160,18 +180,19 @@ export default async function CatalogoDetallePage(props: {
           <TabsTrigger value="acabados">Acabados</TabsTrigger>
           <TabsTrigger value="variantes">Variantes</TabsTrigger>
           <TabsTrigger value="medidas">Medidas</TabsTrigger>
-          {producto.es_conjunto && (
-            <TabsTrigger value="conjunto">Conjunto</TabsTrigger>
-          )}
+          {producto.es_conjunto && <TabsTrigger value="conjunto">Conjunto</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="catalogos">
-          <TabCatalogos fk={fk} />
-        </TabsContent>
+        <TabsContent value="catalogos"><TabCatalogos fk={fk} /></TabsContent>
 
         <TabsContent value="imagenes">
           <Suspense fallback={<TabSkeleton />}>
-            <TabImagenesAsync productoId={producto.id} skuBase={producto.sku_base} canEdit={canEdit} />
+            <TabImagenesAsync
+              productoId={producto.id}
+              skuBase={producto.sku_base}
+              canEdit={userCanEdit}
+              imagenesPromise={imagenesPromise}
+            />
           </Suspense>
         </TabsContent>
 
@@ -182,27 +203,28 @@ export default async function CatalogoDetallePage(props: {
               catalogos={catalogos}
               edadNombre={fk.edad}
               precioEcMxn={producto.precio_ec}
-              canEdit={Boolean(canEdit && user && can(user, 'b2b_cajas', 'puede_editar'))}
-              canDelete={Boolean(canEdit && user && can(user, 'b2b_cajas', 'puede_eliminar'))}
+              canEdit={canEditCajas}
+              canDelete={canDeleteCajas}
+              cajasPromise={cajasPromise}
             />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="tags">
           <Suspense fallback={<TabSkeleton />}>
-            <TabTagsAsync productoId={producto.id} catalogos={catalogos} canEdit={canEdit} />
+            <TabTagsAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="complementos">
           <Suspense fallback={<TabSkeleton />}>
-            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} canEdit={canEdit} />
+            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="acabados">
           <Suspense fallback={<TabSkeleton />}>
-            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} canEdit={canEdit} />
+            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
           </Suspense>
         </TabsContent>
 
@@ -212,40 +234,34 @@ export default async function CatalogoDetallePage(props: {
               productoId={producto.id}
               skuBase={producto.sku_base}
               catalogos={catalogos}
-              canEdit={canEdit}
+              canEdit={userCanEdit}
+              cajasPromise={cajasPromise}
             />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="medidas">
           <Suspense fallback={<TabSkeleton />}>
-            <TabMedidasAsync productoId={producto.id} edadNombre={fk.edad} tipoPrendaNombre={fk.tipo_prenda} canEdit={canEdit} />
+            <TabMedidasAsync
+              productoId={producto.id}
+              edadNombre={fk.edad}
+              tipoPrendaNombre={fk.tipo_prenda}
+              canEdit={userCanEdit}
+            />
           </Suspense>
         </TabsContent>
 
         {producto.es_conjunto && (
           <TabsContent value="conjunto">
             <Suspense fallback={<TabSkeleton />}>
-              <TabConjuntoAsync productoId={producto.id} canEdit={canEdit} />
+              <TabConjuntoAsync productoId={producto.id} canEdit={userCanEdit} />
             </Suspense>
           </TabsContent>
         )}
       </Tabs>
-
-      {/* ── Footer con fechas ────────────────────────────── */}
-      <Separator />
-      <div className="flex items-center gap-6 text-xs text-muted-foreground">
-        <span>Creado: <Fecha valor={producto.created_at} formato="fecha-hora" /></span>
-        <span>Actualizado: <Fecha valor={producto.updated_at} formato="relativo" /></span>
-      </div>
-    </div>
+    </>
   )
 }
-
-// ═══════════════════════════════════════════════════════════════
-// ASYNC WRAPPERS — Cada uno hace su propia query independiente
-// y se resuelve dentro de su propio <Suspense>
-// ═══════════════════════════════════════════════════════════════
 
 async function TabEcommerceAsync({
   productoId,
@@ -265,30 +281,21 @@ async function TabEcommerceAsync({
   canEdit: boolean
 }) {
   const web = await fetchProductoWeb(productoId)
-  return (
-    <TabEcommerce
-      web={web}
-      productoId={productoId}
-      estado={estado}
-      skuBase={skuBase}
-      tipoPrenda={tipoPrenda}
-      genero={genero}
-      marca={marca}
-      canEdit={canEdit}
-    />
-  )
+  return <TabEcommerce web={web} productoId={productoId} estado={estado} skuBase={skuBase} tipoPrenda={tipoPrenda} genero={genero} marca={marca} canEdit={canEdit} />
 }
 
 async function TabImagenesAsync({
   productoId,
   skuBase,
   canEdit,
+  imagenesPromise,
 }: {
   productoId: number
   skuBase: string
   canEdit: boolean
+  imagenesPromise: ReturnType<typeof fetchImagenesProducto>
 }) {
-  const imagenes = await fetchImagenesProducto(productoId)
+  const imagenes = await imagenesPromise
   return <TabImagenes imagenes={imagenes} productoId={productoId} skuBase={skuBase} canEdit={canEdit} />
 }
 
@@ -299,6 +306,7 @@ async function TabCajasAsync({
   precioEcMxn,
   canEdit,
   canDelete,
+  cajasPromise,
 }: {
   productoId: number
   catalogos: CatalogosEdicion
@@ -306,108 +314,35 @@ async function TabCajasAsync({
   precioEcMxn: number | null
   canEdit: boolean
   canDelete: boolean
+  cajasPromise: ReturnType<typeof fetchCajasProducto>
 }) {
-  const cajas = await fetchCajasProducto(productoId)
-  return (
-    <TabCajas
-      cajas={cajas}
-      productoId={productoId}
-      tallasDisponibles={catalogos.tallas}
-      coloresDisponibles={catalogos.colores}
-      edadNombre={edadNombre}
-      canEdit={canEdit}
-      canDelete={canDelete}
-      precioEcMxn={precioEcMxn}
-    />
-  )
+  const cajas = await cajasPromise
+  return <TabCajas cajas={cajas} productoId={productoId} tallasDisponibles={catalogos.tallas} coloresDisponibles={catalogos.colores} edadNombre={edadNombre} canEdit={canEdit} canDelete={canDelete} precioEcMxn={precioEcMxn} />
 }
 
-async function TabTagsAsync({
-  productoId,
-  catalogos,
-  canEdit,
-}: {
-  productoId: number
-  catalogos: CatalogosEdicion
-  canEdit: boolean
-}) {
+async function TabTagsAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
   const tags = await fetchTagsProducto(productoId)
   return <TabTags tags={tags} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
 }
 
-async function TabComplementosAsync({
-  productoId,
-  catalogos,
-  canEdit,
-}: {
-  productoId: number
-  catalogos: CatalogosEdicion
-  canEdit: boolean
-}) {
+async function TabComplementosAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
   const complementos = await fetchComplementosProducto(productoId)
-  return (
-    <TabComplementos
-      complementos={complementos}
-      productoId={productoId}
-      catalogos={catalogos}
-      canEdit={canEdit}
-    />
-  )
+  return <TabComplementos complementos={complementos} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
 }
 
-async function TabAcabadosAsync({
-  productoId,
-  catalogos,
-  canEdit,
-}: {
-  productoId: number
-  catalogos: CatalogosEdicion
-  canEdit: boolean
-}) {
+async function TabAcabadosAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
   const acabados = await fetchAcabadosProducto(productoId)
-  return (
-    <TabAcabados
-      acabados={acabados}
-      productoId={productoId}
-      catalogos={catalogos}
-      canEdit={canEdit}
-    />
-  )
+  return <TabAcabados acabados={acabados} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
 }
 
-async function TabVariantesAsync({
-  productoId,
-  skuBase,
-  catalogos,
-  canEdit,
-}: {
-  productoId: number
-  skuBase: string
-  catalogos: CatalogosEdicion
-  canEdit: boolean
-}) {
-  const [variantes, cajas] = await Promise.all([
-    fetchVariantesProducto(productoId),
-    fetchCajasProducto(productoId),
-  ])
-  const cajaPrincipal = cajas.find(c => c.es_principal) ?? null
-  return (
-    <TabVariantes
-      variantes={variantes}
-      productoId={productoId}
-      skuBase={skuBase}
-      catalogos={catalogos}
-      cajaPrincipal={cajaPrincipal}
-      canEdit={canEdit}
-    />
-  )
+async function TabVariantesAsync({ productoId, skuBase, catalogos, canEdit, cajasPromise }: { productoId: number; skuBase: string; catalogos: CatalogosEdicion; canEdit: boolean; cajasPromise: ReturnType<typeof fetchCajasProducto> }) {
+  const [variantes, cajas] = await Promise.all([fetchVariantesProducto(productoId), cajasPromise])
+  const cajaPrincipal = cajas.find((caja) => caja.es_principal) ?? null
+  return <TabVariantes variantes={variantes} productoId={productoId} skuBase={skuBase} catalogos={catalogos} cajaPrincipal={cajaPrincipal} canEdit={canEdit} />
 }
 
 async function TabMedidasAsync({ productoId, edadNombre, tipoPrendaNombre, canEdit }: { productoId: number; edadNombre: string | null; tipoPrendaNombre?: string | null; canEdit: boolean }) {
-  const [medidas, puntosMedida] = await Promise.all([
-    fetchMedidasProducto(productoId),
-    fetchPuntosMedida(),
-  ])
+  const [medidas, puntosMedida] = await Promise.all([fetchMedidasProducto(productoId), fetchPuntosMedida()])
   return <TabMedidas medidas={medidas} puntosCat={puntosMedida} productoId={productoId} edadNombre={edadNombre} tipoPrendaNombre={tipoPrendaNombre} canEdit={canEdit} />
 }
 

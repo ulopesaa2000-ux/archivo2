@@ -57,8 +57,7 @@ export function useFilterParams() {
       })
       // Limpiar visualmente los inputs de texto
       inputIds?.forEach((id) => {
-        const el = document.getElementById(id) as HTMLInputElement | null
-        if (el) el.value = ''
+        window.dispatchEvent(new Event(`clear-${id}`))
       })
     },
     [pathname, router]

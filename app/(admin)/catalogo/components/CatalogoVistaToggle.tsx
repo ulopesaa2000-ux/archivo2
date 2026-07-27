@@ -8,11 +8,11 @@ export function CatalogoVistaToggle() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const currentVista = searchParams.get('vista') ?? 'tabla'
+  const currentVista = searchParams.get('vista') ?? 'grid'
 
   const setVista = (vista: 'grid' | 'tabla') => {
     const params = new URLSearchParams(searchParams.toString())
-    if (vista === 'tabla') {
+    if (vista === 'grid') {
       params.delete('vista')
     } else {
       params.set('vista', vista)
