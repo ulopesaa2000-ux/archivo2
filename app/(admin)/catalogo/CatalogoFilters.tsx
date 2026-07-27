@@ -57,7 +57,9 @@ export function CatalogoFilters({
         placeholder="Buscar por SKU o descripción..."
         currentValue={currentQ}
         onSearch={(term) => updateParam('q', term)}
-        delay={500}
+        delay={450}
+        minLength={2}
+        showSubmitButton
         controlled
       />
 

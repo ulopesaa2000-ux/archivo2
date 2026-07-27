@@ -168,7 +168,7 @@ export default async function CatalogoPage({
     order,
   }
 
-  const vista = params.vista === 'grid' ? 'grid' : 'tabla'
+  const vista = params.vista === 'tabla' ? 'tabla' : 'grid'
 
   return (
     <div className="space-y-4">

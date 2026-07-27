@@ -31,18 +31,18 @@ export function CatalogosReadOnlyGrid({ productos }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4">
       {productos.map((producto) => {
         const estadoColor = ESTADO_PRODUCTO_COLORS[producto.estado] ?? 'bg-gray-100 text-gray-800'
 
         return (
           <div
             key={producto.id}
-            className="group relative rounded-xl border bg-card overflow-hidden transition-all duration-200 hover:shadow-md hover:border-primary/20"
+            className="group relative rounded-xl border border-border/60 bg-card overflow-hidden transition-all duration-300 hover:shadow-lg hover:border-primary/40"
           >
             {/* Imagen */}
             <Link href={ADMIN_ROUTES.catalogo.detalle(producto.id)} className="block">
-              <div className="relative aspect-square bg-muted/30 overflow-hidden">
+              <div className="relative aspect-[3/4] bg-muted/40 dark:bg-slate-900/50 overflow-hidden">
                 {producto.imagen_principal ? (
                   <Image
                     src={getSmartImagenUrl(producto.imagen_principal, 'card')}
@@ -57,27 +57,27 @@ export function CatalogosReadOnlyGrid({ productos }: Props) {
                   </div>
                 )}
 
-                {/* Overlay acciones (solo "Ver detalle" para operadores) */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                {/* Overlay acciones (solo "Ver detalle" con alto contraste) */}
+                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 p-2">
                   <div
-                    className="h-9 px-3 text-xs font-medium rounded-md gap-1.5 bg-white/95 text-foreground hover:bg-white flex items-center justify-center shadow-sm"
+                    className="h-8 px-3.5 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:scale-105 active:scale-95"
                   >
-                    <Eye className="h-4 w-4" />
-                    Ver detalle
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>Ver detalle</span>
                   </div>
                 </div>
 
                 {/* Badge destacado */}
                 {producto.destacado && (
-                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400/95 text-amber-900 text-[10px] font-semibold rounded-full px-2 py-0.5 shadow-sm">
-                    <Star className="h-2.5 w-2.5 fill-amber-900" />
+                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400 text-amber-950 text-[10px] font-bold rounded-full px-2 py-0.5 shadow-md border border-amber-300/50">
+                    <Star className="h-2.5 w-2.5 fill-amber-950" />
                     Destacado
                   </div>
                 )}
 
                 {/* Badge es_conjunto */}
                 {producto.es_conjunto && (
-                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-blue-500/95 text-white text-[10px] font-semibold rounded-full px-2 py-0.5 shadow-sm">
+                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-purple-600 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow-md border border-purple-400/30">
                     Conjunto
                   </div>
                 )}
@@ -86,12 +86,12 @@ export function CatalogosReadOnlyGrid({ productos }: Props) {
 
             {/* Info */}
             <div className="p-3 space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <Badge className={cn('text-[10px] font-medium rounded-full px-2 py-0.5', estadoColor)}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge className={cn('text-[10px] font-medium rounded-full px-2 py-0.5 border-none', estadoColor)}>
                   {producto.estado}
                 </Badge>
                 {!producto.activo && (
-                  <Badge variant="outline" className="text-[10px] text-red-500 border-red-200 bg-red-50">
+                  <Badge variant="outline" className="text-[10px] text-red-500 border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40">
                     Inactivo
                   </Badge>
                 )}
@@ -99,7 +99,7 @@ export function CatalogosReadOnlyGrid({ productos }: Props) {
 
               <Link
                 href={ADMIN_ROUTES.catalogo.detalle(producto.id)}
-                className="text-xs font-mono text-primary font-semibold hover:underline block truncate"
+                className="text-xs font-mono font-bold text-foreground hover:text-primary transition-colors block truncate"
               >
                 {producto.sku_base}
               </Link>
@@ -108,12 +108,12 @@ export function CatalogosReadOnlyGrid({ productos }: Props) {
                 {producto.descripcion ?? producto.nombre ?? '—'}
               </div>
 
-              <div className="pt-1 flex items-center justify-between border-t border-muted/50 mt-1">
-                <span className="text-sm font-semibold">
+              <div className="pt-1.5 flex items-center justify-between border-t border-border/50">
+                <span className="text-sm font-bold text-foreground">
                   {producto.precio_ec != null ? formatCurrency(producto.precio_ec) : '—'}
                 </span>
                 {producto.pz_en_caja != null && (
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                  <span className="text-[10px] text-muted-foreground font-medium tabular-nums">
                     {producto.pz_en_caja} pz/caja
                   </span>
                 )}

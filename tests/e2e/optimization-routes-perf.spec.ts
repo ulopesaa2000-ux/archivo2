@@ -29,6 +29,12 @@ function readyLocator(page: Page, ready: Ready) {
 
 const OPTIMIZED_ADMIN_ROUTES: PerfRoute[] = [
   {
+    path: '/catalogo',
+    label: 'catalogo-listado',
+    ready: { type: 'h1', name: /Catálogo/i },
+    timeoutMs: 120_000,
+  },
+  {
     path: '/inventario/stock',
     label: 'inventario-stock',
     ready: {

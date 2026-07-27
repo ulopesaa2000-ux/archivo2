@@ -2,10 +2,12 @@
 'use server'
 
 import { cacheLife, cacheTag } from 'next/cache'
+import { cache } from 'react'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros, CatalogosEdicion,
+  CatalogosHero, CatalogoItem,
   FKDescriptivas, TagResuelto, ComplementoResuelto,
   AcabadoResuelto, VarianteResuelta, MedidaResuelta,
   ConjuntoResuelto, CajaConDetalle, CajaContenidoMap,
@@ -14,6 +16,7 @@ import type {
   ProductoRow, ProductoWebRow, ProductoImagenRow,
   TipoPrendaRow, EdadRow, PersonaRow, MarcaRow, GeneroRow, TelaRow,
 } from '@/lib/types/tables'
+import { buildCatalogoSearchFilter } from './search'
 
 import { getCommercialScope } from '@/lib/dal'
 import { buildCajaContenidoMap } from '@/modules/cajas/utils'
@@ -30,10 +33,12 @@ export async function fetchProductosCatalogo(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  const scope = await getCommercialScope()
+  const [scope, catalogos] = await Promise.all([
+    getCommercialScope(),
+    fetchCatalogosParaFiltros(),
+  ])
 
   // ── Catálogos en paralelo (para filtros y lookup) ─────────
-  const catalogos = await fetchCatalogosParaFiltros()
 
   // ── Query principal ───────────────────────────────────────
   let query = supabase
@@ -59,9 +64,9 @@ export async function fetchProductosCatalogo(
   }
 
   // ── Filtro: búsqueda texto (SKU o descripción) ────────────
-  if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(`sku_base.ilike.${term},descripcion.ilike.${term}`)
+  const searchFilter = buildCatalogoSearchFilter(filtros.q)
+  if (searchFilter) {
+    query = query.or(searchFilter)
   }
 
   // ── Filtro: estado ────────────────────────────────────────
@@ -98,6 +103,7 @@ export async function fetchProductosCatalogo(
   const ascending = filtros.order === 'asc'
   query = query
     .order(sortBy, { ascending })
+    .order('id', { ascending: false })
     .range(from, to)
 
   const { data, count, error } = await query
@@ -165,70 +171,95 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
   }
 }
 
-/**
- * Todos los catálogos de FK necesarios para el formulario de edición
- * del Hero de producto (marca, género, tipo de prenda, edad, telas, personas).
- */
-export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
+/** Catálogos mínimos para pintar el hero y sus selectores de edición. */
+export const fetchCatalogosHero = cache(async (): Promise<CatalogosHero> => {
   const supabase = await createClient()
-
-  const [
-    marcasRes, generosRes, telasRes, tiposRes, edadesRes, personasRes,
-    tiposTagRes, refTagsRes, partesRes, compTiposRes, corteFormasRes, acaTiposRes, acaDetRes, acaPatRes, locaRes,
-    tallasRes, coloresRes
-  ] = await Promise.all([
+  const [marcasRes, generosRes, telasRes, tiposRes, edadesRes, personasRes] = await Promise.all([
     supabase.from('cat_marcas').select('id, nombre').eq('activo', true).order('nombre'),
     supabase.from('cat_generos').select('id, nombre').eq('activo', true).order('nombre'),
     supabase.from('cat_telas').select('id, nombre').order('nombre'),
     supabase.from('cat_tipo_prenda').select('id, nombre').order('nombre'),
     supabase.from('cat_edades').select('id, rango').order('orden'),
     supabase.from('personas').select('id, nombre_completo').order('nombre_completo'),
-
-    // Para Tabs
-    supabase.from('tipo_tag').select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
-    supabase.from('ref_tag').select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
-    supabase.from('parte_prenda_comp').select('id, nombre').order('nombre'),
-    supabase.from('tipo_comp').select('id, nombre, complemento_en').order('nombre'),
-    supabase.from('corte_forma_comp').select('id, nombre, corte_forma_en').order('nombre'),
-    supabase.from('tipo_acabado').select('id, nombre').order('nombre'),
-    supabase.from('detalle_acabado').select('id, nombre').order('nombre'),
-    supabase.from('patron_acabado').select('id, estampado_patron').order('estampado_patron'),
-    supabase.from('localizacion_acabado').select('id, nombre').order('nombre'),
-    supabase.from('cat_tallas').select('id, nombre, codigo').order('orden'),
-    supabase.from('cat_colores').select('id, nombre, codigo').order('nombre'),
   ])
 
-  const mapToCatalogo = (data: any[] | null) => (data ?? []) as any[]
+  return {
+    marcas: (marcasRes.data ?? []) as CatalogoItem[],
+    generos: (generosRes.data ?? []) as CatalogoItem[],
+    telas: (telasRes.data ?? []) as CatalogoItem[],
+    tipos_prenda: (tiposRes.data ?? []) as CatalogoItem[],
+    edades: (edadesRes.data ?? []).map((item: any) => ({
+      id: item.id,
+      nombre: item.rango ?? String(item.id),
+    })),
+    personas: (personasRes.data ?? []).map((item: any) => ({
+      id: item.id,
+      nombre: item.nombre_completo,
+    })),
+  }
+})
+
+export async function resolveFKDescriptivas(
+  producto: ProductoRow,
+  catalogos: CatalogosHero,
+): Promise<FKDescriptivas> {
+  const findName = (items: CatalogoItem[], id: number | null | undefined) =>
+    id == null ? null : items.find((item) => item.id === id)?.nombre ?? null
 
   return {
-    marcas:       mapToCatalogo(marcasRes.data),
-    generos:      mapToCatalogo(generosRes.data),
-    telas:        mapToCatalogo(telasRes.data),
-    tipos_prenda: mapToCatalogo(tiposRes.data),
-    edades: (edadesRes.data ?? []).map((e: any) => ({
-      id: e.id,
-      nombre: e.rango ?? String(e.id),
-    })),
-    personas: (personasRes.data ?? []).map((p: any) => ({
-      id: p.id,
-      nombre: p.nombre_completo,
-    })),
+    marca: findName(catalogos.marcas, producto.marca_id),
+    genero: findName(catalogos.generos, producto.genero_id),
+    edad: findName(catalogos.edades, producto.edad_id),
+    tipo_prenda: findName(catalogos.tipos_prenda, producto.tipo_prenda_id),
+    tela_forro: findName(catalogos.telas, producto.tela_forro_id),
+    tela_exterior: findName(catalogos.telas, producto.tela_ext_id),
+    persona: findName(catalogos.personas, producto.persona_id),
+  }
+}
 
-    tipos_tag:    (tiposTagRes.data ?? []) as { id: number; nombre: string; es_multiple: boolean | null }[],
-    ref_tags:     (refTagsRes.data ?? []) as { id: number; nombre: string; tipo_tag_id: number }[],
-    partes:       mapToCatalogo(partesRes.data),
+/**
+ * Todos los catálogos de FK necesarios para el formulario de edición
+ * del Hero de producto (marca, género, tipo de prenda, edad, telas, personas).
+ */
+export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
+  const supabase = await createClient()
+  const [hero, tabs] = await Promise.all([
+    fetchCatalogosHero(),
+    Promise.all([
+      supabase.from('tipo_tag').select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
+      supabase.from('ref_tag').select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
+      supabase.from('parte_prenda_comp').select('id, nombre').order('nombre'),
+      supabase.from('tipo_comp').select('id, nombre, complemento_en').order('nombre'),
+      supabase.from('corte_forma_comp').select('id, nombre, corte_forma_en').order('nombre'),
+      supabase.from('tipo_acabado').select('id, nombre').order('nombre'),
+      supabase.from('detalle_acabado').select('id, nombre').order('nombre'),
+      supabase.from('patron_acabado').select('id, estampado_patron').order('estampado_patron'),
+      supabase.from('localizacion_acabado').select('id, nombre').order('nombre'),
+      supabase.from('cat_tallas').select('id, nombre, codigo').order('orden'),
+      supabase.from('cat_colores').select('id, nombre, codigo').order('nombre'),
+    ]),
+  ])
+
+  const [tiposTagRes, refTagsRes, partesRes, compTiposRes, corteFormasRes, acaTiposRes, acaDetRes, acaPatRes, locaRes, tallasRes, coloresRes] = tabs
+  const mapToCatalogo = (data: any[] | null) => (data ?? []) as CatalogoItem[]
+
+  return {
+    ...hero,
+    tipos_tag: (tiposTagRes.data ?? []) as { id: number; nombre: string; es_multiple: boolean | null }[],
+    ref_tags: (refTagsRes.data ?? []) as { id: number; nombre: string; tipo_tag_id: number }[],
+    partes: mapToCatalogo(partesRes.data),
     componente_tipos: (compTiposRes.data ?? []) as { id: number; nombre: string; complemento_en: string | null }[],
     corte_formas: (corteFormasRes.data ?? []) as { id: number; nombre: string; corte_forma_en: string | null }[],
-    materiales:   mapToCatalogo(telasRes.data),
-    acabado_tipos:    mapToCatalogo(acaTiposRes.data),
+    materiales: hero.telas,
+    acabado_tipos: mapToCatalogo(acaTiposRes.data),
     acabado_detalles: mapToCatalogo(acaDetRes.data),
-    acabado_patrones: (acaPatRes.data ?? []).map((p: any) => ({
-      id: p.id,
-      nombre: p.estampado_patron ?? 'Sin nombre',
+    acabado_patrones: (acaPatRes.data ?? []).map((item: any) => ({
+      id: item.id,
+      nombre: item.estampado_patron ?? 'Sin nombre',
     })),
-    localizaciones:   mapToCatalogo(locaRes.data),
-    tallas:           (tallasRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
-    colores:          (coloresRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
+    localizaciones: mapToCatalogo(locaRes.data),
+    tallas: (tallasRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
+    colores: (coloresRes.data ?? []) as { id: number; nombre: string; codigo: string }[],
   }
 }
 
@@ -236,9 +267,9 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
 // DETALLE
 // ═══════════════════════════════════════════════════════════════
 
-export async function fetchProductoPorId(
+export const fetchProductoPorId = cache(async (
   id: number
-): Promise<ProductoRow | null> {
+): Promise<ProductoRow | null> => {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('productos')
@@ -252,7 +283,7 @@ export async function fetchProductoPorId(
     ...data,
     cliente_b2b_id: row.cliente_b2b_id ?? null,
   } as unknown as ProductoRow
-}
+})
 
 export async function fetchFKDescriptivas(
   producto: ProductoRow
@@ -334,19 +365,24 @@ export async function fetchCajasProducto(
 
   if (!cajas || cajas.length === 0) return []
 
-  const cajasConDetalle: CajaConDetalle[] = []
+  const { data: detalles } = await supabase
+    .from('caja_detalles')
+    .select(`
+      *,
+      talla:cat_tallas!caja_detalles_talla_id_fkey ( codigo, nombre ),
+      color:cat_colores!caja_detalles_color_id_fkey ( nombre, hex_code )
+    `)
+    .in('caja_id', cajas.map((caja) => caja.id))
 
-  for (const caja of cajas) {
-    const { data: detalles } = await supabase
-      .from('caja_detalles')
-      .select(`
-        *,
-        talla:cat_tallas!caja_detalles_talla_id_fkey ( codigo, nombre ),
-        color:cat_colores!caja_detalles_color_id_fkey ( nombre, hex_code )
-      `)
-      .eq('caja_id', caja.id)
+  const detallesPorCaja = new Map<number, any[]>()
+  for (const detalle of detalles ?? []) {
+    const items = detallesPorCaja.get(detalle.caja_id) ?? []
+    items.push(detalle)
+    detallesPorCaja.set(detalle.caja_id, items)
+  }
 
-    const detallesResueltos = (detalles ?? []).map((d: any) => ({
+  return cajas.map((caja) => {
+    const detallesResueltos = (detallesPorCaja.get(caja.id) ?? []).map((d: any) => ({
       ...d,
       talla_codigo: d.talla?.codigo ?? null,
       talla_nombre: d.talla?.nombre ?? null,
@@ -354,16 +390,12 @@ export async function fetchCajasProducto(
       color_hex: d.color?.hex_code ?? null,
     }))
 
-    const contenidoMap = buildCajaContenidoMap(detallesResueltos)
-
-    cajasConDetalle.push({
+    return {
       ...caja,
       detalles: detallesResueltos,
-      contenidoMap,
-    })
-  }
-
-  return cajasConDetalle
+      contenidoMap: buildCajaContenidoMap(detallesResueltos),
+    }
+  })
 }
 
 
