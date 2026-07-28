@@ -6,8 +6,11 @@ import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
+import { cn } from '@/lib/utils'
 import { BodegaForm } from './BodegaForm'
 import { BodegaUsuarios } from './BodegaUsuarios'
+import { AsignarZonaModal } from './AsignarZonaModal'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Building2, Check, X, Loader2, ShieldCheck } from 'lucide-react'
@@ -24,12 +27,17 @@ function BodegaCard({
   usuarios: Awaited<ReturnType<typeof fetchUsuariosBodega>>
 }) {
   return (
-    <Card>
+    <Card className={bodega.es_matriz ? "border-emerald-500/30 dark:border-emerald-500/20 shadow-sm" : ""}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
+          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
             <span className="font-mono text-sm">{bodega.codigo}</span>
             <span>{bodega.nombre}</span>
+            {bodega.es_matriz && (
+              <Badge variant="default" className="text-[10px] bg-emerald-600 hover:bg-emerald-700">
+                🏛️ Bodega Matriz
+              </Badge>
+            )}
             {bodega.es_virtual && (
               <Badge variant="secondary" className="text-[10px]">Virtual</Badge>
             )}
@@ -43,8 +51,8 @@ function BodegaCard({
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
-            <span className="text-muted-foreground">Ciudad</span>
-            <p>{bodega.ciudad ?? '—'}</p>
+            <span className="text-muted-foreground">Ciudad / Zona</span>
+            <p className="font-medium">{bodega.ciudad ?? '—'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Dirección</span>
@@ -126,7 +134,10 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
           }, {} as Record<string, { bodega: any, index: number }[]>)
         ).sort(([a], [b]) => a.localeCompare(b)).map(([city, items]) => (
           <div key={city} className="space-y-4">
-            <h2 className="text-lg font-semibold border-b pb-2">{city}</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 flex items-center justify-between">
+              <span>{city}</span>
+              <span className="text-xs font-normal text-muted-foreground">{items.length} bodega{items.length !== 1 ? 's' : ''}</span>
+            </h2>
             <div className="grid gap-4">
               {items.map(({ bodega }) => (
                 <BodegaCard
@@ -156,7 +167,7 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
 }
 
 export default async function BodegasPage(props: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+  searchParams: Promise<{ agrupar?: string }>
 }) {
   const searchParams = await props.searchParams
   const agruparPorCiudad = searchParams.agrupar !== 'no'
@@ -173,27 +184,35 @@ export default async function BodegasPage(props: {
     )
   }
 
+  const bodegas = await fetchBodegas()
+  const ciudadesUnicas = Array.from(
+    new Set(bodegas.map((b) => b.ciudad).filter(Boolean))
+  ) as string[]
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bodegas</h1>
           <p className="text-sm text-muted-foreground">
-            Listado de bodegas registradas
+            Gestión de bodegas, designación de Bodega Matriz y asignación de usuarios por zona.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href={agruparPorCiudad ? "?agrupar=no" : "/inventario/bodegas"}>
-              {agruparPorCiudad ? "Quitar agrupación" : "Agrupar por ciudad"}
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild className="border-primary/20 hover:border-primary/40 hover:bg-primary/5">
-            <Link href="/inventario/bodegas/matriz">
-              <ShieldCheck className="h-4 w-4 text-primary" />
-              Matriz de Permisos
-            </Link>
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={agruparPorCiudad ? "?agrupar=no" : "/inventario/bodegas"}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            {agruparPorCiudad ? "Quitar agrupación" : "Agrupar por ciudad"}
+          </Link>
+          <AsignarZonaModal ciudades={ciudadesUnicas} />
+          <Link
+            href="/inventario/bodegas/matriz"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "border-primary/20 hover:border-primary/40 hover:bg-primary/5")}
+          >
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            Matriz de Permisos
+          </Link>
           <BodegaForm mode="create" />
         </div>
       </div>

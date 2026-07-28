@@ -4,6 +4,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can } from './permissions'
 import type { DraftNota, DraftProducto } from './types'
 
 export type ActionResult = {
@@ -44,21 +45,19 @@ export async function guardarNotaAction(
     return { success: false, error: 'Selecciona la bodega de origen.' }
   }
 
-  // ── Validar permisos de bodega si es nivel 3+ ───────────
-  if (user.rol && user.rol.nivel_acceso >= 3) {
-    if (confirmar) {
-      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
-    }
+  // ── Validar permisos dinámicos ───────────────────────────
+  const permCrear = await can(user, 'crear_nota', { bodegaOrigenId: draft.bodega_origen_id })
+  if (!permCrear.ok) {
+    return { success: false, error: permCrear.motivo }
+  }
 
-    const { data: perm } = await supabase
-      .from('usuario_bodegas')
-      .select('puede_crear_notas, puede_confirmar_notas')
-      .eq('usuario_id', user.id)
-      .eq('bodega_id', draft.bodega_origen_id)
-      .single()
-
-    if (!perm || !perm.puede_crear_notas) {
-      return { success: false, error: 'No tienes permiso para registrar notas en esta bodega de origen.' }
+  if (confirmar) {
+    const permConfirmar = await can(user, 'confirmar_nota', {
+      bodegaOrigenId: draft.bodega_origen_id,
+      bodegaDestinoId: draft.bodega_destino_id || undefined,
+    })
+    if (!permConfirmar.ok) {
+      return { success: false, error: permConfirmar.motivo }
     }
   }
 
@@ -391,9 +390,10 @@ export async function confirmarNotaAction(
 
   const supabase = await createClient()
 
-  // ── Validar permisos de bodega si es nivel 3+ ───────────
-  if (user.rol && user.rol.nivel_acceso >= 3) {
-    return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
+  // ── Validar permisos dinámicos ───────────────────────────
+  const permCheck = await can(user, 'confirmar_nota', { notaId })
+  if (!permCheck.ok) {
+    return { success: false, error: permCheck.motivo ?? 'No tienes permisos para confirmar esta nota.' }
   }
 
   // Obtener ID del estado CONF
@@ -562,8 +562,7 @@ export async function crearBodegaAction(
     return { success: false, error: 'Código y nombre son obligatorios.' }
   }
 
-  const { data, error } = await supabase
-    .from('bodegas')
+  const { data: nuevaBodega, error } = await (supabase.from('bodegas') as any)
     .insert({
       codigo,
       nombre,
@@ -571,9 +570,10 @@ export async function crearBodegaAction(
       ciudad: (formData.get('ciudad') as string)?.trim() || null,
       telefono: (formData.get('telefono') as string)?.trim() || null,
       es_virtual: formData.get('es_virtual') === 'true',
+      es_matriz: formData.get('es_matriz') === 'true',
       activa: formData.get('activa') !== 'false',
     })
-    .select('id')
+    .select('id, ciudad, es_matriz')
     .single()
 
   if (error) {
@@ -588,6 +588,14 @@ export async function crearBodegaAction(
     return { success: false, error: error.message }
   }
 
+  // Si se marcó como matriz y tiene ciudad, desmarcar otras bodegas en la misma ciudad
+  if (nuevaBodega?.es_matriz && nuevaBodega.ciudad) {
+    await (supabase.from('bodegas') as any)
+      .update({ es_matriz: false })
+      .eq('ciudad', nuevaBodega.ciudad)
+      .neq('id', nuevaBodega.id)
+  }
+
   revalidatePath('/inventario/bodegas')
   return { success: true }
 }
@@ -600,18 +608,20 @@ export async function actualizarBodegaAction(
 
   const supabase = await createClient()
   const id = parseInt(formData.get('bodega_id') as string)
+  const es_matriz = formData.get('es_matriz') === 'true'
+  const ciudad = (formData.get('ciudad') as string)?.trim() || null
 
   if (!id) return { success: false, error: 'ID de bodega requerido.' }
 
-  const { error } = await supabase
-    .from('bodegas')
+  const { error } = await (supabase.from('bodegas') as any)
     .update({
       codigo: (formData.get('codigo') as string)?.trim(),
       nombre: (formData.get('nombre') as string)?.trim(),
       direccion: (formData.get('direccion') as string)?.trim() || null,
-      ciudad: (formData.get('ciudad') as string)?.trim() || null,
+      ciudad,
       telefono: (formData.get('telefono') as string)?.trim() || null,
       es_virtual: formData.get('es_virtual') === 'true',
+      es_matriz,
       activa: formData.get('activa') !== 'false',
     })
     .eq('id', id)
@@ -622,6 +632,14 @@ export async function actualizarBodegaAction(
       return { success: false, error: `El código "${codigo}" ya existe.` }
     }
     return { success: false, error: error.message }
+  }
+
+  // Si se marcó como matriz y tiene ciudad, desmarcar cualquier otra bodega en la misma ciudad
+  if (es_matriz && ciudad) {
+    await (supabase.from('bodegas') as any)
+      .update({ es_matriz: false })
+      .eq('ciudad', ciudad)
+      .neq('id', id)
   }
 
   revalidatePath('/inventario/bodegas')
@@ -706,6 +724,59 @@ export async function eliminarUsuarioBodegaAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/inventario/bodegas')
+  return { success: true }
+}
+
+/**
+ * Asigna un usuario a TODAS las bodegas de una ciudad/zona específica en lote.
+ */
+export async function asignarUsuarioZonaAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const ciudad = (formData.get('ciudad') as string)?.trim()
+  const usuario_id = parseInt(formData.get('usuario_id') as string)
+  const puede_consultar = formData.get('puede_consultar') === 'true'
+  const puede_crear_notas = formData.get('puede_crear_notas') === 'true'
+  const puede_confirmar_notas = formData.get('puede_confirmar_notas') === 'true'
+  const puede_transferir = formData.get('puede_transferir') === 'true'
+
+  if (!ciudad || !usuario_id) {
+    return { success: false, error: 'Ciudad/Zona y usuario son requeridos.' }
+  }
+
+  // Obtener todas las bodegas activas de esa ciudad
+  const { data: bodegasZona, error: fetchErr } = await supabase
+    .from('bodegas')
+    .select('id')
+    .eq('ciudad', ciudad)
+    .eq('activa', true)
+
+  if (fetchErr || !bodegasZona || bodegasZona.length === 0) {
+    return { success: false, error: `No se encontraron bodegas activas en la ciudad/zona "${ciudad}".` }
+  }
+
+  const upserts = bodegasZona.map((b) => ({
+    bodega_id: b.id,
+    usuario_id,
+    puede_consultar,
+    puede_crear_notas,
+    puede_confirmar_notas,
+    puede_transferir,
+  }))
+
+  const { error } = await supabase
+    .from('usuario_bodegas')
+    .upsert(upserts, { onConflict: 'usuario_id,bodega_id' })
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/inventario/bodegas')
+  revalidatePath('/inventario/bodegas/matriz')
   return { success: true }
 }
 
@@ -969,4 +1040,37 @@ export async function eliminarOcrPropuestaAction(
 
   return { success: true }
 }
+
+/**
+ * Obtiene los detalles de productos para el despliegue FastCheck de una nota.
+ */
+export async function getNotaDetallesAction(notaId: number) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('nota_detalle_productos')
+    .select(`
+      id, producto_id, cajas, piezas_sueltas,
+      producto:productos (
+        id, sku_base, descripcion
+      )
+    `)
+    .eq('nota_id', notaId)
+
+  if (error || !data) {
+    return []
+  }
+
+  return data.map((d: any) => {
+    const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+    return {
+      id: d.id,
+      producto_id: d.producto_id,
+      sku_base: prod?.sku_base ?? '—',
+      descripcion: prod?.descripcion ?? '—',
+      cajas: d.cajas ?? 0,
+      piezas_sueltas: d.piezas_sueltas ?? 0,
+    }
+  })
+}
+
 

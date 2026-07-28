@@ -53,7 +53,9 @@ export type NotaDetalleProductoRow = Tables['nota_detalle_productos']['Row']
 export type InventarioStockRow = Tables['inventario_stock']['Row']
 export type AuditoriaInventarioRow = Tables['auditoria_inventario']['Row']
 export type HistorialEstadoNotaRow = Tables['historial_estados_nota']['Row']
-export type BodegaRow = Tables['bodegas']['Row']
+export type BodegaRow = Tables['bodegas']['Row'] & {
+  es_matriz?: boolean | null
+}
 export type TipoMovimientoRow = Tables['cat_tipos_movimiento']['Row']
 export type EstadoNotaRow = Tables['cat_estados_nota']['Row']
 
