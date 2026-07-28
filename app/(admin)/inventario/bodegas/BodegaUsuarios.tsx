@@ -17,7 +17,10 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -222,19 +225,52 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
                         <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                           No hay usuarios disponibles
                         </div>
-                      ) : (
-                        usuariosParaAsignar.map((u) => (
-                            <SelectItem 
-                              key={u.id} 
-                              value={u.id.toString()}
-                              className="truncate"
-                            >
-                            <span className="truncate block">
-                              {u.nombre_completo ?? u.username} ({u.rol?.nombre ?? 'Sin rol'})
-                            </span>
-                          </SelectItem>
-                        ))
-                      )}
+                      ) : (() => {
+                        const isOperativo = (u: typeof usuariosParaAsignar[number]) => {
+                          const name = u.rol?.nombre ?? ''
+                          return name.includes('Admin Operativo') || name.includes('Encargado') || name.includes('Bodeguero')
+                        }
+                        const operativos = usuariosParaAsignar.filter(isOperativo)
+                        const otros = usuariosParaAsignar.filter(u => !isOperativo(u))
+
+                        return (
+                          <>
+                            {operativos.length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel className="text-[11px] font-bold uppercase tracking-wider text-primary px-2 py-1 bg-primary/5 rounded-sm">
+                                  📦 Personal Operativo (Inventario)
+                                </SelectLabel>
+                                {operativos.map((u) => (
+                                  <SelectItem key={u.id} value={u.id.toString()} className="truncate">
+                                    <span className="truncate block font-medium">
+                                      {u.nombre_completo ?? u.username} ({u.rol?.nombre ?? 'Sin rol'})
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
+
+                            {operativos.length > 0 && otros.length > 0 && (
+                              <SelectSeparator className="my-1" />
+                            )}
+
+                            {otros.length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-2 py-1">
+                                  🛡️ Super Admins & Otros Usuarios
+                                </SelectLabel>
+                                {otros.map((u) => (
+                                  <SelectItem key={u.id} value={u.id.toString()} className="truncate">
+                                    <span className="truncate block text-muted-foreground">
+                                      {u.nombre_completo ?? u.username} ({u.rol?.nombre ?? 'Sin rol'})
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
+                          </>
+                        )
+                      })()}
                     </SelectContent>
                   </Select>
                 )}

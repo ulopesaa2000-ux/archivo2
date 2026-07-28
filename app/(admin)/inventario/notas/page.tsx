@@ -46,14 +46,11 @@ export default async function NotasPage({
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
   let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
 
-  // Restricciones para Nivel 3+ (Encargado y Bodeguero)
-  if (!isSuperAdmin && !isAdminInventario) {
-    if (
-      bodegaActivaId === null || 
-      bodegaActivaId === 0 || 
-      !userBodegas.some(b => b.id === bodegaActivaId)
-    ) {
-      bodegaActivaId = userBodegas[0]?.id ?? null
+  // Verificar la bodega activa de la cookie (0 = "Todas las bodegas por default")
+  if (bodegaActivaId !== null && bodegaActivaId !== 0) {
+    const isAllowed = isSuperAdmin || isAdminInventario || userBodegas.some(b => b.id === bodegaActivaId)
+    if (!isAllowed) {
+      bodegaActivaId = 0 // Caer a "Todas las bodegas" si la bodega guardada ya no es accesible
     }
   }
 
@@ -61,7 +58,7 @@ export default async function NotasPage({
 
   const bodegaOrigenIdParam = sp.bodega_origen_id ? parseInt(sp.bodega_origen_id) : undefined
   const bodegaOrigenIdFiltro = bodegaOrigenIdParam !== undefined 
-    ? bodegaOrigenIdParam 
+    ? (bodegaOrigenIdParam === 0 ? undefined : bodegaOrigenIdParam)
     : (bodegaActivaId && bodegaActivaId !== 0 ? bodegaActivaId : undefined)
   
   const filtros: FiltrosNotas = {
@@ -122,6 +119,7 @@ export default async function NotasPage({
   const features = {
     ...getDefaultFeatures('/inventario/notas'),
     ...tableConfig.config,
+    expandable: true,
   }
 
   return (

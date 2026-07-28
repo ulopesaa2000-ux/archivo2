@@ -129,7 +129,18 @@ export function BodegaForm({ mode, bodega }: Props) {
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="es_matriz"
+                name="es_matriz"
+                value="true"
+                defaultChecked={bodega?.es_matriz ?? false}
+              />
+              <Label htmlFor="es_matriz" className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                🏛️ Bodega Matriz (1 por ciudad)
+              </Label>
+            </div>
             <div className="flex items-center gap-2">
               <Checkbox
                 id="es_virtual"

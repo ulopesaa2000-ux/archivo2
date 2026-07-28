@@ -58,8 +58,8 @@ export function BodegaSelector({
     )
   }
 
-  // Si solo hay una bodega, mostrar como texto fijo
-  if (bodegas.length === 1) {
+  // Si solo hay una bodega y NO está activa la opción "Todas las bodegas", mostrar como texto fijo
+  if (bodegas.length === 1 && !showAllOption) {
     return (
       <div className="flex items-center gap-2">
         <Warehouse className="h-4 w-4 text-muted-foreground" />

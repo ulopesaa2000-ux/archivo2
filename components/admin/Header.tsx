@@ -49,7 +49,7 @@ export function Header({
         {/* ── Bodega selector ─────────────────────────────── */}
         <BodegaSelector 
           bodegas={bodegas} 
-          showAllOption={user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso <= 2} 
+          showAllOption={true} 
         />
 
         {/* ── Spacer ──────────────────────────────────────── */}

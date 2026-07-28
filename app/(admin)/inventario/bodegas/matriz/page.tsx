@@ -5,7 +5,8 @@ import { fetchUsuarios } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
+import { cn } from '@/lib/utils'
 import { MatrizPermisosClient } from './MatrizPermisosClient'
 import { ShieldCheck, ChevronLeft, Building2 } from 'lucide-react'
 
@@ -27,11 +28,12 @@ export default async function MatrizPermisosPage() {
         <p className="text-sm mt-2 text-center max-w-sm px-6">
           No cuentas con los permisos suficientes para gestionar la matriz consolidada de bodegas. Esta sección es exclusiva para Directivos y Jefes de Operación.
         </p>
-        <Button variant="outline" size="sm" className="mt-6" asChild>
-          <Link href="/dashboard">
-            <ChevronLeft className="h-4 w-4 mr-1" /> Volver al Dashboard
-          </Link>
-        </Button>
+        <Link
+          href="/dashboard"
+          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-6')}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" /> Volver al Dashboard
+        </Link>
       </div>
     )
   }
@@ -70,12 +72,13 @@ export default async function MatrizPermisosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/inventario/bodegas">
-              <ChevronLeft className="h-4 w-4" />
-              Regresar a Bodegas
-            </Link>
-          </Button>
+          <Link
+            href="/inventario/bodegas"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Regresar a Bodegas
+          </Link>
         </div>
       </div>
 

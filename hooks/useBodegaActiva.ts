@@ -16,7 +16,7 @@ const COOKIE_NAME = 'bodega_activa_id'
  */
 export function useBodegaActiva(bodegas: BodegaRow[], showAllOption = true) {
   const [bodegaActivaId, setBodegaActivaId] = useState<number | null>(
-    bodegas[0]?.id ?? null
+    showAllOption ? 0 : (bodegas[0]?.id ?? null)
   )
 
   useEffect(() => {
@@ -38,8 +38,8 @@ export function useBodegaActiva(bodegas: BodegaRow[], showAllOption = true) {
       return
     }
 
-    if (bodegas.length > 0) {
-      const fallbackId = bodegas[0].id
+    if (showAllOption || bodegas.length > 0) {
+      const fallbackId = showAllOption ? 0 : bodegas[0].id
       setBodegaActivaId(fallbackId)
       setCookie(fallbackId)
       return
