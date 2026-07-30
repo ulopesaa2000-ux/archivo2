@@ -10,6 +10,10 @@ import { Sparkles, History, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
+import { buttonVariants } from '@/components/ui/button-variants'
+import { cn } from '@/lib/utils'
+import { ChevronLeft } from 'lucide-react'
+
 export const metadata: Metadata = {
   title: 'Propuestas OCR — Inventario',
 }
@@ -23,13 +27,32 @@ export default async function PropuestasOcrPage({
   }>
 }) {
   // 1. Validar sesión
-  await verifySession()
+  const { user } = await verifySession()
+
+  // 2. Restringir acceso exclusivamente a Super Admin Nivel 1
+  if (user.rol?.nivel_acceso !== 1) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground bg-card/40 border border-muted/50 rounded-xl max-w-lg mx-auto shadow-sm">
+        <Sparkles className="h-16 w-16 text-amber-500/50 stroke-[1.5]" />
+        <h2 className="text-xl font-bold mt-4 text-foreground">Acceso Denegado</h2>
+        <p className="text-sm mt-2 text-center max-w-sm px-6">
+          La sección de Propuestas OCR está reservada exclusivamente para la administración general (Super Admin Nivel 1).
+        </p>
+        <Link
+          href="/inventario/notas"
+          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-6')}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" /> Volver a Notas de Inventario
+        </Link>
+      </div>
+    )
+  }
 
   const sp = await searchParams
   const estadoFiltro = sp.estado === 'REVISADO' ? 'REVISADO' : 'PENDIENTE_REVISION'
   const page = sp.page ? parseInt(sp.page, 10) : 1
 
-  // 2. Fetch de datos desde Supabase
+  // 3. Fetch de datos desde Supabase
   const { propuestas, total } = await fetchOcrPropuestas({
     estado: estadoFiltro,
     page,

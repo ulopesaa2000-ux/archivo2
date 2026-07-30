@@ -186,30 +186,32 @@ async function StockPageContent({
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
   let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
 
-  // Restricciones para Bodeguero (nivel > 2)
-  if (user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2) {
-    if (
-      bodegaActivaId === null || 
-      bodegaActivaId === 0 || 
-      !userBodegas.some(b => b.id === bodegaActivaId)
-    ) {
-      bodegaActivaId = userBodegas[0]?.id ?? null
-    }
-  }
+  const isSuperAdmin = user.rol?.nivel_acceso === 1
+  const isAdminInventario = user.rol?.nombre === 'Admin Operativo Inventario'
+  const isRestrictedUser = !isSuperAdmin && !isAdminInventario
 
-  if (bodegaActivaId === null || isNaN(bodegaActivaId)) {
+  // Si es un rol restringido y no tiene bodegas asignadas, mostrar aviso
+  if (isRestrictedUser && userBodegas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <Warehouse className="h-12 w-12" />
-        <p className="text-sm mt-4">Sin bodegas asignadas o no seleccionada.</p>
+        <Warehouse className="h-12 w-12 text-muted-foreground/50" />
+        <p className="text-sm mt-4 font-medium">Sin bodegas asignadas en la matriz de permisos.</p>
       </div>
     )
   }
 
-  // Si es nivel 3, limitar bodegas permitidas a las suyas
-  const bodegasPermitidas = user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
-    ? userBodegas
-    : catalogos.bodegas
+  // Verificar la bodega activa guardada (0 = "Todas las bodegas por default")
+  if (bodegaActivaId !== null && bodegaActivaId !== 0) {
+    const isAllowed = !isRestrictedUser || userBodegas.some(b => b.id === bodegaActivaId)
+    if (!isAllowed) {
+      bodegaActivaId = 0
+    }
+  } else if (bodegaActivaId === null || isNaN(bodegaActivaId)) {
+    bodegaActivaId = 0
+  }
+
+  // Bodegas permitidas para el usuario (para filtros y columnas matriz)
+  const bodegasPermitidas = isRestrictedUser ? userBodegas : catalogos.bodegas
 
   if (bodegaActivaId === 0) {
     const rawBodegas = parseArray(sp.bodegas)

@@ -665,8 +665,25 @@ export async function asignarUsuarioBodegaAction(
     return { success: false, error: 'Bodega y usuario son requeridos.' }
   }
 
-  // Validación de seguridad para Bodeguero
+  // ── Validaciones de seguridad por Rol ────────────────────
   if (user.rol?.nombre === 'Bodeguero') {
+    return { success: false, error: 'Los bodegueros no tienen permiso para asignar usuarios.' }
+  }
+
+  if (user.rol?.nombre === 'Encargado de Bodega') {
+    // 1. Validar que la bodega a asignar sea una de sus bodegas autorizadas
+    const { data: permisoPropio } = await supabase
+      .from('usuario_bodegas')
+      .select('id')
+      .eq('usuario_id', user.id)
+      .eq('bodega_id', bodega_id)
+      .maybeSingle()
+
+    if (!permisoPropio) {
+      return { success: false, error: 'Solo tienes permiso para administrar usuarios en las bodegas que tienes asignadas.' }
+    }
+
+    // 2. Validar que el usuario a asociar sea de rol Bodeguero
     const { data: usuarioAsociado, error: userErr } = await supabase
       .from('usuarios')
       .select(`
@@ -685,7 +702,7 @@ export async function asignarUsuarioBodegaAction(
       : (usuarioAsociado as any).rol?.nombre
 
     if (rolNombreAsociado !== 'Bodeguero') {
-      return { success: false, error: 'Como Bodeguero, solo tienes permisos para asignar bodegas a otros usuarios con rol Bodeguero.' }
+      return { success: false, error: 'Como Encargado de Bodega, solo tienes permiso para asignar usuarios con el rol Bodeguero.' }
     }
   }
 
@@ -715,6 +732,17 @@ export async function eliminarUsuarioBodegaAction(
   if (!user) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
+
+  // Evitar auto-eliminación de permisos de bodega propia
+  const { data: targetAsignacion } = await supabase
+    .from('usuario_bodegas')
+    .select('usuario_id')
+    .eq('id', asignacionId)
+    .maybeSingle()
+
+  if (targetAsignacion && targetAsignacion.usuario_id === user.id) {
+    return { success: false, error: 'No puedes eliminar tus propios permisos de esta bodega.' }
+  }
 
   const { error } = await supabase
     .from('usuario_bodegas')

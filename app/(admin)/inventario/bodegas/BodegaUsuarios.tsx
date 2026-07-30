@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, Trash2, Users, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   asignarUsuarioBodegaAction,
   eliminarUsuarioBodegaAction,
@@ -60,9 +61,11 @@ type PermisosState = {
 type Props = {
   bodegaId: number
   initialUsuarios?: UsuarioBodega[]
+  isEncargado?: boolean
+  currentUserId?: number
 }
 
-export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
+export function BodegaUsuarios({ bodegaId, initialUsuarios, isEncargado = false, currentUserId }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [usuarios, setUsuarios] = useState<UsuarioBodega[]>(initialUsuarios ?? [])
@@ -79,28 +82,44 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
   })
   const [error, setError] = useState<string | null>(null)
 
-  const loadInitialData = useCallback(() => {
-    if (initialUsuarios !== undefined) return
-    fetch(`/api/inventario/bodega-usuarios?bodega_id=${bodegaId}`)
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => setUsuarios(data))
-      .catch(() => { /* ignore */ })
-  }, [bodegaId, initialUsuarios])
-
   useEffect(() => {
-    loadInitialData()
-  }, [loadInitialData])
+    if (initialUsuarios) {
+      setUsuarios(initialUsuarios)
+      setIsLoading(false)
+      return
+    }
+
+    let isMounted = true
+    setIsLoading(true)
+
+    fetch(`/api/inventario/bodega-usuarios?bodega_id=${bodegaId}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: UsuarioBodega[]) => {
+        if (isMounted) {
+          setUsuarios(data)
+          setIsLoading(false)
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('Error cargando usuarios de bodega:', err)
+        if (isMounted) setIsLoading(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [bodegaId, initialUsuarios])
 
   useEffect(() => {
     if (!dialogOpen || usuariosLoaded) return
 
     fetch('/api/inventario/bodegas/usuarios-disponibles')
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => {
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: UsuarioDisponible[]) => {
         setUsuariosDisponibles(data)
         setUsuariosLoaded(true)
       })
-      .catch(() => { /* ignore */ })
+      .catch((err) => console.error('Error cargando usuarios disponibles:', err))
   }, [dialogOpen, usuariosLoaded])
 
   const handleDialogOpenChange = (open: boolean) => {
@@ -115,6 +134,43 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
       })
       setError(null)
     }
+  }
+
+  const handleTogglePermiso = (
+    asignacionId: number,
+    usuarioId: number,
+    campo: keyof PermisosState
+  ) => {
+    const oldUsuarios = [...usuarios]
+
+    setUsuarios((prev) =>
+      prev.map((u) =>
+        u.id === asignacionId
+          ? { ...u, [campo]: !u[campo] }
+          : u
+      )
+    )
+
+    const targetUser = usuarios.find((u) => u.id === asignacionId)
+    if (!targetUser) return
+
+    const formData = new FormData()
+    formData.append('bodega_id', bodegaId.toString())
+    formData.append('usuario_id', usuarioId.toString())
+    formData.append('puede_consultar', campo === 'puede_consultar' ? (!targetUser.puede_consultar).toString() : (targetUser.puede_consultar ?? true).toString())
+    formData.append('puede_crear_notas', campo === 'puede_crear_notas' ? (!targetUser.puede_crear_notas).toString() : (targetUser.puede_crear_notas ?? false).toString())
+    formData.append('puede_confirmar_notas', campo === 'puede_confirmar_notas' ? (!targetUser.puede_confirmar_notas).toString() : (targetUser.puede_confirmar_notas ?? false).toString())
+    formData.append('puede_transferir', campo === 'puede_transferir' ? (!targetUser.puede_transferir).toString() : (targetUser.puede_transferir ?? false).toString())
+
+    startTransition(async () => {
+      const res = await asignarUsuarioBodegaAction(formData)
+      if (!res.success) {
+        toast.error(res.error ?? 'Error al actualizar permisos')
+        setUsuarios(oldUsuarios)
+      } else {
+        toast.success('Permisos actualizados')
+      }
+    })
   }
 
   const handleDelete = (asignacionId: number) => {
@@ -143,9 +199,10 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
     formData.append('puede_transferir', permisos.puede_transferir.toString())
 
     startTransition(async () => {
-      const result = await asignarUsuarioBodegaAction(formData)
-      if (!result.success) {
-        setError(result.error ?? 'Error desconocido.')
+      const res = await asignarUsuarioBodegaAction(formData)
+
+      if (!res.success) {
+        setError(res.error ?? 'Error al asignar usuario.')
         return
       }
 
@@ -169,9 +226,13 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
   }
 
   const assignedUserIds = usuarios.map(u => u.usuario_id)
-  const usuariosParaAsignar = usuariosDisponibles.filter(
-    u => u.activo && !assignedUserIds.includes(u.id)
-  )
+  const usuariosParaAsignar = usuariosDisponibles.filter(u => {
+    if (!u.activo || assignedUserIds.includes(u.id)) return false
+    if (isEncargado) {
+      return u.rol?.nombre === 'Bodeguero'
+    }
+    return true
+  })
 
   return (
     <div className="space-y-2">
@@ -341,26 +402,39 @@ export function BodegaUsuarios({ bodegaId, initialUsuarios }: Props) {
 
       {usuarios.length > 0 ? (
         <div className="rounded border divide-y">
-          {usuarios.map((u) => (
-            <div key={u.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2">
-              <span className="font-medium text-sm min-w-0 truncate">{u.usuario_nombre}</span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {u.puede_consultar && <Badge variant="outline" className="text-[10px]">Consultar</Badge>}
-                {u.puede_crear_notas && <Badge variant="outline" className="text-[10px]">Crear</Badge>}
-                {u.puede_confirmar_notas && <Badge variant="outline" className="text-[10px]">Confirmar</Badge>}
-                {u.puede_transferir && <Badge variant="outline" className="text-[10px]">Transferir</Badge>}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => handleDelete(u.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+          {usuarios.map((u) => {
+            const isSelf = currentUserId !== undefined && u.usuario_id === currentUserId
+            return (
+              <div key={u.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium text-sm truncate">{u.usuario_nombre}</span>
+                  {isSelf && (
+                    <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20 font-medium">
+                      Tú
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {u.puede_consultar && <Badge variant="outline" className="text-[10px]">Consultar</Badge>}
+                  {u.puede_crear_notas && <Badge variant="outline" className="text-[10px]">Crear</Badge>}
+                  {u.puede_confirmar_notas && <Badge variant="outline" className="text-[10px]">Confirmar</Badge>}
+                  {u.puede_transferir && <Badge variant="outline" className="text-[10px]">Transferir</Badge>}
+                  {!isSelf && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(u.id)}
+                      disabled={isPending}
+                      title="Eliminar asignación de usuario"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">Sin usuarios asignados.</p>
