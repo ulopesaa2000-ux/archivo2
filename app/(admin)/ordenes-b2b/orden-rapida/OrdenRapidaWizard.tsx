@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { PersonaRow } from '@/lib/types/tables'
@@ -16,8 +16,27 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
-import { guardarOrdenRapidaB2BAction } from '@/modules/ordenes-b2b/actions'
+import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction } from '@/modules/ordenes-b2b/actions'
+
 
 type ContainerMock = {
   id: number
@@ -550,6 +569,21 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
   const [editableCajas, setEditableCajas] = useState<WizardCaja[]>([])
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
 
+  const [dbSkusSet, setDbSkusSet] = useState<Set<string>>(new Set())
+  const [isCheckingDbSkus, setIsCheckingDbSkus] = useState(false)
+
+  const [deleteProductModal, setDeleteProductModal] = useState<{ open: boolean; index: number; sku: string } | null>(null)
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false)
+  const [newSku, setNewSku] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newMarca, setNewMarca] = useState('')
+  const [newPrecio, setNewPrecio] = useState('')
+
+  const [discrepancyModal, setDiscrepancyModal] = useState<{
+    open: boolean
+    items: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }>
+  } | null>(null)
+
   const resetParsedState = () => {
     setParsedData(null)
     setRawN8nResponse(null)
@@ -558,9 +592,60 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
     setEditableProductos([])
     setEditableCajas([])
     setExpandedProducts(new Set())
+    setDbSkusSet(new Set())
     setProgress(0)
     setProgressMsg('')
   }
+
+  const handleConfirmDeleteProduct = () => {
+    if (!deleteProductModal) return
+    const { sku, index } = deleteProductModal
+    setEditableProductos((prev) => prev.filter((_, i) => i !== index))
+    setEditableCajas((prev) => prev.filter(c => String(c.sku_base || '').trim().toUpperCase() !== sku.toUpperCase()))
+    toast.success(`Producto "${sku}" y sus cajas asociadas fueron eliminados de la revisión.`)
+    setDeleteProductModal(null)
+  }
+
+  const handleAddProduct = () => {
+    const cleanSku = newSku.trim()
+    if (!cleanSku) {
+      toast.error('El SKU base es obligatorio.')
+      return
+    }
+    const skuUpper = cleanSku.toUpperCase()
+    if (editableProductos.some(p => p.sku_base.toUpperCase() === skuUpper)) {
+      toast.error(`El SKU "${cleanSku}" ya existe en la lista.`)
+      return
+    }
+
+    const newProd: WizardProducto = {
+      sku_base: cleanSku,
+      sku_raw: cleanSku,
+      nombre: newDesc.trim() || cleanSku,
+      descripcion: newDesc.trim(),
+      marca: newMarca.trim() || 'General',
+      precio_unitario_usd: Number(newPrecio) || 0,
+      precio_yuan: 0,
+      estado_temporal: 'nuevo_manual',
+      es_nuevo: true,
+    }
+
+    setEditableProductos((prev) => [...prev, newProd])
+    setIsAddProductOpen(false)
+    setNewSku('')
+    setNewDesc('')
+    setNewMarca('')
+    setNewPrecio('')
+
+    verificarSkusEnBDAction([cleanSku]).then((res) => {
+      if (res.success && res.skusExistentes.length > 0) {
+        setDbSkusSet((prev) => new Set([...Array.from(prev), cleanSku.toUpperCase()]))
+      }
+    })
+
+    toast.success(`Producto "${cleanSku}" agregado manualmente.`)
+  }
+
 
   const toggleProduct = (sku: string) => {
     setExpandedProducts((prev) => {
@@ -761,13 +846,52 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
         )
       }
 
+      // Deduplicar productos por SKU base para asegurar 1 sola entrada por SKU
+      const uniqueMap = new Map<string, WizardProducto>()
+      let duplicatesFound = false
+
+      for (const p of wizardData.productos) {
+        const cleanSku = String(p.sku_base || '').trim()
+        if (!cleanSku) continue
+        const key = cleanSku.toUpperCase()
+        if (uniqueMap.has(key)) {
+          duplicatesFound = true
+          const existing = uniqueMap.get(key)!
+          if (!existing.descripcion && p.descripcion) existing.descripcion = p.descripcion
+          if (!existing.nombre && p.nombre) existing.nombre = p.nombre
+        } else {
+          uniqueMap.set(key, { ...p, sku_base: cleanSku })
+        }
+      }
+
+      const deduplicatedProductos = Array.from(uniqueMap.values())
+
+      if (duplicatesFound) {
+        toast.info('Se verificaron los SKUs detectados: las entradas duplicadas fueron unificadas automáticamente para asegurar 1 fila por SKU.')
+      }
+
       setWarnings(wizardData.warnings)
-      setParsedData(wizardData)
-      setEditableProductos(structuredClone(wizardData.productos))
+      setParsedData({ ...wizardData, productos: deduplicatedProductos })
+      setEditableProductos(structuredClone(deduplicatedProductos))
       setEditableCajas(structuredClone(wizardData.cajas))
+
+      // Verificar existencia de SKUs en Supabase DB para resaltado verde
+      const skusToCheck = deduplicatedProductos.map(p => p.sku_base)
+      if (skusToCheck.length > 0) {
+        setIsCheckingDbSkus(true)
+        verificarSkusEnBDAction(skusToCheck).then((res) => {
+          if (res.success && res.skusExistentes) {
+            setDbSkusSet(new Set(res.skusExistentes.map(s => s.toUpperCase())))
+          }
+        }).finally(() => {
+          setIsCheckingDbSkus(false)
+        })
+      }
+
       setProgress(100)
       setProgressMsg('Archivo procesado correctamente.')
       toast.success('Packing List procesado correctamente.')
+
     } catch (error) {
       resetParsedState()
       toast.error(error instanceof Error ? error.message : 'Error desconocido.')
@@ -831,9 +955,41 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
     }
 
     if (step === 3) {
+      if (editableProductos.length === 0) {
+        toast.error('Debe haber al menos un producto en la lista para continuar.')
+        return
+      }
+
+      // Comprobar diferencia entre cantidad esperada del producto y la suma de piezas en cajas
+      const discrepancias: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }> = []
+
+      for (const prod of editableProductos) {
+        const skuUpper = prod.sku_base.trim().toUpperCase()
+        const cajasDelSku = editableCajas.filter(c => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen')
+        const piezasEnCajas = cajasDelSku.reduce((sum, c) => sum + (c.total_piezas || ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0))), 0)
+
+        const jsonInfo = jsonTotalesPorSku.get(prod.sku_base)
+        const piezasEsperadas = jsonInfo?.piezas || Number((prod as any).piezas_pedidas || 0) || 0
+
+        if (piezasEsperadas > 0 && piezasEnCajas > 0 && Math.abs(piezasEsperadas - piezasEnCajas) > 0.01) {
+          discrepancias.push({
+            sku: prod.sku_base,
+            piezasProducto: piezasEsperadas,
+            piezasCajas: piezasEnCajas,
+            diferencia: piezasEnCajas - piezasEsperadas
+          })
+        }
+      }
+
+      if (discrepancias.length > 0) {
+        setDiscrepancyModal({ open: true, items: discrepancias })
+        return
+      }
+
       setStep(4)
       return
     }
+
 
     if (step === 4) {
       handleConfirmReview()
@@ -1119,27 +1275,44 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
 
           {step === 3 && (
             <div className="space-y-6">
-              <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <Database className="h-5 w-5 text-primary" />
                   <h2 className="text-lg font-bold">3. Productos detectados</h2>
+                  {isCheckingDbSkus && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> Verificando catálogo Supabase...
+                    </span>
+                  )}
                 </div>
-                {warnings.length > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-md border border-yellow-200/50 bg-yellow-100/50 px-3 py-1 text-xs text-yellow-800">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    <span>La revision puede continuar aunque existan warnings.</span>
-                  </div>
-                )}
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setIsAddProductOpen(true)}
+                    className="h-8 gap-1.5 border-primary/40 bg-primary/5 text-xs text-primary hover:bg-primary/10 font-bold"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Agregar producto
+                  </Button>
+                  {warnings.length > 0 && (
+                    <div className="flex items-center gap-1.5 rounded-md border border-yellow-200/50 bg-yellow-100/50 px-3 py-1 text-xs text-yellow-800">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span>La revision puede continuar aunque existan warnings.</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-4">
                 <h3 className="flex items-center gap-1 text-sm font-semibold">
-                  <Package className="h-4 w-4 text-primary" /> Revision local de SKUs y descripciones
+                  <Package className="h-4 w-4 text-primary" /> Revision local de SKUs ({editableProductos.length} SKUs unicos)
                 </h3>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50 text-left font-semibold text-muted-foreground">
+                        <th className="p-3">Verificación BD</th>
                         <th className="p-3">SKU base</th>
                         <th className="p-3">Descripcion</th>
                         <th className="p-3">Marca</th>
@@ -1147,43 +1320,77 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                         <th className="p-3">Precio yuan</th>
                         <th className="p-3">Precio USD</th>
                         <th className="p-3">Estado</th>
+                        <th className="p-3 text-center">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {editableProductos.map((producto, index) => (
-                        <tr key={`${producto.sku_base}-${index}`} className="transition-colors hover:bg-accent/30">
-                          <td className="p-3 font-mono text-xs font-bold">{producto.sku_base}</td>
-                          <td className="p-3 font-medium">
-                            <Input
-                              value={producto.descripcion ?? ''}
-                              onChange={(event) => {
-                                const value = event.target.value
-                                setEditableProductos((prev) =>
-                                  prev.map((item, itemIndex) =>
-                                    itemIndex === index ? { ...item, descripcion: value } : item,
-                                  ),
-                                )
-                              }}
-                              className="h-8 max-w-sm text-xs"
-                            />
-                          </td>
-                          <td className="p-3 text-xs">{producto.marca || 'Sin marca'}</td>
-                          <td className="p-3 text-xs">{producto.composicion || 'Sin composicion'}</td>
-                          <td className="p-3 font-mono text-xs">{toNumber(producto.precio_yuan).toFixed(2)}</td>
-                          <td className="p-3 font-mono text-xs">{toNumber(producto.precio_unitario_usd).toFixed(2)} USD</td>
-                          <td className="p-3">
-                            <Badge variant="outline" className="font-bold">
-                              {producto.estado_temporal ?? (producto.es_nuevo ? 'pendiente_revision' : 'detectado')}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
+                      {editableProductos.map((producto, index) => {
+                        const existsInDb = dbSkusSet.has(producto.sku_base.trim().toUpperCase())
+                        return (
+                          <tr
+                            key={`${producto.sku_base}-${index}`}
+                            className={`transition-colors ${
+                              existsInDb
+                                ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-l-4 border-l-emerald-500 hover:bg-emerald-100/60'
+                                : 'hover:bg-accent/30'
+                            }`}
+                          >
+                            <td className="p-3">
+                              {existsInDb ? (
+                                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] gap-1 shadow-sm">
+                                  <CheckCircle2 className="h-3 w-3" /> En Catálogo
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-amber-300 bg-amber-50/80 text-amber-800 dark:bg-amber-950/40 text-[10px] font-semibold">
+                                  Nuevo / No registrado
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="p-3 font-mono text-xs font-bold">{producto.sku_base}</td>
+                            <td className="p-3 font-medium">
+                              <Input
+                                value={producto.descripcion ?? ''}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setEditableProductos((prev) =>
+                                    prev.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, descripcion: value } : item,
+                                    ),
+                                  )
+                                }}
+                                className="h-8 max-w-sm text-xs bg-background/80"
+                              />
+                            </td>
+                            <td className="p-3 text-xs">{producto.marca || 'Sin marca'}</td>
+                            <td className="p-3 text-xs">{producto.composicion || 'Sin composicion'}</td>
+                            <td className="p-3 font-mono text-xs">{toNumber(producto.precio_yuan).toFixed(2)}</td>
+                            <td className="p-3 font-mono text-xs">{toNumber(producto.precio_unitario_usd).toFixed(2)} USD</td>
+                            <td className="p-3">
+                              <Badge variant="outline" className="font-bold text-[10px]">
+                                {producto.estado_temporal ?? (producto.es_nuevo ? 'pendiente_revision' : 'detectado')}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteProductModal({ open: true, index, sku: producto.sku_base })}
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                title="Eliminar producto de la revision"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             </div>
           )}
+
 
           {step === 4 && (
             <div className="space-y-6">
@@ -1504,6 +1711,151 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
           </Button>
         </div>
       )}
+
+      {/* Modal 1: Confirmación de eliminación de producto */}
+      <AlertDialog open={Boolean(deleteProductModal)} onOpenChange={(open) => !open && setDeleteProductModal(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> ¿Eliminar producto de la revisión?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de eliminar el producto <strong className="font-mono text-foreground">{deleteProductModal?.sku}</strong> de esta revisión?
+              Esta acción también removerá las cajas asociadas a este SKU.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteProduct}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-bold"
+            >
+              Sí, eliminar producto
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal 2: Agregar nuevo producto manualmente */}
+      <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" /> Agregar nuevo producto
+            </DialogTitle>
+            <DialogDescription>
+              Ingresa los datos del producto para añadirlo a la lista de revisión.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="add-sku" className="text-xs font-bold">SKU Base *</Label>
+              <Input
+                id="add-sku"
+                placeholder="Ej: K24-MOD-01"
+                value={newSku}
+                onChange={(e) => setNewSku(e.target.value)}
+                className="h-9 font-mono uppercase"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="add-desc" className="text-xs font-bold">Descripción</Label>
+              <Input
+                id="add-desc"
+                placeholder="Ej: Playera estampada caballero"
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+                className="h-9"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="add-marca" className="text-xs font-bold">Marca</Label>
+                <Input
+                  id="add-marca"
+                  placeholder="Ej: MOTY"
+                  value={newMarca}
+                  onChange={(e) => setNewMarca(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="add-precio" className="text-xs font-bold">Precio USD</Label>
+                <Input
+                  id="add-precio"
+                  type="number"
+                  step="0.01"
+                  placeholder="Ej: 5.50"
+                  value={newPrecio}
+                  onChange={(e) => setNewPrecio(e.target.value)}
+                  className="h-9 font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>Cancelar</Button>
+            <Button onClick={handleAddProduct} className="gap-1 font-bold">
+              <Plus className="h-4 w-4" /> Guardar producto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal 3: Alerta de discrepancia de cantidades antes de pasar a Cajas */}
+      <AlertDialog open={Boolean(discrepancyModal?.open)} onOpenChange={(open) => !open && setDiscrepancyModal(null)}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+              Diferencia detectada en cantidades (Productos vs Cajas)
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <p>
+                  Se encontraron diferencias entre la cantidad total de piezas del producto y el total físico desglosado en las cajas:
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-md border border-amber-200/80 bg-amber-50/60 p-3 space-y-2">
+                  {discrepancyModal?.items.map((item) => (
+                    <div key={item.sku} className="flex flex-col border-b border-amber-200/60 pb-1.5 last:border-0 last:pb-0">
+                      <span className="font-mono font-bold text-amber-900">{item.sku}</span>
+                      <div className="flex justify-between text-[11px] text-amber-800">
+                        <span>Piezas esperadas: <strong>{item.piezasProducto.toLocaleString()}</strong> pzs</span>
+                        <span>En Cajas: <strong>{item.piezasCajas.toLocaleString()}</strong> pzs</span>
+                        <span className={item.diferencia > 0 ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>
+                          ({item.diferencia > 0 ? `+${item.diferencia}` : item.diferencia} pzs)
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] italic">
+                  ¿Deseas regresar a revisar los datos o continuar a la sección de cajas de todos modos?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel onClick={() => setDiscrepancyModal(null)}>
+              Revisar y corregir
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDiscrepancyModal(null)
+                setStep(4)
+              }}
+              className="bg-amber-600 text-white hover:bg-amber-700 font-bold"
+            >
+              Continuar a Cajas de todos modos
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
+

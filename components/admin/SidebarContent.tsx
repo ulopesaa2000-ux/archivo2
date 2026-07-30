@@ -140,7 +140,15 @@ export function SidebarContent({
       }
       return {
         ...group,
-        items: group.items.filter((item) => can(user, item.modulo, 'puede_leer')),
+        items: group.items.filter((item) => {
+          if (item.href === ADMIN_ROUTES.inventario.notaPropuestas && user?.rol?.nivel_acceso !== 1) {
+            return false
+          }
+          if (item.href === ADMIN_ROUTES.inventario.bodegas && user?.rol?.nombre === 'Bodeguero') {
+            return false
+          }
+          return can(user, item.modulo, 'puede_leer')
+        }),
       }
     })
     .filter((group) => group.items.length > 0)

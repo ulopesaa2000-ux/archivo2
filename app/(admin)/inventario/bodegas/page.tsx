@@ -2,7 +2,7 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { fetchBodegas, fetchUsuariosBodega, fetchUsuariosBodegasMap } from '@/modules/inventario/queries'
-import { getCurrentUser } from '@/modules/auth/queries'
+import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,8 @@ import { BodegaUsuarios } from './BodegaUsuarios'
 import { AsignarZonaModal } from './AsignarZonaModal'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Check, X, Loader2, ShieldCheck } from 'lucide-react'
+import { Building2, Check, X, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react'
+import type { BodegaRow } from '@/lib/types/tables'
 
 export const metadata: Metadata = {
   title: 'Bodegas',
@@ -22,9 +23,15 @@ export const metadata: Metadata = {
 function BodegaCard({
   bodega,
   usuarios,
+  canEdit = true,
+  isEncargado = false,
+  currentUserId,
 }: {
-  bodega: Awaited<ReturnType<typeof fetchBodegas>>[number]
+  bodega: BodegaRow
   usuarios: Awaited<ReturnType<typeof fetchUsuariosBodega>>
+  canEdit?: boolean
+  isEncargado?: boolean
+  currentUserId?: number
 }) {
   return (
     <Card className={bodega.es_matriz ? "border-emerald-500/30 dark:border-emerald-500/20 shadow-sm" : ""}>
@@ -45,7 +52,7 @@ function BodegaCard({
               <Badge variant="destructive" className="text-[10px]">Inactiva</Badge>
             )}
           </CardTitle>
-          <BodegaForm mode="edit" bodega={bodega} />
+          {canEdit && <BodegaForm mode="edit" bodega={bodega} />}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -80,7 +87,7 @@ function BodegaCard({
             Cargando usuarios...
           </div>
         }>
-          <BodegaUsuarios bodegaId={bodega.id} initialUsuarios={usuarios} />
+          <BodegaUsuarios bodegaId={bodega.id} initialUsuarios={usuarios} isEncargado={isEncargado} currentUserId={currentUserId} />
         </Suspense>
       </CardContent>
     </Card>
@@ -118,9 +125,29 @@ function BodegasSkeleton() {
   )
 }
 
-async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) {
-  const bodegas = await fetchBodegas()
+async function BodegasList({
+  bodegas,
+  agruparPorCiudad,
+  canEdit = true,
+  isEncargado = false,
+  currentUserId,
+}: {
+  bodegas: BodegaRow[]
+  agruparPorCiudad: boolean
+  canEdit?: boolean
+  isEncargado?: boolean
+  currentUserId?: number
+}) {
   const usuariosPorBodega = await fetchUsuariosBodegasMap(bodegas.map((bodega) => bodega.id))
+
+  if (bodegas.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-card/40 border border-muted/50 rounded-xl">
+        <Building2 className="h-12 w-12 text-muted-foreground/40" />
+        <p className="text-sm font-medium mt-4">No tienes bodegas asignadas en la matriz de permisos.</p>
+      </div>
+    )
+  }
 
   if (agruparPorCiudad) {
     return (
@@ -131,7 +158,7 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
             if (!acc[city]) acc[city] = []
             acc[city].push({ bodega, index })
             return acc
-          }, {} as Record<string, { bodega: any, index: number }[]>)
+          }, {} as Record<string, { bodega: BodegaRow, index: number }[]>)
         ).sort(([a], [b]) => a.localeCompare(b)).map(([city, items]) => (
           <div key={city} className="space-y-4">
             <h2 className="text-lg font-semibold border-b pb-2 flex items-center justify-between">
@@ -144,6 +171,9 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
                   key={bodega.id}
                   bodega={bodega}
                   usuarios={usuariosPorBodega.get(bodega.id) ?? []}
+                  canEdit={canEdit}
+                  isEncargado={isEncargado}
+                  currentUserId={currentUserId}
                 />
               ))}
             </div>
@@ -160,6 +190,9 @@ async function BodegasList({ agruparPorCiudad }: { agruparPorCiudad: boolean }) 
           key={bodega.id}
           bodega={bodega}
           usuarios={usuariosPorBodega.get(bodega.id) ?? []}
+          canEdit={canEdit}
+          isEncargado={isEncargado}
+          currentUserId={currentUserId}
         />
       ))}
     </div>
@@ -175,16 +208,36 @@ export default async function BodegasPage(props: {
   const user = await getCurrentUser()
   if (!user) redirect('/login')
 
-  if ((user.rol?.nivel_acceso ?? 99) > 2) {
+  const isSuperAdmin = user.rol?.nivel_acceso === 1
+  const isAdminInventario = user.rol?.nombre === 'Admin Operativo Inventario'
+  const isAdmin = isSuperAdmin || isAdminInventario
+  const isEncargado = user.rol?.nombre === 'Encargado de Bodega'
+  const isBodeguero = user.rol?.nombre === 'Bodeguero'
+
+  // Prohibición estricta para Bodegueros o usuarios sin permisos
+  if (isBodeguero || (!isAdmin && !isEncargado)) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <Building2 className="h-12 w-12" />
-        <p className="text-sm mt-4">No tienes permisos para gestionar bodegas.</p>
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground bg-card/40 border border-muted/50 rounded-xl max-w-lg mx-auto shadow-sm">
+        <ShieldAlert className="h-16 w-16 text-amber-500/50 stroke-[1.5]" />
+        <h2 className="text-xl font-bold mt-4 text-foreground">Acceso Denegado</h2>
+        <p className="text-sm mt-2 text-center max-w-sm px-6">
+          No cuentas con permisos para acceder a la gestión de bodegas. Esta sección está reservada exclusivamente para Administradores y Encargados de Bodega.
+        </p>
+        <Link
+          href="/inventario/notas"
+          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-6')}
+        >
+          Ver Notas de Inventario
+        </Link>
       </div>
     )
   }
 
-  const bodegas = await fetchBodegas()
+  // Cargar bodegas permitidas: Admins ven todas; Encargados ven únicamente sus bodegas asignadas
+  const bodegas = isAdmin 
+    ? await fetchBodegas() 
+    : await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+
   const ciudadesUnicas = Array.from(
     new Set(bodegas.map((b) => b.ciudad).filter(Boolean))
   ) as string[]
@@ -195,7 +248,9 @@ export default async function BodegasPage(props: {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bodegas</h1>
           <p className="text-sm text-muted-foreground">
-            Gestión de bodegas, designación de Bodega Matriz y asignación de usuarios por zona.
+            {isAdmin 
+              ? 'Gestión unificada de bodegas, designación de Bodega Matriz y asignación de usuarios.'
+              : 'Administración de usuarios asignados en tus sucursales permitidas.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -205,20 +260,32 @@ export default async function BodegasPage(props: {
           >
             {agruparPorCiudad ? "Quitar agrupación" : "Agrupar por ciudad"}
           </Link>
-          <AsignarZonaModal ciudades={ciudadesUnicas} />
-          <Link
-            href="/inventario/bodegas/matriz"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "border-primary/20 hover:border-primary/40 hover:bg-primary/5")}
-          >
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            Matriz de Permisos
-          </Link>
-          <BodegaForm mode="create" />
+
+          {/* Acciones exclusivas para Administradores */}
+          {isAdmin && (
+            <>
+              <AsignarZonaModal ciudades={ciudadesUnicas} />
+              <Link
+                href="/inventario/bodegas/matriz"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "border-primary/20 hover:border-primary/40 hover:bg-primary/5")}
+              >
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                Matriz de Permisos
+              </Link>
+              <BodegaForm mode="create" />
+            </>
+          )}
         </div>
       </div>
 
       <Suspense fallback={<BodegasSkeleton />}>
-        <BodegasList agruparPorCiudad={agruparPorCiudad} />
+        <BodegasList 
+          bodegas={bodegas}
+          agruparPorCiudad={agruparPorCiudad} 
+          canEdit={isAdmin}
+          isEncargado={isEncargado}
+          currentUserId={user.id}
+        />
       </Suspense>
     </div>
   )

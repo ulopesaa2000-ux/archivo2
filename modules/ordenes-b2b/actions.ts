@@ -979,3 +979,24 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   revalidatePath('/ordenes-b2b')
   return { success: true, id: ordenId }
 }
+
+export async function verificarSkusEnBDAction(skus: string[]): Promise<{ success: boolean; skusExistentes: string[] }> {
+  if (!skus || skus.length === 0) return { success: true, skusExistentes: [] }
+  const supabase = await createClient()
+  const cleanSkus = Array.from(new Set(skus.map(s => String(s).trim()).filter(Boolean)))
+  if (cleanSkus.length === 0) return { success: true, skusExistentes: [] }
+
+  const { data, error } = await supabase
+    .from('productos')
+    .select('sku_base')
+    .in('sku_base', cleanSkus)
+
+  if (error) {
+    console.error('Error al verificar SKUs en BD:', error)
+    return { success: false, skusExistentes: [] }
+  }
+
+  const skusExistentes = (data || []).map((p: { sku_base: string }) => p.sku_base)
+  return { success: true, skusExistentes }
+}
+
