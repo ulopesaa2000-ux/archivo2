@@ -291,9 +291,40 @@ export async function fetchProductosWebPublicos(
   if (filtros.tipo_prenda_id) {
     query = query.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
   }
+  if (filtros.genero) {
+    const g = filtros.genero.toLowerCase()
+    if (g.includes('dama') || g.includes('mujer')) {
+      query = query.eq('productos.genero_id', 1) // 1 = Mujer
+    } else if (g.includes('caballero') || g.includes('hombre')) {
+      query = query.eq('productos.genero_id', 2) // 2 = Hombre
+    } else if (g.includes('unisex')) {
+      query = query.eq('productos.genero_id', 3) // 3 = Unisex
+    }
+  }
+  if (filtros.tipo) {
+    const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
+    if (t.includes('chamarr')) {
+      query = query.eq('productos.tipo_prenda_id', 5) // CHAMARRA
+    } else if (t.includes('rompeviento')) {
+      query = query.eq('productos.tipo_prenda_id', 11) // ROMPEVIENTOS
+    } else if (t.includes('chaleco')) {
+      query = query.eq('productos.tipo_prenda_id', 4) // CHALECO
+    } else if (t.includes('set') || t.includes('conjunto') || t.includes('deportivo')) {
+      query = query.eq('productos.tipo_prenda_id', 13) // SET
+    } else if (t.includes('sueter') || t.includes('suéter')) {
+      query = query.eq('productos.tipo_prenda_id', 16) // SUETER
+    } else if (t.includes('sudadera')) {
+      query = query.eq('productos.tipo_prenda_id', 15) // SUDADERA
+    } else if (t.includes('abrigo')) {
+      query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
+    } else {
+      const term = `%${t}%`
+      query = query.or(`productos.nombre.ilike.${term},productos.sku_base.ilike.${term}`)
+    }
+  }
   if (filtros.q) {
     const term = `%${filtros.q}%`
-    query = query.or(`slug.ilike.${term},productos.nombre.ilike.${term}`)
+    query = query.or(`slug.ilike.${term},productos.nombre.ilike.${term},productos.sku_base.ilike.${term}`)
   }
 
   query = query

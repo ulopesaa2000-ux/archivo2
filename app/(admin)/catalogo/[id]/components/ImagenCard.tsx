@@ -25,6 +25,7 @@ import {
   deleteImagenAction,
 } from '@/modules/catalogo/actions'
 import { toast } from 'sonner'
+import { ProductImageViewer } from './ProductImageViewer'
 import type { ProductoImagenRow } from '@/lib/types/tables'
 import type { UsoImagen } from '@/lib/types/tables'
 import { USO_IMAGEN_LABELS, USO_IMAGEN_COLORS, USO_OPTIONS } from './imagenesConstants'
@@ -148,7 +149,7 @@ export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardPro
                   e.stopPropagation()
                   setShowZoomModal(true)
                 }}
-                title="Ver en grande"
+                title="Ver en grande y hacer zoom"
               >
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
@@ -179,12 +180,12 @@ export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardPro
                   <Button
                     size="icon"
                     variant="secondary"
-                    className="h-8 w-8 bg-white/90 shadow"
+                    className="h-8 w-8 bg-white/90 text-slate-800 hover:bg-white shadow"
                     onClick={(e) => {
                       e.stopPropagation()
                       setIsEditing(true)
                     }}
-                    title="Editar metadatos"
+                    title="Editar datos de imagen"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -193,7 +194,7 @@ export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardPro
                   <Button
                     size="icon"
                     variant="destructive"
-                    className="h-8 w-8 shadow"
+                    className="h-8 w-8 bg-red-600/90 hover:bg-red-600 text-white shadow"
                     onClick={(e) => {
                       e.stopPropagation()
                       setShowDeleteModal(true)
@@ -207,116 +208,94 @@ export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardPro
             </div>
           )}
 
-          {/* Badge principal — top-left */}
-          {imagen.es_principal && (
-            <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400/95 text-amber-900 text-[10px] font-semibold rounded-full px-2 py-0.5 shadow-sm">
-              <Star className="h-2.5 w-2.5 fill-amber-900" />
-              Principal
-            </div>
-          )}
+          {/* Badges superiores */}
+          <div className="absolute top-2 left-2 flex flex-col gap-1 pointer-events-none">
+            {imagen.es_principal && (
+              <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow flex items-center gap-1">
+                ★ Principal
+              </span>
+            )}
+            <span className={cn('text-white text-[9px] font-medium px-2 py-0.5 rounded-full shadow', usoBadgeColor)}>
+              {USO_IMAGEN_LABELS[imagen.uso_imagen as UsoImagen] ?? imagen.uso_imagen}
+            </span>
+          </div>
 
-          {/* Badge URL Externa — top-right (solo si origen es externo) */}
-          {imagen.origen_imagen === 'url_externa' && (
-            <div className="absolute top-2 right-2 flex items-center gap-1 bg-orange-500/90 text-white text-[10px] font-semibold rounded-full px-2 py-0.5 shadow-sm">
-              <Link2 className="h-2.5 w-2.5" />
-              URL
-            </div>
-          )}
+          {/* Orden badge */}
+          <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded pointer-events-none">
+            #{imagen.orden}
+          </div>
         </div>
 
-        {/* ── Footer normal ────────────────────────────── */}
-        {!isEditing && (
-          <div className="p-2.5 space-y-1.5">
-            <div className="flex items-center gap-1">
-              <span className={cn('text-[10px] text-white font-medium rounded-full px-2 py-0.5 leading-none', usoBadgeColor)}>
-                {USO_IMAGEN_LABELS[imagen.uso_imagen as UsoImagen] ?? imagen.uso_imagen}
-              </span>
-            </div>
+        {/* ── Footer datos ───────────────────────────────── */}
+        {!isEditing ? (
+          <div className="p-2.5 text-xs space-y-1 bg-card">
+            <p className="font-medium text-foreground truncate" title={imagen.alt_text ?? ''}>
+              {imagen.alt_text || <span className="text-muted-foreground italic">Sin texto alternativo</span>}
+            </p>
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span className="truncate max-w-[80%]" title={imagen.alt_text ?? undefined}>
-                {imagen.alt_text
-                  ? imagen.alt_text
-                  : <span className="opacity-40 italic">Sin alt text</span>
-                }
-              </span>
-              <span className="shrink-0 tabular-nums">#{imagen.orden}</span>
+              <span className="capitalize">{imagen.origen_imagen?.replace('_', ' ') ?? 'storage'}</span>
             </div>
           </div>
-        )}
+        ) : (
+          /* Modo Edición en Card */
+          <div className="p-3 space-y-2.5 bg-muted/20 border-t text-xs">
+            <div className="space-y-1">
+              <Label className="text-[11px]">Alt text</Label>
+              <Input
+                value={editAltText}
+                onChange={(e) => setEditAltText(e.target.value)}
+                placeholder="Descripción de la imagen"
+                className="h-7 text-xs"
+              />
+            </div>
 
-        {/* ── Form de edición inline ─────────────────── */}
-        {isEditing && (
-          <div className="p-3 space-y-2.5 bg-muted/30 border-t">
-            <div className="grid gap-1.5">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground">
-                Tipo de uso
-              </Label>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Uso</Label>
               <Select value={editUso} onValueChange={(v) => setEditUso(v as UsoImagen)}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="h-7 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {USO_OPTIONS.map((u) => (
-                    <SelectItem key={u} value={u} className="text-xs">
-                      {USO_IMAGEN_LABELS[u]}
+                  {USO_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={opt} className="text-xs">
+                      {USO_IMAGEN_LABELS[opt]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2 grid gap-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">
-                  Alt text
-                </Label>
-                <Input
-                  className="h-8 text-xs"
-                  value={editAltText}
-                  onChange={(e) => setEditAltText(e.target.value)}
-                  placeholder="Descripción de la imagen"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">
-                  Orden
-                </Label>
-                <Input
-                  className="h-8 text-xs"
-                  type="number"
-                  min={0}
-                  value={editOrden}
-                  onChange={(e) => setEditOrden(Number(e.target.value))}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Orden</Label>
+              <Input
+                type="number"
+                value={editOrden}
+                onChange={(e) => setEditOrden(Number(e.target.value))}
+                className="h-7 text-xs"
+              />
             </div>
 
-            {/* URL editable solo para imágenes externas */}
             {imagen.origen_imagen === 'url_externa' && (
-              <div className="grid gap-1.5">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
-                  <Link2 className="h-3 w-3" /> URL de imagen
-                </Label>
+              <div className="space-y-1">
+                <Label className="text-[11px]">URL</Label>
                 <Input
-                  className="h-8 text-xs font-mono"
                   value={editUrl}
                   onChange={(e) => setEditUrl(e.target.value)}
                   placeholder="https://..."
+                  className="h-7 text-xs"
                 />
               </div>
             )}
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-1 justify-end">
               <Button
                 size="sm"
-                className="h-7 text-xs flex-1 gap-1"
+                variant="default"
+                className="h-7 text-xs px-3"
                 onClick={handleSaveEdit}
                 disabled={isEditPending}
               >
-                {isEditPending
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <Check className="h-3 w-3" />
-                }
+                {isEditPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
                 Guardar
               </Button>
               <Button
@@ -343,24 +322,21 @@ export function ImagenCard({ imagen, productoId, canEdit = true }: ImagenCardPro
         elementName={imagen.alt_text ?? imagen.uso_imagen ?? `Imagen #${imagen.id}`}
       />
 
-      {/* ── Modal Lightbox de Imagen Ampliada ─────────────────── */}
+      {/* ── Modal Lightbox de Imagen Ampliada con Zoom Interactivo ─────────── */}
       {imagen.url && (
         <Dialog open={showZoomModal} onOpenChange={setShowZoomModal}>
           <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] max-h-[92vh] p-4 flex flex-col items-center justify-center bg-black/95 border-none text-white overflow-hidden">
             <DialogHeader className="w-full flex flex-row items-center justify-between border-b border-white/10 pb-2 mb-2">
               <DialogTitle className="text-sm font-mono font-bold text-white flex items-center gap-2">
-                <span>{imagen.uso_imagen}</span>
+                <span>{USO_IMAGEN_LABELS[imagen.uso_imagen as UsoImagen] ?? imagen.uso_imagen}</span>
                 <span className="text-xs text-white/60 font-normal">({imagen.alt_text ?? `Imagen #${imagen.id}`})</span>
               </DialogTitle>
             </DialogHeader>
             <div className="relative w-full h-[78vh] flex items-center justify-center overflow-hidden">
-              <Image
+              <ProductImageViewer
                 src={imagen.url}
                 alt={imagen.alt_text ?? imagen.uso_imagen}
-                fill
-                className="object-contain"
-                sizes="90vw"
-                priority
+                sku={imagen.alt_text ?? `Imagen #${imagen.id}`}
               />
             </div>
           </DialogContent>
