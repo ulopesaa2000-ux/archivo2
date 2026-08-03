@@ -3,7 +3,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, Menu, X, LogOut, LayoutDashboard, User } from 'lucide-react'
+import { ShoppingCart, Menu, X, LogOut, LayoutDashboard, User, ChevronDown } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { signOut } from '@/modules/auth/actions'
@@ -24,11 +24,23 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
-  const menuItems = [
-    { name: 'Mujeres', href: '/shop?cat=mujeres' },
-    { name: 'Hombres', href: '/shop?cat=hombres' },
-    { name: 'Accesorios', href: '/shop?cat=accesorios' },
-    { name: 'Ofertas', href: '/shop?ofertas=true' },
+  const damaSubcategories = [
+    { name: 'Todas las prendas de Dama', href: '/shop?genero=dama' },
+    { name: 'Chamarras', href: '/shop?genero=dama&tipo=chamarras' },
+    { name: 'Rompevientos', href: '/shop?genero=dama&tipo=rompevientos' },
+    { name: 'Chalecos', href: '/shop?genero=dama&tipo=chalecos' },
+    { name: 'Conjuntos Deportivos', href: '/shop?genero=dama&tipo=sets-deportivos' },
+    { name: 'Suéter', href: '/shop?genero=dama&tipo=sueter' },
+    { name: 'Sudaderas', href: '/shop?genero=dama&tipo=sudaderas' },
+    { name: 'Abrigos', href: '/shop?genero=dama&tipo=abrigos' },
+  ]
+
+  const caballeroSubcategories = [
+    { name: 'Todas las prendas de Caballero', href: '/shop?genero=caballero' },
+    { name: 'Rompevientos', href: '/shop?genero=caballero&tipo=rompevientos' },
+    { name: 'Chamarras', href: '/shop?genero=caballero&tipo=chamarras' },
+    { name: 'Chalecos', href: '/shop?genero=caballero&tipo=chalecos' },
+    { name: 'Sudaderas', href: '/shop?genero=caballero&tipo=sudaderas' },
   ]
 
   function handleLogout() {
@@ -43,21 +55,65 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
     <>
       <header className="h-[64px] bg-store-surface border-b border-store-border sticky top-0 z-50 px-4 md:px-8 flex items-center justify-between backdrop-blur-sm bg-opacity-95">
         {/* Logo */}
-        <Link href="/" className="font-serif text-xl md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300">
-          inv-tienda
+        <Link href="/" className="font-serif text-xl md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight">
+          Catálogo IDOL NAVY
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-1 md:gap-6">
-          {menuItems.map((item) => (
-            <Link
-              key={item.name}
-              href={item.href}
-              className="text-[12px] md:text-[13px] text-store-ink2 hover:text-store-ink relative py-2 transition-colors duration-200 after:absolute after:bottom-2 after:left-0 after:w-0 after:h-0.5 after:bg-store-accent after:transition-all after:duration-300 hover:after:w-full"
-            >
-              {item.name}
-            </Link>
-          ))}
+        <nav className="hidden md:flex items-center gap-2 lg:gap-6">
+          {/* DAMA Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-1 text-[13px] font-semibold text-store-ink2 hover:text-store-ink outline-none py-2 px-1 transition-colors">
+              <span>DAMA</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 p-2">
+              <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-2 py-1">Categoría Dama</div>
+              <DropdownMenuSeparator />
+              {damaSubcategories.map((sub) => (
+                <DropdownMenuItem key={sub.name} asChild>
+                  <Link href={sub.href} className="cursor-pointer text-xs font-medium py-2">
+                    {sub.name}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* CABALLERO Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-1 text-[13px] font-semibold text-store-ink2 hover:text-store-ink outline-none py-2 px-1 transition-colors">
+              <span>CABALLERO</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 p-2">
+              <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-2 py-1">Categoría Caballero</div>
+              <DropdownMenuSeparator />
+              {caballeroSubcategories.map((sub) => (
+                <DropdownMenuItem key={sub.name} asChild>
+                  <Link href={sub.href} className="cursor-pointer text-xs font-medium py-2">
+                    {sub.name}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* PROMOCIONES Link */}
+          <Link
+            href="/shop?oferta=true"
+            className="text-[13px] font-semibold text-store-ink2 hover:text-store-ink py-2 px-1 transition-colors"
+          >
+            PROMOCIONES
+          </Link>
+
+          {/* CONTACTOS Link */}
+          <Link
+            href="/contactos"
+            className="text-[13px] font-semibold text-store-ink2 hover:text-store-ink py-2 px-1 transition-colors"
+          >
+            CONTACTOS
+          </Link>
         </nav>
 
         {/* Mobile menu button */}
@@ -188,64 +244,101 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               </div>
             )}
 
-            <nav className="p-4">
-              <ul className="space-y-2">
-                {menuItems.map((item) => (
-                  <li key={item.name}>
-                    <Link
-                      href={item.href}
-                      onClick={() => setIsMenuOpen(false)}
-                      className="block px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
-                    >
-                      {item.name}
-                    </Link>
-                  </li>
-                ))}
-                {user ? (
-                  <>
-                    <li className="pt-4 border-t border-store-border mt-4">
+            <nav className="p-4 overflow-y-auto max-h-[calc(100vh-120px)] space-y-4">
+              {/* Dama Group */}
+              <div>
+                <p className="px-3 text-xs font-bold text-store-ink uppercase tracking-wider mb-1">DAMA</p>
+                <ul className="space-y-1">
+                  {damaSubcategories.map((sub) => (
+                    <li key={sub.name}>
                       <Link
-                        href="/dashboard"
+                        href={sub.href}
                         onClick={() => setIsMenuOpen(false)}
-                        className="flex items-center gap-2 px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
+                        className="block px-4 py-1.5 text-[13px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors"
                       >
-                        <LayoutDashboard className="h-4 w-4" />
-                        Panel admin
+                        {sub.name}
                       </Link>
                     </li>
-                    <li>
-                      <button
-                        onClick={() => { setIsMenuOpen(false); handleLogout() }}
-                        disabled={isPending}
-                        className="flex items-center gap-2 w-full px-4 py-3 text-[14px] text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  ))}
+                </ul>
+              </div>
+
+              {/* Caballero Group */}
+              <div>
+                <p className="px-3 text-xs font-bold text-store-ink uppercase tracking-wider mb-1">CABALLERO</p>
+                <ul className="space-y-1">
+                  {caballeroSubcategories.map((sub) => (
+                    <li key={sub.name}>
+                      <Link
+                        href={sub.href}
+                        onClick={() => setIsMenuOpen(false)}
+                        className="block px-4 py-1.5 text-[13px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors"
                       >
-                        <LogOut className="h-4 w-4" />
-                        {isPending ? 'Cerrando...' : 'Cerrar sesión'}
-                      </button>
+                        {sub.name}
+                      </Link>
                     </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Direct links */}
+              <div className="pt-2 border-t border-store-border space-y-1">
+                <Link
+                  href="/shop?oferta=true"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="block px-3 py-2 text-[14px] font-semibold text-store-ink hover:bg-store-bg rounded-md"
+                >
+                  PROMOCIONES
+                </Link>
+                <Link
+                  href="/contactos"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="block px-3 py-2 text-[14px] font-semibold text-store-ink hover:bg-store-bg rounded-md"
+                >
+                  CONTACTOS
+                </Link>
+              </div>
+
+              {/* User Actions */}
+              <div className="pt-2 border-t border-store-border space-y-1">
+                {user ? (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setIsMenuOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
+                    >
+                      <LayoutDashboard className="h-4 w-4" />
+                      Panel admin
+                    </Link>
+                    <button
+                      onClick={() => { setIsMenuOpen(false); handleLogout() }}
+                      disabled={isPending}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[14px] text-red-600 hover:bg-red-50 rounded-md transition-colors font-medium text-left"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {isPending ? 'Cerrando...' : 'Cerrar sesión'}
+                    </button>
                   </>
                 ) : (
-                  <li className="pt-4 border-t border-store-border mt-4">
-                    <Link
-                      href="/login"
-                      onClick={() => setIsMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
-                    >
-                      <User className="h-4 w-4" />
-                      Iniciar sesión
-                    </Link>
-                  </li>
-                )}
-                <li>
                   <Link
-                    href="/cotizacion"
+                    href="/login"
                     onClick={() => setIsMenuOpen(false)}
-                    className="block px-4 py-3 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
                   >
-                    Mi cotización
+                    <User className="h-4 w-4" />
+                    Iniciar sesión
                   </Link>
-                </li>
-              </ul>
+                )}
+                <Link
+                  href="/cotizacion"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                  Mi cotización ({count})
+                </Link>
+              </div>
             </nav>
           </div>
         </>

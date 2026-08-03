@@ -24,7 +24,7 @@ export function ProductGrid({ productos, config, total, currentPage }: ProductGr
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
         {productos.map((producto, index) => (
           <ProductCard 
             key={producto.id} 
@@ -56,7 +56,7 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
 
   return (
     <Link href={`/shop/${producto.slug}`} className="block group">
-      <div className="bg-[#FFFFFF] rounded-lg h-[240px] flex items-center justify-center text-[#8C8C8C] text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-4 border border-[#2D5A3D]/10 group-hover:border-[#2D5A3D]/30 transition-colors">
+      <div className="bg-[#FFFFFF] rounded-lg aspect-[3/4] flex items-center justify-center text-[#8C8C8C] text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-3 border border-[#2D5A3D]/10 group-hover:border-[#2D5A3D]/30 transition-colors shadow-sm">
         <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,0,0,.015) 12px, rgba(0,0,0,.015) 13px)' }}></div>
         
         {producto.nuevo && (
@@ -71,7 +71,7 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
             src={producto.imagen_principal}
             alt={producto.nombre || 'Imagen del producto'}
             fill
-            className="object-cover z-0 transition-transform group-hover:scale-105"
+            className="object-contain p-1 z-0 transition-transform group-hover:scale-105"
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             priority={priority}
           />

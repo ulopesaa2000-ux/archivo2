@@ -25,6 +25,7 @@ interface CatalogoPageProps {
     q?: string
     marca?: string
     tipo?: string
+    genero?: string
     oferta?: string
     nuevo?: string
     destacado?: string
@@ -39,7 +40,9 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
   const filtros = {
     q: params.q,
     marca_id: params.marca ? parseInt(params.marca) : undefined,
-    tipo_prenda_id: params.tipo ? parseInt(params.tipo) : undefined,
+    tipo_prenda_id: (params.tipo && !isNaN(Number(params.tipo))) ? parseInt(params.tipo) : undefined,
+    tipo: (params.tipo && isNaN(Number(params.tipo))) ? params.tipo : undefined,
+    genero: params.genero,
     en_oferta: params.oferta === 'true',
     nuevo: params.nuevo === 'true',
     destacado: params.destacado === 'true',

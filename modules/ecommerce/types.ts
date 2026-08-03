@@ -99,6 +99,8 @@ export interface FiltrosProductoWeb {
   nuevo?: boolean
   marca_id?: number
   tipo_prenda_id?: number
+  genero?: string
+  tipo?: string
   page?: number
 }
 
