@@ -83,10 +83,245 @@ export async function publicarProductoWeb(data: ProductoWebInsert) {
     throw new Error(`Error publicando producto: ${error.message}`)
   }
 
-  revalidatePath('/(admin)/ecommerce/productos-web')
-  revalidatePath('/(store)/catalogo')
+  revalidatePath('/ecommerce/productos-web')
+  revalidatePath('/shop')
 
   return { success: true, data: result }
+}
+
+export async function togglePublicarProductoWebAction(
+  productoId: number,
+  actualmentePublicado: boolean,
+  productoWebId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+
+    if (productoWebId) {
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .update({
+          activo: !actualmentePublicado,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productoWebId)
+
+      if (error) return { success: false, error: error.message }
+    } else {
+      const { data: prod } = await (supabase as any)
+        .from('productos')
+        .select('nombre, sku_base')
+        .eq('id', productoId)
+        .single()
+
+      const baseSlug = prod ? slugify(`${prod.nombre}-${prod.sku_base}`) : `producto-${productoId}`
+      let slug = baseSlug
+
+      const { data: existente } = await (supabase as any)
+        .from('productos_web')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle()
+
+      if (existente) {
+        slug = `${baseSlug}-${Date.now()}`
+      }
+
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .insert({
+          producto_id: productoId,
+          slug,
+          activo: true,
+          en_oferta: false,
+          destacado: false,
+          nuevo: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+
+      if (error) return { success: false, error: error.message }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al cambiar publicación.' }
+  }
+}
+
+/**
+ * Accion Masiva: Publicar lote de productos seleccionados
+ */
+export async function publicarProductosMasivoAction(
+  productoIds: number[]
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    if (!productoIds || productoIds.length === 0) {
+      return { success: false, count: 0, error: 'No hay productos seleccionados.' }
+    }
+
+    const supabase = await createClient()
+
+    // 1. Obtener productos_web existentes para estos productoIds
+    const { data: existentes } = await (supabase as any)
+      .from('productos_web')
+      .select('id, producto_id')
+      .in('producto_id', productoIds)
+
+    const existentesMap = (existentes || []).reduce((acc: Record<number, number>, row: any) => {
+      acc[row.producto_id] = row.id
+      return acc
+    }, {})
+
+    // 2. Para los que ya existen en productos_web, actualizar activo = true
+    const idsActualizar = (existentes || []).map((row: any) => row.id)
+    if (idsActualizar.length > 0) {
+      await (supabase as any)
+        .from('productos_web')
+        .update({ activo: true, updated_at: new Date().toISOString() })
+        .in('id', idsActualizar)
+    }
+
+    // 3. Para los que no existen, obtener sus nombres/skus e insertar
+    const idsInsertar = productoIds.filter((pid) => !existentesMap[pid])
+    if (idsInsertar.length > 0) {
+      const { data: prods } = await (supabase as any)
+        .from('productos')
+        .select('id, nombre, sku_base')
+        .in('id', idsInsertar)
+
+      const inserts = (prods || []).map((p: any) => ({
+        producto_id: p.id,
+        slug: slugify(`${p.nombre}-${p.sku_base}-${Date.now().toString(36).substring(4)}`),
+        activo: true,
+        en_oferta: false,
+        destacado: false,
+        nuevo: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }))
+
+      if (inserts.length > 0) {
+        await (supabase as any).from('productos_web').insert(inserts)
+      }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true, count: productoIds.length }
+  } catch (err: any) {
+    console.error('Excepción publicarProductosMasivoAction:', err)
+    return { success: false, count: 0, error: err?.message || 'Error en publicación masiva.' }
+  }
+}
+
+/**
+ * Accion Masiva: Despublicar / Pausar lote de productos seleccionados
+ */
+export async function despublicarProductosMasivoAction(
+  productoIds: number[]
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    if (!productoIds || productoIds.length === 0) {
+      return { success: false, count: 0, error: 'No hay productos seleccionados.' }
+    }
+
+    const supabase = await createClient()
+
+    // Actualizar activo = false en productos_web donde producto_id esté en el lote
+    const { error } = await (supabase as any)
+      .from('productos_web')
+      .update({ activo: false, updated_at: new Date().toISOString() })
+      .in('producto_id', productoIds)
+
+    if (error) {
+      return { success: false, count: 0, error: error.message }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true, count: productoIds.length }
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Error al despublicar masivo.' }
+  }
+}
+
+/**
+ * Accion Masiva: Actualizar precios en lote para productos seleccionados
+ */
+export async function actualizarPreciosMasivoAction(
+  productoIds: number[],
+  precioPublico: number,
+  precioOferta?: number | null,
+  enOferta?: boolean
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    if (!productoIds || productoIds.length === 0) {
+      return { success: false, count: 0, error: 'No hay productos seleccionados.' }
+    }
+
+    const supabase = await createClient()
+
+    // 1. Obtener productos_web existentes
+    const { data: existentes } = await (supabase as any)
+      .from('productos_web')
+      .select('id, producto_id')
+      .in('producto_id', productoIds)
+
+    const existentesMap = (existentes || []).reduce((acc: Record<number, number>, row: any) => {
+      acc[row.producto_id] = row.id
+      return acc
+    }, {})
+
+    // 2. Para los que ya existen, actualizar precio_publico, precio_oferta, en_oferta
+    const idsActualizar = (existentes || []).map((row: any) => row.id)
+    if (idsActualizar.length > 0) {
+      await (supabase as any)
+        .from('productos_web')
+        .update({
+          precio_publico: precioPublico,
+          precio_oferta: precioOferta ?? null,
+          en_oferta: enOferta ?? false,
+          updated_at: new Date().toISOString(),
+        })
+        .in('id', idsActualizar)
+    }
+
+    // 3. Para los que no existen, crear registro con precios fijados
+    const idsInsertar = productoIds.filter((pid) => !existentesMap[pid])
+    if (idsInsertar.length > 0) {
+      const { data: prods } = await (supabase as any)
+        .from('productos')
+        .select('id, nombre, sku_base')
+        .in('id', idsInsertar)
+
+      const inserts = (prods || []).map((p: any) => ({
+        producto_id: p.id,
+        slug: slugify(`${p.nombre}-${p.sku_base}-${Date.now().toString(36).substring(4)}`),
+        precio_publico: precioPublico,
+        precio_oferta: precioOferta ?? null,
+        en_oferta: enOferta ?? false,
+        activo: false, // Se guarda precio pero queda borrador hasta que se publique
+        destacado: false,
+        nuevo: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }))
+
+      if (inserts.length > 0) {
+        await (supabase as any).from('productos_web').insert(inserts)
+      }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true, count: productoIds.length }
+  } catch (err: any) {
+    console.error('Excepción actualizarPreciosMasivoAction:', err)
+    return { success: false, count: 0, error: err?.message || 'Error al actualizar precios masivos.' }
+  }
 }
 
 export async function actualizarProductoWeb(id: number, data: ProductoWebUpdate) {

@@ -1,9 +1,13 @@
 // components/store/catalogo/ProductGrid.tsx
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { Check } from 'lucide-react'
 import { Pagination } from '@/components/admin/Pagination'
-import type { ProductoWebPublico } from '@/modules/ecommerce/types'
-import type { ConfigEcommerce } from '@/modules/ecommerce/types'
+import { useQuoteCart } from '@/hooks/useQuoteCart'
+import type { ProductoWebPublico, ConfigEcommerce } from '@/modules/ecommerce/types'
 import { mostrarPrecio, formatearPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
 
 interface ProductGridProps {
@@ -49,14 +53,47 @@ interface ProductCardProps {
 }
 
 function ProductCard({ producto, config, priority = false }: ProductCardProps) {
+  const { addItem } = useQuoteCart()
+  const [added, setAdded] = useState(false)
+
   const showPrice = config ? mostrarPrecio(producto, config) : false
-  const { precio, precioAnterior, esOferta } = config 
+  const { precio, precioAnterior } = config 
     ? getPrecioAMostrar(producto, config)
-    : { precio: null, precioAnterior: null, esOferta: false }
+    : { precio: null, precioAnterior: null }
+
+  const isCatalogoMode = !showPrice
+
+  const handleQuickAdd = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    addItem({
+      productoId: producto.producto_id,
+      varianteId: producto.id,
+      nombre: producto.nombre,
+      marca: producto.marca || '',
+      sku: producto.sku_base,
+      slug: producto.slug,
+      talla: '',
+      color: '',
+      cantidad: 1,
+      precioUnitario: showPrice ? (precio || undefined) : undefined,
+      piezasPorCaja: undefined,
+      imagen: producto.imagen_principal || undefined,
+    })
+
+    setAdded(true)
+    window.dispatchEvent(new Event('inv_open_cart_drawer'))
+    setTimeout(() => {
+      setAdded(false)
+    }, 2000)
+  }
+
+  const defaultButtonLabel = isCatalogoMode ? '+ Interés' : (config?.texto_boton_agregar || '+ Carrito')
 
   return (
     <Link href={`/shop/${producto.slug}`} className="block group">
-      <div className="bg-[#FFFFFF] rounded-lg aspect-[3/4] flex items-center justify-center text-[#8C8C8C] text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-3 border border-[#2D5A3D]/10 group-hover:border-[#2D5A3D]/30 transition-colors shadow-sm">
+      <div className="bg-card dark:bg-zinc-900 rounded-lg aspect-[3/4] flex items-center justify-center text-muted-foreground dark:text-gray-400 text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-3 border border-border dark:border-zinc-800 group-hover:border-[#2D5A3D]/40 transition-colors shadow-xs">
         <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,0,0,.015) 12px, rgba(0,0,0,.015) 13px)' }}></div>
         
         {producto.nuevo && (
@@ -81,32 +118,48 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
       </div>
 
       <div className="px-1">
-        <div className="text-[11px] text-[#8C8C8C] tracking-[0.05em] uppercase mb-1.5 truncate">
+        <div className="text-[11px] text-muted-foreground dark:text-gray-400 tracking-[0.05em] uppercase mb-1.5 truncate">
           {producto.marca || 'Marca'}
         </div>
-        <div className="text-[14px] text-[#1A1C1A] font-medium mb-2 truncate group-hover:text-[#2D5A3D] transition-colors">
+        <div className="text-[14px] text-foreground dark:text-gray-100 font-medium mb-2 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
           {producto.nombre}
         </div>
         
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between min-h-[24px]">
           {showPrice && precio ? (
-            <div className="text-[15px] text-[#1A1C1A] font-semibold">
+            <div className="text-[15px] text-foreground dark:text-gray-100 font-semibold">
               {formatearPrecio(precio, config!)}
               {precioAnterior && (
-                <span className="text-[12px] text-[#8C8C8C] line-through ml-2 font-normal">
+                <span className="text-[12px] text-muted-foreground line-through ml-2 font-normal">
                   {formatearPrecio(precioAnterior, config!)}
                 </span>
               )}
             </div>
           ) : (
-            <div className="text-[14px] text-[#8C8C8C] italic">
+            <div className="text-[13px] text-muted-foreground dark:text-gray-400 italic">
               Consultar precio
             </div>
           )}
 
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-[12px] font-medium text-[#2D5A3D]">
-            {config?.texto_boton_agregar || '+ Carrito'}
-          </div>
+          <button
+            type="button"
+            onClick={handleQuickAdd}
+            className={`opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1 text-[12px] font-medium px-2 py-1 rounded border ${
+              added 
+                ? 'bg-emerald-600 text-white border-emerald-600 opacity-100' 
+                : 'text-[#2D5A3D] border-[#2D5A3D]/30 hover:bg-[#2D5A3D] hover:text-white'
+            }`}
+            title="Agregar a la lista de cotización / interés"
+          >
+            {added ? (
+              <>
+                <Check className="h-3 w-3" />
+                <span>Agregado</span>
+              </>
+            ) : (
+              <span>{defaultButtonLabel}</span>
+            )}
+          </button>
         </div>
       </div>
     </Link>

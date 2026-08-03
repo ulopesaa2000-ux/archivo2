@@ -50,8 +50,9 @@ const formSchema = z.object({
   titulo_seccion_carrito: z.string().min(1).max(50),
   mensaje_precio_variable: z.string(),
   
-  // Flujo de órdenes
+  // Flujo de órdenes y Carrito
   tipo_orden_generada: z.enum(['cotizacion', 'orden_b2b', 'orden_venta']),
+  modo_vista_carrito: z.enum(['drawer', 'pagina', 'ambos']).optional(),
   requiere_aprobacion: z.boolean(),
   
   // Contacto
@@ -90,6 +91,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
       mensaje_precio_variable: config?.mensaje_precio_variable || 
         'Los precios pueden variar según volumen y disponibilidad. Te contactaremos para confirmar.',
       tipo_orden_generada: (config?.tipo_orden_generada as any) || 'cotizacion',
+      modo_vista_carrito: (config?.modo_vista_carrito as any) || 'drawer',
       requiere_aprobacion: config?.requiere_aprobacion ?? true,
       permitir_checkout_invitado: config?.permitir_checkout_invitado ?? true,
       email_notificaciones: config?.email_notificaciones || '',

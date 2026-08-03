@@ -19,6 +19,7 @@ export type TipoPrecioVisible = 'publico' | 'oferta' | 'ambos'
 export type TipoVenta = 'piezas' | 'cajas' | 'ambos'
 export type TipoOrdenGenerada = 'cotizacion' | 'orden_b2b' | 'orden_venta'
 export type UnidadVenta = 'pieza' | 'caja' | 'ambas'
+export type ModoVistaCarrito = 'drawer' | 'pagina' | 'ambos'
 
 // Config con tipos fuertes
 export interface ConfigEcommerce extends ConfigEcommerceRow {
@@ -26,6 +27,7 @@ export interface ConfigEcommerce extends ConfigEcommerceRow {
   tipo_precio_visible: TipoPrecioVisible
   tipo_venta: TipoVenta
   tipo_orden_generada: TipoOrdenGenerada
+  modo_vista_carrito?: ModoVistaCarrito
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -36,25 +38,32 @@ export type ProductoWebRow = Tables['productos_web']['Row']
 export type ProductoWebInsert = Tables['productos_web']['Insert']
 export type ProductoWebUpdate = Tables['productos_web']['Update']
 
-export interface ProductoWebExtendido extends ProductoWebRow {
-  // Campos de productos
+export interface ProductoWebExtendido {
+  id: number // producto_id
+  producto_id: number
+  producto_web_id: number | null
+  esta_publicado: boolean
   sku_base: string
   nombre: string
   descripcion: string | null
+  slug: string | null
   marca_id: number | null
   genero_id: number | null
   tipo_prenda_id: number | null
   pz_en_caja: number
   composicion: string | null
-  // Campos de catálogos
   marca_nombre: string | null
   tipo_prenda_nombre: string | null
   genero_nombre: string | null
-  // Imagen
   imagen_principal: string | null
-  // Conteos
-  variantes_count: number
-  imagenes_count: number
+  tiene_foto: boolean
+  precio_publico: number | null
+  precio_oferta: number | null
+  en_oferta: boolean
+  destacado: boolean
+  nuevo: boolean
+  activo: boolean // estado en productos_web (o falso si no publicado)
+  created_at: string
 }
 
 export interface ProductoWebPublico {
@@ -99,8 +108,12 @@ export interface FiltrosProductoWeb {
   nuevo?: boolean
   marca_id?: number
   tipo_prenda_id?: number
+  genero_id?: number
   genero?: string
   tipo?: string
+  estado_web?: 'todos' | 'publicados' | 'no_publicados' | 'pausados'
+  tiene_foto?: 'todos' | 'con_foto' | 'sin_foto'
+  ordenar_por?: 'recientes_con_foto' | 'recientes' | 'antiguos' | 'sku_asc' | 'precio_desc' | 'precio_asc'
   page?: number
 }
 
@@ -146,6 +159,7 @@ export interface QuoteItem {
   nombre: string
   marca: string
   sku: string
+  slug?: string
   talla: string
   color: string
   cantidad: number

@@ -43,7 +43,7 @@ export default async function GraciasPage({ searchParams }: GraciasPageProps) {
 
       <div className="flex flex-col sm:flex-row gap-4 justify-center">
         <Button asChild>
-          <Link href="/catalogo">Seguir comprando</Link>
+          <Link href="/shop">Seguir comprando</Link>
         </Button>
 
         <Button variant="outline" asChild>

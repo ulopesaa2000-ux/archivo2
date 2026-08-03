@@ -13,6 +13,7 @@ import { Trash2, Minus, Plus, ArrowRight, ShoppingBag } from 'lucide-react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { formatearPrecio } from '@/modules/ecommerce/utils'
+import { slugify } from '@/lib/utils'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 
 interface QuoteCartProps {
@@ -56,7 +57,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
           Agrega productos para comenzar tu solicitud
         </p>
         <Link
-          href="/catalogo"
+          href="/shop"
           className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Ver catálogo
@@ -71,105 +72,121 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Lista de items */}
       <div className="lg:col-span-2 space-y-4">
-        {items.map((item) => (
-          <Card key={item.varianteId}>
-            <CardContent className="p-4">
-              <div className="flex gap-4">
-                {/* Imagen */}
-                <div className="relative w-24 h-24 flex-shrink-0 bg-muted rounded-md overflow-hidden">
-                  {item.imagen ? (
-                    <Image
-                      src={item.imagen}
-                      alt={item.nombre ?? 'Imagen del producto'}
-                      fill
-                      className="object-cover"
-                      sizes="96px"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                      Sin imagen
-                    </div>
-                  )}
-                </div>
+        {items.map((item) => {
+          const productUrl = item.slug
+            ? `/shop/${item.slug}`
+            : item.sku
+              ? `/shop/${slugify(item.sku)}`
+              : '/shop'
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm text-muted-foreground">{item.marca}</p>
-                      <Link
-                        href={`/producto/${item.sku}`}
-                        className="font-medium hover:text-primary transition-colors line-clamp-1"
-                      >
-                        {item.nombre}
-                      </Link>
-                      {item.talla && (
-                        <p className="text-sm text-muted-foreground">
-                          Talla: {item.talla}
-                        </p>
-                      )}
-                      {item.color && (
-                        <p className="text-sm text-muted-foreground">
-                          Color: {item.color}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground font-mono mt-1">
-                        SKU: {item.sku}
-                      </p>
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive"
-                      onClick={() => removeItem(item.varianteId)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  {/* Cantidad y precio */}
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => updateCantidad(item.varianteId, item.cantidad - 1)}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="w-12 text-center font-medium">
-                        {item.cantidad}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => updateCantidad(item.varianteId, item.cantidad + 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-
-                    {mostrarPrecios && item.precioUnitario && (
-                      <p className="font-medium">
-                        {formatearPrecio(item.precioUnitario * item.cantidad, config!)}
-                      </p>
+          return (
+            <Card key={item.varianteId}>
+              <CardContent className="p-4">
+                <div className="flex gap-4">
+                  {/* Imagen Clickeable */}
+                  <Link
+                    href={productUrl}
+                    className="relative w-24 h-24 flex-shrink-0 bg-muted rounded-md overflow-hidden group/img block border border-border/40 hover:border-[#2D5A3D]/40 transition-colors"
+                    title={`Ver ${item.nombre}`}
+                  >
+                    {item.imagen ? (
+                      <Image
+                        src={item.imagen}
+                        alt={item.nombre ?? 'Imagen del producto'}
+                        fill
+                        className="object-cover transition-transform duration-300 group-hover/img:scale-105"
+                        sizes="96px"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                        Sin imagen
+                      </div>
                     )}
-                  </div>
+                  </Link>
 
-                  {/* Unidad */}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {item.unidad === 'caja' && item.piezasPorCaja
-                      ? `${item.cantidad} cajas (${item.cantidad * item.piezasPorCaja} piezas)`
-                      : `${item.cantidad} piezas`}
-                  </p>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        {item.marca && (
+                          <p className="text-sm text-muted-foreground">{item.marca}</p>
+                        )}
+                        <Link
+                          href={productUrl}
+                          className="font-medium text-foreground dark:text-gray-100 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors line-clamp-1 block text-base"
+                          title={`Ver ${item.nombre}`}
+                        >
+                          {item.nombre}
+                        </Link>
+                        {item.talla && (
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            Talla: {item.talla}
+                          </p>
+                        )}
+                        {item.color && (
+                          <p className="text-sm text-muted-foreground">
+                            Color: {item.color}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground font-mono mt-1">
+                          SKU: {item.sku}
+                        </p>
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => removeItem(item.varianteId)}
+                        title="Eliminar de la cotización"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Cantidad y precio */}
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => updateCantidad(item.varianteId, item.cantidad - 1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-12 text-center font-medium">
+                          {item.cantidad}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => updateCantidad(item.varianteId, item.cantidad + 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+
+                      {mostrarPrecios && item.precioUnitario && (
+                        <p className="font-medium">
+                          {formatearPrecio(item.precioUnitario * item.cantidad, config!)}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Unidad */}
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {item.unidad === 'caja' && item.piezasPorCaja
+                        ? `${item.cantidad} cajas (${item.cantidad * item.piezasPorCaja} piezas)`
+                        : `${item.cantidad} piezas`}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          )
+        })}
 
         {/* Limpiar carrito */}
         <Button
@@ -221,7 +238,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
             </Button>
 
             <Link
-              href="/catalogo"
+              href="/shop"
               className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
             >
               Seguir agregando
