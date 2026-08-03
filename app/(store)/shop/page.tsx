@@ -6,7 +6,9 @@ import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { ProductGrid } from '@/components/store/catalogo/ProductGrid'
 import { FilterSidebar } from '@/components/store/catalogo/FilterSidebar'
+import { CategoryPromoHero } from '@/components/store/catalogo/CategoryPromoHero'
 import { CatalogSkeleton } from '@/components/store/catalogo/CatalogSkeleton'
+import { fetchBannerCategoriaActivo } from '@/modules/ecommerce/banners'
 import { SITE_URL, SITE_NAME, CURRENCY } from '@/lib/seo/site'
 
 export const metadata: Metadata = {
@@ -49,7 +51,15 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     page: params.page ? parseInt(params.page) : 1,
   }
 
-  const { productos, total } = await fetchProductosWebPublicos(filtros)
+  const [{ productos, total }, categoryBanner] = await Promise.all([
+    fetchProductosWebPublicos(filtros),
+    fetchBannerCategoriaActivo({
+      genero: filtros.genero,
+      generoId: filtros.genero ? undefined : undefined,
+      tipoPrendaId: filtros.tipo_prenda_id,
+      tipo: filtros.tipo,
+    }),
+  ])
 
   // Generate breadcrumb schema
   const breadcrumbSchema = {
@@ -139,6 +149,9 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
 
         {/* Grid productos */}
         <main className="bg-[#F4F4F1] pt-6 px-8 pb-12">
+          {/* Banner Promocional Panorámico de Categoría (si existe) */}
+          <CategoryPromoHero banner={categoryBanner} />
+
           <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#2D5A3D]/10">
             <div className="text-[14px] text-[#262626]">
               <strong className="text-[#1A1C1A]">{total}</strong> productos encontrados

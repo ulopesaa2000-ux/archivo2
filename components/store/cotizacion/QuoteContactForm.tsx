@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
@@ -20,14 +21,32 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { crearCotizacion } from '@/modules/ecommerce/actions'
 import { formatearPrecio } from '@/modules/ecommerce/utils'
+import { slugify } from '@/lib/utils'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 
 interface QuoteContactFormProps {
   config: ConfigEcommerce | null
 }
+
+const REGIONES_ATENCION = [
+  'Centro / Ciudad de México',
+  'Tulancingo, Hgo.',
+  'Moroleón, Gto.',
+  'San Martín Texmelucan, Pue.',
+  'Toluca, Edo. Méx.',
+  'Chiconcuac, Edo. Méx.',
+  'Otra región / Envíos a todo México',
+]
 
 export function QuoteContactForm({ config }: QuoteContactFormProps) {
   const router = useRouter()
@@ -41,6 +60,7 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
     nombre: z.string().min(2, 'Nombre requerido'),
     email: z.string().email('Email inválido'),
     telefono: z.string().min(8, 'Teléfono requerido'),
+    region_atencion: z.string().min(1, 'Por favor selecciona la ciudad o región de atención'),
     empresa: requiredFields.includes('empresa') 
       ? z.string().min(2, 'Empresa requerida') 
       : z.string().optional(),
@@ -58,6 +78,7 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
       nombre: '',
       email: '',
       telefono: '',
+      region_atencion: 'Centro / Ciudad de México',
       empresa: '',
       direccion: '',
       notas: '',
@@ -72,6 +93,8 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
     setIsSubmitting(true)
 
     try {
+      const notasCombinadas = `[Región de Atención: ${data.region_atencion}]${data.notas ? ` - ${data.notas}` : ''}`
+
       const result = await crearCotizacion(
         items,
         {
@@ -80,7 +103,8 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
           telefono: data.telefono,
           empresa: data.empresa,
           direccion: data.direccion,
-          notas: data.notas,
+          ciudad: data.region_atencion,
+          notas: notasCombinadas,
         },
         {
           tipo_orden_generada: config?.tipo_orden_generada || 'cotizacion',
@@ -102,8 +126,8 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
   if (items.length === 0) {
     return (
       <div className="text-center py-8">
-        <p className="text-muted-foreground">Tu cotización está vacía</p>
-        <Button className="mt-4" onClick={() => router.push('/catalogo')}>
+        <p className="text-muted-foreground dark:text-gray-400">Tu cotización está vacía</p>
+        <Button className="mt-4" onClick={() => router.push('/shop')}>
           Ver catálogo
         </Button>
       </div>
@@ -116,27 +140,44 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         {/* Resumen de items */}
-        <Card>
+        <Card className="bg-card dark:bg-zinc-900 border-border dark:border-zinc-800 text-card-foreground">
           <CardContent className="p-4">
-            <h3 className="font-semibold mb-4">Productos solicitados</h3>
+            <h3 className="font-semibold text-foreground dark:text-gray-100 mb-4">Productos solicitados</h3>
             <div className="space-y-2">
-              {items.map((item) => (
-                <div key={item.varianteId} className="flex justify-between text-sm">
-                  <span>
-                    {item.nombre} x {item.cantidad}
-                  </span>
-                  {mostrarPrecios && item.precioUnitario && (
-                    <span>{formatearPrecio(item.precioUnitario * item.cantidad, config!)}</span>
-                  )}
-                </div>
-              ))}
+              {items.map((item) => {
+                const productUrl = item.slug
+                  ? `/shop/${item.slug}`
+                  : item.sku
+                    ? `/shop/${slugify(item.sku)}`
+                    : '/shop'
+
+                return (
+                  <div key={item.varianteId} className="flex justify-between text-sm items-center">
+                    <Link
+                      href={productUrl}
+                      target="_blank"
+                      className="text-foreground dark:text-gray-200 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline transition-colors font-medium"
+                      title={`Ver ${item.nombre}`}
+                    >
+                      {item.nombre} x {item.cantidad}
+                    </Link>
+                    {mostrarPrecios && item.precioUnitario && (
+                      <span className="text-foreground dark:text-gray-100">
+                        {formatearPrecio(item.precioUnitario * item.cantidad, config!)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
             {mostrarPrecios && (
               <>
                 <Separator className="my-4" />
-                <div className="flex justify-between font-semibold">
+                <div className="flex justify-between font-semibold text-foreground dark:text-gray-100">
                   <span>Subtotal</span>
-                  <span>{formatearPrecio(subtotal, config!)}</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    {formatearPrecio(subtotal, config!)}
+                  </span>
                 </div>
               </>
             )}
@@ -144,18 +185,18 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
         </Card>
 
         {/* Formulario de contacto */}
-        <Card>
+        <Card className="bg-card dark:bg-zinc-900 border-border dark:border-zinc-800 text-card-foreground">
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold">Datos de contacto</h3>
+            <h3 className="font-semibold text-foreground dark:text-gray-100">Datos de contacto y atención</h3>
 
             <FormField
               control={form.control}
               name="nombre"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Nombre completo *</FormLabel>
+                  <FormLabel className="text-foreground dark:text-gray-200">Nombre completo *</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -168,9 +209,9 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email *</FormLabel>
+                    <FormLabel className="text-foreground dark:text-gray-200">Email *</FormLabel>
                     <FormControl>
-                      <Input type="email" {...field} />
+                      <Input type="email" {...field} className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -182,9 +223,9 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
                 name="telefono"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Teléfono *</FormLabel>
+                    <FormLabel className="text-foreground dark:text-gray-200">Teléfono *</FormLabel>
                     <FormControl>
-                      <Input type="tel" {...field} />
+                      <Input type="tel" {...field} className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -192,15 +233,43 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
               />
             </div>
 
+            {/* Selección de Región / Ciudad de atención */}
+            <FormField
+              control={form.control}
+              name="region_atencion"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-foreground dark:text-gray-200 font-medium">
+                    Ciudad / Región cercana para atención *
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100 border-border">
+                        <SelectValue placeholder="Selecciona la región o ciudad más cercana" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="bg-popover dark:bg-zinc-900 border-border">
+                      {REGIONES_ATENCION.map((region) => (
+                        <SelectItem key={region} value={region} className="text-foreground dark:text-gray-100">
+                          {region}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {requiredFields.includes('empresa') && (
               <FormField
                 control={form.control}
                 name="empresa"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Empresa *</FormLabel>
+                    <FormLabel className="text-foreground dark:text-gray-200">Empresa *</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input {...field} className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -214,9 +283,9 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
                 name="direccion"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Dirección *</FormLabel>
+                    <FormLabel className="text-foreground dark:text-gray-200">Dirección *</FormLabel>
                     <FormControl>
-                      <Textarea {...field} />
+                      <Textarea {...field} className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -229,11 +298,12 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
               name="notas"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notas adicionales</FormLabel>
+                  <FormLabel className="text-foreground dark:text-gray-200">Notas adicionales</FormLabel>
                   <FormControl>
                     <Textarea 
                       {...field} 
-                      placeholder="Información adicional sobre tu solicitud..."
+                      placeholder="Especificaciones de prendas, colores, tallas requeridas u otra información sobre tu pedido..."
+                      className="bg-background dark:bg-zinc-950 text-foreground dark:text-gray-100"
                     />
                   </FormControl>
                   <FormMessage />
@@ -245,11 +315,11 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
 
         <Button 
           type="submit" 
-          className="w-full" 
+          className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-medium" 
           size="lg"
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Enviando...' : 'Enviar solicitud'}
+          {isSubmitting ? 'Enviando...' : 'Enviar solicitud de cotización'}
         </Button>
       </form>
     </Form>

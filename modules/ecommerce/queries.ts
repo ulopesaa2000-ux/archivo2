@@ -60,101 +60,161 @@ export async function fetchProductosWebAdmin(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  // Query con todos los joins necesarios
-  let query = (supabase
-    .from('productos_web') as any)
+  let query = (supabase.from('productos') as any)
     .select(
       `
-      *,
-      productos!inner(
-        sku_base,
-        nombre,
-        descripcion,
-        marca_id,
-        genero_id,
-        tipo_prenda_id,
-        pz_en_caja,
-        composicion,
-        activo,
-        cat_marcas!left(nombre),
-        cat_tipo_prenda!left(nombre),
-        cat_generos!left(nombre)
+      id,
+      sku_base,
+      nombre,
+      descripcion,
+      marca_id,
+      genero_id,
+      tipo_prenda_id,
+      pz_en_caja,
+      composicion,
+      activo,
+      created_at,
+      cat_marcas!left(nombre),
+      cat_tipo_prenda!left(nombre),
+      cat_generos!left(nombre),
+      productos_web!left(
+        id,
+        slug,
+        precio_publico,
+        precio_oferta,
+        en_oferta,
+        destacado,
+        nuevo,
+        activo
       )
       `,
       { count: 'exact' }
     )
+    .eq('activo', true)
 
-  // Filtros
-  if (filtros.activo !== undefined) {
-    query = query.eq('activo', filtros.activo)
-  }
-  if (filtros.en_oferta) {
-    query = query.eq('en_oferta', true)
-  }
-  if (filtros.destacado) {
-    query = query.eq('destacado', true)
-  }
-  if (filtros.nuevo) {
-    query = query.eq('nuevo', true)
-  }
-  if (filtros.marca_id) {
-    query = query.eq('productos.marca_id', filtros.marca_id)
-  }
-  if (filtros.tipo_prenda_id) {
-    query = query.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
-  }
+  // Filtro de texto (SKU o nombre)
   if (filtros.q) {
     const term = `%${filtros.q}%`
-    query = query.or(`slug.ilike.${term},productos.nombre.ilike.${term},productos.sku_base.ilike.${term}`)
+    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term}`)
+  }
+  if (filtros.marca_id) {
+    query = query.eq('marca_id', filtros.marca_id)
+  }
+  if (filtros.genero_id) {
+    query = query.eq('genero_id', filtros.genero_id)
+  }
+  if (filtros.tipo_prenda_id) {
+    query = query.eq('tipo_prenda_id', filtros.tipo_prenda_id)
   }
 
-  // Ordenamiento y paginación
-  query = query
-    .order('orden_display', { ascending: true })
-    .range(from, to)
-
-  const { data, count, error } = await query
+  const { data: rawData, count, error } = await query
 
   if (error) {
     console.error('Error fetchProductosWebAdmin:', error)
     return { productos: [], total: 0 }
   }
 
-  // Obtener imágenes principales
-  const productoIds = (data || []).map((p: any) => p.producto_id)
+  // Obtener imágenes principales de los productos
+  const productoIds = (rawData || []).map((p: any) => p.id)
   let imagenesMap: Record<number, string> = {}
   if (productoIds.length > 0) {
     const { data: imagenes } = await supabase
       .from('producto_imagenes')
-      .select('producto_id, url')
-      .eq('es_principal', true)
+      .select('producto_id, url, es_principal')
       .in('producto_id', productoIds)
-    imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-      acc[img.producto_id] = img.url
+
+    imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
+      if (!acc[img.producto_id] || img.es_principal) {
+        acc[img.producto_id] = img.url
+      }
       return acc
     }, {})
   }
 
-  // Transformar datos
-  const productos: ProductoWebExtendido[] = (data || []).map((item: any) => ({
-    ...item,
-    sku_base: item.productos?.sku_base,
-    nombre: item.productos?.nombre,
-    descripcion: item.productos?.descripcion,
-    marca_id: item.productos?.marca_id,
-    genero_id: item.productos?.genero_id,
-    tipo_prenda_id: item.productos?.tipo_prenda_id,
-    pz_en_caja: item.productos?.pz_en_caja,
-    composicion: item.productos?.composicion,
-    marca_nombre: item.cat_marcas?.nombre,
-    tipo_prenda_nombre: item.cat_tipo_prenda?.nombre,
-    genero_nombre: item.cat_generos?.nombre,
-    imagen_principal: imagenesMap[item.producto_id] || null,
-  }))
+  // Mapear a ProductoWebExtendido
+  let productos: ProductoWebExtendido[] = (rawData || []).map((item: any) => {
+    const pw = Array.isArray(item.productos_web) ? item.productos_web[0] : item.productos_web
+    const imgUrl = imagenesMap[item.id] || null
+
+    return {
+      id: item.id,
+      producto_id: item.id,
+      producto_web_id: pw?.id ?? null,
+      esta_publicado: !!pw && (pw.activo ?? false),
+      sku_base: item.sku_base,
+      nombre: item.nombre,
+      descripcion: item.descripcion,
+      slug: pw?.slug ?? null,
+      marca_id: item.marca_id,
+      genero_id: item.genero_id,
+      tipo_prenda_id: item.tipo_prenda_id,
+      pz_en_caja: item.pz_en_caja ?? 1,
+      composicion: item.composicion,
+      marca_nombre: item.cat_marcas?.nombre ?? null,
+      tipo_prenda_nombre: item.cat_tipo_prenda?.nombre ?? null,
+      genero_nombre: item.cat_generos?.nombre ?? null,
+      imagen_principal: imgUrl,
+      tiene_foto: !!imgUrl,
+      precio_publico: pw?.precio_publico ?? null,
+      precio_oferta: pw?.precio_oferta ?? null,
+      en_oferta: pw?.en_oferta ?? false,
+      destacado: pw?.destacado ?? false,
+      nuevo: pw?.nuevo ?? false,
+      activo: pw?.activo ?? false,
+      created_at: item.created_at || new Date().toISOString(),
+    }
+  })
+
+  // Filtro estado web en post-procesamiento (100% preciso)
+  if (filtros.estado_web === 'publicados') {
+    productos = productos.filter((p) => p.esta_publicado)
+  } else if (filtros.estado_web === 'pausados') {
+    productos = productos.filter((p) => p.producto_web_id !== null && !p.activo)
+  } else if (filtros.estado_web === 'no_publicados') {
+    productos = productos.filter((p) => p.producto_web_id === null)
+  }
+
+  // Filtro de foto
+  if (filtros.tiene_foto === 'con_foto') {
+    productos = productos.filter((p) => p.tiene_foto)
+  } else if (filtros.tiene_foto === 'sin_foto') {
+    productos = productos.filter((p) => !p.tiene_foto)
+  }
+
+  // Ordenamiento (Por defecto: recientes con foto primero)
+  const ordenarPor = filtros.ordenar_por || 'recientes_con_foto'
+
+  productos.sort((a, b) => {
+    if (ordenarPor === 'recientes_con_foto') {
+      if (a.tiene_foto !== b.tiene_foto) {
+        return a.tiene_foto ? -1 : 1
+      }
+      return b.id - a.id
+    }
+    if (ordenarPor === 'recientes') {
+      return b.id - a.id
+    }
+    if (ordenarPor === 'antiguos') {
+      return a.id - b.id
+    }
+    if (ordenarPor === 'sku_asc') {
+      return a.sku_base.localeCompare(b.sku_base)
+    }
+    if (ordenarPor === 'precio_desc') {
+      return (b.precio_publico || 0) - (a.precio_publico || 0)
+    }
+    if (ordenarPor === 'precio_asc') {
+      return (a.precio_publico || 0) - (b.precio_publico || 0)
+    }
+    return b.id - a.id
+  })
+
+  const totalFiltered = productos.length
+  const paginatedProductos = productos.slice(from, to + 1)
 
   return {
-    productos,
-    total: count ?? 0,
+    productos: paginatedProductos,
+    total: totalFiltered,
   }
 }
 
@@ -398,7 +458,7 @@ const fetchProductoWebBySlugCached = cache(async (
 ): Promise<ProductoWebPublico | null> => {
   const supabase = createStaticClient()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('productos_web')
     .select(
       `
@@ -422,10 +482,43 @@ const fetchProductoWebBySlugCached = cache(async (
     .eq('slug', normalizedSlug)
     .eq('activo', true)
     .eq('productos.activo', true)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
-    console.error('Error fetchProductoWebBySlug:', error)
+  if (!data) {
+    const rawSearch = normalizedSlug.replace(/-/g, '/').toUpperCase()
+    const { data: fallbackData } = await supabase
+      .from('productos_web')
+      .select(
+        `
+        *,
+        productos!inner(
+          sku_base,
+          nombre,
+          descripcion,
+          composicion,
+          tela_ext_id,
+          tela_forro_id,
+          activo,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre),
+          tela_ext:cat_telas!productos_tela_ext_id_fkey(nombre),
+          tela_forro:cat_telas!productos_tela_forro_id_fkey(nombre)
+        )
+        `
+      )
+      .or(`sku_base.ilike.%${normalizedSlug}%,sku_base.ilike.%${rawSearch}%`, { foreignTable: 'productos' })
+      .eq('activo', true)
+      .eq('productos.activo', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (fallbackData) {
+      data = fallbackData
+    }
+  }
+
+  if (!data) {
     return null
   }
 

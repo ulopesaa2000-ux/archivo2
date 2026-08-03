@@ -7,6 +7,7 @@ import { ShoppingCart, Menu, X, LogOut, LayoutDashboard, User, ChevronDown } fro
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { signOut } from '@/modules/auth/actions'
+import { CartDrawer, OPEN_CART_EVENT } from '@/components/store/cotizacion/CartDrawer'
 import type { UsuarioConRol } from '@/lib/types/tables'
 import {
   DropdownMenu,
@@ -184,20 +185,25 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               Iniciar sesión
             </Link>
           )}
-          <Link
-            href="/cotizacion"
-            className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink bg-store-bg px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(OPEN_CART_EVENT))}
+            className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
+            title="Ver carrito / Cotización"
           >
-            <ShoppingCart className="h-4 w-4 md:h-5 md:w-5" />
+            <ShoppingCart className="h-4 w-4 md:h-5 md:w-5 text-emerald-700 dark:text-emerald-400" />
             {count > 0 && (
-              <span className="absolute -top-1 -right-1 bg-store-accent text-white text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
+              <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
                 {count}
               </span>
             )}
             <span>Carrito</span>
-          </Link>
+          </button>
         </div>
       </header>
+
+      {/* Slide-over Cart Drawer */}
+      <CartDrawer />
 
       {/* Mobile menu overlay */}
       {isMenuOpen && (
