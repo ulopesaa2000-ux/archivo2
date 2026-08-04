@@ -2,7 +2,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 
 export interface CategoriaBannerRow {
@@ -36,7 +36,7 @@ export interface CategoriaBannerResuelto extends CategoriaBannerRow {
  */
 export async function fetchBannersCategorias(): Promise<CategoriaBannerResuelto[]> {
   try {
-    const supabase = await createClient()
+    const supabase = createStaticClient()
 
     const { data, error } = await (supabase as any)
       .from('categoria_banners')
@@ -85,7 +85,7 @@ export async function fetchBannerCategoriaActivo(params: {
   slug?: string | null
 }): Promise<CategoriaBannerResuelto | null> {
   try {
-    const supabase = await createClient()
+    const supabase = createStaticClient()
 
     let generoId = params.generoId
     if (!generoId && params.genero) {
