@@ -2,14 +2,21 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
-import { fetchProductosWebPublicos } from '@/modules/ecommerce/queries'
-import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
+import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { ProductGrid } from '@/components/store/catalogo/ProductGrid'
 import { FilterSidebar } from '@/components/store/catalogo/FilterSidebar'
 import { CategoryPromoHero } from '@/components/store/catalogo/CategoryPromoHero'
 import { CatalogSkeleton } from '@/components/store/catalogo/CatalogSkeleton'
 import { fetchBannerCategoriaActivo } from '@/modules/ecommerce/banners'
 import { SITE_URL, SITE_NAME, CURRENCY } from '@/lib/seo/site'
+import { Filter, SlidersHorizontal } from 'lucide-react'
+import { 
+  Sheet, 
+  SheetContent, 
+  SheetHeader, 
+  SheetTitle, 
+  SheetTrigger 
+} from '@/components/ui/sheet'
 
 export const metadata: Metadata = {
   title: `Catálogo de Productos | ${SITE_NAME}`,
@@ -117,21 +124,21 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
       />
 
       {/* Breadcrumbs */}
-      <div className="py-4 px-4 md:px-8 bg-[#F4F4F1] border-b border-[#2D5A3D]/10">
+      <div className="py-3 px-4 md:px-8 bg-background border-b border-border">
         <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
-          <ol className="flex items-center space-x-2 text-[12px] text-[#8C8C8C]">
+          <ol className="flex items-center space-x-2 text-[12px] text-muted-foreground">
             <li>
               <Link
                 href="/"
-                className="text-[#262626] hover:text-[#1A1C1A] transition-colors"
+                className="text-foreground hover:text-emerald-600 transition-colors"
                 aria-label="Ir al inicio"
               >
                 Inicio
               </Link>
             </li>
             <li className="flex items-center">
-              <span className="mx-2 text-[#8C8C8C]">/</span>
-              <span className="text-[#1A1C1A] font-medium" aria-current="page">
+              <span className="mx-2 text-muted-foreground">/</span>
+              <span className="text-foreground font-medium" aria-current="page">
                 Catálogo
               </span>
             </li>
@@ -139,22 +146,47 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
         </nav>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] flex-1">
-        {/* Sidebar filtros */}
-        <aside className="border-r border-[#2D5A3D]/10 bg-[#F4F4F1] pt-6 px-6 pb-12">
-          <Suspense fallback={<div className="h-96 bg-[#FFFFFF] animate-pulse rounded-lg border border-[#2D5A3D]/10" />}>
+      {/* Botón Flotante/Sticky para Filtros en Móviles */}
+      <div className="lg:hidden sticky top-14 z-20 bg-background/95 backdrop-blur-md border-b border-border px-4 py-2.5 flex items-center justify-between shadow-xs">
+        <div className="text-xs text-muted-foreground">
+          Mostrando <strong className="text-foreground font-bold">{total}</strong> prendas
+        </div>
+
+        <Sheet>
+          <SheetTrigger className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 text-white font-semibold text-xs shadow-xs hover:bg-emerald-800 transition-colors">
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Filtros y Menú</span>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-[85vw] sm:w-[380px] p-5 overflow-y-auto bg-card dark:bg-zinc-950">
+            <SheetHeader className="pb-3 mb-2 border-b border-border">
+              <SheetTitle className="text-base font-bold flex items-center gap-2">
+                <Filter className="h-4 w-4 text-emerald-600" />
+                <span>Filtros del Catálogo</span>
+              </SheetTitle>
+            </SheetHeader>
+            <Suspense fallback={<div className="h-96 bg-muted animate-pulse rounded-xl" />}>
+              <FilterSidebar />
+            </Suspense>
+          </SheetContent>
+        </Sheet>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] flex-1">
+        {/* Sidebar filtros del lado izquierdo — STICKY AL NAVEGAR / DESPLAZAR */}
+        <aside className="hidden lg:block border-r border-border bg-card dark:bg-zinc-950 pt-6 px-5 pb-12 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+          <Suspense fallback={<div className="h-96 bg-muted animate-pulse rounded-xl border border-border" />}>
             <FilterSidebar />
           </Suspense>
         </aside>
 
         {/* Grid productos */}
-        <main className="bg-[#F4F4F1] pt-6 px-8 pb-12">
+        <main className="bg-background dark:bg-zinc-950 pt-6 px-4 md:px-8 pb-12">
           {/* Banner Promocional Panorámico de Categoría (si existe) */}
           <CategoryPromoHero banner={categoryBanner} />
 
-          <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#2D5A3D]/10">
-            <div className="text-[14px] text-[#262626]">
-              <strong className="text-[#1A1C1A]">{total}</strong> productos encontrados
+          <div className="hidden lg:flex justify-between items-center pb-4 mb-6 border-b border-border">
+            <div className="text-xs text-muted-foreground">
+              Mostrando <strong className="text-foreground font-bold">{total}</strong> productos en el catálogo
             </div>
           </div>
 

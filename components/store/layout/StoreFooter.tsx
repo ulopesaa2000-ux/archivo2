@@ -1,87 +1,107 @@
+// components/store/layout/StoreFooter.tsx
 'use client'
 
-// components/store/layout/StoreFooter.tsx
 import Link from 'next/link'
-import { Instagram, Facebook, Twitter, Mail, Phone, MapPin } from 'lucide-react'
+import { Instagram, Facebook, Twitter, Phone, MessageCircle } from 'lucide-react'
 import { TikTokIcon } from '@/components/shared/TikTokIcon'
 
 export function StoreFooter() {
   const currentYear = new Date().getFullYear()
-
-  const footerLinks = {
-    empresa: [
-      { name: 'Nosotros', href: '/nosotros' },
-      { name: 'Historia', href: '/historia' },
-      { name: 'Sostenibilidad', href: '/sostenibilidad' },
-      { name: 'Contacto', href: '/contacto' },
-    ],
-    ayuda: [
-      { name: 'Envíos', href: '/envios' },
-      { name: 'Devoluciones', href: '/devoluciones' },
-      { name: 'Tallas', href: '/tallas' },
-      { name: 'Preguntas Frecuentes', href: '/faq' },
-    ],
-    legal: [
-      { name: 'Términos y Condiciones', href: '/terminos' },
-      { name: 'Política de Privacidad', href: '/privacidad' },
-      { name: 'Política de Cookies', href: '/cookies' },
-    ],
-  }
-
-  const socialLinks = [
-    { icon: Instagram, href: 'https://instagram.com/inv-tienda', label: 'Instagram' },
-    { icon: Facebook, href: 'https://facebook.com/inv-tienda', label: 'Facebook' },
-    { icon: Twitter, href: 'https://twitter.com/inv-tienda', label: 'Twitter' },
-  ]
 
   return (
     <footer className="bg-store-surface border-t border-store-border">
       {/* Main footer content */}
       <div className="px-4 md:px-8 py-12">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {/* Brand column */}
+          {/* Brand & Regional Contacts column */}
           <div className="space-y-4">
             <Link href="/" className="font-serif text-2xl text-store-ink hover:text-store-accent transition-colors inline-block font-bold">
               Catálogo IDOL NAVY
             </Link>
-            <p className="text-sm text-store-ink2 leading-relaxed max-w-xs">
+            <p className="text-xs text-store-ink2 leading-relaxed max-w-xs">
               Catálogo oficial de productos. Prendas diseñadas con estilo, calidad y comodidad para cada ocasión.
             </p>
 
-            {/* Contact info */}
-            <div className="space-y-2 pt-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-store-ink">Atención por Región:</p>
-              <div className="text-xs text-store-ink2 space-y-1">
-                <p>• <strong>Daniel (Centro):</strong> 248 125 0472</p>
-                <p>• <strong>Javier (Tulancingo):</strong> 56 1549 5410</p>
-                <p>• <strong>Carlos (Moroleón):</strong> 55 3935 6156</p>
-                <p>• <strong>Juan (San Martín, Toluca y Chiconcuac):</strong> 248 125 167</p>
+            {/* Contact info por región */}
+            <div className="space-y-2.5 pt-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold uppercase tracking-wider text-store-ink">Atención por Región:</p>
+                <Link href="/contactos" className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">
+                  Ver distribuidores →
+                </Link>
               </div>
+              <ul className="text-xs text-store-ink2 space-y-1.5 font-sans">
+                <li>
+                  <a 
+                    href="https://wa.me/522481250472?text=Hola%20Daniel,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
+                  >
+                    <span>• <strong>Daniel</strong> (Zona Centro CDMX)</span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">248 125 0472</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://wa.me/525615495410?text=Hola%20Javier,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
+                  >
+                    <span>• <strong>Javier</strong> (Tulancingo Hgo.)</span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">56 1549 5410</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://wa.me/525539356156?text=Hola%20Carlos,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
+                  >
+                    <span>• <strong>Carlos</strong> (Moroleón Gto.)</span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">55 3935 6156</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://wa.me/522481251671?text=Hola%20Juan,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
+                  >
+                    <span>• <strong>Juan</strong> (San Martín / Toluca / Chiconcuac)</span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">248 125 1671</span>
+                  </a>
+                </li>
+              </ul>
             </div>
           </div>
 
           {/* Company links */}
           <div className="space-y-4">
-            <h3 className="font-serif text-lg text-store-ink mb-4 font-bold">Navegación</h3>
-            <ul className="space-y-2">
+            <h3 className="font-serif text-base text-store-ink mb-4 font-bold">Navegación</h3>
+            <ul className="space-y-2 text-xs">
               <li>
-                <Link href="/shop?genero=dama" className="text-sm text-store-ink2 hover:text-store-accent transition-colors">
+                <Link href="/shop?genero=dama" className="text-store-ink2 hover:text-store-accent transition-colors">
                   Categoría Dama
                 </Link>
               </li>
               <li>
-                <Link href="/shop?genero=caballero" className="text-sm text-store-ink2 hover:text-store-accent transition-colors">
+                <Link href="/shop?genero=caballero" className="text-store-ink2 hover:text-store-accent transition-colors">
                   Categoría Caballero
                 </Link>
               </li>
               <li>
-                <Link href="/shop?oferta=true" className="text-sm text-store-ink2 hover:text-store-accent transition-colors">
-                  Promociones
+                <Link href="/shop?destacado=true" className="text-store-ink2 hover:text-store-accent transition-colors">
+                  Promociones & Destacados
                 </Link>
               </li>
               <li>
-                <Link href="/contactos" className="text-sm text-store-ink2 hover:text-store-accent transition-colors">
-                  Contactos Directos
+                <Link href="/contactos" className="text-store-ink2 hover:text-emerald-600 font-semibold transition-colors flex items-center gap-1">
+                  <span>Contactos Directos</span>
+                  <MessageCircle className="h-3 w-3 text-emerald-600" />
                 </Link>
               </li>
             </ul>
@@ -89,8 +109,8 @@ export function StoreFooter() {
 
           {/* Help links */}
           <div className="space-y-4">
-            <h3 className="font-serif text-lg text-store-ink mb-4 font-bold">Líneas de Producto</h3>
-            <ul className="space-y-2 text-sm text-store-ink2">
+            <h3 className="font-serif text-base text-store-ink mb-4 font-bold">Líneas de Producto</h3>
+            <ul className="space-y-2 text-xs text-store-ink2">
               <li>Chamarras & Rompevientos</li>
               <li>Chalecos Deportivo / Casual</li>
               <li>Conjuntos & Sudaderas</li>
@@ -100,7 +120,7 @@ export function StoreFooter() {
 
           {/* Legal links and social */}
           <div className="space-y-4">
-            <h3 className="font-serif text-lg text-store-ink mb-4 font-bold">Redes y Canales Oficiales</h3>
+            <h3 className="font-serif text-base text-store-ink mb-4 font-bold">Redes y Canales Oficiales</h3>
             <div className="space-y-3">
               <div className="flex flex-col space-y-2 text-xs">
                 {/* Instagram */}
@@ -148,6 +168,10 @@ export function StoreFooter() {
             © {currentYear} Catálogo IDOL NAVY. Todos los derechos reservados.
           </p>
           <div className="flex items-center gap-4 text-xs text-store-ink3">
+            <Link href="/contactos" className="hover:underline">
+              Página de Contactos
+            </Link>
+            <span>•</span>
             <span>Catálogo e-Commerce & B2B</span>
           </div>
         </div>
