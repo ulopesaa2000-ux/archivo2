@@ -11,6 +11,7 @@ export type EditableSection =
   | 'destacados' 
   | 'contactos_regionales'
   | 'explora_categoria'
+  | 'categorias_grid'
   | 'footer_agradecimiento'
   | null
 

@@ -359,10 +359,17 @@ export async function fetchProductosWebPublicos(
       query = query.eq('productos.genero_id', 2) // 2 = Hombre
     } else if (g.includes('unisex')) {
       query = query.eq('productos.genero_id', 3) // 3 = Unisex
+    } else if (g.includes('nino') || g.includes('niña') || g.includes('infantil')) {
+      query = query.in('productos.genero_id', [4, 5]) // 4 = Niño, 5 = Niña
     }
   }
   if (filtros.tipo) {
     const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
+
+    if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
+      query = query.in('productos.genero_id', [4, 5])
+    }
+
     if (t.includes('chamarr')) {
       query = query.eq('productos.tipo_prenda_id', 5) // CHAMARRA
     } else if (t.includes('rompeviento')) {
@@ -377,14 +384,18 @@ export async function fetchProductosWebPublicos(
       query = query.eq('productos.tipo_prenda_id', 15) // SUDADERA
     } else if (t.includes('abrigo')) {
       query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
+    } else if (t.includes('novedad')) {
+      query = query.eq('nuevo', true)
     } else {
       const term = `%${t}%`
-      query = query.or(`productos.nombre.ilike.${term},productos.sku_base.ilike.${term}`)
+      query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
     }
   }
-  if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(`slug.ilike.${term},productos.nombre.ilike.${term},productos.sku_base.ilike.${term}`)
+
+  if (filtros.q && filtros.q.trim()) {
+    const term = `%${filtros.q.trim()}%`
+    query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
+    query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
   }
 
   query = query
@@ -394,7 +405,12 @@ export async function fetchProductosWebPublicos(
   const { data, count, error } = await query
 
   if (error) {
-    console.error('Error fetchProductosWebPublicos:', error)
+    console.error('Error fetchProductosWebPublicos:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    })
     return { productos: [], total: 0 }
   }
 

@@ -15,20 +15,45 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Edit3, Save, CheckCircle2, AlertCircle } from 'lucide-react'
-import { useLiveStoreEditor } from './LiveStoreEditorContext'
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select'
+import { Edit3, Save, CheckCircle2, AlertCircle, Type, Sparkles } from 'lucide-react'
+import { useLiveStoreEditor, EditableSection } from './LiveStoreEditorContext'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { actualizarConfigEcommerce } from '@/modules/ecommerce/actions'
 import { ColeccionProductoSelector } from './ColeccionProductoSelector'
+import { 
+  parseStoreConfig, 
+  serializeStoreConfig, 
+  ParsedStoreConfig, 
+  DEFAULT_STORE_CONFIG, 
+  TextSizeOption 
+} from '@/lib/utils/storeConfig'
 
 export function LiveEditDrawer() {
   const router = useRouter()
   const { config } = useConfigEcommerce()
-  const { activeSection, isDrawerOpen, closeEditor } = useLiveStoreEditor()
+  const { activeSection, openEditor, isDrawerOpen, closeEditor } = useLiveStoreEditor()
   
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string>('¡Cambios guardados con éxito en la tienda!')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Estado del objeto de configuración global de textos
+  const [storeConfig, setStoreConfig] = useState<ParsedStoreConfig>(DEFAULT_STORE_CONFIG)
+
+  // Cargar configuración de Supabase
+  useEffect(() => {
+    if (config?.mensaje_precio_variable) {
+      setStoreConfig(parseStoreConfig(config.mensaje_precio_variable))
+    }
+  }, [config])
 
   const handleSuccessNotification = (msg?: string) => {
     if (msg) setSuccessMsg(msg)
@@ -37,47 +62,8 @@ export function LiveEditDrawer() {
       setSaveSuccess(false)
       closeEditor()
       router.refresh()
-    }, 2500)
+    }, 2200)
   }
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-
-  // Estados de formularios
-  const [heroBadgeText, setHeroBadgeText] = useState('Bienvenido a Catálogo IDOL NAVY')
-  const [heroTitle, setHeroTitle] = useState('Estilo, Calidad y Comodidad Exclusiva')
-  const [heroDescription, setHeroDescription] = useState('Nos alegra que formes parte de esta experiencia. Aquí encontrarás nuestra colección diseñada para ofrecerte prendas de alta gama.')
-  const [exploraCategoriaText, setExploraCategoriaText] = useState(
-    'Explora cada una de nuestras opciones y descubre los diseños que mejor se adapten a tu personalidad. Nos esforzamos por brindarte productos de excelente calidad y una atención cercana para que tu experiencia sea la mejor.'
-  )
-  const [exploraCategoriaSize, setExploraCategoriaSize] = useState<string>('normal')
-
-  const [footerAgradecimientoText, setFooterAgradecimientoText] = useState(
-    '¡Gracias por confiar en nosotros y ser parte de nuestra comunidad!'
-  )
-  const [footerAgradecimientoSize, setFooterAgradecimientoSize] = useState<string>('large')
-  
-  const [damaLink, setDamaLink] = useState('/shop?genero=dama')
-  const [caballeroLink, setCaballeroLink] = useState('/shop?genero=caballero')
-
-  // Contactos Regionales
-  const [contactoCentro, setContactoCentro] = useState('248 125 0472')
-  const [contactoTulancingo, setContactoTulancingo] = useState('56 1549 5410')
-  const [contactoMoroleon, setContactoMoroleon] = useState('55 3935 6156')
-  const [contactoSanMartin, setContactoSanMartin] = useState('248 125 167')
-
-  useEffect(() => {
-    if (config?.mensaje_precio_variable) {
-      try {
-        const parsed = JSON.parse(config.mensaje_precio_variable)
-        if (parsed.hero_description) setHeroDescription(parsed.hero_description)
-        if (parsed.explora_categoria) setExploraCategoriaText(parsed.explora_categoria)
-        if (parsed.explora_categoria_size) setExploraCategoriaSize(parsed.explora_categoria_size)
-        if (parsed.footer_agradecimiento) setFooterAgradecimientoText(parsed.footer_agradecimiento)
-        if (parsed.footer_agradecimiento_size) setFooterAgradecimientoSize(parsed.footer_agradecimiento_size)
-      } catch {
-        setHeroDescription(config.mensaje_precio_variable)
-      }
-    }
-  }, [config])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,13 +71,7 @@ export function LiveEditDrawer() {
     setErrorMsg(null)
 
     try {
-      const payload = JSON.stringify({
-        hero_description: heroDescription,
-        explora_categoria: exploraCategoriaText,
-        explora_categoria_size: exploraCategoriaSize,
-        footer_agradecimiento: footerAgradecimientoText,
-        footer_agradecimiento_size: footerAgradecimientoSize,
-      })
+      const payload = serializeStoreConfig(storeConfig)
 
       const result = await actualizarConfigEcommerce({
         mensaje_precio_variable: payload,
@@ -109,88 +89,175 @@ export function LiveEditDrawer() {
 
   const getSectionTitle = () => {
     switch (activeSection) {
-      case 'hero': return 'Editar Sección Hero / Bienvenida'
-      case 'coleccion_dama': return 'Editar Colección Dama'
-      case 'coleccion_caballero': return 'Editar Colección Caballero'
-      case 'explora_categoria': return 'Editar Sección Explora por Categoría'
-      case 'footer_agradecimiento': return 'Editar Mensaje de Agradecimiento'
-      case 'contactos_regionales': return 'Editar Contactos por Región'
-      case 'destacados': return 'Editar Productos Destacados'
+      case 'hero': return 'Hero / Bienvenida'
+      case 'coleccion_dama': return 'Colección Dama'
+      case 'coleccion_caballero': return 'Colección Caballero'
+      case 'explora_categoria': return 'Explora por Categoría'
+      case 'categorias_grid': return 'Catálogo por Líneas'
+      case 'destacados': return 'Productos Destacados'
+      case 'contactos_regionales': return 'Contactos Regionales'
+      case 'footer_agradecimiento': return 'Mensaje de Agradecimiento'
       default: return 'Edición Rápida'
     }
   }
+
+  // Componente de Control para Selector de 3 Tamaños Tipográficos
+  const SizeSelectorControl = ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string
+    value: TextSizeOption
+    onChange: (val: TextSizeOption) => void
+  }) => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold text-foreground dark:text-gray-200 flex items-center gap-1.5">
+          <Type className="h-3.5 w-3.5 text-amber-500" />
+          <span>{label}</span>
+        </Label>
+        <span className="text-[10px] text-muted-foreground uppercase font-mono tracking-wider">
+          {value === 'small' ? 'Pequeño' : value === 'large' ? 'Grande' : 'Mediano'}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { id: 'small' as TextSizeOption, label: 'Pequeño', desc: 'S s' },
+          { id: 'normal' as TextSizeOption, label: 'Mediano', desc: 'M m' },
+          { id: 'large' as TextSizeOption, label: 'Grande', desc: 'L l' },
+        ].map((sz) => {
+          const isSelected = value === sz.id
+          return (
+            <button
+              key={sz.id}
+              type="button"
+              onClick={() => onChange(sz.id)}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-0.5 ${
+                isSelected
+                  ? 'bg-emerald-700 text-white border-emerald-700 shadow-md ring-2 ring-emerald-500/30'
+                  : 'bg-card text-foreground border-border hover:bg-muted dark:bg-zinc-900 dark:border-zinc-800'
+              }`}
+            >
+              <span>{sz.label}</span>
+              <span className={`text-[10px] ${isSelected ? 'text-emerald-100' : 'text-muted-foreground'}`}>
+                {sz.desc}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 
   return (
     <Sheet open={isDrawerOpen} onOpenChange={(open) => !open && closeEditor()}>
       <SheetContent 
         side="right" 
-        className="w-full sm:max-w-lg flex flex-col p-0 bg-background text-foreground border-l border-border dark:bg-zinc-950 dark:text-gray-100"
+        className="w-full sm:max-w-lg flex flex-col p-0 bg-background text-foreground border-l border-border dark:bg-zinc-950 dark:text-gray-100 shadow-2xl"
       >
-        <SheetHeader className="p-5 border-b border-border bg-card dark:bg-zinc-900">
-          <SheetTitle className="text-lg font-semibold text-foreground dark:text-gray-100 flex items-center gap-2">
-            <Edit3 className="h-5 w-5 text-amber-500" />
-            <span>{getSectionTitle()}</span>
-          </SheetTitle>
-          <SheetDescription className="text-xs text-muted-foreground dark:text-gray-400">
-            Los cambios guardados se reflejarán de inmediato en la tienda pública
+        {/* Header con Selector de Sección Móvil */}
+        <SheetHeader className="p-4 sm:p-5 border-b border-border bg-card dark:bg-zinc-900 space-y-3">
+          <div className="flex items-center justify-between">
+            <SheetTitle className="text-base font-bold text-foreground dark:text-gray-100 flex items-center gap-2">
+              <Edit3 className="h-4 w-4 text-amber-500" />
+              <span>{getSectionTitle()}</span>
+            </SheetTitle>
+            <Sparkles className="h-4 w-4 text-amber-500 animate-pulse" />
+          </div>
+
+          {/* Submenú Dropdown para cambiar de apartado sin cerrar */}
+          <div>
+            <Label className="text-[11px] font-medium text-muted-foreground dark:text-gray-400 mb-1 block">
+              Cambiar apartado a editar:
+            </Label>
+            <Select 
+              value={activeSection || 'hero'} 
+              onValueChange={(val) => openEditor(val as EditableSection)}
+            >
+              <SelectTrigger className="bg-background dark:bg-zinc-950 text-xs h-9">
+                <SelectValue placeholder="Seleccionar apartado..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hero">Hero / Bienvenida</SelectItem>
+                <SelectItem value="coleccion_dama">Portada Colección Dama</SelectItem>
+                <SelectItem value="coleccion_caballero">Portada Colección Caballero</SelectItem>
+                <SelectItem value="explora_categoria">Explora por Categoría</SelectItem>
+                <SelectItem value="categorias_grid">Catálogo por Líneas (Dama, Caballero, Infantil)</SelectItem>
+                <SelectItem value="destacados">Productos Destacados</SelectItem>
+                <SelectItem value="contactos_regionales">Contactos Regionales</SelectItem>
+                <SelectItem value="footer_agradecimiento">Mensaje de Agradecimiento</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <SheetDescription className="text-[11px] text-muted-foreground dark:text-gray-400">
+            Personaliza el título, descripción y tamaño de letra en tiempo real
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        {/* Contenido del Formulario */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
           {saveSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200 rounded-lg text-xs font-medium flex items-center gap-2 animate-in fade-in">
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-200 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in shadow-xs">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>{successMsg}</span>
             </div>
           )}
 
           {errorMsg && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200 rounded-lg text-xs font-medium flex items-center gap-2">
+            <div className="p-3 bg-red-50 border border-red-200 text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200 rounded-xl text-xs font-medium flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {/* Formulario Hero / Bienvenida */}
+          {/* Section: Hero / Bienvenida */}
           {activeSection === 'hero' && (
             <div className="space-y-4">
               <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Insignia de Bienvenida
-                </Label>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Insignia / Badge de Bienvenida</Label>
                 <Input
-                  value={heroBadgeText}
-                  onChange={(e) => setHeroBadgeText(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
+                  value={storeConfig.heroBadge}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, heroBadge: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs"
                 />
               </div>
 
               <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Título Principal
-                </Label>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Título Principal</Label>
                 <Input
-                  value={heroTitle}
-                  onChange={(e) => setHeroTitle(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
+                  value={storeConfig.heroTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, heroTitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs font-serif"
                 />
               </div>
 
+              <SizeSelectorControl
+                label="Tamaño del Título Principal"
+                value={storeConfig.heroTitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, heroTitleSize: val })}
+              />
+
               <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Mensaje / Descripción
-                </Label>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Mensaje / Descripción</Label>
                 <Textarea
                   rows={3}
-                  value={heroDescription}
-                  onChange={(e) => setHeroDescription(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
+                  value={storeConfig.heroDescription}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, heroDescription: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs leading-relaxed"
                 />
               </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Mensaje"
+                value={storeConfig.heroDescriptionSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, heroDescriptionSize: val })}
+              />
             </div>
           )}
 
-          {/* Formulario Colección Dama */}
+          {/* Section: Colección Dama */}
           {activeSection === 'coleccion_dama' && (
             <ColeccionProductoSelector
               generoId={1}
@@ -199,7 +266,7 @@ export function LiveEditDrawer() {
             />
           )}
 
-          {/* Formulario Colección Caballero */}
+          {/* Section: Colección Caballero */}
           {activeSection === 'coleccion_caballero' && (
             <ColeccionProductoSelector
               generoId={2}
@@ -208,158 +275,181 @@ export function LiveEditDrawer() {
             />
           )}
 
-          {/* Formulario Explora por Categoría */}
+          {/* Section: Explora por Categoría */}
           {activeSection === 'explora_categoria' && (
             <div className="space-y-4">
               <div>
-                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">
-                  Mensaje / Subtítulo de Explora por Categoría
-                </Label>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Título de la Sección</Label>
+                <Input
+                  value={storeConfig.exploraTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, exploraTitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs font-serif"
+                />
+              </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Título"
+                value={storeConfig.exploraTitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, exploraTitleSize: val })}
+              />
+
+              <div>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Mensaje / Subtítulo</Label>
                 <Textarea
                   rows={4}
-                  value={exploraCategoriaText}
-                  onChange={(e) => setExploraCategoriaText(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100 text-xs leading-relaxed"
+                  value={storeConfig.exploraCategoria}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, exploraCategoria: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs leading-relaxed"
                 />
               </div>
 
-              <div>
-                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">
-                  Tamaño de Texto
-                </Label>
-                <div className="grid grid-cols-3 gap-2 mt-1.5">
-                  {[
-                    { id: 'small', label: 'Pequeño' },
-                    { id: 'normal', label: 'Mediano' },
-                    { id: 'large', label: 'Grande' }
-                  ].map((sz) => (
-                    <button
-                      key={sz.id}
-                      type="button"
-                      onClick={() => setExploraCategoriaSize(sz.id)}
-                      className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
-                        exploraCategoriaSize === sz.id
-                          ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                          : 'bg-card text-foreground border-border hover:bg-muted'
-                      }`}
-                    >
-                      {sz.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <SizeSelectorControl
+                label="Tamaño del Mensaje"
+                value={storeConfig.exploraCategoriaSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, exploraCategoriaSize: val })}
+              />
             </div>
           )}
 
-          {/* Formulario Mensaje de Agradecimiento Footer */}
-          {activeSection === 'footer_agradecimiento' && (
+          {/* Section: Catálogo por Líneas */}
+          {activeSection === 'categorias_grid' && (
             <div className="space-y-4">
               <div>
-                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">
-                  Mensaje de Agradecimiento / Comunidad
-                </Label>
-                <Textarea
-                  rows={3}
-                  value={footerAgradecimientoText}
-                  onChange={(e) => setFooterAgradecimientoText(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100 text-xs leading-relaxed"
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Título del Catálogo por Líneas</Label>
+                <Input
+                  value={storeConfig.categoriasGridTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, categoriasGridTitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs font-serif"
                 />
               </div>
 
+              <SizeSelectorControl
+                label="Tamaño del Título"
+                value={storeConfig.categoriasGridTitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, categoriasGridTitleSize: val })}
+              />
+
               <div>
-                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">
-                  Tamaño de Texto (3 opciones)
-                </Label>
-                <div className="grid grid-cols-3 gap-2 mt-1.5">
-                  {[
-                    { id: 'small', label: 'Pequeño' },
-                    { id: 'normal', label: 'Mediano' },
-                    { id: 'large', label: 'Grande' }
-                  ].map((sz) => (
-                    <button
-                      key={sz.id}
-                      type="button"
-                      onClick={() => setFooterAgradecimientoSize(sz.id)}
-                      className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
-                        footerAgradecimientoSize === sz.id
-                          ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                          : 'bg-card text-foreground border-border hover:bg-muted'
-                      }`}
-                    >
-                      {sz.label}
-                    </button>
-                  ))}
-                </div>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Subtítulo / Descripción de Líneas</Label>
+                <Input
+                  value={storeConfig.categoriasGridSubtitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, categoriasGridSubtitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs"
+                />
+              </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Subtítulo"
+                value={storeConfig.categoriasGridSubtitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, categoriasGridSubtitleSize: val })}
+              />
+            </div>
+          )}
+
+          {/* Section: Destacados */}
+          {activeSection === 'destacados' && (
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Título de la Sección Destacados</Label>
+                <Input
+                  value={storeConfig.destacadosTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, destacadosTitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs font-serif"
+                />
+              </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Título"
+                value={storeConfig.destacadosTitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, destacadosTitleSize: val })}
+              />
+
+              <div>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Subtítulo</Label>
+                <Input
+                  value={storeConfig.destacadosSubtitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, destacadosSubtitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs"
+                />
+              </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Subtítulo"
+                value={storeConfig.destacadosSubtitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, destacadosSubtitleSize: val })}
+              />
+
+              <div className="pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-xs"
+                  onClick={() => router.push('/catalogo')}
+                >
+                  Gestión completa de prendas destacadas en Catálogo
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Formulario Contactos por Región */}
+          {/* Section: Contactos Regionales */}
           {activeSection === 'contactos_regionales' && (
             <div className="space-y-4">
               <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Daniel (Centro) - Teléfono
-                </Label>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Título de la Sección Contactos</Label>
                 <Input
-                  value={contactoCentro}
-                  onChange={(e) => setContactoCentro(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
+                  value={storeConfig.contactosTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, contactosTitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs font-serif"
                 />
               </div>
 
+              <SizeSelectorControl
+                label="Tamaño del Título"
+                value={storeConfig.contactosTitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, contactosTitleSize: val })}
+              />
+
               <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Javier (Tulancingo) - Teléfono
-                </Label>
-                <Input
-                  value={contactoTulancingo}
-                  onChange={(e) => setContactoTulancingo(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Subtítulo de Contactos</Label>
+                <Textarea
+                  rows={2}
+                  value={storeConfig.contactosSubtitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, contactosSubtitle: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs leading-relaxed"
                 />
               </div>
 
-              <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Carlos (Moroleón) - Teléfono
-                </Label>
-                <Input
-                  value={contactoMoroleon}
-                  onChange={(e) => setContactoMoroleon(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-foreground dark:text-gray-200">
-                  Juan (San Martín, Toluca, Chiconcuac) - Teléfono
-                </Label>
-                <Input
-                  value={contactoSanMartin}
-                  onChange={(e) => setContactoSanMartin(e.target.value)}
-                  className="mt-1 bg-background dark:bg-zinc-900 text-foreground dark:text-gray-100"
-                />
-              </div>
+              <SizeSelectorControl
+                label="Tamaño del Subtítulo"
+                value={storeConfig.contactosSubtitleSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, contactosSubtitleSize: val })}
+              />
             </div>
           )}
 
-          {/* Formulario Productos Destacados */}
-          {activeSection === 'destacados' && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground dark:text-gray-400">
-                Los productos destacados se gestionan directamente marcando la casilla de <strong>Destacado</strong> en el panel de productos del catálogo.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full text-xs"
-                onClick={() => router.push('/catalogo')}
-              >
-                Ir a gestión de catálogo
-              </Button>
+          {/* Section: Footer Agradecimiento */}
+          {activeSection === 'footer_agradecimiento' && (
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">Mensaje de Agradecimiento / Comunidad</Label>
+                <Textarea
+                  rows={3}
+                  value={storeConfig.footerAgradecimiento}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, footerAgradecimiento: e.target.value })}
+                  className="mt-1 bg-background dark:bg-zinc-900 text-xs leading-relaxed"
+                />
+              </div>
+
+              <SizeSelectorControl
+                label="Tamaño del Mensaje"
+                value={storeConfig.footerAgradecimientoSize}
+                onChange={(val) => setStoreConfig({ ...storeConfig, footerAgradecimientoSize: val })}
+              />
             </div>
           )}
 
+          {/* Footer de Acciones de Guardado */}
           {activeSection !== 'coleccion_dama' && activeSection !== 'coleccion_caballero' && (
             <SheetFooter className="pt-4 border-t border-border flex flex-row gap-3">
               <Button
@@ -374,7 +464,7 @@ export function LiveEditDrawer() {
                 type="button"
                 disabled={isSaving}
                 onClick={handleSave}
-                className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5"
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 rounded-xl shadow-md"
               >
                 <Save className="h-3.5 w-3.5" />
                 <span>{isSaving ? 'Guardando...' : 'Guardar Cambios'}</span>
