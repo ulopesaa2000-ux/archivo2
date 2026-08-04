@@ -26,26 +26,31 @@ export async function fetchConfigEcommerce(): Promise<ConfigEcommerce | null> {
   cacheLife('hours')
   cacheTag('ecommerce-config')
 
-  const supabase = createStaticClient()
+  try {
+    const supabase = createStaticClient()
 
-  const { data, error } = await supabase
-    .from('config_ecommerce')
-    .select('*')
-    .eq('id', 1)
-    .single()
+    const { data, error } = await supabase
+      .from('config_ecommerce')
+      .select('*')
+      .eq('id', 1)
+      .single()
 
-  if (error) {
-    console.error('Error fetchConfigEcommerce:', {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    })
+    if (error) {
+      console.error('Error fetchConfigEcommerce:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      })
+      return null
+    }
+
+    return data as ConfigEcommerce
+  } catch (err) {
+    console.error('Exception in fetchConfigEcommerce:', err)
     return null
   }
-
-  return data as ConfigEcommerce
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -297,171 +302,176 @@ export async function fetchProductosNoPublicados(): Promise<
 export async function fetchProductosWebPublicos(
   filtros: FiltrosProductoWeb
 ): Promise<{ productos: ProductoWebPublico[]; total: number }> {
-  const supabase = await createClient()
-  const page = filtros.page ?? 1
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  try {
+    const supabase = createStaticClient()
+    const page = filtros.page ?? 1
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
 
-  let query = (supabase
-    .from('productos_web') as any)
-    .select(
-      `
-      id,
-      slug,
-      producto_id,
-      titulo_seo,
-      precio_publico,
-      precio_oferta,
-      en_oferta,
-      destacado,
-      nuevo,
-      modo_override,
-      unidad_venta,
-      activo,
-      productos!inner(
-        sku_base,
-        nombre,
-        descripcion,
-        marca_id,
-        genero_id,
-        tipo_prenda_id,
-        cat_marcas!left(nombre),
-        cat_tipo_prenda!left(nombre),
-        cat_generos!left(nombre)
+    let query = (supabase
+      .from('productos_web') as any)
+      .select(
+        `
+        id,
+        slug,
+        producto_id,
+        titulo_seo,
+        precio_publico,
+        precio_oferta,
+        en_oferta,
+        destacado,
+        nuevo,
+        modo_override,
+        unidad_venta,
+        activo,
+        productos!inner(
+          sku_base,
+          nombre,
+          descripcion,
+          marca_id,
+          genero_id,
+          tipo_prenda_id,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre)
+        )
+        `,
+        { count: 'exact' }
       )
-      `,
-      { count: 'exact' }
-    )
-    .eq('activo', true)
-    .eq('productos.activo', true)
+      .eq('activo', true)
+      .eq('productos.activo', true)
 
-  // Filtros públicos
-  if (filtros.en_oferta) {
-    query = query.eq('en_oferta', true)
-  }
-  if (filtros.destacado) {
-    query = query.eq('destacado', true)
-  }
-  if (filtros.nuevo) {
-    query = query.eq('nuevo', true)
-  }
-  if (filtros.marca_id) {
-    query = query.eq('productos.marca_id', filtros.marca_id)
-  }
-  if (filtros.tipo_prenda_id) {
-    query = query.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
-  }
-  if (filtros.genero) {
-    const g = filtros.genero.toLowerCase()
-    if (g.includes('dama') || g.includes('mujer')) {
-      query = query.eq('productos.genero_id', 1) // 1 = Mujer
-    } else if (g.includes('caballero') || g.includes('hombre')) {
-      query = query.eq('productos.genero_id', 2) // 2 = Hombre
-    } else if (g.includes('unisex')) {
-      query = query.eq('productos.genero_id', 3) // 3 = Unisex
-    } else if (g.includes('nino') || g.includes('niña') || g.includes('infantil')) {
-      query = query.in('productos.genero_id', [4, 5]) // 4 = Niño, 5 = Niña
+    // Filtros públicos
+    if (filtros.en_oferta) {
+      query = query.eq('en_oferta', true)
     }
-  }
-  if (filtros.tipo) {
-    const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
-
-    if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
-      query = query.in('productos.genero_id', [4, 5])
+    if (filtros.destacado) {
+      query = query.eq('destacado', true)
     }
-
-    if (t.includes('chamarr')) {
-      query = query.eq('productos.tipo_prenda_id', 5) // CHAMARRA
-    } else if (t.includes('rompeviento')) {
-      query = query.eq('productos.tipo_prenda_id', 11) // ROMPEVIENTOS
-    } else if (t.includes('chaleco')) {
-      query = query.eq('productos.tipo_prenda_id', 4) // CHALECO
-    } else if (t.includes('set') || t.includes('conjunto') || t.includes('deportivo')) {
-      query = query.eq('productos.tipo_prenda_id', 13) // SET
-    } else if (t.includes('sueter') || t.includes('suéter')) {
-      query = query.eq('productos.tipo_prenda_id', 16) // SUETER
-    } else if (t.includes('sudadera')) {
-      query = query.eq('productos.tipo_prenda_id', 15) // SUDADERA
-    } else if (t.includes('abrigo')) {
-      query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
-    } else if (t.includes('novedad')) {
+    if (filtros.nuevo) {
       query = query.eq('nuevo', true)
-    } else {
-      const term = `%${t}%`
+    }
+    if (filtros.marca_id) {
+      query = query.eq('productos.marca_id', filtros.marca_id)
+    }
+    if (filtros.tipo_prenda_id) {
+      query = query.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
+    }
+    if (filtros.genero) {
+      const g = filtros.genero.toLowerCase()
+      if (g.includes('dama') || g.includes('mujer')) {
+        query = query.eq('productos.genero_id', 1) // 1 = Mujer
+      } else if (g.includes('caballero') || g.includes('hombre')) {
+        query = query.eq('productos.genero_id', 2) // 2 = Hombre
+      } else if (g.includes('unisex')) {
+        query = query.eq('productos.genero_id', 3) // 3 = Unisex
+      } else if (g.includes('nino') || g.includes('niña') || g.includes('infantil')) {
+        query = query.in('productos.genero_id', [4, 5]) // 4 = Niño, 5 = Niña
+      }
+    }
+    if (filtros.tipo) {
+      const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
+
+      if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
+        query = query.in('productos.genero_id', [4, 5])
+      }
+
+      if (t.includes('chamarr')) {
+        query = query.eq('productos.tipo_prenda_id', 5) // CHAMARRA
+      } else if (t.includes('rompeviento')) {
+        query = query.eq('productos.tipo_prenda_id', 11) // ROMPEVIENTOS
+      } else if (t.includes('chaleco')) {
+        query = query.eq('productos.tipo_prenda_id', 4) // CHALECO
+      } else if (t.includes('set') || t.includes('conjunto') || t.includes('deportivo')) {
+        query = query.eq('productos.tipo_prenda_id', 13) // SET
+      } else if (t.includes('sueter') || t.includes('suéter')) {
+        query = query.eq('productos.tipo_prenda_id', 16) // SUETER
+      } else if (t.includes('sudadera')) {
+        query = query.eq('productos.tipo_prenda_id', 15) // SUDADERA
+      } else if (t.includes('abrigo')) {
+        query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
+      } else if (t.includes('novedad')) {
+        query = query.eq('nuevo', true)
+      } else {
+        const term = `%${t}%`
+        query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
+      }
+    }
+
+    if (filtros.q && filtros.q.trim()) {
+      const term = `%${filtros.q.trim()}%`
+      query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
       query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
     }
-  }
 
-  if (filtros.q && filtros.q.trim()) {
-    const term = `%${filtros.q.trim()}%`
-    query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
-    query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
-  }
+    query = query
+      .order('orden_display', { ascending: true })
+      .range(from, to)
 
-  query = query
-    .order('orden_display', { ascending: true })
-    .range(from, to)
+    const { data, count, error } = await query
 
-  const { data, count, error } = await query
+    if (error) {
+      console.error('Error fetchProductosWebPublicos:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      })
+      return { productos: [], total: 0 }
+    }
 
-  if (error) {
-    console.error('Error fetchProductosWebPublicos:', {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    })
+    // Obtener imágenes principales
+    const productoIds = (data || []).map((p: any) => p.producto_id)
+
+    let imagenesMap: Record<number, { url: string; url_og: string | null }> = {}
+    if (productoIds.length > 0) {
+      const { data: imagenes } = (await supabase
+        .from('producto_imagenes')
+        .select('producto_id, url, url_og')
+        .eq('es_principal', true)
+        .in('producto_id', productoIds)) as any
+
+      imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
+        acc[img.producto_id] = { url: img.url, url_og: img.url_og }
+        return acc
+      }, {})
+    }
+
+    const productos: ProductoWebPublico[] = (data || []).map((item: any) => ({
+      id: item.id,
+      slug: item.slug,
+      producto_id: item.producto_id,
+      sku_base: item.productos?.sku_base,
+      nombre: item.productos?.descripcion || item.productos?.nombre || item.titulo_seo || 'Producto',
+      descripcion: item.productos?.descripcion,
+      composicion: null,
+      titulo_seo: item.titulo_seo ?? null,
+      descripcion_seo: null, // No se carga en lista
+      precio_publico: item.precio_publico,
+      precio_oferta: item.precio_oferta,
+      en_oferta: item.en_oferta,
+      destacado: item.destacado,
+      nuevo: item.nuevo,
+      marca: item.productos?.cat_marcas?.nombre,
+      tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
+      genero: item.productos?.cat_generos?.nombre,
+      tela_exterior: null,
+      tela_forro: null,
+      keywords: null,
+      imagen_principal: imagenesMap[item.producto_id]?.url || null,
+      url_og: imagenesMap[item.producto_id]?.url_og || null,
+      modo_override: item.modo_override,
+      unidad_venta: item.unidad_venta,
+      activo: item.activo,
+    }))
+
+    return {
+      productos,
+      total: count ?? 0,
+    }
+  } catch (err) {
+    console.error('Exception in fetchProductosWebPublicos:', err)
     return { productos: [], total: 0 }
-  }
-
-  // Obtener imágenes principales
-  const productoIds = (data || []).map((p: any) => p.producto_id)
-
-  let imagenesMap: Record<number, { url: string; url_og: string | null }> = {}
-  if (productoIds.length > 0) {
-    const { data: imagenes } = (await supabase
-      .from('producto_imagenes')
-      .select('producto_id, url, url_og')
-      .eq('es_principal', true)
-      .in('producto_id', productoIds)) as any
-
-    imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-      acc[img.producto_id] = { url: img.url, url_og: img.url_og }
-      return acc
-    }, {})
-  }
-
-  const productos: ProductoWebPublico[] = (data || []).map((item: any) => ({
-    id: item.id,
-    slug: item.slug,
-    producto_id: item.producto_id,
-    sku_base: item.productos?.sku_base,
-    nombre: item.productos?.descripcion || item.productos?.nombre || item.titulo_seo || 'Producto',
-    descripcion: item.productos?.descripcion,
-    composicion: null,
-    titulo_seo: item.titulo_seo ?? null,
-    descripcion_seo: null, // No se carga en lista
-    precio_publico: item.precio_publico,
-    precio_oferta: item.precio_oferta,
-    en_oferta: item.en_oferta,
-    destacado: item.destacado,
-    nuevo: item.nuevo,
-    marca: item.productos?.cat_marcas?.nombre,
-    tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
-    genero: item.productos?.cat_generos?.nombre,
-    tela_exterior: null,
-    tela_forro: null,
-    keywords: null,
-    imagen_principal: imagenesMap[item.producto_id]?.url || null,
-    url_og: imagenesMap[item.producto_id]?.url_og || null,
-    modo_override: item.modo_override,
-    unidad_venta: item.unidad_venta,
-    activo: item.activo,
-  }))
-
-  return {
-    productos,
-    total: count ?? 0,
   }
 }
 
