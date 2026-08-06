@@ -20,6 +20,7 @@ import {
   Package, ExternalLink, Image as ImageIcon, Loader2, Sparkles, Tag, Check, X, Globe, DollarSign, Edit,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { DestacadoWebStarButton } from './DestacadoWebStarButton'
 import type { ProductoWebExtendido } from '@/modules/ecommerce/types'
 import {
   togglePublicarProductoWebAction,
@@ -265,14 +266,22 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                     )}
                   </TableCell>
 
-                  {/* SKU Base */}
+                  {/* SKU Base + Estrella Destacado */}
                   <TableCell className="font-mono text-xs font-bold">
-                    <Link
-                      href={`/catalogo/${producto.producto_id}`}
-                      className="hover:text-primary hover:underline transition-colors"
-                    >
-                      {producto.sku_base}
-                    </Link>
+                    <div className="flex items-center gap-1.5">
+                      <Link
+                        href={`/catalogo/${producto.producto_id}`}
+                        className="hover:text-primary hover:underline transition-colors"
+                      >
+                        {producto.sku_base}
+                      </Link>
+                      <DestacadoWebStarButton
+                        productoId={producto.producto_id}
+                        productoWebId={producto.producto_web_id}
+                        initialDestacado={producto.destacado}
+                        skuBase={producto.sku_base}
+                      />
+                    </div>
                   </TableCell>
 
                   {/* Nombre y Marca */}

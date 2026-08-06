@@ -47,12 +47,13 @@ export async function publicarProductoWeb(data: ProductoWebInsert) {
   if (!slug) {
     const { data: producto } = await supabase
       .from('productos')
-      .select('nombre, sku_base')
+      .select('nombre, descripcion, sku_base, precio_ec')
       .eq('id', data.producto_id)
       .single()
 
     if (producto) {
-      slug = slugify(`${producto.nombre}-${producto.sku_base}`)
+      const baseText = producto.nombre || producto.descripcion || `producto-${data.producto_id}`
+      slug = slugify(`${baseText}-${producto.sku_base}`)
     }
   }
 
@@ -66,8 +67,11 @@ export async function publicarProductoWeb(data: ProductoWebInsert) {
     slug = `${slug}-${Date.now()}`
   }
 
+  const precioPublicoFinal = data.precio_publico && Number(data.precio_publico) > 0 ? Number(data.precio_publico) : 1
+
   const insertPayload: Database['inv-tienda']['Tables']['productos_web']['Insert'] = {
     ...data,
+    precio_publico: precioPublicoFinal,
     slug,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -110,11 +114,13 @@ export async function togglePublicarProductoWebAction(
     } else {
       const { data: prod } = await (supabase as any)
         .from('productos')
-        .select('nombre, sku_base')
+        .select('nombre, descripcion, sku_base, precio_ec')
         .eq('id', productoId)
         .single()
 
-      const baseSlug = prod ? slugify(`${prod.nombre}-${prod.sku_base}`) : `producto-${productoId}`
+      const precioPublico = prod?.precio_ec && Number(prod.precio_ec) > 0 ? Number(prod.precio_ec) : 1
+      const baseText = prod?.nombre || prod?.descripcion || `producto-${productoId}`
+      const baseSlug = slugify(`${baseText}-${prod?.sku_base || ''}`) || `producto-${productoId}`
       let slug = baseSlug
 
       const { data: existente } = await (supabase as any)
@@ -132,6 +138,7 @@ export async function togglePublicarProductoWebAction(
         .insert({
           producto_id: productoId,
           slug,
+          precio_publico: precioPublico,
           activo: true,
           en_oferta: false,
           destacado: false,
@@ -150,6 +157,82 @@ export async function togglePublicarProductoWebAction(
     return { success: false, error: err?.message || 'Error al cambiar publicación.' }
   }
 }
+
+export async function toggleDestacadoProductoWebAction(
+  productoId: number,
+  actualmenteDestacado: boolean,
+  productoWebId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const nuevoDestacado = !actualmenteDestacado
+
+    // 1. Sincronizar en inv-tienda.productos
+    await (supabase as any)
+      .from('productos')
+      .update({ destacado: nuevoDestacado })
+      .eq('id', productoId)
+
+    // 2. Sincronizar en inv-tienda.productos_web
+    if (productoWebId) {
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .update({
+          destacado: nuevoDestacado,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productoWebId)
+
+      if (error) return { success: false, error: error.message }
+    } else {
+      const { data: prod } = await (supabase as any)
+        .from('productos')
+        .select('nombre, descripcion, sku_base, precio_ec')
+        .eq('id', productoId)
+        .single()
+
+      const precioPublico = prod?.precio_ec && Number(prod.precio_ec) > 0 ? Number(prod.precio_ec) : 1
+      const baseText = prod?.nombre || prod?.descripcion || `producto-${productoId}`
+      const baseSlug = slugify(`${baseText}-${prod?.sku_base || ''}`) || `producto-${productoId}`
+      let slug = baseSlug
+
+      const { data: existente } = await (supabase as any)
+        .from('productos_web')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle()
+
+      if (existente) {
+        slug = `${baseSlug}-${Date.now()}`
+      }
+
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .insert({
+          producto_id: productoId,
+          slug,
+          precio_publico: precioPublico,
+          activo: false,
+          en_oferta: false,
+          destacado: nuevoDestacado,
+          nuevo: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+
+      if (error) return { success: false, error: error.message }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/catalogo')
+    revalidatePath('/(store)')
+    revalidatePath('/shop')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al cambiar destacado.' }
+  }
+}
+
 
 /**
  * Accion Masiva: Publicar lote de productos seleccionados
@@ -184,24 +267,32 @@ export async function publicarProductosMasivoAction(
         .in('id', idsActualizar)
     }
 
-    // 3. Para los que no existen, obtener sus nombres/skus e insertar
+    // 3. Para los que no existen, obtener sus nombres/skus/precio_ec e insertar
     const idsInsertar = productoIds.filter((pid) => !existentesMap[pid])
     if (idsInsertar.length > 0) {
       const { data: prods } = await (supabase as any)
         .from('productos')
-        .select('id, nombre, sku_base')
+        .select('id, nombre, descripcion, sku_base, precio_ec')
         .in('id', idsInsertar)
 
-      const inserts = (prods || []).map((p: any) => ({
-        producto_id: p.id,
-        slug: slugify(`${p.nombre}-${p.sku_base}-${Date.now().toString(36).substring(4)}`),
-        activo: true,
-        en_oferta: false,
-        destacado: false,
-        nuevo: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }))
+      const inserts = (prods || []).map((p: any) => {
+        const precioPublico = p.precio_ec && Number(p.precio_ec) > 0 ? Number(p.precio_ec) : 1
+        const baseText = p.nombre || p.descripcion || `producto-${p.id}`
+        const baseSlug = slugify(`${baseText}-${p.sku_base}`) || `producto-${p.id}`
+        const slug = `${baseSlug}-${Date.now().toString(36).substring(4)}`
+
+        return {
+          producto_id: p.id,
+          slug,
+          precio_publico: precioPublico,
+          activo: true,
+          en_oferta: false,
+          destacado: false,
+          nuevo: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      })
 
       if (inserts.length > 0) {
         await (supabase as any).from('productos_web').insert(inserts)

@@ -14,6 +14,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Star, Layers, Eye, Package, ArrowUpDown } from 'lucide-react'
+import { DestacadoStarButton } from '../../components/DestacadoStarButton'
 import { formatCurrency, truncate } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS, ADMIN_ROUTES } from '@/lib/constants'
 import type { ProductoListItem, CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
@@ -145,11 +146,11 @@ export function CatalogosReadOnlyTable({
                 </TableCell>
                 <TableCell className="py-3">
                   <div className="flex items-center gap-1.5 justify-end">
-                    {row.destacado && (
-                      <span title="Destacado">
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                      </span>
-                    )}
+                    <DestacadoStarButton
+                      id={row.id}
+                      initialDestacado={row.destacado ?? false}
+                      variant="table"
+                    />
                     {row.es_conjunto && (
                       <span title="Conjunto">
                         <Layers className="h-3.5 w-3.5 text-blue-500" />
