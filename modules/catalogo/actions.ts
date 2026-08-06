@@ -11,6 +11,7 @@ export {
   updateProductAction,
   deactivateProductAction,
   cambiarEstadoProductoAction,
+  toggleDestacadoAction,
   bulkUpdateProductsAction,
   bulkDeactivateProductsAction,
 } from './actions/product'

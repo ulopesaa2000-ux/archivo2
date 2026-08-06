@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MoreHorizontal, Eye, Pencil, Trash2, Star, Layers, Package } from 'lucide-react'
+import { DestacadoStarButton } from './components/DestacadoStarButton'
 import { formatCurrency, truncate } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS, ADMIN_ROUTES } from '@/lib/constants'
 import type { ProductoListItem, CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
@@ -221,11 +222,11 @@ function CatalogoTableInner({
       headerClassName: 'w-[60px]',
       cell: (row: ProductoListItem) => (
         <div className="flex items-center gap-1">
-          {row.destacado && (
-            <span title="Destacado">
-              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-            </span>
-          )}
+          <DestacadoStarButton
+            id={row.id}
+            initialDestacado={row.destacado ?? false}
+            variant="table"
+          />
           {row.es_conjunto && (
             <span title="Conjunto">
               <Layers className="h-3.5 w-3.5 text-blue-500" />

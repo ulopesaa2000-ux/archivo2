@@ -21,6 +21,7 @@ import {
   Pencil, Save, X, Loader2, AlertCircle, Star, Layers, Package, ZoomIn,
 } from 'lucide-react'
 import { ProductImageViewer } from './ProductImageViewer'
+import { DestacadoStarButton } from '../../components/DestacadoStarButton'
 import { formatCurrency } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
 import { updateProductAction } from '@/modules/catalogo/actions'
@@ -387,23 +388,29 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos, canEdit
 
               {/* Info principal */}
               <div className="md:col-span-2 space-y-4">
-                {/* Cabecera: SKU + badges + botón editar */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-xl font-bold font-mono">{producto.sku_base}</h2>
-                    <Badge className={estadoColor}>{producto.estado}</Badge>
-                    {!producto.activo && (
-                      <Badge variant="destructive">Inactivo</Badge>
-                    )}
-                    {producto.destacado && (
-                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                    )}
-                    {producto.es_conjunto && (
-                      <Badge variant="outline" className="gap-1">
-                        <Layers className="h-3 w-3" />
-                        Conjunto
-                      </Badge>
-                    )}
+                {/* Cabecera: SKU + Botón Estrella Destacado + badges + botón editar */}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-2xl md:text-3xl font-extrabold font-mono tracking-tight text-foreground">{producto.sku_base}</h2>
+                      <DestacadoStarButton
+                        id={producto.id}
+                        initialDestacado={producto.destacado ?? false}
+                        variant="hero"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className={estadoColor}>{producto.estado}</Badge>
+                      {!producto.activo && (
+                        <Badge variant="destructive">Inactivo</Badge>
+                      )}
+                      {producto.es_conjunto && (
+                        <Badge variant="outline" className="gap-1">
+                          <Layers className="h-3 w-3 text-blue-500" />
+                          Conjunto
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   {canEdit ? (
                     <Button

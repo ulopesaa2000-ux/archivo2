@@ -227,3 +227,25 @@ export async function bulkDeactivateProductsAction(
   revalidatePath('/catalogo')
   return { success: true }
 }
+
+export async function toggleDestacadoAction(
+  id: number,
+  nuevoEstado: boolean
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  const { error } = await (supabase.from('productos') as any)
+    .update({ destacado: nuevoEstado })
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/catalogo')
+  revalidatePath('/catalogo/catalogos')
+  revalidatePath(`/catalogo/${id}`)
+  return { success: true }
+}
+

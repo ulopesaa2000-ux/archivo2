@@ -28,9 +28,16 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
       )}
 
       {/* Nombre — serif, grande */}
-      <h1 className="font-serif text-[28px] sm:text-[34px] leading-[1.15] text-store-ink mb-5">
+      <h1 className="font-serif text-[28px] sm:text-[34px] leading-[1.15] text-store-ink mb-3">
         {producto.nombre}
       </h1>
+
+      {/* SKU destacado debajo de marca y nombre */}
+      {producto.sku_base && (
+        <div className="text-[14px] font-bold text-store-ink mb-4 font-sans tracking-wide">
+          SKU: <span className="font-semibold">{producto.sku_base}</span>
+        </div>
+      )}
 
       {/* Precio */}
       <div className="mb-6 flex flex-wrap items-center gap-3">

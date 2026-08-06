@@ -19,9 +19,21 @@ import {
   fetchVariantesProducto,
   incrementProductoWebVisitas,
 } from '@/modules/ecommerce/queries'
+import type { ProductoWebPublico } from '@/modules/ecommerce/types'
 import { ProductGalleryClient } from './components/ProductGalleryClient'
 
 const PRICE_VALID_UNTIL = '2027-12-31'
+
+function isJsonString(str?: string | null): boolean {
+  if (!str) return false
+  const trimmed = str.trim()
+  return (
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[') ||
+    trimmed.includes('hero_title') ||
+    trimmed.includes('hero_description')
+  )
+}
 
 function toAbsolute(url: string, base: string): string {
   if (!url) {
@@ -112,6 +124,30 @@ async function MeasurementsSection({ productoId }: { productoId: number }) {
   )
 }
 
+function getCleanText(text?: string | null): string | null {
+  if (!text) return null
+  if (isJsonString(text)) return null
+  return text.trim()
+}
+
+function getProductTitle(producto: ProductoWebPublico): string {
+  const cleanSeoTitle = getCleanText(producto.titulo_seo)
+  const cleanNombre = getCleanText(producto.nombre)
+  const cleanDesc = getCleanText(producto.descripcion)
+
+  if (cleanSeoTitle) return cleanSeoTitle
+  if (cleanNombre) return cleanNombre
+  if (producto.sku_base && cleanDesc) return `${producto.sku_base} - ${cleanDesc}`
+  if (producto.sku_base) return producto.sku_base
+  return 'Producto'
+}
+
+function getProductDescription(producto: ProductoWebPublico, productTitle: string): string {
+  const cleanSeoDesc = getCleanText(producto.descripcion_seo)
+  const cleanDesc = getCleanText(producto.descripcion)
+  return cleanSeoDesc || cleanDesc || `Descubre ${productTitle} en ${SITE_NAME}`
+}
+
 export async function generateMetadata({
   params,
 }: PageProps<'/shop/[slug]'>): Promise<Metadata> {
@@ -126,14 +162,8 @@ export async function generateMetadata({
     }
   }
 
-  const productTitle = producto.titulo_seo
-    ? producto.titulo_seo
-    : producto.sku_base && producto.descripcion
-      ? `${producto.sku_base} - ${producto.descripcion}`
-      : producto.sku_base || 'Producto'
-
-  const productDescription =
-    producto.descripcion_seo || producto.descripcion || `Descubre ${producto.sku_base} en ${SITE_NAME}`
+  const productTitle = getProductTitle(producto)
+  const productDescription = getProductDescription(producto, productTitle)
 
   const rawOgImage = producto.imagen_principal
     ? getSmartImagenUrl(producto.imagen_principal, 'og')
@@ -204,11 +234,7 @@ export default async function ProductPage({ params }: PageProps<'/shop/[slug]'>)
     await incrementProductoWebVisitas(producto.id, producto.visitas)
   })
 
-  const productTitle = producto.titulo_seo
-    ? producto.titulo_seo
-    : producto.sku_base && producto.descripcion
-      ? `${producto.sku_base} - ${producto.descripcion}`
-      : producto.sku_base || 'Producto'
+  const productTitle = getProductTitle(producto)
 
   const productSchema = {
     '@context': 'https://schema.org',
@@ -306,20 +332,19 @@ export default async function ProductPage({ params }: PageProps<'/shop/[slug]'>)
               <AddToQuoteButton producto={producto} config={config} />
             </div>
 
-            {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && (
+            {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && !isJsonString(config.mensaje_precio_variable) && (
               <p className="text-[12px] text-store-ink3 italic mt-3">{config.mensaje_precio_variable}</p>
             )}
 
-            {(producto.descripcion ||
+            {((producto.descripcion && producto.descripcion !== producto.nombre && !isJsonString(producto.descripcion)) ||
               producto.composicion ||
-              producto.descripcion_seo ||
               producto.keywords) && (
               <div className="mt-8 text-[14px] leading-[1.75] text-store-ink2 space-y-4 border-t border-store-border pt-6">
-                {producto.descripcion && producto.descripcion !== producto.nombre && (
-                  <p>{producto.descripcion}</p>
-                )}
-
-                {producto.descripcion_seo && <p>{producto.descripcion_seo}</p>}
+                {producto.descripcion &&
+                  producto.descripcion !== producto.nombre &&
+                  !isJsonString(producto.descripcion) && (
+                    <p>{producto.descripcion}</p>
+                  )}
 
                 {producto.keywords && (
                   <div className="pt-2 flex flex-wrap gap-2">

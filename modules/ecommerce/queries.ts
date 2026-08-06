@@ -442,8 +442,8 @@ export async function fetchProductosWebPublicos(
       slug: item.slug,
       producto_id: item.producto_id,
       sku_base: item.productos?.sku_base,
-      nombre: item.productos?.descripcion || item.productos?.nombre || item.titulo_seo || 'Producto',
-      descripcion: item.productos?.descripcion,
+      nombre: (item.productos?.nombre && !item.productos.nombre.startsWith('{') ? item.productos.nombre : null) || item.titulo_seo || item.productos?.sku_base || 'Producto',
+      descripcion: (item.productos?.descripcion && !item.productos.descripcion.startsWith('{') && !item.productos.descripcion.includes('hero_title') ? item.productos.descripcion : null),
       composicion: null,
       titulo_seo: item.titulo_seo ?? null,
       descripcion_seo: null, // No se carga en lista
@@ -482,7 +482,7 @@ export async function fetchProductosWebPublicos(
 const fetchProductoWebBySlugCached = cache(async (
   normalizedSlug: string
 ): Promise<ProductoWebPublico | null> => {
-  const supabase = createStaticClient()
+  const supabase = await createClient()
 
   let { data, error } = await supabase
     .from('productos_web')
@@ -558,16 +558,27 @@ const fetchProductoWebBySlugCached = cache(async (
 
   const prod = data.productos as any
 
+  // Helper: limpiar campos de texto que contengan JSON basura de configuración
+  function cleanJsonGarbage(val?: string | null): string | null {
+    if (!val) return null
+    const t = val.trim()
+    if (t.startsWith('{') || t.startsWith('[') || t.includes('hero_title') || t.includes('hero_description') || t.includes('explora_title') || t.includes('categorias_grid')) return null
+    return t
+  }
+
+  const cleanNombre = cleanJsonGarbage(prod?.nombre)
+  const cleanTituloSeo = cleanJsonGarbage(data.titulo_seo)
+
   return {
     id: data.id,
     slug: data.slug,
     producto_id: data.producto_id,
     sku_base: prod?.sku_base,
-    nombre: prod?.descripcion || prod?.nombre || data.titulo_seo || 'Producto sin nombre',
-    descripcion: prod?.descripcion,
-    composicion: prod?.composicion ?? null,
-    titulo_seo: data.titulo_seo ?? null,
-    descripcion_seo: data.descripcion_seo ?? null,
+    nombre: cleanNombre || cleanTituloSeo || prod?.sku_base || 'Producto sin nombre',
+    descripcion: cleanJsonGarbage(prod?.descripcion),
+    composicion: cleanJsonGarbage(prod?.composicion) ?? prod?.composicion ?? null,
+    titulo_seo: cleanTituloSeo,
+    descripcion_seo: null,
     precio_publico: data.precio_publico,
     precio_oferta: data.precio_oferta,
     en_oferta: data.en_oferta,
@@ -578,7 +589,7 @@ const fetchProductoWebBySlugCached = cache(async (
     genero: prod?.cat_generos?.nombre ?? null,
     tela_exterior: prod?.tela_ext?.nombre ?? null,
     tela_forro: prod?.tela_forro?.nombre ?? null,
-    keywords: data.keywords ?? null,
+    keywords: cleanJsonGarbage(data.keywords),
     imagen_principal: imagen?.url || null,
     url_og: imagen?.url_og || null,
     modo_override: data.modo_override,

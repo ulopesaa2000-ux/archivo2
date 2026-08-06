@@ -12,6 +12,7 @@ import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import type { ProductoListItem } from '@/modules/catalogo/types'
 import { Star, Pencil, Eye, Package } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { DestacadoStarButton } from './DestacadoStarButton'
 
 interface Props {
   productos: ProductoListItem[]
@@ -89,13 +90,14 @@ export function CatalogoGrid({ productos }: Props) {
                   </Button>
                 </div>
 
-                {/* Badge destacado */}
-                {producto.destacado && (
-                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400 text-amber-950 text-[10px] font-bold rounded-full px-2 py-0.5 shadow-md border border-amber-300/50">
-                    <Star className="h-2.5 w-2.5 fill-amber-950" />
-                    Destacado
-                  </div>
-                )}
+                {/* Botón interactivo destacado */}
+                <div className="absolute top-2 left-2 z-10">
+                  <DestacadoStarButton
+                    id={producto.id}
+                    initialDestacado={producto.destacado ?? false}
+                    variant="grid"
+                  />
+                </div>
 
                 {/* Badge es_conjunto */}
                 {producto.es_conjunto && (
