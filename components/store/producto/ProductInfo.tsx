@@ -33,7 +33,7 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
       </h1>
 
       {/* SKU destacado debajo de marca y nombre */}
-      {producto.sku_base && (
+      {producto.sku_base && producto.sku_base !== producto.nombre && (
         <div className="text-[14px] font-bold text-store-ink mb-4 font-sans tracking-wide">
           SKU: <span className="font-semibold">{producto.sku_base}</span>
         </div>

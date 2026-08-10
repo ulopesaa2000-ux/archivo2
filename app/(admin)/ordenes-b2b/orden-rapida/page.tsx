@@ -24,6 +24,14 @@ export default async function OrdenRapidaPage() {
 
   const contenedores = contenedoresRaw ?? []
 
+  const { data: marcasData } = await supabase
+    .from('cat_marcas')
+    .select('id, nombre')
+    .eq('activo', true)
+    .order('nombre', { ascending: true })
+
+  const marcas = marcasData ?? []
+
   return (
     <div className="space-y-6">
       <div>
@@ -38,6 +46,7 @@ export default async function OrdenRapidaPage() {
         proveedores={proveedores}
         clientes={clientes}
         contenedores={contenedores}
+        marcas={marcas}
       />
     </div>
   )

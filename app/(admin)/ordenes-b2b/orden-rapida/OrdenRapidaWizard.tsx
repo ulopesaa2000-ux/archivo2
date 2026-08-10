@@ -3,9 +3,10 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
+import { cn } from '@/lib/utils'
 import type { PersonaRow } from '@/lib/types/tables'
 import type { SharedCajaData } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -35,7 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
-import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction } from '@/modules/ordenes-b2b/actions'
+import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction } from '@/modules/ordenes-b2b/actions'
 
 
 type ContainerMock = {
@@ -45,10 +47,13 @@ type ContainerMock = {
   estado: string | null
 }
 
+type MarcaOption = { id: number; nombre: string }
+
 type WizardProps = {
   proveedores: PersonaRow[]
   clientes: PersonaRow[]
   contenedores: ContainerMock[]
+  marcas?: MarcaOption[]
 }
 
 type WizardWarning = {
@@ -62,6 +67,8 @@ type WizardProducto = {
   sku_raw?: string
   nombre?: string
   marca?: string
+  marca_id?: number | null
+  json_marca?: string
   descripcion?: string
   composicion?: string
   precio_yuan?: number
@@ -69,6 +76,7 @@ type WizardProducto = {
   estado_temporal?: string
   tipo_prenda?: string
   es_nuevo?: boolean
+  force_new?: boolean
   costo_promedio?: number
   [key: string]: unknown
 }
@@ -192,6 +200,22 @@ function tryParseJsonString(value: unknown) {
   }
 
   return value
+}
+
+function parseContainerCode(code: string) {
+  const match = code.trim().match(/^(\d{4})-(\d+)$/)
+  if (match) {
+    return {
+      year: parseInt(match[1], 10),
+      seq: parseInt(match[2], 10),
+      isStandard: true,
+    }
+  }
+  return {
+    year: 0,
+    seq: 0,
+    isStandard: false,
+  }
 }
 
 function resolverParserSelector(proveedorNombre: string) {
@@ -533,28 +557,120 @@ function groupCajasByProduct(
   return result
 }
 
-function ComparisonBadge({ calculated, json, label }: { calculated: number; json: number; label?: string }) {
-  if (!json) return null
-  const diff = json !== 0 ? Math.abs(calculated - json) / Math.abs(json) : 0
-  const match = diff < 0.001
-  const minor = diff <= 0.01
-  const color = match ? 'text-emerald-600' : minor ? 'text-yellow-600' : 'text-red-600'
+function ComparisonBadge({
+  calculated,
+  json,
+  label,
+  onSync,
+}: {
+  calculated: number
+  json: number
+  label?: string
+  onSync?: () => void
+}) {
+  if (!json && json !== 0) return null
+  const diffVal = calculated - json
+  const absDiff = Math.abs(diffVal)
+  const match = absDiff < 0.001
+  const color = match
+    ? 'text-emerald-600 font-semibold'
+    : absDiff <= 1
+    ? 'text-amber-600 font-bold'
+    : 'text-red-600 font-bold'
+
   return (
-    <span className={`text-[9px] font-normal ${color}`} title={`${label ?? ''} JSON: ${json.toLocaleString(undefined, { maximumFractionDigits: 3 })} | Calculado: ${calculated.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}>
-      ({json.toLocaleString(undefined, { maximumFractionDigits: 3 })})
-    </span>
+    <div className="flex flex-col gap-0.5 mt-1">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Badge
+          variant="outline"
+          className={cn(
+            'text-[10px] py-0 h-4 font-mono',
+            match
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-bold'
+              : 'border-amber-300 bg-amber-50 text-amber-900 font-bold',
+          )}
+        >
+          {match ? '✓ Coincide con nota' : `Nota: ${json.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
+        </Badge>
+        {!match && onSync && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-4 px-1.5 text-[9px] text-amber-700 hover:text-amber-900 hover:bg-amber-100/70 font-bold underline"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSync()
+            }}
+            title="Igualar valor objetivo de la nota al calculado en vivo por cajas"
+          >
+            Ajustar
+          </Button>
+        )}
+      </div>
+      {!match && (
+        <span className={cn('text-[10px]', color)}>
+          Diferencia: {diffVal > 0 ? `+${diffVal.toLocaleString(undefined, { maximumFractionDigits: 3 })}` : diffVal.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+        </span>
+      )}
+    </div>
   )
 }
 
-export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: WizardProps) {
+export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas = [] }: WizardProps) {
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [isPending, startTransition] = useTransition()
 
-  const [selectedProveedor, setSelectedProveedor] = useState('')
-  const [selectedCliente, setSelectedCliente] = useState('')
+  const [selectedProveedor, setSelectedProveedor] = useState(() => {
+    const p18 = proveedores.find((p) => String(p.id) === '18')
+    return p18 ? '18' : (proveedores[0] ? String(proveedores[0].id) : '')
+  })
+  const [selectedCliente, setSelectedCliente] = useState(() => {
+    const c27 = clientes.find((c) => String(c.id) === '27')
+    return c27 ? '27' : (clientes[0] ? String(clientes[0].id) : '')
+  })
   const [selectedContenedor, setSelectedContenedor] = useState('new')
   const [newContainerCode, setNewContainerCode] = useState('')
+
+  const selectedProveedorObj = useMemo(
+    () => proveedores.find((p) => String(p.id) === selectedProveedor),
+    [proveedores, selectedProveedor],
+  )
+
+  const selectedClienteObj = useMemo(
+    () => clientes.find((c) => String(c.id) === selectedCliente),
+    [clientes, selectedCliente],
+  )
+
+  const sortedContenedores = useMemo(
+    () =>
+      [...contenedores].sort((a, b) => {
+        const aParsed = parseContainerCode(a.codigo_contenedor)
+        const bParsed = parseContainerCode(b.codigo_contenedor)
+
+        if (aParsed.isStandard && bParsed.isStandard) {
+          if (bParsed.year !== aParsed.year) {
+            return bParsed.year - aParsed.year
+          }
+          return bParsed.seq - aParsed.seq
+        }
+
+        if (aParsed.isStandard && !bParsed.isStandard) return -1
+        if (!aParsed.isStandard && bParsed.isStandard) return 1
+
+        return b.codigo_contenedor.localeCompare(a.codigo_contenedor, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        })
+      }),
+    [contenedores],
+  )
+
+  const selectedContenedorObj = useMemo(
+    () => sortedContenedores.find((c) => String(c.id) === selectedContenedor),
+    [sortedContenedores, selectedContenedor],
+  )
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
@@ -567,10 +683,19 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
   const [warnings, setWarnings] = useState<WizardWarning[]>([])
   const [editableProductos, setEditableProductos] = useState<WizardProducto[]>([])
   const [editableCajas, setEditableCajas] = useState<WizardCaja[]>([])
+
+  // Sobrescritura manual de metas/totales de la nota para los 6 KPIs
+  const [overrideProductos, setOverrideProductos] = useState<number | null>(null)
+  const [overrideCajas, setOverrideCajas] = useState<number | null>(null)
+  const [overridePiezas, setOverridePiezas] = useState<number | null>(null)
+  const [overrideCbm, setOverrideCbm] = useState<number | null>(null)
+  const [overridePesoNeto, setOverridePesoNeto] = useState<number | null>(null)
+  const [overridePeso, setOverridePeso] = useState<number | null>(null)
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
 
   const [dbSkusSet, setDbSkusSet] = useState<Set<string>>(new Set())
   const [isCheckingDbSkus, setIsCheckingDbSkus] = useState(false)
+  const [isSyncingDbProducts, setIsSyncingDbProducts] = useState(false)
 
   const [deleteProductModal, setDeleteProductModal] = useState<{ open: boolean; index: number; sku: string } | null>(null)
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
@@ -637,13 +762,78 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
     setNewMarca('')
     setNewPrecio('')
 
-    verificarSkusEnBDAction([cleanSku]).then((res) => {
+    const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+    verificarSkusEnBDAction([cleanSku], proveedorActual?.nombre_completo).then((res) => {
       if (res.success && res.skusExistentes.length > 0) {
         setDbSkusSet((prev) => new Set([...Array.from(prev), cleanSku.toUpperCase()]))
+        if (res.skuMap && res.skuMap[cleanSku.toUpperCase()]) {
+          const matchedDbSku = res.skuMap[cleanSku.toUpperCase()]
+          setDbSkusSet((prev) => new Set([...Array.from(prev), matchedDbSku.toUpperCase()]))
+          setEditableProductos((prev) =>
+            prev.map((p) =>
+              p.sku_base.toUpperCase() === cleanSku.toUpperCase()
+                ? { ...p, sku_base: matchedDbSku, es_nuevo: false }
+                : p,
+            ),
+          )
+        }
       }
     })
 
     toast.success(`Producto "${cleanSku}" agregado manualmente.`)
+  }
+
+  // Handler para sincronizar la información completa de los productos desde la tabla productos de Supabase
+  const handleSyncProductsFromDb = async () => {
+    const skus = editableProductos.map((p) => p.sku_base).filter(Boolean)
+    if (skus.length === 0) {
+      toast.info('No hay productos en la lista para sincronizar.')
+      return
+    }
+
+    setIsSyncingDbProducts(true)
+    try {
+      const res = await obtenerDatosProductosDeBDAction(skus)
+      if (res.success && res.productosMap) {
+        let syncCount = 0
+        setEditableProductos((prev) =>
+          prev.map((item) => {
+            const key = item.sku_base.trim().toUpperCase()
+            const dbProd = res.productosMap?.[key]
+            if (dbProd) {
+              syncCount++
+              const selectedBrand = dbProd.marca_id
+                ? marcas.find((m) => m.id === dbProd.marca_id)
+                : dbProd.marca_nombre
+                ? marcas.find((m) => m.nombre.toUpperCase() === dbProd.marca_nombre?.toUpperCase())
+                : null
+
+              return {
+                ...item,
+                descripcion: dbProd.descripcion || dbProd.nombre || item.descripcion,
+                nombre: dbProd.nombre || dbProd.descripcion || item.nombre,
+                composicion: dbProd.composicion || item.composicion,
+                precio_unitario_usd: dbProd.precio_usd || item.precio_unitario_usd,
+                marca_id: selectedBrand ? selectedBrand.id : dbProd.marca_id || item.marca_id,
+                marca: selectedBrand ? selectedBrand.nombre : dbProd.marca_nombre || item.marca,
+              }
+            }
+            return item
+          }),
+        )
+        if (syncCount > 0) {
+          toast.success(`Se sincronizaron ${syncCount} productos directamente desde la base de datos.`)
+        } else {
+          toast.info('Ninguno de los SKUs de la lista tiene registro completo en la base de datos.')
+        }
+      } else {
+        toast.error(res.error || 'Error al consultar productos de la base de datos')
+      }
+    } catch (e: any) {
+      toast.error('Error inesperado al sincronizar productos desde BD')
+    } finally {
+      setIsSyncingDbProducts(false)
+    }
   }
 
 
@@ -691,12 +881,29 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
   )
 
   const totalPesoBruto = useMemo(
-    () => cajasRealesMemo.reduce((sum, c) => sum + (c.peso_bruto_total_kg || c.peso_bruto_kg * (c.cantidad_cajas || 1)), 0),
+    () =>
+      cajasRealesMemo.reduce((sum, c: any) => {
+        const pBrutoSingle = Number(c.peso_bruto_kg ?? 0)
+        const qty = Number(c.cantidad_cajas || 1)
+        const lineTotal = Number(c.peso_bruto_total_kg ?? (pBrutoSingle * qty))
+        return sum + (isNaN(lineTotal) ? 0 : lineTotal)
+      }, 0),
+    [cajasRealesMemo],
+  )
+
+  const totalPesoNeto = useMemo(
+    () =>
+      cajasRealesMemo.reduce((sum, c: any) => {
+        const pNetoSingle = Number(c.peso_neto_kg ?? c.peso_neto ?? 0)
+        const qty = Number(c.cantidad_cajas || 1)
+        const lineTotal = Number(c.peso_neto_total_kg ?? (pNetoSingle * qty))
+        return sum + (isNaN(lineTotal) ? 0 : lineTotal)
+      }, 0),
     [cajasRealesMemo],
   )
 
   const jsonTotalesPorSku = useMemo(() => {
-    const map = new Map<string, { piezas: number; cajas: number; cbm: number; peso: number }>()
+    const map = new Map<string, { piezas: number; cajas: number; cbm: number; peso: number; pesoNeto?: number }>()
     if (parsedData?.orden.orden_productos) {
       for (const op of parsedData.orden.orden_productos) {
         map.set(op.sku, {
@@ -704,13 +911,20 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
           cajas: op.numero_cajas_reales,
           cbm: op.cbm_total,
           peso: op.peso_bruto_total,
+          pesoNeto: (op as any).peso_neto_total || (op as any).peso_neto,
         })
       }
     }
     return map
   }, [parsedData])
 
-  const handleCajaEdit = async (cajaIndex: number, data: { base: Partial<SharedCajaData>; detalles: { talla_id: number; color_id: number; cantidad: number }[] }) => {
+  const handleCajaEdit = async (
+    cajaIndex: number,
+    data: {
+      base: Partial<SharedCajaData>
+      detalles: { talla_id: number; color_id: number; cantidad: number; talla_nombre?: string; color_nombre?: string }[]
+    },
+  ) => {
     setEditableCajas((prev) =>
       prev.map((caja, idx) => {
         if (idx !== cajaIndex) return caja
@@ -729,14 +943,20 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
             }
           }
           for (const det of data.detalles) {
-            const tallaStr = tallas.find((t) => t === String(det.talla_id)) || String(det.talla_id)
-            const colorStr = colores.find((c) => c === String(det.color_id)) || String(det.color_id)
-            if (newValores[colorStr]) newValores[colorStr][tallaStr] = det.cantidad
+            const colorStr = det.color_nombre || colores.find((c) => c === String(det.color_id)) || colores[det.color_id - 1] || String(det.color_id)
+            const tallaStr = det.talla_nombre || tallas.find((t) => t === String(det.talla_id)) || tallas[det.talla_id - 1] || String(det.talla_id)
+
+            if (!newValores[colorStr]) {
+              newValores[colorStr] = {}
+            }
+            newValores[colorStr][tallaStr] = det.cantidad
           }
           matriz.tallas = tallas
           matriz.colores = colores
           matriz.valores = newValores
         }
+
+        const totalPiezasCalculadoMatriz = data.detalles.reduce((sum, d) => sum + (d.cantidad || 0), 0)
 
         return {
           ...caja,
@@ -744,7 +964,7 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
           tallas,
           colores,
           matriz,
-          piezas_por_caja: base.piezas_por_caja ?? caja.piezas_por_caja,
+          piezas_por_caja: totalPiezasCalculadoMatriz > 0 ? totalPiezasCalculadoMatriz : (base.piezas_por_caja ?? caja.piezas_por_caja),
           cantidad_cajas: base.cantidad_cajas ?? caja.cantidad_cajas,
           cbm: base.cbm ?? caja.cbm,
           peso_bruto_kg: base.peso_bruto_kg ?? caja.peso_bruto_kg,
@@ -876,12 +1096,42 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
       setEditableCajas(structuredClone(wizardData.cajas))
 
       // Verificar existencia de SKUs en Supabase DB para resaltado verde
+      const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
       const skusToCheck = deduplicatedProductos.map(p => p.sku_base)
       if (skusToCheck.length > 0) {
         setIsCheckingDbSkus(true)
-        verificarSkusEnBDAction(skusToCheck).then((res) => {
+        verificarSkusEnBDAction(skusToCheck, proveedorActual?.nombre_completo).then((res) => {
           if (res.success && res.skusExistentes) {
-            setDbSkusSet(new Set(res.skusExistentes.map(s => s.toUpperCase())))
+            const allMatched = new Set(res.skusExistentes.map(s => s.toUpperCase()))
+            if (res.skuMap) {
+              Object.values(res.skuMap).forEach(s => allMatched.add(s.toUpperCase()))
+            }
+            setDbSkusSet(allMatched)
+
+            if (res.skuMap && Object.keys(res.skuMap).length > 0) {
+              const skuMap = res.skuMap
+              setEditableProductos(prev =>
+                prev.map(p => {
+                  const matchedDbSku = skuMap[p.sku_base.toUpperCase()]
+                  if (matchedDbSku && matchedDbSku !== p.sku_base) {
+                    return { ...p, sku_base: matchedDbSku, sku_raw: p.sku_raw || p.sku_base, es_nuevo: false }
+                  }
+                  if (matchedDbSku) {
+                    return { ...p, es_nuevo: false }
+                  }
+                  return p
+                })
+              )
+              setEditableCajas(prev =>
+                prev.map(c => {
+                  const matchedDbSku = c.sku_base ? skuMap[c.sku_base.toUpperCase()] : null
+                  if (matchedDbSku && matchedDbSku !== c.sku_base) {
+                    return { ...c, sku_base: matchedDbSku, sku_raw: c.sku_raw || c.sku_base }
+                  }
+                  return c
+                })
+              )
+            }
           }
         }).finally(() => {
           setIsCheckingDbSkus(false)
@@ -1060,7 +1310,9 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                   <Label htmlFor="proveedor" className="text-sm font-semibold">Proveedor origen</Label>
                   <Select value={selectedProveedor} onValueChange={(value) => setSelectedProveedor(value || '')}>
                     <SelectTrigger id="proveedor" className="h-10">
-                      <SelectValue placeholder="Selecciona el proveedor extranjero..." />
+                      <SelectValue placeholder="Selecciona el proveedor extranjero...">
+                        {selectedProveedorObj?.nombre_completo}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {proveedores.map((proveedor) => (
@@ -1077,7 +1329,9 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                   <Label htmlFor="cliente" className="text-sm font-semibold">Cliente B2B destino</Label>
                   <Select value={selectedCliente} onValueChange={(value) => setSelectedCliente(value || '')}>
                     <SelectTrigger id="cliente" className="h-10">
-                      <SelectValue placeholder="Selecciona el comprador..." />
+                      <SelectValue placeholder="Selecciona el comprador...">
+                        {selectedClienteObj?.nombre_completo}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {clientes.map((cliente) => (
@@ -1101,11 +1355,17 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                     <Label htmlFor="contenedor-sel" className="text-xs">Destino de carga</Label>
                     <Select value={selectedContenedor} onValueChange={(value) => setSelectedContenedor(value || '')}>
                       <SelectTrigger id="contenedor-sel" className="h-9">
-                        <SelectValue />
+                        <SelectValue placeholder="Selecciona el contenedor...">
+                          {selectedContenedor === 'new'
+                            ? '+ Crear nuevo contenedor'
+                            : selectedContenedorObj
+                              ? `${selectedContenedorObj.codigo_contenedor} (${selectedContenedorObj.numero_contenedor ?? 'S/N'}) - ${selectedContenedorObj.estado}`
+                              : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="new">+ Crear nuevo contenedor</SelectItem>
-                        {contenedores.map((contenedor) => (
+                        {sortedContenedores.map((contenedor) => (
                           <SelectItem key={contenedor.id} value={String(contenedor.id)}>
                             {contenedor.codigo_contenedor} ({contenedor.numero_contenedor ?? 'S/N'}) - {contenedor.estado}
                           </SelectItem>
@@ -1290,6 +1550,21 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={handleSyncProductsFromDb}
+                    disabled={isSyncingDbProducts}
+                    className="h-8 gap-1.5 border-emerald-400/50 bg-emerald-50 text-xs text-emerald-800 hover:bg-emerald-100 font-bold dark:bg-emerald-950/40 dark:text-emerald-300"
+                    title="Traer descripción, marca, composición y precio de la base de datos para todos los productos de la lista"
+                  >
+                    {isSyncingDbProducts ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                    Sincronizar datos con BD
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => setIsAddProductOpen(true)}
                     className="h-8 gap-1.5 border-primary/40 bg-primary/5 text-xs text-primary hover:bg-primary/10 font-bold"
                   >
@@ -1308,75 +1583,253 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                 <h3 className="flex items-center gap-1 text-sm font-semibold">
                   <Package className="h-4 w-4 text-primary" /> Revision local de SKUs ({editableProductos.length} SKUs unicos)
                 </h3>
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto rounded-xl border border-border/80 bg-card shadow-sm">
+                  <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b bg-muted/50 text-left font-semibold text-muted-foreground">
+                      <tr className="border-b bg-muted/60 text-left font-bold text-muted-foreground uppercase text-[10px]">
                         <th className="p-3">Verificación BD</th>
-                        <th className="p-3">SKU base</th>
-                        <th className="p-3">Descripcion</th>
-                        <th className="p-3">Marca</th>
-                        <th className="p-3">Composicion</th>
-                        <th className="p-3">Precio yuan</th>
-                        <th className="p-3">Precio USD</th>
-                        <th className="p-3">Estado</th>
+                        <th className="p-3">SKU Base</th>
+                        <th className="p-3 min-w-[220px]">Descripción / Nombre</th>
+                        <th className="p-3 min-w-[180px]">Marca (Catálogo)</th>
+                        <th className="p-3 min-w-[140px]">Composición</th>
+                        <th className="p-3 text-right">Precio USD</th>
                         <th className="p-3 text-center">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border">
+                    <tbody className="divide-y divide-border/60">
                       {editableProductos.map((producto, index) => {
-                        const existsInDb = dbSkusSet.has(producto.sku_base.trim().toUpperCase())
+                        const dbMatch = dbSkusSet.has(producto.sku_base.trim().toUpperCase())
+                        const isForcedNew = Boolean(producto.force_new)
+                        const isMatch = dbMatch && !isForcedNew
+
+                        const currentBrandObj = marcas.find(
+                          (m) =>
+                            (producto.marca_id && m.id === producto.marca_id) ||
+                            (producto.marca && m.nombre.toUpperCase() === producto.marca.toUpperCase()),
+                        )
+                        const currentBrandValue = currentBrandObj ? currentBrandObj.id.toString() : ''
+                        const displayBrandName = currentBrandObj ? currentBrandObj.nombre : producto.marca || ''
+                        const jsonMarca = (producto.json_marca || producto.marca_raw || '') as string
+
                         return (
                           <tr
                             key={`${producto.sku_base}-${index}`}
-                            className={`transition-colors ${
-                              existsInDb
-                                ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-l-4 border-l-emerald-500 hover:bg-emerald-100/60'
-                                : 'hover:bg-accent/30'
-                            }`}
+                            className={cn(
+                              "transition-colors",
+                              isMatch
+                                ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 hover:bg-emerald-100/50"
+                                : isForcedNew
+                                ? "bg-blue-50/40 dark:bg-blue-950/20 border-l-4 border-l-blue-500 hover:bg-blue-100/40"
+                                : "bg-amber-50/30 dark:bg-amber-950/20 border-l-4 border-l-amber-400 hover:bg-amber-100/30"
+                            )}
                           >
-                            <td className="p-3">
-                              {existsInDb ? (
-                                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] gap-1 shadow-sm">
-                                  <CheckCircle2 className="h-3 w-3" /> En Catálogo
-                                </Badge>
+                            {/* 1. Verificación BD / Estado */}
+                            <td className="p-3 align-top">
+                              <div className="flex flex-col gap-1.5 items-start">
+                                {isMatch ? (
+                                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] gap-1 shadow-sm">
+                                    <CheckCircle2 className="h-3 w-3" /> En Catálogo BD
+                                  </Badge>
+                                ) : isForcedNew ? (
+                                  <Badge className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] gap-1 shadow-sm">
+                                    <Sparkles className="h-3 w-3" /> Nuevo (Forzado)
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900 font-bold text-[10px]">
+                                    Nuevo / No registrado
+                                  </Badge>
+                                )}
+
+                                {dbMatch && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-5 text-[9px] px-1.5 font-bold transition-all",
+                                      isForcedNew
+                                        ? "text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100/70 underline"
+                                        : "text-blue-700 hover:text-blue-900 hover:bg-blue-100/70 underline"
+                                    )}
+                                    onClick={() => {
+                                      setEditableProductos((prev) =>
+                                        prev.map((p, i) =>
+                                          i === index ? { ...p, force_new: !isForcedNew, es_nuevo: !isForcedNew } : p
+                                        )
+                                      )
+                                      if (!isForcedNew) {
+                                        toast.info(`El SKU "${producto.sku_base}" se creará como un NUEVO producto separado en la base de datos.`)
+                                      } else {
+                                        toast.success(`El SKU "${producto.sku_base}" se vinculó nuevamente al producto existente en el catálogo.`)
+                                      }
+                                    }}
+                                    title={isForcedNew ? "Vincular a producto existente en BD" : "Forzar creación como nuevo producto separado"}
+                                  >
+                                    {isForcedNew ? "🔗 Vincular a Catálogo" : "✨ Crear como Nuevo"}
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* 2. SKU Base */}
+                            <td className="p-3 font-mono text-xs font-bold align-top">
+                              {(!isMatch || isForcedNew) ? (
+                                <Input
+                                  value={producto.sku_base}
+                                  onChange={(e) => {
+                                    const newSkuVal = e.target.value
+                                    setEditableProductos((prev) =>
+                                      prev.map((item, itemIndex) =>
+                                        itemIndex === index ? { ...item, sku_base: newSkuVal } : item
+                                      )
+                                    )
+                                  }}
+                                  className="h-9 w-32 font-mono text-xs font-bold bg-background/80"
+                                />
                               ) : (
-                                <Badge variant="outline" className="border-amber-300 bg-amber-50/80 text-amber-800 dark:bg-amber-950/40 text-[10px] font-semibold">
-                                  Nuevo / No registrado
-                                </Badge>
+                                <span className="text-foreground">{producto.sku_base}</span>
                               )}
                             </td>
-                            <td className="p-3 font-mono text-xs font-bold">{producto.sku_base}</td>
-                            <td className="p-3 font-medium">
-                              <Input
-                                value={producto.descripcion ?? ''}
+
+                            {/* 3. Descripción / Nombre (2 filas adaptativas) */}
+                            <td className="p-3 align-top">
+                              <Textarea
+                                rows={2}
+                                value={producto.descripcion ?? producto.nombre ?? ''}
                                 onChange={(event) => {
                                   const value = event.target.value
                                   setEditableProductos((prev) =>
                                     prev.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, descripcion: value } : item,
-                                    ),
+                                      itemIndex === index ? { ...item, descripcion: value, nombre: value } : item
+                                    )
                                   )
                                 }}
-                                className="h-8 max-w-sm text-xs bg-background/80"
+                                placeholder="Descripción del producto..."
+                                className="min-h-[52px] resize-none text-xs bg-background/90 font-medium py-1.5 leading-snug w-full min-w-[240px]"
                               />
                             </td>
-                            <td className="p-3 text-xs">{producto.marca || 'Sin marca'}</td>
-                            <td className="p-3 text-xs">{producto.composicion || 'Sin composicion'}</td>
-                            <td className="p-3 font-mono text-xs">{toNumber(producto.precio_yuan).toFixed(2)}</td>
-                            <td className="p-3 font-mono text-xs">{toNumber(producto.precio_unitario_usd).toFixed(2)} USD</td>
-                            <td className="p-3">
-                              <Badge variant="outline" className="font-bold text-[10px]">
-                                {producto.estado_temporal ?? (producto.es_nuevo ? 'pendiente_revision' : 'detectado')}
-                              </Badge>
+
+                            {/* 4. Selector de Marca de Catálogo (muestra cat_marcas.nombre) */}
+                            <td className="p-3 align-top">
+                              <div className="space-y-1">
+                                {jsonMarca && jsonMarca.toUpperCase() !== displayBrandName.toUpperCase() && (
+                                  <span className="block text-[9px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded w-fit">
+                                    JSON: &quot;{jsonMarca}&quot;
+                                  </span>
+                                )}
+                                <Select
+                                  value={currentBrandValue}
+                                  onValueChange={(val) => {
+                                    const selectedBrand = marcas.find((m) => m.id.toString() === val)
+                                    setEditableProductos((prev) =>
+                                      prev.map((item, itemIndex) =>
+                                        itemIndex === index
+                                          ? {
+                                              ...item,
+                                              marca: selectedBrand ? selectedBrand.nombre : item.marca,
+                                              marca_id: selectedBrand ? selectedBrand.id : null,
+                                            }
+                                          : item
+                                      )
+                                    )
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 text-xs bg-background/90 w-44 font-semibold">
+                                    <SelectValue placeholder="Seleccionar marca...">
+                                      {displayBrandName || 'Seleccionar marca...'}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-56">
+                                    {marcas.map((m) => (
+                                      <SelectItem key={m.id} value={m.id.toString()} className="text-xs">
+                                        {m.nombre}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </td>
-                            <td className="p-3 text-center">
+
+                            {/* 5. Composición */}
+                            <td className="p-3 align-top">
+                              <Input
+                                value={producto.composicion ?? ''}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  setEditableProductos((prev) =>
+                                    prev.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, composicion: value } : item
+                                    )
+                                  )
+                                }}
+                                placeholder="ej: 100% Algodón"
+                                className="h-9 w-32 text-xs bg-background/90"
+                              />
+                            </td>
+
+                            {/* 6. Precio USD con Incremento ± 0.5 */}
+                            <td className="p-3 text-right font-mono text-xs align-top">
+                              <div className="flex items-center justify-end gap-1">
+                                <Input
+                                  type="number"
+                                  step="0.5"
+                                  min="0"
+                                  value={producto.precio_unitario_usd ?? ''}
+                                  onChange={(e) => {
+                                    const value = parseFloat(e.target.value) || 0
+                                    setEditableProductos((prev) =>
+                                      prev.map((item, itemIndex) =>
+                                        itemIndex === index ? { ...item, precio_unitario_usd: value } : item
+                                      )
+                                    )
+                                  }}
+                                  className="h-9 w-20 text-right font-mono text-xs font-bold bg-background/90"
+                                />
+                                <div className="flex flex-col gap-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = Number(producto.precio_unitario_usd || 0)
+                                      const next = Math.max(0, Math.round((current + 0.5) * 10) / 10)
+                                      setEditableProductos((prev) =>
+                                        prev.map((item, itemIndex) =>
+                                          itemIndex === index ? { ...item, precio_unitario_usd: next } : item
+                                        )
+                                      )
+                                    }}
+                                    className="h-4 px-1.5 bg-muted hover:bg-primary/20 hover:text-primary text-[9px] font-bold rounded flex items-center justify-center text-foreground transition-colors border"
+                                    title="Incrementar +0.50 USD"
+                                  >
+                                    +0.5
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = Number(producto.precio_unitario_usd || 0)
+                                      const next = Math.max(0, Math.round((current - 0.5) * 10) / 10)
+                                      setEditableProductos((prev) =>
+                                        prev.map((item, itemIndex) =>
+                                          itemIndex === index ? { ...item, precio_unitario_usd: next } : item
+                                        )
+                                      )
+                                    }}
+                                    className="h-4 px-1.5 bg-muted hover:bg-primary/20 hover:text-primary text-[9px] font-bold rounded flex items-center justify-center text-foreground transition-colors border"
+                                    title="Disminuir -0.50 USD"
+                                  >
+                                    -0.5
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* 7. Acciones */}
+                            <td className="p-3 text-center align-top">
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => setDeleteProductModal({ open: true, index, sku: producto.sku_base })}
                                 className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                title="Eliminar producto de la revision"
+                                title="Eliminar producto de la revisión"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1409,50 +1862,197 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-                <Card className="border border-border/80 bg-muted/10">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <Card className="border border-border/80 bg-muted/10 relative group">
                   <CardContent className="flex flex-col gap-1 p-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Productos</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Productos</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const val = window.prompt("Ingresa el total de Productos de la Nota:", String(overrideProductos ?? parsedData?.orden.total_productos ?? cajasAgrupadas.length))
+                          if (val !== null) {
+                            const parsed = parseInt(val, 10)
+                            setOverrideProductos(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (Productos)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <p className="mt-1 text-2xl font-black tracking-tight">{cajasAgrupadas.length}</p>
-                    {parsedData?.orden.total_productos ? (
-                      <ComparisonBadge calculated={cajasAgrupadas.length} json={parsedData.orden.total_productos} label="Productos" />
-                    ) : null}
+                    {((overrideProductos ?? parsedData?.orden.total_productos) != null) && (
+                      <ComparisonBadge
+                        calculated={cajasAgrupadas.length}
+                        json={overrideProductos ?? parsedData!.orden.total_productos!}
+                        label="Productos"
+                        onSync={() => setOverrideProductos(cajasAgrupadas.length)}
+                      />
+                    )}
                   </CardContent>
                 </Card>
-                <Card className="border border-border/80 bg-muted/10">
+
+                <Card className="border border-border/80 bg-muted/10 relative group">
                   <CardContent className="flex flex-col gap-1 p-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cajas</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cajas</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const val = window.prompt("Ingresa el total de Cajas de la Nota:", String(overrideCajas ?? parsedData?.orden.total_cajas ?? totalCajasCount))
+                          if (val !== null) {
+                            const parsed = parseInt(val, 10)
+                            setOverrideCajas(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (Cajas)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <p className="mt-1 text-2xl font-black tracking-tight">{totalCajasCount}</p>
-                    {parsedData?.orden.total_cajas ? (
-                      <ComparisonBadge calculated={totalCajasCount} json={parsedData.orden.total_cajas} label="Cajas" />
-                    ) : null}
+                    {((overrideCajas ?? parsedData?.orden.total_cajas) != null) && (
+                      <ComparisonBadge
+                        calculated={totalCajasCount}
+                        json={overrideCajas ?? parsedData!.orden.total_cajas!}
+                        label="Cajas"
+                        onSync={() => setOverrideCajas(totalCajasCount)}
+                      />
+                    )}
                   </CardContent>
                 </Card>
-                <Card className="border border-border/80 bg-muted/10">
+
+                <Card className="border border-border/80 bg-muted/10 relative group">
                   <CardContent className="flex flex-col gap-1 p-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Piezas</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Piezas</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const val = window.prompt("Ingresa el total de Piezas de la Nota:", String(overridePiezas ?? parsedData?.orden.total_piezas ?? totalPiezasCount))
+                          if (val !== null) {
+                            const parsed = parseInt(val, 10)
+                            setOverridePiezas(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (Piezas)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <p className="mt-1 text-2xl font-black tracking-tight text-primary">{totalPiezasCount.toLocaleString()}</p>
-                    {parsedData?.orden.total_piezas ? (
-                      <ComparisonBadge calculated={totalPiezasCount} json={parsedData.orden.total_piezas} label="Piezas" />
-                    ) : null}
+                    {((overridePiezas ?? parsedData?.orden.total_piezas) != null) && (
+                      <ComparisonBadge
+                        calculated={totalPiezasCount}
+                        json={overridePiezas ?? parsedData!.orden.total_piezas!}
+                        label="Piezas"
+                        onSync={() => setOverridePiezas(totalPiezasCount)}
+                      />
+                    )}
                   </CardContent>
                 </Card>
-                <Card className="border border-border/80 bg-muted/10">
+
+                <Card className="border border-border/80 bg-muted/10 relative group">
                   <CardContent className="flex flex-col gap-1 p-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">CBM total</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">CBM total</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const val = window.prompt("Ingresa el CBM Total de la Nota:", String(overrideCbm ?? parsedData?.orden.cbm_estimado ?? totalCbm.toFixed(3)))
+                          if (val !== null) {
+                            const parsed = parseFloat(val)
+                            setOverrideCbm(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (CBM)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <p className="mt-1 text-2xl font-black tracking-tight italic">{totalCbm.toFixed(3)}</p>
-                    {parsedData?.orden.cbm_estimado ? (
-                      <ComparisonBadge calculated={totalCbm} json={parsedData.orden.cbm_estimado} label="CBM" />
-                    ) : null}
+                    {((overrideCbm ?? parsedData?.orden.cbm_estimado) != null) && (
+                      <ComparisonBadge
+                        calculated={totalCbm}
+                        json={overrideCbm ?? parsedData!.orden.cbm_estimado!}
+                        label="CBM"
+                        onSync={() => setOverrideCbm(Number(totalCbm.toFixed(3)))}
+                      />
+                    )}
                   </CardContent>
                 </Card>
-                <Card className="border border-border/80 bg-muted/10">
+
+                <Card className="border border-border/80 bg-muted/10 relative group">
                   <CardContent className="flex flex-col gap-1 p-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Peso bruto</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Peso neto</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const targetVal = overridePesoNeto ?? (parsedData?.orden as any)?.peso_neto_total_kg ?? (parsedData?.orden as any)?.peso_neto_estimado ?? totalPesoNeto.toFixed(1)
+                          const val = window.prompt("Ingresa el Peso Neto Total (kg) de la Nota:", String(targetVal))
+                          if (val !== null) {
+                            const parsed = parseFloat(val)
+                            setOverridePesoNeto(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (Peso Neto)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <p className="mt-1 text-2xl font-black tracking-tight text-slate-800 dark:text-slate-200">{totalPesoNeto.toFixed(1)} kg</p>
+                    {((overridePesoNeto ?? (parsedData?.orden as any)?.peso_neto_total_kg ?? (parsedData?.orden as any)?.peso_neto_estimado) != null) && (
+                      <ComparisonBadge
+                        calculated={totalPesoNeto}
+                        json={overridePesoNeto ?? ((parsedData?.orden as any)?.peso_neto_total_kg || (parsedData?.orden as any)?.peso_neto_estimado)!}
+                        label="Peso Neto"
+                        onSync={() => setOverridePesoNeto(Number(totalPesoNeto.toFixed(1)))}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="border border-border/80 bg-muted/10 relative group">
+                  <CardContent className="flex flex-col gap-1 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Peso bruto</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const val = window.prompt("Ingresa el Peso Bruto Total (kg) de la Nota:", String(overridePeso ?? parsedData?.orden.peso_bruto_total_kg ?? totalPesoBruto.toFixed(1)))
+                          if (val !== null) {
+                            const parsed = parseFloat(val)
+                            setOverridePeso(isNaN(parsed) ? null : parsed)
+                          }
+                        }}
+                        title="Editar valor objetivo de la nota (Peso Bruto)"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <p className="mt-1 text-2xl font-black tracking-tight">{totalPesoBruto.toFixed(1)} kg</p>
-                    {parsedData?.orden.peso_bruto_total_kg ? (
-                      <ComparisonBadge calculated={totalPesoBruto} json={parsedData.orden.peso_bruto_total_kg} label="Peso" />
-                    ) : null}
+                    {((overridePeso ?? parsedData?.orden.peso_bruto_total_kg) != null) && (
+                      <ComparisonBadge
+                        calculated={totalPesoBruto}
+                        json={overridePeso ?? parsedData!.orden.peso_bruto_total_kg!}
+                        label="Peso Bruto"
+                        onSync={() => setOverridePeso(Number(totalPesoBruto.toFixed(1)))}
+                      />
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1472,15 +2072,33 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                     const grupoPiezas = cajasReales.reduce((s, c) => s + (c.total_piezas || c.piezas_por_caja * (c.cantidad_cajas || 1)), 0)
                     const grupoCajas = cajasReales.reduce((s, c) => s + (c.cantidad_cajas || 1), 0)
                     const grupoCbm = cajasReales.reduce((s, c) => s + (c.cbm_total_linea || c.cbm * (c.cantidad_cajas || 1)), 0)
-                    const grupoPesoBruto = cajasReales.reduce((s, c) => s + (c.peso_bruto_total_kg || c.peso_bruto_kg * (c.cantidad_cajas || 1)), 0)
+                    const grupoPesoBruto = cajasReales.reduce((s, c: any) => {
+                      const pBrutoSingle = Number(c.peso_bruto_kg ?? 0)
+                      const qty = Number(c.cantidad_cajas || 1)
+                      const lineTotal = Number(c.peso_bruto_total_kg ?? (pBrutoSingle * qty))
+                      return s + (isNaN(lineTotal) ? 0 : lineTotal)
+                    }, 0)
+                    const grupoPesoNeto = cajasReales.reduce((s, c: any) => {
+                      const pNetoSingle = Number(c.peso_neto_kg ?? c.peso_neto ?? 0)
+                      const qty = Number(c.cantidad_cajas || 1)
+                      const lineTotal = Number(c.peso_neto_total_kg ?? (pNetoSingle * qty))
+                      return s + (isNaN(lineTotal) ? 0 : lineTotal)
+                    }, 0)
                     const jsonSku = jsonTotalesPorSku.get(producto.sku_base)
 
                     return (
                       <div key={producto.sku_base} className="rounded-lg border border-border/80 overflow-hidden">
-                        <button
-                          type="button"
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => toggleProduct(producto.sku_base || '__sin_sku__')}
-                          className="flex w-full items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              toggleProduct(producto.sku_base || '__sin_sku__')
+                            }
+                          }}
+                          className="flex w-full items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50 cursor-pointer select-none"
                         >
                           <div className="flex items-center gap-3">
                             {isExpanded ? (
@@ -1503,9 +2121,8 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-4 text-[10px] font-bold uppercase text-muted-foreground">
-                            <span>{cajasReales.length} {cajasReales.length === 1 ? 'caja' : 'cajas'}</span>
-                            <span>{grupoCajas} und</span>
+                          <div className="flex items-center gap-3 text-[10px] font-bold uppercase text-muted-foreground flex-wrap">
+                            <span>{cajasReales.length} {cajasReales.length === 1 ? 'caja' : 'cajas'} ({grupoCajas} und)</span>
                             <span className="flex items-center gap-1">
                               {grupoPiezas.toLocaleString()} pz
                               {jsonSku && <ComparisonBadge calculated={grupoPiezas} json={jsonSku.piezas} label="Piezas" />}
@@ -1514,12 +2131,30 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                               {grupoCbm.toFixed(3)} m3
                               {jsonSku && <ComparisonBadge calculated={grupoCbm} json={jsonSku.cbm} label="CBM" />}
                             </span>
-                            <span className="flex items-center gap-1">
-                              {grupoPesoBruto.toFixed(1)} kg
-                              {jsonSku && <ComparisonBadge calculated={grupoPesoBruto} json={jsonSku.peso} label="Peso" />}
+                            <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300">
+                              Neto: {grupoPesoNeto.toFixed(1)} kg
+                              {jsonSku?.pesoNeto != null ? <ComparisonBadge calculated={grupoPesoNeto} json={jsonSku.pesoNeto} label="P.Neto" /> : null}
                             </span>
+                            <span className="flex items-center gap-1">
+                              Bruto: {grupoPesoBruto.toFixed(1)} kg
+                              {jsonSku && <ComparisonBadge calculated={grupoPesoBruto} json={jsonSku.peso} label="P.Bruto" />}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] gap-1 border-primary/40 text-primary hover:bg-primary/10 font-bold bg-primary/5 ml-1"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toast.success(`Recalculado SKU "${producto.sku_base}": ${cajasReales.length} cajas (${grupoCajas} und), ${grupoPiezas.toLocaleString()} pz, ${grupoCbm.toFixed(3)} m³, ${grupoPesoNeto.toFixed(1)} kg neto, ${grupoPesoBruto.toFixed(1)} kg bruto.`)
+                              }}
+                              title="Recalcular auditoría en vivo comparando cajas de este SKU vs Nota JSON"
+                            >
+                              <Calculator className="h-3 w-3" />
+                              Recalcular
+                            </Button>
                           </div>
-                        </button>
+                        </div>
 
                         {isExpanded && (
                           <div className="space-y-4 border-t bg-background p-4">
@@ -1630,9 +2265,96 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores }: Wizar
                 </div>
               </div>
 
+              {/* Sección de Auditoría y Resumen de Revisión de Diferencias */}
+              <div className="rounded-xl border border-primary/20 bg-card p-5 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-5 w-5 text-primary" />
+                    <h3 className="text-base font-bold text-foreground">Resumen de Auditoría y Control de Diferencias</h3>
+                  </div>
+                  <Badge variant="outline" className="border-primary/30 text-primary font-mono text-xs">
+                    Comparación: Calculado por Cajas vs Nota
+                  </Badge>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-muted-foreground uppercase text-[10px]">
+                        <th className="py-2.5 px-3 text-left font-bold">Métrica</th>
+                        <th className="py-2.5 px-3 text-right font-bold">Calculado por Cajas (en vivo)</th>
+                        <th className="py-2.5 px-3 text-right font-bold">Valor de la Nota (Objetivo)</th>
+                        <th className="py-2.5 px-3 text-right font-bold">Diferencia</th>
+                        <th className="py-2.5 px-3 text-center font-bold">Estado</th>
+                        <th className="py-2.5 px-3 text-center font-bold">Acción Rápida</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {[
+                        { key: 'productos', label: 'Productos', calc: cajasAgrupadas.length, target: overrideProductos ?? parsedData?.orden.total_productos, fmt: (v: number) => v.toString(), sync: () => setOverrideProductos(cajasAgrupadas.length) },
+                        { key: 'cajas', label: 'Cajas Totales', calc: totalCajasCount, target: overrideCajas ?? parsedData?.orden.total_cajas, fmt: (v: number) => v.toString(), sync: () => setOverrideCajas(totalCajasCount) },
+                        { key: 'piezas', label: 'Piezas Totales', calc: totalPiezasCount, target: overridePiezas ?? parsedData?.orden.total_piezas, fmt: (v: number) => v.toLocaleString(), sync: () => setOverridePiezas(totalPiezasCount) },
+                        { key: 'cbm', label: 'CBM Total (m³)', calc: totalCbm, target: overrideCbm ?? parsedData?.orden.cbm_estimado, fmt: (v: number) => v.toFixed(3), sync: () => setOverrideCbm(Number(totalCbm.toFixed(3))) },
+                        { key: 'pesoNeto', label: 'Peso Neto Total (kg)', calc: totalPesoNeto, target: overridePesoNeto ?? ((parsedData?.orden as any)?.peso_neto_total_kg || (parsedData?.orden as any)?.peso_neto_estimado), fmt: (v: number) => `${v.toFixed(1)} kg`, sync: () => setOverridePesoNeto(Number(totalPesoNeto.toFixed(1))) },
+                        { key: 'pesoBruto', label: 'Peso Bruto Total (kg)', calc: totalPesoBruto, target: overridePeso ?? parsedData?.orden.peso_bruto_total_kg, fmt: (v: number) => `${v.toFixed(1)} kg`, sync: () => setOverridePeso(Number(totalPesoBruto.toFixed(1))) },
+                      ].map((m) => {
+                        const hasTarget = m.target != null
+                        const diff = hasTarget ? m.calc - m.target! : 0
+                        const isMatch = !hasTarget || Math.abs(diff) < 0.001
+
+                        return (
+                          <tr key={m.label} className="hover:bg-muted/30">
+                            <td className="py-2.5 px-3 font-semibold text-foreground">{m.label}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-primary">{m.fmt(m.calc)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono">{hasTarget ? m.fmt(m.target!) : '—'}</td>
+                            <td className="py-2.5 px-3 text-right font-mono">
+                              {!hasTarget ? '—' : (
+                                <span className={isMatch ? "text-emerald-600 font-medium" : "text-amber-600 font-bold"}>
+                                  {diff > 0 ? `+${m.fmt(diff)}` : m.fmt(diff)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {!hasTarget ? (
+                                <Badge variant="secondary" className="text-[10px]">Sin nota</Badge>
+                              ) : isMatch ? (
+                                <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-800 text-[10px] font-bold">
+                                  ✓ Coincide
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900 text-[10px] font-bold">
+                                  ⚠️ Discrepancia
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {hasTarget && !isMatch ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold"
+                                  onClick={m.sync}
+                                >
+                                  Alinear a Calculado
+                                </Button>
+                              ) : isMatch ? (
+                                <span className="text-[10px] text-emerald-600 font-medium">✓ Alineado</span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               {warnings.length > 0 && (
                 <div className="rounded-lg border border-yellow-200 bg-yellow-50/80 p-4">
-                  <p className="mb-2 text-sm font-semibold text-yellow-900">Warnings</p>
+                  <p className="mb-2 text-sm font-semibold text-yellow-900">Warnings del sistema</p>
                   <div className="space-y-1">
                     {warnings.map((warning, index) => (
                       <p key={`summary-warning-${index}`} className="text-xs text-yellow-900">

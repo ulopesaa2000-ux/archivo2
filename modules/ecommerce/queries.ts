@@ -437,33 +437,39 @@ export async function fetchProductosWebPublicos(
       }, {})
     }
 
-    const productos: ProductoWebPublico[] = (data || []).map((item: any) => ({
-      id: item.id,
-      slug: item.slug,
-      producto_id: item.producto_id,
-      sku_base: item.productos?.sku_base,
-      nombre: (item.productos?.nombre && !item.productos.nombre.startsWith('{') ? item.productos.nombre : null) || item.titulo_seo || item.productos?.sku_base || 'Producto',
-      descripcion: (item.productos?.descripcion && !item.productos.descripcion.startsWith('{') && !item.productos.descripcion.includes('hero_title') ? item.productos.descripcion : null),
-      composicion: null,
-      titulo_seo: item.titulo_seo ?? null,
-      descripcion_seo: null, // No se carga en lista
-      precio_publico: item.precio_publico,
-      precio_oferta: item.precio_oferta,
-      en_oferta: item.en_oferta,
-      destacado: item.destacado,
-      nuevo: item.nuevo,
-      marca: item.productos?.cat_marcas?.nombre,
-      tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
-      genero: item.productos?.cat_generos?.nombre,
-      tela_exterior: null,
-      tela_forro: null,
-      keywords: null,
-      imagen_principal: imagenesMap[item.producto_id]?.url || null,
-      url_og: imagenesMap[item.producto_id]?.url_og || null,
-      modo_override: item.modo_override,
-      unidad_venta: item.unidad_venta,
-      activo: item.activo,
-    }))
+    const productos: ProductoWebPublico[] = (data || []).map((item: any) => {
+      const cleanNombre = cleanJsonGarbage(item.productos?.nombre)
+      const cleanDescripcion = cleanJsonGarbage(item.productos?.descripcion)
+      const cleanTituloSeo = cleanJsonGarbage(item.titulo_seo)
+
+      return {
+        id: item.id,
+        slug: item.slug,
+        producto_id: item.producto_id,
+        sku_base: item.productos?.sku_base,
+        nombre: cleanNombre || cleanDescripcion || cleanTituloSeo || item.productos?.sku_base || 'Producto',
+        descripcion: cleanDescripcion,
+        composicion: null,
+        titulo_seo: cleanTituloSeo,
+        descripcion_seo: null, // No se carga en lista
+        precio_publico: item.precio_publico,
+        precio_oferta: item.precio_oferta,
+        en_oferta: item.en_oferta,
+        destacado: item.destacado,
+        nuevo: item.nuevo,
+        marca: item.productos?.cat_marcas?.nombre,
+        tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
+        genero: item.productos?.cat_generos?.nombre,
+        tela_exterior: null,
+        tela_forro: null,
+        keywords: null,
+        imagen_principal: imagenesMap[item.producto_id]?.url || null,
+        url_og: imagenesMap[item.producto_id]?.url_og || null,
+        modo_override: item.modo_override,
+        unidad_venta: item.unidad_venta,
+        activo: item.activo,
+      }
+    })
 
     return {
       productos,
@@ -478,6 +484,24 @@ export async function fetchProductosWebPublicos(
 // ═══════════════════════════════════════════════════════════════
 // PRODUCTO POR SLUG (PDP)
 // ═══════════════════════════════════════════════════════════════
+
+// Helper module-level: limpiar campos de texto que contengan JSON basura de configuración
+function cleanJsonGarbage(val?: string | null): string | null {
+  if (!val) return null
+  const t = val.trim()
+  if (!t) return null
+  if (
+    t.startsWith('{') ||
+    t.startsWith('[') ||
+    t.includes('hero_title') ||
+    t.includes('hero_description') ||
+    t.includes('explora_title') ||
+    t.includes('categorias_grid')
+  ) {
+    return null
+  }
+  return t
+}
 
 const fetchProductoWebBySlugCached = cache(async (
   normalizedSlug: string
@@ -558,15 +582,8 @@ const fetchProductoWebBySlugCached = cache(async (
 
   const prod = data.productos as any
 
-  // Helper: limpiar campos de texto que contengan JSON basura de configuración
-  function cleanJsonGarbage(val?: string | null): string | null {
-    if (!val) return null
-    const t = val.trim()
-    if (t.startsWith('{') || t.startsWith('[') || t.includes('hero_title') || t.includes('hero_description') || t.includes('explora_title') || t.includes('categorias_grid')) return null
-    return t
-  }
-
   const cleanNombre = cleanJsonGarbage(prod?.nombre)
+  const cleanDescripcion = cleanJsonGarbage(prod?.descripcion)
   const cleanTituloSeo = cleanJsonGarbage(data.titulo_seo)
 
   return {
@@ -574,9 +591,9 @@ const fetchProductoWebBySlugCached = cache(async (
     slug: data.slug,
     producto_id: data.producto_id,
     sku_base: prod?.sku_base,
-    nombre: cleanNombre || cleanTituloSeo || prod?.sku_base || 'Producto sin nombre',
-    descripcion: cleanJsonGarbage(prod?.descripcion),
-    composicion: cleanJsonGarbage(prod?.composicion) ?? prod?.composicion ?? null,
+    nombre: cleanNombre || cleanDescripcion || cleanTituloSeo || prod?.sku_base || 'Producto sin nombre',
+    descripcion: cleanDescripcion,
+    composicion: cleanJsonGarbage(prod?.composicion) ?? null,
     titulo_seo: cleanTituloSeo,
     descripcion_seo: null,
     precio_publico: data.precio_publico,

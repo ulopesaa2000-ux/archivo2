@@ -23,6 +23,93 @@ import { MultiTagInput } from './MultiTagInput'
 import { CajaMatriz, CajaMatrizFallback } from './CajaMatriz'
 import { toast } from 'sonner'
 
+const COLOR_EN_ES_MAP: Record<string, string> = {
+  BLACK: 'NEGRO',
+  WHITE: 'BLANCO',
+  RED: 'ROJO',
+  NAVY: 'MARINO',
+  'NAVY BLUE': 'MARINO',
+  BLUE: 'AZUL',
+  GREY: 'GRIS',
+  GRAY: 'GRIS',
+  'DARK GREY': 'GRIS OSCURO',
+  'DARK GRAY': 'GRIS OSCURO',
+  'LIGHT GREY': 'GRIS CLARO',
+  'LIGHT GRAY': 'GRIS CLARO',
+  ROSE: 'ROSA',
+  PINK: 'ROSA',
+  CHOCOLATE: 'CHOCOLATE',
+  BROWN: 'CAFÉ',
+  GREEN: 'VERDE',
+  OLIVE: 'OLIVO',
+  'OLIVE GREEN': 'OLIVO',
+  BEIGE: 'BEIGE',
+  PURPLE: 'MORADO',
+  VIOLET: 'MORADO',
+  YELLOW: 'AMARILLO',
+  ORANGE: 'NARANJA',
+  WINE: 'VINO',
+  BURGUNDY: 'VINO',
+  MUSTARD: 'MOSTAZA',
+  CHARCOAL: 'MARENGO',
+  KHAKI: 'CAQUI',
+  BRONZE: 'BRONCE',
+  '黑色': 'NEGRO',
+  '白色': 'BLANCO',
+  '红色': 'ROJO',
+  '藏青': 'MARINO',
+  '藏青色': 'MARINO',
+  '灰色': 'GRIS',
+  '咖啡': 'CAFÉ',
+  '咖啡色': 'CAFÉ',
+}
+
+export function standardizeColorName(rawColor: string, catalogItems: CatalogoItem[] = []): { nombreEsp: string; isNewColor: boolean } {
+  if (!rawColor) return { nombreEsp: 'SIN COLOR', isNewColor: false }
+  
+  const trimmed = rawColor.trim().toUpperCase()
+  const translated = COLOR_EN_ES_MAP[trimmed] || trimmed
+
+  const isKnown = catalogItems.some(c => c.nombre.toUpperCase() === translated || c.nombre.toUpperCase() === trimmed)
+
+  return {
+    nombreEsp: translated,
+    isNewColor: !isKnown
+  }
+}
+
+const TALLA_EN_ES_MAP: Record<string, string> = {
+  XS: 'ECH',
+  'EXTRA SMALL': 'ECH',
+  S: 'CH',
+  SMALL: 'CH',
+  M: 'M',
+  MEDIUM: 'M',
+  L: 'G',
+  LARGE: 'G',
+  XL: 'EG',
+  'EXTRA LARGE': 'EG',
+  '2XL': '2EG',
+  XXL: '2EG',
+  '2X EXTRA GRANDE': '2EG',
+  '3XL': '3EG',
+  XXXL: '3EG',
+  '3X EXTRA GRANDE': '3EG',
+  '4XL': '4EG',
+  XXXXL: '4EG',
+  '4X EXTRA GRANDE': '4EG',
+  '5XL': '5EG',
+  '5X EXTRA GRANDE': '5EG',
+  'ONE SIZE': 'UNITALLA',
+  OS: 'UNITALLA',
+}
+
+export function standardizeTallaName(rawTalla: string): string {
+  if (!rawTalla) return ''
+  const trimmed = rawTalla.trim().toUpperCase()
+  return TALLA_EN_ES_MAP[trimmed] || trimmed
+}
+
 // Tipo para fila de detalle editable
 type DetalleFila = {
   colorId: number
@@ -104,42 +191,124 @@ export function CajaCard({
     alto_cm: caja.alto_cm || '',
     costo_total_caja: caja.costo_total_caja || 1,
     tallas_summary: caja.tallas ? caja.tallas.split('|').filter(Boolean).map((t) => {
-      const cat = CAT_TALLAS_MAESTRO.find((ct) => ct.codigo === t || ct.nombre === t)
+      const stdT = standardizeTallaName(t)
+      const cat = CAT_TALLAS_MAESTRO.find((ct: any) => ct.codigo === stdT || ct.nombre === stdT || ct.talla_us === t)
       return {
-        id: cat?.id ?? t,
-        label: cat?.nombre ?? t,
-        value: cat?.codigo ?? t,
+        id: cat?.id ?? stdT,
+        label: cat?.nombre ?? stdT,
+        value: cat?.codigo ?? stdT,
       }
     }) : [],
     colores_summary: caja.colores ? Array.from(new Set(caja.colores.split('|').filter(Boolean).map(c => c.trim()))).map(c => ({ id: c, label: c, value: c })) : [],
   })
 
-  // Convertir contenidoMap a formato editable de filas
-  const initialFilas = useMemo((): DetalleFila[] => {
-    if (!caja.contenidoMap || !caja.contenidoMap.colores.length) return []
-
-    return caja.contenidoMap.colores.map((colorNombre, idx) => {
-      // Buscar el color_id correspondiente
-      const colorCat = coloresDisponibles.find(c => c.nombre === colorNombre)
+  // Mapa de contenido efectivo (resiliente a respuestas de n8n/wizard sin contenidoMap directo)
+  const effectiveContenidoMap = useMemo(() => {
+    if (caja.contenidoMap && caja.contenidoMap.colores && caja.contenidoMap.colores.length > 0) {
+      const stdTallas = (caja.contenidoMap.tallas || []).map(t => standardizeTallaName(t))
       return {
-        colorId: colorCat?.id || idx + 1,
-        colorNombre,
-        cantidades: { ...caja.contenidoMap!.matriz[colorNombre] }
+        ...caja.contenidoMap,
+        tallas: stdTallas,
+      }
+    }
+
+    const tallas = caja.tallas ? caja.tallas.split('|').map(s => standardizeTallaName(s.trim())).filter(Boolean) : []
+    const colores = caja.colores ? Array.from(new Set(caja.colores.split('|').map(s => s.trim()).filter(Boolean))) : []
+
+    if (colores.length === 0 && tallas.length === 0) return null
+
+    const matriz: Record<string, Record<string, number>> = {}
+    colores.forEach(color => {
+      matriz[color] = {}
+      tallas.forEach(talla => {
+        matriz[color][talla] = 0
+      })
+    })
+
+    return {
+      tallas,
+      colores,
+      matriz,
+      totalPiezas: caja.piezas_por_caja || 0
+    }
+  }, [caja.contenidoMap, caja.tallas, caja.colores, caja.piezas_por_caja])
+
+  // Catálogos maestras fallback para que los desplegables de Tallas y Colores NUNCA queden vacíos
+  const effectiveTallasDisponibles = useMemo((): CatalogoItem[] => {
+    const list: CatalogoItem[] = [...tallasDisponibles]
+    CAT_TALLAS_MAESTRO.forEach(ct => {
+      if (!list.some(item => item.nombre === ct.codigo || item.codigo === ct.codigo)) {
+        list.push({ id: ct.id, nombre: ct.codigo, codigo: ct.codigo })
       }
     })
-  }, [caja.contenidoMap, coloresDisponibles])
+    return list
+  }, [tallasDisponibles])
 
-  // Estado para tallas en edición (array de {id, nombre})
+  const effectiveColoresDisponibles = useMemo((): CatalogoItem[] => {
+    const defaultColors = [
+      'NEGRO', 'MARINO', 'CHOCOLATE', 'ROJO', 'BLANCO', 'AZUL', 'GRIS',
+      'VERDE', 'BEIGE', 'AMARILLO', 'ROSA', 'CAFE', 'VINO', 'BRONCE'
+    ]
+    const list: CatalogoItem[] = [...coloresDisponibles]
+    defaultColors.forEach((colorName, idx) => {
+      if (!list.some(item => item.nombre.toUpperCase() === colorName)) {
+        list.push({ id: 1000 + idx, nombre: colorName, codigo: colorName.slice(0, 3) })
+      }
+    })
+    return list
+  }, [coloresDisponibles])
+
+  // Convertir contenidoMap a formato editable de filas con estandarización de nombres de color y talla
+  const initialFilas = useMemo((): DetalleFila[] => {
+    if (!effectiveContenidoMap || !effectiveContenidoMap.colores.length) return []
+
+    return effectiveContenidoMap.colores.map((colorNombreRaw, idx) => {
+      const { nombreEsp } = standardizeColorName(colorNombreRaw, effectiveColoresDisponibles)
+      const colorCat = effectiveColoresDisponibles.find(c => c.nombre.toUpperCase() === nombreEsp.toUpperCase() || c.nombre.toUpperCase() === colorNombreRaw.toUpperCase())
+      const finalColorName = colorCat?.nombre || nombreEsp
+
+      // Mapear cantidades desde la matriz original estandarizando claves de talla (ej. L -> G, S -> CH)
+      const origCantidades = effectiveContenidoMap.matriz[colorNombreRaw] || {}
+      const stdCantidades: Record<string, number> = {}
+      for (const [tallaKey, cant] of Object.entries(origCantidades)) {
+        const stdTallaKey = standardizeTallaName(tallaKey)
+        stdCantidades[stdTallaKey] = (stdCantidades[stdTallaKey] || 0) + cant
+      }
+
+      return {
+        colorId: colorCat?.id || (10000 + idx),
+        colorNombre: finalColorName,
+        cantidades: stdCantidades
+      }
+    })
+  }, [effectiveContenidoMap, effectiveColoresDisponibles])
+
+  // Estado para tallas en edición (array de {id, nombre}) estandarizando US -> MX
   const [editTallas, setEditTallas] = useState<CatalogoItem[]>(() => {
-    if (!caja.contenidoMap || !caja.contenidoMap.tallas.length) return []
-    return caja.contenidoMap.tallas.map((tallaNombre, idx) => {
-      const tallaCat = tallasDisponibles.find(t => t.nombre === tallaNombre)
-      return { id: tallaCat?.id || idx + 1, nombre: tallaNombre }
+    if (!effectiveContenidoMap || !effectiveContenidoMap.tallas.length) return []
+    return effectiveContenidoMap.tallas.map((tallaNombreRaw, idx) => {
+      const tallaStd = standardizeTallaName(tallaNombreRaw)
+      const tallaCat = effectiveTallasDisponibles.find(t => t.nombre === tallaStd || t.codigo === tallaStd || t.nombre === tallaNombreRaw)
+      return { id: tallaCat?.id || idx + 1, nombre: tallaCat?.codigo || tallaStd }
     })
   })
 
   // Estado para filas/colores en edición
   const [editFilas, setEditFilas] = useState<DetalleFila[]>(initialFilas)
+
+  // Sincronizar editFilas y editTallas únicamente cuando se activa el modo edición
+  useEffect(() => {
+    if (isEditing) {
+      setEditFilas(initialFilas)
+      if (effectiveContenidoMap && effectiveContenidoMap.tallas.length > 0) {
+        setEditTallas(effectiveContenidoMap.tallas.map((tallaNombre, idx) => {
+          const tallaCat = effectiveTallasDisponibles.find(t => t.nombre === tallaNombre)
+          return { id: tallaCat?.id || idx + 1, nombre: tallaNombre }
+        }))
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing])
 
   // Estados para selección de nueva talla/color
   const [selectedTallaId, setSelectedTallaId] = useState<string>('')
@@ -147,8 +316,8 @@ export function CajaCard({
 
   // Si es modo orden, calculamos el total real de piezas
   const totalPiezasCalculado = caja.cantidad_cajas
-    ? (caja.contenidoMap?.totalPiezas || caja.piezas_por_caja || 0) * caja.cantidad_cajas
-    : (caja.contenidoMap?.totalPiezas || caja.piezas_por_caja || 0)
+    ? (effectiveContenidoMap?.totalPiezas || caja.piezas_por_caja || 0) * caja.cantidad_cajas
+    : (effectiveContenidoMap?.totalPiezas || caja.piezas_por_caja || 0)
 
   // Calcular totales en tiempo real durante edición
   const totalesEdicion = useMemo(() => {
@@ -259,7 +428,7 @@ export function CajaCard({
     setIsSaving(true)
     try {
       // Preparar datos de detalles
-      const detalles: { talla_id: number; color_id: number; cantidad: number }[] = []
+      const detalles: { talla_id: number; color_id: number; cantidad: number; talla_nombre?: string; color_nombre?: string }[] = []
 
       editFilas.forEach(fila => {
         editTallas.forEach(talla => {
@@ -270,6 +439,8 @@ export function CajaCard({
             detalles.push({
               talla_id: realTalla?.id ?? talla.id,
               color_id: realColor?.id ?? fila.colorId,
+              talla_nombre: talla.nombre,
+              color_nombre: fila.colorNombre,
               cantidad
             })
           }
@@ -346,32 +517,59 @@ export function CajaCard({
   }
 
   // Handlers para la Matriz (Dropdowns)
-  const handleAddTallaMatrix = (tallaId: string) => {
-    const talla = tallasDisponibles.find(t => t.id === Number(tallaId))
-    if (!talla) return
-    if (editTallas.some(t => t.id === talla.id)) return
+  const handleAddTallaMatrix = (tallaIdOrName: string) => {
+    if (!tallaIdOrName) return
+    const searchStr = String(tallaIdOrName).trim()
+    const talla = effectiveTallasDisponibles.find(
+      t => t.id.toString() === searchStr || t.nombre.toUpperCase() === searchStr.toUpperCase()
+    )
 
-    setEditTallas([...editTallas, talla])
+    const tallaObj: CatalogoItem = talla ?? {
+      id: Date.now(),
+      nombre: searchStr.toUpperCase(),
+      codigo: searchStr.toUpperCase()
+    }
+
+    if (editTallas.some(t => t.id === tallaObj.id || t.nombre.toUpperCase() === tallaObj.nombre.toUpperCase())) {
+      toast.info(`La talla "${tallaObj.nombre}" ya está agregada a la matriz.`)
+      return
+    }
+
+    setEditTallas(prev => [...prev, tallaObj])
     setEditFilas(prev => prev.map(fila => ({
       ...fila,
-      cantidades: { ...fila.cantidades, [talla.nombre]: 1 }
+      cantidades: { ...fila.cantidades, [tallaObj.nombre]: 1 }
     })))
     setSelectedTallaId('')
   }
 
-  const handleAddColorMatrix = (colorId: string | number) => {
-    const color = coloresDisponibles.find(c => c.id === Number(colorId))
-    if (!color) return
-    if (editFilas.some(f => f.colorId === color.id)) return
+  const handleAddColorMatrix = (colorIdOrName: string | number) => {
+    if (!colorIdOrName) return
+    const searchStr = String(colorIdOrName).trim().toUpperCase()
+    
+    // Estandarizar nombre (ej: BLACK -> NEGRO)
+    const { nombreEsp } = standardizeColorName(searchStr, effectiveColoresDisponibles)
+    
+    const color = effectiveColoresDisponibles.find(
+      c => c.id.toString() === searchStr || c.nombre.toUpperCase() === searchStr || c.nombre.toUpperCase() === nombreEsp.toUpperCase()
+    )
+    
+    const colorNombre = color ? color.nombre : nombreEsp
+    const colorId = color ? color.id : (typeof colorIdOrName === 'number' ? colorIdOrName : Date.now())
+
+    if (editFilas.some(f => f.colorId === colorId || f.colorNombre.toUpperCase() === colorNombre.toUpperCase())) {
+      toast.info(`El color "${colorNombre}" ya está agregado a la matriz.`)
+      return
+    }
 
     const nuevaFila: DetalleFila = {
-      colorId: color.id,
-      colorNombre: color.nombre,
+      colorId,
+      colorNombre,
       cantidades: {}
     }
     editTallas.forEach(t => { nuevaFila.cantidades[t.nombre] = 1 })
 
-    setEditFilas([...editFilas, nuevaFila])
+    setEditFilas(prev => [...prev, nuevaFila])
     setSelectedColorId('')
   }
 
@@ -858,18 +1056,18 @@ export function CajaCard({
         )}
 
         {/* Matriz de contenido - delegado a CajaMatriz */}
-        {(caja.contenidoMap || isEditing) ? (
+        {(effectiveContenidoMap || isEditing) ? (
           <CajaMatriz
             isEditing={isEditing}
             isVertical={isVertical}
-            contenidoMap={caja.contenidoMap}
+            contenidoMap={effectiveContenidoMap}
             editTallas={editTallas}
             editFilas={editFilas}
             totalesEdicion={totalesEdicion}
             selectedTallaId={selectedTallaId}
             selectedColorId={selectedColorId}
-            tallasDisponibles={tallasDisponibles}
-            coloresDisponibles={coloresDisponibles}
+            tallasDisponibles={effectiveTallasDisponibles}
+            coloresDisponibles={effectiveColoresDisponibles}
             edadNombre={edadNombre}
             onAddTallaMatrix={handleAddTallaMatrix}
             onAddColorMatrix={handleAddColorMatrix}
