@@ -690,6 +690,18 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
   // 1. Resolver o Crear Contenedor
   let contenedorId = payload.contenedorId
+  if (contenedorId) {
+    const { data: checkId } = await supabase
+      .from('contenedores')
+      .select('id')
+      .eq('id', contenedorId)
+      .maybeSingle()
+
+    if (!checkId) {
+      contenedorId = null
+    }
+  }
+
   if (!contenedorId && payload.newContainerCode?.trim()) {
     const code = payload.newContainerCode.trim()
     const { data: existingCont } = await supabase
@@ -711,30 +723,54 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         .single()
 
       if (contErr) {
-        return { success: false, error: `Error al crear contenedor: ${contErr.message}` }
+        // En caso de conflicto secundario, intentar recuperar por codigo
+        const { data: retryCont } = await supabase
+          .from('contenedores')
+          .select('id')
+          .eq('codigo_contenedor', code)
+          .maybeSingle()
+
+        if (retryCont) {
+          contenedorId = retryCont.id
+        } else {
+          return { success: false, error: `Error al crear contenedor: ${contErr.message}` }
+        }
+      } else {
+        contenedorId = newCont.id
       }
-      contenedorId = newCont.id
     }
   }
 
   // 2. Resolver o Crear/Actualizar Productos
-  const skuBases = payload.productos.map((p: any) => String(p.sku_base).trim().toUpperCase())
+  const { data: provData } = await supabase
+    .from('personas')
+    .select('nombre_completo')
+    .eq('id', payload.proveedorId)
+    .single()
+
+  const provNombre = provData?.nombre_completo ?? ''
+
   const { data: existingProds } = await supabase
     .from('productos')
     .select('id, sku_base')
-    .in('sku_base', skuBases)
 
+  const dbProductsList = (existingProds || []).map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
   const prodIdMap = new Map<string, number>()
-  if (existingProds) {
-    existingProds.forEach((p: any) => {
-      prodIdMap.set(p.sku_base.toUpperCase(), p.id)
-    })
+
+  for (const p of payload.productos) {
+    const sku = String(p.sku_base).trim()
+    if (p.force_new) continue
+    const match = findBestDbSkuMatch(sku, dbProductsList, provNombre)
+    if (match) {
+      prodIdMap.set(sku.toUpperCase(), match.dbId)
+      prodIdMap.set(match.dbSku.toUpperCase(), match.dbId)
+    }
   }
 
   for (const p of payload.productos) {
     const sku = String(p.sku_base).trim()
     const skuUpper = sku.toUpperCase()
-    let prodId = prodIdMap.get(skuUpper)
+    let prodId = p.force_new ? null : prodIdMap.get(skuUpper)
 
     if (prodId) {
       // Actualizar descripción si ya existe
@@ -743,7 +779,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         .update({
           descripcion: p.descripcion || null,
           composicion: p.composicion || null,
-          nombre: p.nombre || p.descripcion || sku
+          nombre: p.nombre || p.descripcion || sku,
+          marca_id: p.marca_id || null
         })
         .eq('id', prodId)
 
@@ -759,6 +796,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
           nombre: p.nombre || p.descripcion || sku,
           descripcion: p.descripcion || null,
           composicion: p.composicion || null,
+          marca_id: p.marca_id || null,
           cliente_b2b_id: payload.clienteB2bId,
           activo: true,
           estado: 'pendiente'
@@ -819,6 +857,58 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     return null
   }
 
+  const TALLA_EN_ES_MAP_ACTION: Record<string, string> = {
+    XS: 'ECH',
+    'EXTRA SMALL': 'ECH',
+    S: 'CH',
+    SMALL: 'CH',
+    M: 'M',
+    MEDIUM: 'M',
+    L: 'G',
+    LARGE: 'G',
+    XL: 'EG',
+    'EXTRA LARGE': 'EG',
+    '2XL': '2EG',
+    XXL: '2EG',
+    '2X EXTRA GRANDE': '2EG',
+    '3XL': '3EG',
+    XXXL: '3EG',
+    '3X EXTRA GRANDE': '3EG',
+    '4XL': '4EG',
+    '5XL': '5EG',
+    'ONE SIZE': 'UNITALLA',
+    OS: 'UNITALLA',
+  }
+
+  function standardizeTallaNameAction(rawTalla: string): string {
+    if (!rawTalla) return ''
+    const trimmed = rawTalla.trim().toUpperCase()
+    return TALLA_EN_ES_MAP_ACTION[trimmed] || trimmed
+  }
+
+  const COLOR_EN_ES_MAP_ACTION: Record<string, string> = {
+    BLACK: 'NEGRO',
+    WHITE: 'BLANCO',
+    RED: 'ROJO',
+    NAVY: 'MARINO',
+    'NAVY BLUE': 'MARINO',
+    BLUE: 'AZUL',
+    GREY: 'GRIS',
+    GRAY: 'GRIS',
+    ROSE: 'ROSA',
+    PINK: 'ROSA',
+    CHOCOLATE: 'CHOCOLATE',
+    BROWN: 'CAFÉ',
+    GREEN: 'VERDE',
+    BEIGE: 'BEIGE',
+  }
+
+  function standardizeColorNameAction(rawColor: string): string {
+    if (!rawColor) return ''
+    const trimmed = rawColor.trim().toUpperCase()
+    return COLOR_EN_ES_MAP_ACTION[trimmed] || trimmed
+  }
+
   // 4. Crear/Actualizar Cajas y sus Detalles
   const cajaMap = new Map<string, number>()
   for (const c of payload.cajas) {
@@ -863,8 +953,27 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
     if (boxDetails.length > 0) {
       const payloadDetails = boxDetails.map((d: any) => {
-        const tallaId = tallasMap.get(String(d.talla_codigo || '').trim().toUpperCase()) || null
-        const colorId = findColorId(d.color_raw)
+        const rawTalla = String(d.talla_codigo || '').trim().toUpperCase()
+        const stdTalla = standardizeTallaNameAction(rawTalla)
+        let tallaId = tallasMap.get(stdTalla) || tallasMap.get(rawTalla) || null
+
+        if (!tallaId) {
+          if (rawTalla === 'UNITALLA' || rawTalla === 'OS' || rawTalla === 'ONE SIZE') tallaId = 21
+          else if (rawTalla.includes('CH') || rawTalla === 'S') tallaId = 3
+          else if (rawTalla.includes('G') || rawTalla === 'L') tallaId = 5
+          else if (rawTalla.includes('EG') || rawTalla === 'XL') tallaId = 6
+          else if (rawTalla.includes('M')) tallaId = 4
+          else tallaId = 21 // Fallback a UNITALLA (id: 21) si no coincide
+        }
+
+        const rawColor = String(d.color_raw || '').trim()
+        const stdColor = standardizeColorNameAction(rawColor)
+        let colorId = findColorId(stdColor) || findColorId(rawColor)
+
+        if (!colorId) {
+          colorId = coloresList[0]?.id || 1 // Fallback al primer id de cat_colores (id: 1 Negro)
+        }
+
         return {
           caja_id: cajaId,
           cantidad: d.cantidad_por_caja || 0,
@@ -980,23 +1089,252 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   return { success: true, id: ordenId }
 }
 
-export async function verificarSkusEnBDAction(skus: string[]): Promise<{ success: boolean; skusExistentes: string[] }> {
-  if (!skus || skus.length === 0) return { success: true, skusExistentes: [] }
-  const supabase = await createClient()
-  const cleanSkus = Array.from(new Set(skus.map(s => String(s).trim()).filter(Boolean)))
-  if (cleanSkus.length === 0) return { success: true, skusExistentes: [] }
+/** Normaliza un SKU para comparación estricta (sin separadores - _ / espacio y sin diacríticos) */
+function normalizeSkuKey(s: string): string {
+  return s
+    .toUpperCase()
+    .replace(/[ÁÉÍÓÚÀÈÌÒÙÄËÏÖÜÂÊÎÔÛ]/g, c => {
+      return { 'Á':'A','É':'E','Í':'I','Ó':'O','Ú':'U','À':'A','È':'E','Ì':'I','Ò':'O','Ù':'U','Ä':'A','Ë':'E','Ï':'I','Ö':'O','Ü':'U','Â':'A','Ê':'E','Î':'I','Ô':'O','Û':'U' }[c] ?? c
+    })
+    .replace(/[-_/\s]+/g, '')
+    .trim()
+}
 
-  const { data, error } = await supabase
-    .from('productos')
-    .select('sku_base')
-    .in('sku_base', cleanSkus)
+/** Extrae sub-tokens/modelos individuales de un SKU compuesto (ej: AND230012/3VT3423 -> ['AND230012', '3VT3423']) */
+function extractSkuTokens(s: string): string[] {
+  const parts = s
+    .toUpperCase()
+    .split(/[-_/\s]+/)
+    .map(p => p.trim())
+    .filter(p => p.length >= 2)
+  return Array.from(new Set(parts))
+}
 
-  if (error) {
-    console.error('Error al verificar SKUs en BD:', error)
-    return { success: false, skusExistentes: [] }
+/** Extrae el código de modelo MOTI con patrón AND+números (ej: AND230012, AND250029, AND20002) */
+function extractAndToken(s: string): string | null {
+  const match = s.toUpperCase().match(/AND\d+/i)
+  return match ? match[0].trim() : null
+}
+
+/** Determina si el proveedor corresponde a MOTI */
+function isMotiSupplier(supplierName?: string): boolean {
+  if (!supplierName) return false
+  return supplierName.toLowerCase().includes('moti')
+}
+
+/** Distancia de Levenshtein para tolerancia de pequeños errores tipográficos */
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: m + 1 }, (_, i) => Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+/**
+ * Busca la mejor coincidencia en la base de datos para un SKU de n8n/Excel.
+ * Para proveedor MOTI, respeta la identidad única del token AND#####.
+ * Si viene un AND nuevo (ej. AND260021 3VT3423), evita falsos positivos con ítems viejos (AND230012 3VT3423).
+ */
+function findBestDbSkuMatch(
+  inputSku: string,
+  dbProducts: { id: number; sku_base: string }[],
+  proveedorNombre?: string,
+): { dbSku: string; dbId: number } | null {
+  const inputClean = inputSku.trim()
+  if (!inputClean) return null
+
+  const isMoti = isMotiSupplier(proveedorNombre)
+  const inputUpper = inputClean.toUpperCase()
+  const inputNorm = normalizeSkuKey(inputClean)
+  const inputTokens = extractSkuTokens(inputClean)
+  const inputAndToken = extractAndToken(inputClean)
+
+  let bestMatch: { dbSku: string; dbId: number } | null = null
+  let highestScore = 0
+
+  for (const p of dbProducts) {
+    const dbSku = p.sku_base
+    const dbUpper = dbSku.toUpperCase()
+    const dbNorm = normalizeSkuKey(dbSku)
+    const dbAndToken = extractAndToken(dbSku)
+
+    // 1. Coincidencia exacta
+    if (inputUpper === dbUpper) {
+      return { dbSku, dbId: p.id }
+    }
+
+    let score = 0
+
+    if (isMoti) {
+      // Regla MOTI 1: Si el SKU de entrada posee un patrón AND#####
+      if (inputAndToken) {
+        if (dbAndToken && inputAndToken === dbAndToken) {
+          // El AND coincide exactamente (ej: AND230012 === AND230012)
+          score = 98
+        } else {
+          // Si el input tiene AND y la entrada de la BD tiene un AND distinto,
+          // se trata de un producto NUEVO de MOTI. Previene falso positivo con códigos secundarios (3VT/1AK/3JA).
+          continue
+        }
+      } else {
+        // Regla MOTI 2: El SKU de entrada no trae token AND (solo viene 3VT..., 1AK..., 3JA...)
+        if (inputNorm === dbNorm) {
+          score = 90
+        } else {
+          const dbTokens = extractSkuTokens(dbSku)
+          const hasMatchingToken = inputTokens.some((it) => dbTokens.includes(it))
+          if (hasMatchingToken) {
+            score = 85
+          }
+        }
+      }
+    } else {
+      // Proveedores estándar (no MOTI)
+      if (inputNorm === dbNorm) {
+        score = 90
+      } else {
+        const dbTokens = extractSkuTokens(dbSku)
+        const hasMatchingToken = inputTokens.some((it) => dbTokens.includes(it))
+        if (hasMatchingToken) {
+          score = 80
+        } else if (inputNorm.length >= 4 && dbNorm.length >= 4) {
+          if (dbNorm.includes(inputNorm) || inputNorm.includes(dbNorm)) {
+            score = 70
+          }
+        } else if (inputNorm.length >= 5 && dbNorm.length >= 5) {
+          const dist = levenshteinDistance(inputNorm, dbNorm)
+          if (dist <= 2) {
+            score = 60
+          }
+        }
+      }
+    }
+
+    if (score > highestScore) {
+      highestScore = score
+      bestMatch = { dbSku, dbId: p.id }
+    }
   }
 
-  const skusExistentes = (data || []).map((p: { sku_base: string }) => p.sku_base)
-  return { success: true, skusExistentes }
+  return highestScore >= 60 ? bestMatch : null
+}
+
+export async function verificarSkusEnBDAction(
+  skus: string[],
+  proveedorNombre?: string,
+): Promise<{
+  success: boolean
+  skusExistentes: string[]
+  skuMap: Record<string, string>
+}> {
+  if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {} }
+  const supabase = await createClient()
+  const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
+  if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {} }
+
+  const { data: dbData, error } = await supabase
+    .from('productos')
+    .select('id, sku_base')
+
+  if (error || !dbData) {
+    console.error('Error al verificar SKUs en BD:', error)
+    return { success: false, skusExistentes: [], skuMap: {} }
+  }
+
+  const dbProducts = dbData.map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
+  const skusExistentes: string[] = []
+  const skuMap: Record<string, string> = {}
+
+  for (const inputSku of cleanSkus) {
+    const match = findBestDbSkuMatch(inputSku, dbProducts, proveedorNombre)
+    if (match) {
+      skusExistentes.push(inputSku)
+      skuMap[inputSku.toUpperCase()] = match.dbSku
+    }
+  }
+
+  return { success: true, skusExistentes, skuMap }
+}
+
+export async function obtenerDatosProductosDeBDAction(
+  skus: string[],
+): Promise<{
+  success: boolean
+  productosMap?: Record<string, {
+    id: number
+    nombre?: string
+    descripcion?: string
+    composicion?: string
+    precio_usd?: number
+    marca_id?: number
+    marca_nombre?: string
+  }>
+  error?: string
+}> {
+  try {
+    if (!skus || skus.length === 0) return { success: true, productosMap: {} }
+    const supabase = await createClient()
+
+    const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
+    if (cleanSkus.length === 0) return { success: true, productosMap: {} }
+
+    const { data, error } = await supabase
+      .from('productos')
+      .select(`
+        id,
+        sku_base,
+        nombre,
+        descripcion,
+        composicion,
+        precio_ec,
+        marca_id,
+        cat_marcas (
+          id,
+          nombre
+        )
+      `)
+      .in('sku_base', cleanSkus)
+
+    if (error) throw error
+
+    const productosMap: Record<string, {
+      id: number
+      nombre?: string
+      descripcion?: string
+      composicion?: string
+      precio_usd?: number
+      marca_id?: number
+      marca_nombre?: string
+    }> = {}
+
+    for (const p of data || []) {
+      const skuKey = String(p.sku_base).trim().toUpperCase()
+      const marcaObj = p.cat_marcas as any
+      productosMap[skuKey] = {
+        id: p.id,
+        nombre: p.nombre || '',
+        descripcion: p.descripcion || p.nombre || '',
+        composicion: p.composicion || '',
+        precio_usd: Number(p.precio_ec || 0),
+        marca_id: p.marca_id || (marcaObj ? marcaObj.id : undefined),
+        marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+      }
+    }
+
+    return { success: true, productosMap }
+  } catch (err: any) {
+    console.error('Error al consultar datos de productos en BD:', err)
+    return { success: false, error: err.message || 'Error al obtener datos de productos en BD' }
+  }
 }
 

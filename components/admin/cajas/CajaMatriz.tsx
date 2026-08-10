@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { ColorCombobox } from './ColorCombobox'
 import type { SharedCajaContenidoMap } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
+import { standardizeColorName } from './CajaCard'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -201,31 +202,43 @@ export function CajaMatriz({
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {editFilas.map((fila) => (
-                <tr key={fila.colorId} className="group hover:bg-muted/20 transition-colors">
-                  <td className="border px-3 py-2 font-medium text-foreground flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span>{fila.colorNombre}</span>
-                      <Button
+              {editFilas.map((fila) => {
+                const { nombreEsp, isNewColor } = standardizeColorName(fila.colorNombre, coloresDisponibles)
+                return (
+                  <tr key={fila.colorId} className="group hover:bg-muted/20 transition-colors">
+                    <td className="border px-3 py-2 font-medium text-foreground flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{nombreEsp}</span>
+                        {isNewColor && (
+                          <Badge
+                            variant="outline"
+                            className="border-purple-300 bg-purple-50 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200 dark:border-purple-800 text-[9px] py-0 px-1.5 font-bold gap-1 shadow-sm"
+                            title="Color no registrado en el catálogo base (Nuevo Color)"
+                          >
+                            <Sparkles className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400" />
+                            Nuevo color
+                          </Badge>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onAutoFillFila(fila.colorId)}
+                          className="h-6 w-6 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                          title="Autocompletar fila"
+                        >
+                          <Wand2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onAutoFillFila(fila.colorId)}
-                        className="h-6 w-6 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30"
-                        title="Autocompletar fila"
+                        onClick={() => onRemoveColor(fila.colorId)}
+                        className="w-6 h-6 bg-destructive/10 hover:bg-destructive text-destructive hover:text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                        title="Eliminar color"
                       >
-                        <Wand2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveColor(fila.colorId)}
-                      className="w-6 h-6 bg-destructive/10 hover:bg-destructive text-destructive hover:text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
-                      title="Eliminar color"
-                    >
-                      <Trash className="h-3 w-3" />
-                    </button>
-                  </td>
+                        <Trash className="h-3 w-3" />
+                      </button>
+                    </td>
                   {editTallas.map((talla) => (
                     <td key={talla.id} className="border px-2 py-2">
                       <Input
@@ -243,7 +256,8 @@ export function CajaMatriz({
                     {totalesEdicion.totalPorFila[fila.colorNombre] || 0}
                   </td>
                 </tr>
-              ))}
+              )
+            })}
             </tbody>
             <tfoot>
               <tr className="bg-muted/50 border-t-2 border-border">
@@ -295,12 +309,27 @@ export function CajaMatriz({
               </tr>
             </thead>
             <tbody>
-              {contenidoMap!.colores.map((color) => {
-                const fila = contenidoMap!.matriz[color] ?? {}
+              {contenidoMap!.colores.map((colorRaw) => {
+                const { nombreEsp, isNewColor } = standardizeColorName(colorRaw, coloresDisponibles)
+                const fila = contenidoMap!.matriz[colorRaw] ?? {}
                 const totalFila = Object.values(fila).reduce((a, b) => a + b, 0)
                 return (
-                  <tr key={color} className="hover:bg-muted/30 transition-colors">
-                    <td className="border px-3 py-2 font-bold text-foreground/80">{color}</td>
+                  <tr key={colorRaw} className="hover:bg-muted/30 transition-colors">
+                    <td className="border px-3 py-2 font-bold text-foreground/80">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{nombreEsp}</span>
+                        {isNewColor && (
+                          <Badge
+                            variant="outline"
+                            className="border-purple-300 bg-purple-50 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200 dark:border-purple-800 text-[9px] py-0 px-1.5 font-bold gap-1 shadow-sm"
+                            title="Color no registrado en el catálogo base (Nuevo Color)"
+                          >
+                            <Sparkles className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400" />
+                            Nuevo color
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
                     {contenidoMap!.tallas.map((t) => (
                       <td
                         key={t}
