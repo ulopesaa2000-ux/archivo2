@@ -10,6 +10,8 @@ export type OcrQueueItem = {
   file: File
   previewUrl: string
   tipoHint: string
+  origenHint?: string
+  destinoHint?: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   errorMsg?: string
@@ -20,8 +22,8 @@ export type OcrQueueItem = {
 
 interface OcrQueueContextType {
   items: OcrQueueItem[]
-  addFilesToQueue: (files: File[], tipoHint?: string) => void
-  addBatchToQueue: (batch: { file: File; tipoHint: string }[]) => void
+  addFilesToQueue: (files: File[], tipoHint?: string, origenHint?: string, destinoHint?: string) => void
+  addBatchToQueue: (batch: { file: File; tipoHint: string; origenHint?: string; destinoHint?: string }[]) => void
   clearCompleted: () => void
   removeItem: (id: string) => void
   retryItem: (id: string) => void
@@ -43,7 +45,7 @@ export function OcrBatchQueueProvider({ children }: { children: React.ReactNode 
   const router = useRouter()
   const [items, setItems] = useState<OcrQueueItem[]>([])
 
-  const addFilesToQueue = useCallback((files: File[], tipoHint: string = 'entrada') => {
+  const addFilesToQueue = useCallback((files: File[], tipoHint: string = 'entrada', origenHint?: string, destinoHint?: string) => {
     if (files.length === 0) return
 
     const newItems: OcrQueueItem[] = files.map((file) => ({
@@ -51,6 +53,8 @@ export function OcrBatchQueueProvider({ children }: { children: React.ReactNode 
       file,
       previewUrl: URL.createObjectURL(file),
       tipoHint,
+      origenHint,
+      destinoHint,
       status: 'pending',
       progress: 0,
       createdAt: Date.now(),
@@ -60,7 +64,7 @@ export function OcrBatchQueueProvider({ children }: { children: React.ReactNode 
     toast.info(`Se agregaron ${files.length} ${files.length === 1 ? 'nota' : 'notas'} a la cola de procesamiento IA.`)
   }, [])
 
-  const addBatchToQueue = useCallback((batch: { file: File; tipoHint: string }[]) => {
+  const addBatchToQueue = useCallback((batch: { file: File; tipoHint: string; origenHint?: string; destinoHint?: string }[]) => {
     if (batch.length === 0) return
 
     const newItems: OcrQueueItem[] = batch.map((item) => ({
@@ -68,6 +72,8 @@ export function OcrBatchQueueProvider({ children }: { children: React.ReactNode 
       file: item.file,
       previewUrl: URL.createObjectURL(item.file),
       tipoHint: item.tipoHint || 'entrada',
+      origenHint: item.origenHint,
+      destinoHint: item.destinoHint,
       status: 'pending',
       progress: 0,
       createdAt: Date.now(),
@@ -127,6 +133,12 @@ export function OcrBatchQueueProvider({ children }: { children: React.ReactNode 
         const formData = new FormData()
         formData.append('foto', itemToProcess.file)
         formData.append('tipo_hint', itemToProcess.tipoHint)
+        if (itemToProcess.origenHint) {
+          formData.append('origen_hint', itemToProcess.origenHint)
+        }
+        if (itemToProcess.destinoHint) {
+          formData.append('destino_hint', itemToProcess.destinoHint)
+        }
         formData.append('client_request_id', itemId)
 
         const res = await fetch('/api/inventario/notas/ocr', {

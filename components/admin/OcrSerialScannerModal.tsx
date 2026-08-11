@@ -1,7 +1,7 @@
 // components/admin/OcrSerialScannerModal.tsx
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -12,10 +12,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Camera, Plus, Sparkles, Upload, Trash2, CheckCircle2, Layers, X, Images,
-  MoreVertical, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Scale
+  MoreVertical, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Scale, Building2
 } from 'lucide-react'
 import Image from 'next/image'
 import { useOcrBatchQueue } from '@/hooks/useOcrBatchQueue'
+import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 
 const TIPO_LABELS: Record<string, { label: string; short: string; color: string }> = {
@@ -30,6 +31,8 @@ type CapturedFileItem = {
   file: File
   previewUrl: string
   tipoHint: string
+  origenHint?: string
+  destinoHint?: string
 }
 
 export function OcrSerialScannerModal({
@@ -42,12 +45,47 @@ export function OcrSerialScannerModal({
   const { addBatchToQueue } = useOcrBatchQueue()
   const [isOpen, setIsOpen] = useState(false)
   const [globalTipoHint, setGlobalTipoHint] = useState<string>(defaultTipoHint)
-  
+  const [globalOrigenHint, setGlobalOrigenHint] = useState<string>('AUTO')
+  const [globalDestinoHint, setGlobalDestinoHint] = useState<string>('AUTO')
+  const [bodegas, setBodegas] = useState<{ id: number; nombre: string; codigo: string }[]>([])
+
   // Lista de archivos capturados localmente en esta sesión
   const [capturedFiles, setCapturedFiles] = useState<CapturedFileItem[]>([])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    async function loadBodegas() {
+      try {
+        const supabase = createClient()
+        const { data } = await supabase
+          .from('bodegas')
+          .select('id, nombre, codigo')
+          .order('nombre', { ascending: true })
+        if (data) {
+          setBodegas(data as any)
+
+          // Leer la bodega activa del encabezado (cookie bodega_activa_id)
+          const cookieVal = typeof document !== 'undefined'
+            ? document.cookie.split('; ').find((r) => r.startsWith('bodega_activa_id='))?.split('=')[1]
+            : null
+          const activeId = cookieVal ? parseInt(cookieVal, 10) : null
+          if (activeId && activeId > 0) {
+            const activeBodega = data.find((b: any) => b.id === activeId)
+            if (activeBodega) {
+              setGlobalOrigenHint(activeBodega.nombre)
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error cargando bodegas:', e)
+      }
+    }
+    if (isOpen && bodegas.length === 0) {
+      loadBodegas()
+    }
+  }, [isOpen, bodegas.length])
 
   // Agregar archivos desde file input (múltiples de galería o disparos de cámara)
   const handleFilesAdded = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,6 +97,8 @@ export function OcrSerialScannerModal({
       file,
       previewUrl: URL.createObjectURL(file),
       tipoHint: globalTipoHint || 'entrada',
+      origenHint: globalOrigenHint !== 'AUTO' ? globalOrigenHint : undefined,
+      destinoHint: globalDestinoHint !== 'AUTO' ? globalDestinoHint : undefined,
     }))
 
     setCapturedFiles((prev) => [...prev, ...newEntries])
@@ -98,6 +138,8 @@ export function OcrSerialScannerModal({
     const batch = capturedFiles.map((item) => ({
       file: item.file,
       tipoHint: item.tipoHint,
+      origenHint: item.origenHint || (globalOrigenHint !== 'AUTO' ? globalOrigenHint : undefined),
+      destinoHint: item.destinoHint || (globalDestinoHint !== 'AUTO' ? globalDestinoHint : undefined),
     }))
 
     addBatchToQueue(batch)
@@ -144,7 +186,7 @@ export function OcrSerialScannerModal({
             Captura de Fotos en Serie (IA / OCR)
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Toma fotos de varias notas físicas seguidas con la cámara o selecciona varias de la galería. Puedes asignar o cambiar el tipo de movimiento a cada foto antes de procesarlas.
+            Toma fotos de varias notas físicas seguidas con la cámara o selecciona varias de la galería. Puedes asignar o cambiar la bodega de origen y destino por defecto si la nota en papel no las especifica.
           </DialogDescription>
         </DialogHeader>
 
@@ -168,22 +210,65 @@ export function OcrSerialScannerModal({
             className="hidden"
           />
 
-          {/* Selector de Tipo de Movimiento Global (Predeterminado para nuevas fotos) */}
-          <div className="space-y-2">
-            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Tipo Predeterminado para Nuevas Fotos
-            </Label>
-            <Select value={globalTipoHint} onValueChange={(val) => val && setGlobalTipoHint(val)}>
-              <SelectTrigger className="h-11 rounded-xl">
-                <SelectValue placeholder="Seleccionar tipo predeterminado..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="entrada">📥 Entrada (Compra / Recepción)</SelectItem>
-                <SelectItem value="salida">📤 Salida (Venta / Despacho)</SelectItem>
-                <SelectItem value="traslado">↔️ Traslado entre Bodegas</SelectItem>
-                <SelectItem value="ajuste">⚖️ Ajuste de Inventario</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Configuración de Encabezado / Valores por Defecto */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-muted/40 border">
+            {/* Tipo */}
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Tipo Predeterminado
+              </Label>
+              <Select value={globalTipoHint} onValueChange={(val) => val && setGlobalTipoHint(val)}>
+                <SelectTrigger className="h-10 rounded-xl text-xs">
+                  <SelectValue placeholder="Tipo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="entrada">📥 Entrada (Recepción)</SelectItem>
+                  <SelectItem value="salida">📤 Salida (Venta)</SelectItem>
+                  <SelectItem value="traslado">↔️ Traslado entre Bodegas</SelectItem>
+                  <SelectItem value="ajuste">⚖️ Ajuste de Inventario</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bodega Origen */}
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Origen (si no está en papel)
+              </Label>
+              <Select value={globalOrigenHint} onValueChange={(val) => val && setGlobalOrigenHint(val)}>
+                <SelectTrigger className="h-10 rounded-xl text-xs">
+                  <SelectValue placeholder="Origen por defecto..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AUTO">🤖 Deducir por OCR (o Defecto)</SelectItem>
+                  {bodegas.map((b) => (
+                    <SelectItem key={b.id} value={b.nombre}>
+                      🏢 {b.nombre} ({b.codigo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bodega Destino */}
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Destino (opcional)
+              </Label>
+              <Select value={globalDestinoHint} onValueChange={(val) => val && setGlobalDestinoHint(val)}>
+                <SelectTrigger className="h-10 rounded-xl text-xs">
+                  <SelectValue placeholder="Destino por defecto..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AUTO">🤖 Deducir por OCR (o ninguno)</SelectItem>
+                  {bodegas.map((b) => (
+                    <SelectItem key={b.id} value={b.nombre}>
+                      🏢 {b.nombre} ({b.codigo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Botones Principales de Captura */}
