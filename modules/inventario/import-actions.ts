@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { fetchTipoMovimientoAjuste } from './import-queries'
 
-export type ModoAjuste = 'delta' | 'absoluto'
+export type ModoAjuste = 'delta' | 'absoluto' | 'global'
 
 export type ImportFilaValida = {
   sku: string
@@ -67,7 +67,7 @@ async function crearNotaAjusteParaBodega(
 ): Promise<NotaBodegaResult> {
   let filasProcesar = filas
 
-  if (modo === 'absoluto') {
+  if (modo === 'absoluto' || modo === 'global') {
     const productoIds = filas.map(f => f.producto_id)
     const stockMap = await fetchStockActual(supabase, bodegaId, productoIds)
 
@@ -82,7 +82,7 @@ async function crearNotaAjusteParaBodega(
     throw new Error(`No hay diferencias de stock para ajustar en ${bodegaNombre}.`)
   }
 
-  const modoLabel = modo === 'absoluto' ? 'Inventario total' : 'Ajuste delta'
+  const modoLabel = modo === 'global' ? 'Corte Global' : modo === 'absoluto' ? 'Inventario total' : 'Ajuste delta'
   const fechaRef = new Date().toISOString().slice(0, 10)
   const notaReferencia = `Ajuste importado (${modoLabel}) - ${fechaRef}`
   const observaciones = `Importacion masiva (${modoLabel}): ${filasProcesar.length} productos - Bodega: ${bodegaNombre}`

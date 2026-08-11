@@ -183,6 +183,7 @@ export type DraftNota = {
   tipo_movimiento_id: number | null
   bodega_origen_id: number | null
   bodega_destino_id: number | null
+  fecha_nota?: string
   nota_referencia: string
   observaciones: string
   costo_total: number | null

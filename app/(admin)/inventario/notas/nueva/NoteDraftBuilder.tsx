@@ -34,7 +34,8 @@ import type {
   ProductoBusqueda, CajaParaSelector, NotaCompleta,
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
-import { cn } from '@/lib/utils'
+import { cn, todayMX, formatForDateInput } from '@/lib/utils'
+import { NotaFechaPicker } from '@/components/admin/NotaFechaPicker'
 
 const NO_CAJA_VALUE = '_none'
 
@@ -103,6 +104,9 @@ export function NoteDraftBuilder({
               (b) => b.codigo === initialData.cabecera.bodega_destino_codigo
             )?.id ?? null
           : null,
+        fecha_nota: initialData.cabecera.fecha_nota
+          ? formatForDateInput(initialData.cabecera.fecha_nota)
+          : todayMX(),
         nota_referencia: initialData.cabecera.nota_referencia ?? '',
         observaciones: initialData.cabecera.observaciones ?? '',
         costo_total: initialData.cabecera.costo_total ?? 0,
@@ -129,6 +133,7 @@ export function NoteDraftBuilder({
         tipo_movimiento_id: hc.tipo_movimiento_id ?? null,
         bodega_origen_id: hc.bodega_origen_id ?? null,
         bodega_destino_id: hc.bodega_destino_id ?? null,
+        fecha_nota: hc.fecha_nota ? formatForDateInput(hc.fecha_nota) : todayMX(),
         nota_referencia: hc.nota_referencia ?? '',
         observaciones: hc.observaciones ?? '',
         costo_total: 0,
@@ -139,6 +144,7 @@ export function NoteDraftBuilder({
       tipo_movimiento_id: null,
       bodega_origen_id: null,
       bodega_destino_id: null,
+      fecha_nota: todayMX(),
       nota_referencia: '',
       observaciones: '',
       costo_total: 0,
@@ -528,6 +534,16 @@ export function NoteDraftBuilder({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Fecha del Movimiento / Nota */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Fecha del Movimiento *</Label>
+                <NotaFechaPicker
+                  value={draft.fecha_nota || todayMX()}
+                  onChange={(date) => setDraft((prev) => ({ ...prev, fecha_nota: date }))}
+                  disabled={todoBloqueado || soloEditaDestino}
+                />
+              </div>
+
               {/* Bodega Origen */}
               <div className="space-y-2">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bodega Origen *</Label>
@@ -555,9 +571,11 @@ export function NoteDraftBuilder({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Bodega Destino (condicional) */}
-              {tipoSeleccionado?.requiere_destino ? (
+              {tipoSeleccionado?.requiere_destino && (
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bodega Destino *</Label>
                   <Select
@@ -586,39 +604,22 @@ export function NoteDraftBuilder({
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Referencia (opcional)</Label>
-                  <Input
-                    value={draft.nota_referencia}
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, nota_referencia: e.target.value }))
-                    }
-                    placeholder="Ej: OC-2026-043"
-                    maxLength={50}
-                    className="h-11 rounded-xl"
-                    disabled={todoBloqueado || soloEditaDestino}
-                  />
-                </div>
               )}
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {tipoSeleccionado?.requiere_destino && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Referencia (opcional)</Label>
-                  <Input
-                    value={draft.nota_referencia}
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, nota_referencia: e.target.value }))
-                    }
-                    placeholder="Ej: OC-2026-043"
-                    maxLength={50}
-                    className="h-11 rounded-xl"
-                    disabled={todoBloqueado || soloEditaDestino}
-                  />
-                </div>
-              )}
+              {/* Referencia (opcional) */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Referencia (opcional)</Label>
+                <Input
+                  value={draft.nota_referencia}
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, nota_referencia: e.target.value }))
+                  }
+                  placeholder="Ej: OC-2026-043"
+                  maxLength={50}
+                  className="h-11 rounded-xl"
+                  disabled={todoBloqueado || soloEditaDestino}
+                />
+              </div>
 
               {/* Costo Total (solo Salida o Traslado) */}
               {(tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && (

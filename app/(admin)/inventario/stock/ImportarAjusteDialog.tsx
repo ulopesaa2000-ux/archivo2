@@ -25,9 +25,10 @@ type Props = {
   onOpenChange: (open: boolean) => void
   bodegas: BodegaRow[]
   bodegaActivaId: number | null
+  initialIsGlobalMode?: boolean
 }
 
-export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActivaId }: Props) {
+export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActivaId, initialIsGlobalMode = false }: Props) {
   const router = useRouter()
   const [step, setStep] = useState<Step>('upload')
   const [parsedFilas, setParsedFilas] = useState<Record<string, string>[]>([])
@@ -36,7 +37,7 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
   const [filasValidas, setFilasValidas] = useState<ImportFilaValida[]>([])
   const [resultNotas, setResultNotas] = useState<NotaBodegaResult[]>([])
   const [resultTotal, setResultTotal] = useState(0)
-  const [modo, setModo] = useState<ModoAjuste>('delta')
+  const [modo, setModo] = useState<ModoAjuste>(initialIsGlobalMode ? 'absoluto' : 'delta')
 
   const resetState = () => {
     setStep('upload')
@@ -46,6 +47,7 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
     setFilasValidas([])
     setResultNotas([])
     setResultTotal(0)
+    setModo(initialIsGlobalMode ? 'absoluto' : 'delta')
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -84,11 +86,13 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
       <DialogContent className={`${maxW} max-h-[90vh] overflow-auto`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Upload className="size-5" />
-            Importar ajuste de inventario
+            <Upload className={`size-5 ${initialIsGlobalMode ? 'text-emerald-600' : ''}`} />
+            {initialIsGlobalMode ? 'Importación Global de Inventario (Corte Global)' : 'Importar ajuste de inventario'}
           </DialogTitle>
           <DialogDescription>
-            Sube un archivo CSV o Excel para crear notas de ajuste masivas.
+            {initialIsGlobalMode
+              ? 'Sube una hoja de Corte Global en formato Matriz (SKU x Bodega) o CSV para actualizar el inventario consolidado.'
+              : 'Sube un archivo CSV o Excel para crear notas de ajuste masivas.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -112,12 +116,13 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
         )}
 
         {step === 'confirm' && (
-        <ImportStepConfirm
-          filas={filasValidas}
-          modo={modo}
-          onSuccess={handleSuccess}
-          onBack={() => setStep('preview')}
-        />
+          <ImportStepConfirm
+            filas={filasValidas}
+            modo={modo}
+            bodegaDefaultId={bodegaDefaultId}
+            onSuccess={handleSuccess}
+            onBack={() => setStep('preview')}
+          />
         )}
 
         {step === 'success' && resultNotas.length > 0 && (

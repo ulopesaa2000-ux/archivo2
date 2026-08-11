@@ -24,7 +24,7 @@ export async function updateProductoWebAction(
 
   const supabase = await createClient()
 
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id') || toInteger(formData, 'id')
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
   const payload = {
@@ -71,7 +71,7 @@ export async function createProductoWebAction(
 
   const supabase = await createClient()
 
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id') || toInteger(formData, 'id')
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
   const payload = {

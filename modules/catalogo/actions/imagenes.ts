@@ -44,7 +44,7 @@ export async function uploadImagenAction(
   const supabase = await createClient()
 
   // ── Campos comunes ────────────────────────────────────────
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id') || toInteger(formData, 'id')
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
   const skuBase = toCleanText(formData, 'sku_base')
@@ -167,7 +167,7 @@ export async function updateImagenAction(
   const supabase = await createClient()
 
   const id = toInteger(formData, 'id')
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id')
   if (!id)         return { success: false, error: 'ID de imagen requerido.' }
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 

@@ -267,19 +267,34 @@ function NotasTableInner({
       header: 'N° Nota',
       sortKey: 'numero_nota',
       headerClassName: 'w-[180px]',
-      cell: (row: NotaListItem) => (
-        <div className="flex items-center gap-2">
-          <Link
-            href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
-            className="font-mono text-sm font-medium text-primary hover:underline animate-in fade-in"
-          >
-            {row.numero_nota}
-          </Link>
-          {row.comprobante_url && (
-            <ComprobantePreviewButton url={row.comprobante_url} />
-          )}
-        </div>
-      ),
+      cell: (row: NotaListItem) => {
+        const esOcr = Boolean(
+          row.nota_referencia?.toUpperCase().includes('OCR') ||
+          row.numero_nota?.includes('PROPUESTA-OCR') ||
+          row.observaciones?.toUpperCase().includes('OCR')
+        )
+
+        return (
+          <div className="flex items-center gap-2">
+            <Link
+              href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
+              className="font-mono text-sm font-medium text-primary hover:underline animate-in fade-in"
+            >
+              {row.numero_nota}
+            </Link>
+
+            {esOcr && (
+              <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider px-1.5 py-0 leading-tight shrink-0 shadow-xs">
+                🤖 OCR IA
+              </Badge>
+            )}
+
+            {row.comprobante_url && (
+              <ComprobantePreviewButton url={row.comprobante_url} />
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'tipo',

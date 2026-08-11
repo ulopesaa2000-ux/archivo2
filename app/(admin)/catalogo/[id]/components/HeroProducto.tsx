@@ -84,7 +84,9 @@ export function HeroProducto({ producto, fk, imagenPrincipal, catalogos, canEdit
     e.preventDefault()
     setError(null)
     const fd = new FormData(e.currentTarget)
+    fd.set('id', String(producto.id))
     fd.set('product_id', String(producto.id))
+    fd.set('producto_id', String(producto.id))
 
     // Checkboxes: si no están checked, FormData no los incluye → forzar booleanos
     ;(['activo', 'destacado', 'es_conjunto'] as const).forEach((key) => {

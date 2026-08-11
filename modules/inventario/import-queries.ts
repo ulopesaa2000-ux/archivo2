@@ -16,29 +16,113 @@ export type BodegaMatch = {
   codigo: string
 }
 
+function extractAndToken(s: string): string | null {
+  const match = s.toUpperCase().match(/AND\d+/i)
+  return match ? match[0].trim().toUpperCase() : null
+}
+
+function extract3VtToken(s: string): string | null {
+  const match = s.toUpperCase().match(/3VT\d+/i)
+  return match ? match[0].trim().toUpperCase() : null
+}
+
 export async function buscarProductosPorSkuBatch(
   skus: string[]
 ): Promise<Map<string, ProductoMatch>> {
   const supabase = await createClient()
-
   const map = new Map<string, ProductoMatch>()
 
   if (skus.length === 0) return map
 
-  const { data, error } = await supabase
+  // Consultar todos los productos activos de la BD para resolución inteligente (son ~800 productos)
+  const { data: allProducts, error } = await supabase
     .from('productos')
     .select('id, sku_base, nombre')
-    .in('sku_base', skus)
     .eq('activo', true)
 
-  if (error || !data) return map
+  if (error || !allProducts) return map
 
-  for (const p of data) {
-    map.set(p.sku_base, {
+  const exactMap = new Map<string, ProductoMatch>()
+  const andMap = new Map<string, ProductoMatch>()
+  const vtMap = new Map<string, ProductoMatch>()
+  const tokenMap = new Map<string, ProductoMatch>()
+
+  for (const p of allProducts) {
+    const item: ProductoMatch = {
       producto_id: p.id,
       sku_base: p.sku_base,
       nombre: p.nombre,
-    })
+    }
+
+    const skuUpper = p.sku_base.trim().toUpperCase()
+    exactMap.set(skuUpper, item)
+
+    const andToken = extractAndToken(p.sku_base)
+    if (andToken) andMap.set(andToken, item)
+
+    const vtToken = extract3VtToken(p.sku_base)
+    if (vtToken) vtMap.set(vtToken, item)
+
+    // Token por primera palabra
+    const firstWord = skuUpper.split(/\s+/)[0]
+    if (firstWord) tokenMap.set(firstWord, item)
+  }
+
+  for (const rawSku of skus) {
+    const rawUpper = rawSku.trim().toUpperCase()
+    if (!rawUpper) continue
+
+    // 1. Coincidencia exacta
+    if (exactMap.has(rawUpper)) {
+      map.set(rawSku, exactMap.get(rawUpper)!)
+      continue
+    }
+
+    // 2. Coincidencia antes del primer espacio
+    const beforeSpace = rawUpper.split(/\s+/)[0]
+    if (beforeSpace && exactMap.has(beforeSpace)) {
+      map.set(rawSku, exactMap.get(beforeSpace)!)
+      continue
+    }
+
+    // 3. Coincidencia por token AND#####
+    const andTok = extractAndToken(rawSku)
+    if (andTok && andMap.has(andTok)) {
+      map.set(rawSku, andMap.get(andTok)!)
+      continue
+    }
+
+    // 4. Coincidencia por token 3VT#####
+    const vtTok = extract3VtToken(rawSku)
+    if (vtTok && vtMap.has(vtTok)) {
+      map.set(rawSku, vtMap.get(vtTok)!)
+      continue
+    }
+
+    // 5. Coincidencia por partes divididas por '/' o '-'
+    const slashParts = rawUpper.split(/[\/\s-]+/).map((s) => s.trim()).filter(Boolean)
+    let found = false
+    for (const part of slashParts) {
+      if (exactMap.has(part)) {
+        map.set(rawSku, exactMap.get(part)!)
+        found = true
+        break
+      }
+      const partAnd = extractAndToken(part)
+      if (partAnd && andMap.has(partAnd)) {
+        map.set(rawSku, andMap.get(partAnd)!)
+        found = true
+        break
+      }
+      const partVt = extract3VtToken(part)
+      if (partVt && vtMap.has(partVt)) {
+        map.set(rawSku, vtMap.get(partVt)!)
+        found = true
+        break
+      }
+    }
+
+    if (found) continue
   }
 
   return map
@@ -60,17 +144,20 @@ export async function buscarBodegasBatch(
 
   if (error || !data) return map
 
+  function normalize(s: string) {
+    return s.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '')
+  }
+
   for (const b of data) {
-    map.set(b.nombre.toLowerCase(), {
+    const matchObj = {
       id: b.id,
       nombre: b.nombre,
       codigo: b.codigo,
-    })
-    map.set(b.codigo.toLowerCase(), {
-      id: b.id,
-      nombre: b.nombre,
-      codigo: b.codigo,
-    })
+    }
+    map.set(b.nombre.toLowerCase(), matchObj)
+    map.set(b.codigo.toLowerCase(), matchObj)
+    map.set(normalize(b.nombre), matchObj)
+    map.set(normalize(b.codigo), matchObj)
   }
 
   return map

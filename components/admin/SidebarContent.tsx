@@ -26,6 +26,7 @@ import {
   Truck,
   Users,
   Warehouse,
+  RotateCcw,
 } from 'lucide-react'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -114,6 +115,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Roles', href: ADMIN_ROUTES.configuracion.roles, icon: Shield, modulo: 'config_roles' },
       { label: 'Auditoria Productos', href: ADMIN_ROUTES.configuracion.auditoriaProductos, icon: History, modulo: 'config_auditoria_productos' },
       { label: 'Configuracion de Tablas', href: ADMIN_ROUTES.configuracion.tablas, icon: Settings, modulo: 'config_tablas' },
+      { label: 'Reinicio Inventario', href: ADMIN_ROUTES.configuracion.inventario, icon: RotateCcw, modulo: 'config_usuarios' },
     ],
   },
 ]
@@ -141,6 +143,9 @@ export function SidebarContent({
       return {
         ...group,
         items: group.items.filter((item) => {
+          if (item.href === ADMIN_ROUTES.configuracion.inventario && user?.rol?.nivel_acceso !== 1) {
+            return false
+          }
           if (item.href === ADMIN_ROUTES.inventario.notaPropuestas && user?.rol?.nivel_acceso !== 1) {
             return false
           }

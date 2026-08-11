@@ -188,7 +188,9 @@ function ProductForm({
     const formData = new FormData(form)
     
     if (isEdit && editId) {
+      formData.append('id', editId)
       formData.append('product_id', editId)
+      formData.append('producto_id', editId)
     }
     
     startTransition(async () => {

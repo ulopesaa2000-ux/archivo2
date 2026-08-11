@@ -112,11 +112,20 @@ export async function guardarNotaAction(
     return { success: false, error: 'No se pudo crear la nota.' }
   }
 
-  // Guardar costo total
+  // Guardar costo total y fecha_nota
+  const updateCabeceraPayload: Record<string, any> = {}
   if (draft.costo_total !== undefined && draft.costo_total !== null) {
+    updateCabeceraPayload.costo_total = draft.costo_total
+  }
+  if (draft.fecha_nota) {
+    updateCabeceraPayload.fecha_nota = draft.fecha_nota.includes('T')
+      ? draft.fecha_nota
+      : `${draft.fecha_nota}T00:00:00.000Z`
+  }
+  if (Object.keys(updateCabeceraPayload).length > 0) {
     await supabase
       .from('notas_inventario')
-      .update({ costo_total: draft.costo_total })
+      .update(updateCabeceraPayload as any)
       .eq('id', notaId)
   }
 
@@ -311,14 +320,21 @@ export async function actualizarNotaAction(
   }
 
   // ── 1. Actualizar cabecera ──────────────────────────────
+  const updateCabPayload: Record<string, any> = {
+    nota_referencia: draft.nota_referencia || null,
+    observaciones: draft.observaciones || null,
+    costo_total: draft.costo_total || 0,
+    bodega_destino_id: draft.bodega_destino_id || null,
+  }
+  if (draft.fecha_nota) {
+    updateCabPayload.fecha_nota = draft.fecha_nota.includes('T')
+      ? draft.fecha_nota
+      : `${draft.fecha_nota}T00:00:00.000Z`
+  }
+
   const { error: updateError } = await supabase
     .from('notas_inventario')
-    .update({
-      nota_referencia: draft.nota_referencia || null,
-      observaciones: draft.observaciones || null,
-      costo_total: draft.costo_total || 0,
-      bodega_destino_id: draft.bodega_destino_id || null,
-    })
+    .update(updateCabPayload as any)
     .eq('id', notaId)
 
   if (updateError) {

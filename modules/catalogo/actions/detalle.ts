@@ -23,7 +23,7 @@ export async function saveAcabadoAction(
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id')
 
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
@@ -75,7 +75,7 @@ export async function saveTagAction(
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id')
 
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
@@ -126,7 +126,7 @@ export async function saveComplementoAction(
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id')
 
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 
