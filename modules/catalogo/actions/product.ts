@@ -53,6 +53,7 @@ export async function createProductAction(
 
   const payload: Database['inv-tienda']['Tables']['productos']['Insert'] = {
     sku_base:      skuBase.toUpperCase(),
+    nombre:        toCleanText(formData, 'nombre'),
     descripcion:   toCleanText(formData, 'descripcion'),
     marca_id:      toInteger(formData, 'marca_id'),
     genero_id:     toInteger(formData, 'genero_id'),
@@ -64,7 +65,11 @@ export async function createProductAction(
     composicion:   toCleanText(formData, 'composicion'),
     familia:       toCleanText(formData, 'familia'),
     es_conjunto:   toBoolean(formData, 'es_conjunto'),
-    activo:        true,
+    activo:        formData.has('activo') ? toBoolean(formData, 'activo') : true,
+    destacado:     toBoolean(formData, 'destacado'),
+    estado:        toCleanText(formData, 'estado') || 'borrador',
+    pz_en_caja:    toInteger(formData, 'pz_en_caja') ?? toInteger(formData, 'piezas_caja'),
+    precio_ec:     toNumeric(formData, 'precio_ec'),
   }
 
   const { data, error } = await supabase
@@ -92,7 +97,7 @@ export async function updateProductAction(
 
   const supabase = await createClient()
 
-  const id = toInteger(formData, 'id')
+  const id = toInteger(formData, 'id') || toInteger(formData, 'product_id') || toInteger(formData, 'producto_id')
   if (!id) return { success: false, error: 'ID de producto requerido.' }
 
   const skuBase = toCleanText(formData, 'sku_base')
@@ -100,6 +105,7 @@ export async function updateProductAction(
 
   const payload: Database['inv-tienda']['Tables']['productos']['Update'] = {
     sku_base:      skuBase.toUpperCase(),
+    nombre:        toCleanText(formData, 'nombre'),
     descripcion:   toCleanText(formData, 'descripcion'),
     marca_id:      toInteger(formData, 'marca_id'),
     genero_id:     toInteger(formData, 'genero_id'),
@@ -111,6 +117,11 @@ export async function updateProductAction(
     composicion:   toCleanText(formData, 'composicion'),
     familia:       toCleanText(formData, 'familia'),
     es_conjunto:   toBoolean(formData, 'es_conjunto'),
+    activo:        toBoolean(formData, 'activo'),
+    destacado:     toBoolean(formData, 'destacado'),
+    estado:        toCleanText(formData, 'estado'),
+    pz_en_caja:    toInteger(formData, 'pz_en_caja') ?? toInteger(formData, 'piezas_caja'),
+    precio_ec:     toNumeric(formData, 'precio_ec'),
   }
 
   const { error } = await supabase
@@ -138,7 +149,7 @@ export async function deactivateProductAction(
 
   const supabase = await createClient()
 
-  const id = toInteger(formData, 'product_id')
+  const id = toInteger(formData, 'id') || toInteger(formData, 'product_id') || toInteger(formData, 'producto_id')
   if (!id) return { success: false, error: 'ID de producto requerido.' }
 
   const { error } = await (supabase.from('productos') as any)

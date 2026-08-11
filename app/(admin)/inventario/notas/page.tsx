@@ -18,6 +18,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 
+import { OcrSerialScannerModal } from '@/components/admin/OcrSerialScannerModal'
+
 export const metadata: Metadata = {
   title: 'Notas de Inventario',
 }
@@ -134,8 +136,9 @@ export default async function NotasPage({
             {total} nota{total !== 1 ? 's' : ''} encontrada{total !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
+          <OcrSerialScannerModal />
           <Link href={ADMIN_ROUTES.inventario.notaNueva}>
             <Button>
               <Plus className="mr-2 h-4 w-4" />

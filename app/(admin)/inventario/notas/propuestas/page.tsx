@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { fetchOcrPropuestas } from '@/modules/inventario/queries'
 import { verifySession } from '@/lib/dal'
 import { OcrUploadModal } from './OcrUploadModal'
+import { OcrSerialScannerModal } from '@/components/admin/OcrSerialScannerModal'
 import { PropuestasTable } from './PropuestasTable'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
@@ -71,12 +72,13 @@ export default async function PropuestasOcrPage({
             Revisa, edita y aprueba las órdenes de movimiento digitalizadas mediante inteligencia artificial.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/inventario/notas">
             <Button variant="outline" className="rounded-xl uppercase font-black text-[10px] tracking-wider h-10">
               Ver Historial de Notas
             </Button>
           </Link>
+          <OcrSerialScannerModal />
           <OcrUploadModal />
         </div>
       </div>

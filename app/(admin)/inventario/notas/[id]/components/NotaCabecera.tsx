@@ -153,6 +153,11 @@ export function NotaCabecera({
                     <Badge className={cn("px-4 py-0.5 rounded-full text-xs font-bold uppercase tracking-widest border-none shadow-sm", estadoColor)}>
                       {nota.estado_nombre}
                     </Badge>
+                    {(nota.nota_referencia?.toUpperCase().includes('OCR') || nota.numero_nota?.includes('PROPUESTA-OCR') || nota.observaciones?.toUpperCase().includes('OCR')) && (
+                      <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider px-3 py-0.5 rounded-full shadow-sm">
+                        🤖 PROCESADA POR IA / OCR
+                      </Badge>
+                    )}
                     <div className="flex items-center gap-1.5 px-3 py-0.5 bg-muted rounded-full border text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                       <Hash className="h-3 w-3" />
                       Ref: {nota.id}

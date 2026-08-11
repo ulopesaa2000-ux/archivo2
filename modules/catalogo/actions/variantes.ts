@@ -25,7 +25,7 @@ export async function saveVarianteAction(
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
-  const productoId = toInteger(formData, 'producto_id')
+  const productoId = toInteger(formData, 'producto_id') || toInteger(formData, 'product_id')
 
   if (!productoId) return { success: false, error: 'ID de producto requerido.' }
 

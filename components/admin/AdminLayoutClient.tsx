@@ -8,6 +8,9 @@ import { Header } from './Header'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
 import { UnauthorizedToastListener } from './UnauthorizedToastListener'
 
+import { OcrBatchQueueProvider } from '@/hooks/useOcrBatchQueue'
+import { OcrQueueFloatingBar } from './OcrQueueFloatingBar'
+
 interface AdminLayoutClientProps {
   user: UsuarioConRol
   bodegas: BodegaRow[]
@@ -47,24 +50,27 @@ export function AdminLayoutClient({ user, bodegas, children }: AdminLayoutClient
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-background">
-      <UnauthorizedToastListener />
-      {/* Sidebar para Desktop */}
-      <Sidebar 
-        user={user} 
-        isCollapsed={isMounted ? isCollapsed : false} 
-        onToggle={handleToggle} 
-      />
-      
-      {/* Contenedor Principal */}
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
-        <Header user={user} bodegas={bodegas} />
-        <main className="flex-1 overflow-auto bg-background/50">
-          <div className="p-6 max-w-[1600px] mx-auto">
-            {children}
-          </div>
-        </main>
+    <OcrBatchQueueProvider>
+      <div className="h-screen flex overflow-hidden bg-background">
+        <UnauthorizedToastListener />
+        {/* Sidebar para Desktop */}
+        <Sidebar 
+          user={user} 
+          isCollapsed={isMounted ? isCollapsed : false} 
+          onToggle={handleToggle} 
+        />
+        
+        {/* Contenedor Principal */}
+        <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
+          <Header user={user} bodegas={bodegas} />
+          <main className="flex-1 overflow-auto bg-background/50">
+            <div className="p-6 max-w-[1600px] mx-auto">
+              {children}
+            </div>
+          </main>
+        </div>
+        <OcrQueueFloatingBar />
       </div>
-    </div>
+    </OcrBatchQueueProvider>
   )
 }
