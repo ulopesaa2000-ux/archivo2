@@ -20,9 +20,12 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Loader2, Search, Plus, Trash2, Save, CheckCircle2, AlertCircle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
-  ZoomIn, ZoomOut, RotateCw
+  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -167,12 +170,20 @@ export function NoteDraftBuilder({
     return ['ENT', 'SAL', 'TRF'].includes(t.codigo)
   })
 
-  // Pre-selección sutil de bodega de origen si no está establecida
+  // Pre-selección de bodega de origen priorizando la bodega activa del encabezado
   useEffect(() => {
     if (mode === 'create' && !draft.bodega_origen_id && allowedBodegas.length > 0) {
-      const sugerida = defaultBodegaOrigenId && allowedBodegas.some(b => b.id === defaultBodegaOrigenId)
-        ? defaultBodegaOrigenId
-        : (userBodegas[0]?.id ?? allowedBodegas[0]?.id)
+      const cookieBodegaId = typeof document !== 'undefined'
+        ? parseInt(document.cookie.split('; ').find(row => row.startsWith('bodega_activa_id='))?.split('=')[1] || '0', 10)
+        : 0;
+
+      const headerBodega = cookieBodegaId > 0 && allowedBodegas.find(b => b.id === cookieBodegaId);
+
+      const sugerida = headerBodega
+        ? headerBodega.id
+        : (defaultBodegaOrigenId && allowedBodegas.some(b => b.id === defaultBodegaOrigenId)
+            ? defaultBodegaOrigenId
+            : (userBodegas[0]?.id ?? allowedBodegas[0]?.id))
 
       if (sugerida) {
         setDraft((prev) => ({ ...prev, bodega_origen_id: sugerida }))
@@ -389,6 +400,157 @@ export function NoteDraftBuilder({
     setError(null)
   }
 
+  // Estado para alternar visibilidad de las columnas secundarias (Caja física y Piezas)
+  const [showExtraCols, setShowExtraCols] = useState<boolean>(false)
+
+  // ── Drag & Drop para reordenar productos con la manita ─────
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('text/plain', index.toString())
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    const sourceIndexStr = e.dataTransfer.getData('text/plain')
+    const sourceIndex = parseInt(sourceIndexStr, 10)
+
+    if (isNaN(sourceIndex) || sourceIndex === targetIndex) {
+      setDraggedIndex(null)
+      setDragOverIndex(null)
+      return
+    }
+
+    setDraft((prev) => {
+      const list = [...prev.productos]
+      const [movedItem] = list.splice(sourceIndex, 1)
+      list.splice(targetIndex, 0, movedItem)
+      return { ...prev, productos: list }
+    })
+
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  // ── Sustituidor rápido de SKU ──────────────────────────────
+  const [swapProductTempId, setSwapProductTempId] = useState<string | null>(null)
+  const [swapSearchTerm, setSwapSearchTerm] = useState<string>('')
+  const [swapSearchResults, setSwapSearchResults] = useState<ProductoBusqueda[]>([])
+  const [isSearchingSwap, setIsSearchingSwap] = useState<boolean>(false)
+
+  const doSearchSwap = useDebouncedCallback(async (term: string) => {
+    if (term.length < 2) {
+      setSwapSearchResults([])
+      setIsSearchingSwap(false)
+      return
+    }
+    setIsSearchingSwap(true)
+    try {
+      const res = await fetch(`/api/inventario/notas/nueva/search?q=${encodeURIComponent(term)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setSwapSearchResults(data)
+      }
+    } catch {
+      setSwapSearchResults([])
+    }
+    setIsSearchingSwap(false)
+  }, 400)
+
+  const handleSwapSearchChange = (value: string) => {
+    setSwapSearchTerm(value)
+    doSearchSwap(value)
+  }
+
+  const handleSwapProduct = async (tempId: string, newProduct: ProductoBusqueda) => {
+    let newStockCajas = 0
+    let newStockPiezas = 0
+
+    if (draft.bodega_origen_id) {
+      try {
+        const res = await fetch(
+          `/api/inventario/notas/nueva/stock?producto_id=${newProduct.id}&bodega_id=${draft.bodega_origen_id}`
+        )
+        if (res.ok) {
+          const data = await res.json()
+          newStockCajas = data.cajas ?? 0
+          newStockPiezas = data.piezas_sueltas ?? 0
+        }
+      } catch (err) {
+        console.error('Error al obtener stock para sustitución de producto:', err)
+      }
+    }
+
+    setDraft((prev) => ({
+      ...prev,
+      productos: prev.productos.map((p) => {
+        if (p.tempId !== tempId) return p
+        return {
+          ...p,
+          producto_id: newProduct.id,
+          producto_sku: newProduct.sku_base,
+          producto_nombre: newProduct.nombre,
+          producto_pz_en_caja: newProduct.pz_en_caja,
+          stock_origen_cajas: newStockCajas,
+          stock_origen_piezas: newStockPiezas,
+        }
+      }),
+    }))
+
+    setSwapProductTempId(null)
+    setSwapSearchTerm('')
+    setSwapSearchResults([])
+  }
+
+  // ── Actualizar cantidad de cajas directamente en la tabla ─────
+  const handleUpdateProductCajas = (tempId: string, newCajas: number) => {
+    setDraft((prev) => ({
+      ...prev,
+      productos: prev.productos.map((p) =>
+        p.tempId === tempId ? { ...p, cajas: Math.max(0, newCajas) } : p
+      ),
+    }))
+  }
+
+  // ── Reordenar productos arriba/abajo ─────────────────────
+  const handleMoveProductUp = (index: number) => {
+    if (index <= 0) return
+    setDraft((prev) => {
+      const list = [...prev.productos]
+      const temp = list[index - 1]
+      list[index - 1] = list[index]
+      list[index] = temp
+      return { ...prev, productos: list }
+    })
+  }
+
+  const handleMoveProductDown = (index: number) => {
+    setDraft((prev) => {
+      if (index >= prev.productos.length - 1) return prev
+      const list = [...prev.productos]
+      const temp = list[index + 1]
+      list[index + 1] = list[index]
+      list[index] = temp
+      return { ...prev, productos: list }
+    })
+  }
+
   // ── Eliminar producto del draft ─────────────────────────
   const handleRemoveProduct = (tempId: string) => {
     setDraft((prev) => ({
@@ -485,11 +647,10 @@ export function NoteDraftBuilder({
         </div>
       )}
 
-      <div className={cn("grid grid-cols-1 gap-6", ocrProposalId ? "lg:grid-cols-12" : "")}>
-        <div className={cn("space-y-6", ocrProposalId ? "lg:col-span-7 xl:col-span-8" : "")}>
+      <div className={cn("grid grid-cols-1 gap-6 items-start", (ocrProposalId || comprobantePreview) ? "lg:grid-cols-12" : "")}>
+        <div className={cn("space-y-6", (ocrProposalId || comprobantePreview) ? "lg:col-span-6" : "")}>
           {/* ── Configuración de la nota ────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
+          <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Detalles Generales</CardTitle>
           </CardHeader>
@@ -678,27 +839,31 @@ export function NoteDraftBuilder({
                   <div className="space-y-2">
                     <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Adjuntar Foto Comprobante</Label>
                     {comprobantePreview ? (
-                      <div className="relative w-full aspect-video rounded-xl overflow-hidden border bg-background group shadow-sm">
-                        <Image
-                          src={comprobantePreview}
-                          alt="Vista previa comprobante"
-                          fill
-                          className="object-contain"
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="file"
+                          id="comprobante-uploader"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="hidden"
                         />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                          <Label htmlFor="comprobante-uploader" className="p-2 bg-white text-gray-800 rounded-full cursor-pointer hover:bg-gray-100 shadow-md">
-                            <Camera className="h-4 w-4" />
-                          </Label>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="h-8 w-8 rounded-full"
-                            onClick={handleClearFile}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <Label
+                          htmlFor="comprobante-uploader"
+                          className="flex-1 flex items-center justify-center gap-1.5 p-2 rounded-xl border border-dashed hover:border-primary/50 cursor-pointer bg-background text-xs font-semibold"
+                        >
+                          <Camera className="h-4 w-4 text-muted-foreground" />
+                          <span>Cambiar foto</span>
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-9 text-destructive border-destructive/30 hover:bg-destructive/10 rounded-xl text-xs font-bold"
+                          onClick={handleClearFile}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" />
+                          Quitar
+                        </Button>
                       </div>
                     ) : (
                       <div>
@@ -732,12 +897,30 @@ export function NoteDraftBuilder({
             </div>
           </CardContent>
         </Card>
-      </div>
 
       {/* ── Agregar productos ────────────────────────────── */}
       <Card className="shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
-        <CardHeader className="pb-4">
+        <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Productos en la Nota</CardTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs font-semibold text-muted-foreground hover:text-foreground gap-1.5 rounded-xl border border-muted"
+            onClick={() => setShowExtraCols(!showExtraCols)}
+          >
+            {showExtraCols ? (
+              <>
+                <EyeOff className="h-3.5 w-3.5" />
+                <span>Ocultar Caja / Piezas</span>
+              </>
+            ) : (
+              <>
+                <Eye className="h-3.5 w-3.5" />
+                <span>Mostrar Caja / Piezas</span>
+              </>
+            )}
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Buscador */}
@@ -909,32 +1092,92 @@ export function NoteDraftBuilder({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/70 text-xs font-black uppercase tracking-widest text-muted-foreground">
+                    <th className="px-2 py-3 w-[60px] text-center" title="Arrastrar o usar flechas para reordenar">Orden</th>
                     <th className="px-4 py-3 text-left">SKU</th>
                     <th className="px-4 py-3 text-left">Producto</th>
-                    <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>
-                    <th className="px-4 py-3 text-center">Cajas</th>
-                    <th className="px-4 py-3 text-center">Piezas</th>
+                    {showExtraCols && <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>}
+                    <th className="px-4 py-3 text-center min-w-[130px]">Cajas</th>
+                    {showExtraCols && <th className="px-4 py-3 text-center">Piezas</th>}
                     <th className="px-4 py-3 text-right">Total est.</th>
                     <th className="px-4 py-3 w-[50px]"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {draft.productos.map((p) => {
+                  {draft.productos.map((p, index) => {
                     const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
                     const isRowNegative = (tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && 
                       p.cajas > (p.stock_origen_cajas ?? 0)
 
                     return (
                       <tr 
-                        key={p.tempId} 
+                        key={p.tempId}
+                        draggable={!todoBloqueado && !soloEditaDestino}
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
                         className={cn(
-                          "border-t transition-colors",
+                          "border-t transition-all cursor-default",
+                          draggedIndex === index ? "opacity-30 bg-primary/10" : "",
+                          dragOverIndex === index ? "border-t-2 border-t-primary bg-primary/10" : "",
                           isRowNegative 
                             ? "bg-orange-500/5 hover:bg-orange-500/10 border-l-4 border-l-orange-500" 
                             : "hover:bg-muted/30"
                         )}
                       >
-                        <td className="px-4 py-3 font-mono text-xs font-semibold">{p.producto_sku}</td>
+                        {/* Manita de Arrastrar + Controles Arriba/Abajo */}
+                        <td className="px-2 py-3 text-center select-none">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span 
+                              className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground p-1 rounded hover:bg-muted/60 transition-colors" 
+                              title="Mantener presionado y arrastrar para reordenar"
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </span>
+                            <div className="flex flex-col -space-y-0.5">
+                              <button
+                                type="button"
+                                disabled={index === 0 || todoBloqueado || soloEditaDestino}
+                                onClick={() => handleMoveProductUp(index)}
+                                className="p-0.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
+                                title="Mover arriba"
+                              >
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === draft.productos.length - 1 || todoBloqueado || soloEditaDestino}
+                                onClick={() => handleMoveProductDown(index)}
+                                className="p-0.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
+                                title="Mover abajo"
+                              >
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* SKU con Sustituidor Rápido */}
+                        <td className="px-4 py-3 font-mono text-xs font-semibold">
+                          <div className="flex items-center gap-1.5">
+                            <span>{p.producto_sku}</span>
+                            {!todoBloqueado && !soloEditaDestino && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSwapProductTempId(p.tempId)
+                                  setSwapSearchTerm('')
+                                  setSwapSearchResults([])
+                                }}
+                                className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-primary transition-colors shrink-0"
+                                title="Sustituir SKU de este producto"
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
                         <td className="px-4 py-3 text-xs truncate max-w-[200px]">
                           <p className="font-semibold text-foreground/80">{p.producto_nombre ?? '—'}</p>
                           {isRowNegative && (
@@ -943,13 +1186,58 @@ export function NoteDraftBuilder({
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell">
-                          {p.caja_codigo ?? '—'}
+
+                        {/* Columna Ocultable de Caja Física */}
+                        {showExtraCols && (
+                          <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell">
+                            {p.caja_codigo ?? '—'}
+                          </td>
+                        )}
+
+                        {/* Columna de Cajas con Flechitas +/- */}
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7 rounded-lg border hover:bg-muted shrink-0"
+                              onClick={() => handleUpdateProductCajas(p.tempId, p.cajas - 1)}
+                              disabled={todoBloqueado || soloEditaDestino || p.cajas <= 0}
+                              title="Restar 1 caja"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={p.cajas}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0
+                                handleUpdateProductCajas(p.tempId, val)
+                              }}
+                              className="h-7 w-14 text-center font-mono font-bold text-xs px-1 rounded-lg border tabular-nums"
+                              disabled={todoBloqueado || soloEditaDestino}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7 rounded-lg border hover:bg-muted shrink-0"
+                              onClick={() => handleUpdateProductCajas(p.tempId, p.cajas + 1)}
+                              disabled={todoBloqueado || soloEditaDestino}
+                              title="Sumar 1 caja"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-center font-mono font-bold tabular-nums">
-                          {p.cajas}
-                        </td>
-                        <td className="px-4 py-3 text-center font-mono tabular-nums">{p.piezas_sueltas}</td>
+
+                        {/* Columna Ocultable de Piezas */}
+                        {showExtraCols && (
+                          <td className="px-4 py-3 text-center font-mono tabular-nums">{p.piezas_sueltas}</td>
+                        )}
+
                         <td className="px-4 py-3 text-right font-mono font-bold text-base tabular-nums">
                           {totalEst}
                         </td>
@@ -976,7 +1264,7 @@ export function NoteDraftBuilder({
                     <td className="px-4 py-3 text-center font-black font-mono text-lg tabular-nums">
                       {totalCajas}
                     </td>
-                    <td colSpan={3}></td>
+                    <td colSpan={showExtraCols ? 3 : 2}></td>
                   </tr>
                 </tfoot>
               </table>
@@ -1042,9 +1330,9 @@ export function NoteDraftBuilder({
 
         </div>
 
-        {/* Panel lateral de la imagen (OCR) */}
-        {ocrProposalId && (
-          <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24 lg:h-[calc(100vh-140px)] flex flex-col gap-4">
+        {/* Panel lateral de la imagen (OCR / Comprobante) */}
+        {(ocrProposalId || comprobantePreview) && (
+          <div className="lg:col-span-6 lg:sticky lg:top-20 lg:h-[calc(100vh-100px)] flex flex-col gap-4">
             <Card className="flex flex-col h-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden">
               <CardHeader className="pb-2 border-b flex flex-row items-center justify-between space-y-0">
                 <div>
@@ -1170,6 +1458,62 @@ export function NoteDraftBuilder({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Diálogo Sustituidor de SKU ───────────────────── */}
+      <Dialog open={!!swapProductTempId} onOpenChange={(open) => !open && setSwapProductTempId(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-primary" />
+              Sustituir Producto / SKU
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Busca y selecciona el producto correcto para reemplazar el SKU de esta fila manteniendo la cantidad de cajas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                autoFocus
+                placeholder="Buscar por SKU o nombre de producto..."
+                value={swapSearchTerm}
+                onChange={(e) => handleSwapSearchChange(e.target.value)}
+                className="pl-10 h-10 rounded-xl text-sm"
+              />
+              {isSearchingSwap && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+
+            {swapSearchResults.length > 0 ? (
+              <div className="space-y-1.5 max-h-[280px] overflow-auto border rounded-xl p-2 bg-background">
+                {swapSearchResults.slice(0, 8).map((prod) => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => swapProductTempId && handleSwapProduct(swapProductTempId, prod)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-lg border hover:bg-muted text-left transition-colors text-xs group"
+                  >
+                    <div className="flex flex-col truncate pr-2">
+                      <span className="font-mono font-bold text-primary group-hover:underline">{prod.sku_base}</span>
+                      <span className="text-muted-foreground truncate">{prod.descripcion ?? prod.nombre}</span>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      {prod.pz_en_caja ?? '?'} pz/caja
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            ) : swapSearchTerm.length >= 2 && !isSearchingSwap ? (
+              <p className="text-xs text-center text-muted-foreground py-4">No se encontraron productos con ese SKU.</p>
+            ) : (
+              <p className="text-xs text-center text-muted-foreground py-4">Ingresa 2 o más caracteres para buscar.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

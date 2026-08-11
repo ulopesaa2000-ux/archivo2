@@ -26,7 +26,7 @@ const notoSerif = Noto_Serif({
 export const metadata = storeMetadata
 export const viewport = storeViewport
 
-export default function RootLayout({ children }: LayoutProps<'/'>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="es"

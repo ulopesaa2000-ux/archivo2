@@ -148,9 +148,13 @@ function getProductDescription(producto: ProductoWebPublico, productTitle: strin
   return cleanSeoDesc || cleanDesc || `Descubre ${productTitle} en ${SITE_NAME}`
 }
 
+type ShopSlugPageProps = {
+  params: Promise<{ slug: string }>
+}
+
 export async function generateMetadata({
   params,
-}: PageProps<'/shop/[slug]'>): Promise<Metadata> {
+}: ShopSlugPageProps): Promise<Metadata> {
   const { slug } = await params
   const producto = await fetchProductoWebBySlug(slug)
   const dynamicSiteUrl = await resolveSiteUrl()
@@ -216,7 +220,7 @@ export async function generateMetadata({
   }
 }
 
-export default async function ProductPage({ params }: PageProps<'/shop/[slug]'>) {
+export default async function ProductPage({ params }: ShopSlugPageProps) {
   const { slug } = await params
   const dynamicSiteUrl = await resolveSiteUrl()
   const [producto, config] = await Promise.all([fetchProductoWebBySlug(slug), fetchConfigEcommerce()])

@@ -36,6 +36,8 @@ export async function POST(request: NextRequest) {
 
     const clientRequestId = String(incomingForm.get('client_request_id') || crypto.randomUUID())
     const tipoHint = String(incomingForm.get('tipo_hint') || '')
+    const origenHint = String(incomingForm.get('origen_hint') || incomingForm.get('origen') || '')
+    const destinoHint = String(incomingForm.get('destino_hint') || incomingForm.get('destino') || '')
 
     // 3. Construir FormData para enviar a n8n
     const n8nForm = new FormData()
@@ -43,6 +45,12 @@ export async function POST(request: NextRequest) {
     n8nForm.append('client_request_id', clientRequestId)
     if (tipoHint) {
       n8nForm.append('tipo_hint', tipoHint)
+    }
+    if (origenHint) {
+      n8nForm.append('origen_hint', origenHint)
+    }
+    if (destinoHint) {
+      n8nForm.append('destino_hint', destinoHint)
     }
 
     // 4. Reenviar al webhook de n8n
