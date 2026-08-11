@@ -89,6 +89,7 @@ export const ADMIN_ROUTES = {
     roles: '/configuracion/roles',
     auditoriaProductos: '/configuracion/auditoria_producto',
     tablas: '/configuracion/tablas',
+    tablasSoporte: '/configuracion/tablas-soporte',
     inventario: '/configuracion/inventario',
   },
   despachos: {

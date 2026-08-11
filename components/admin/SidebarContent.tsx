@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronLeft,
   Container,
+  Database,
   FileText,
   Globe,
   History,
@@ -112,6 +113,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { label: 'Usuarios', href: ADMIN_ROUTES.configuracion.usuarios, icon: Users, modulo: 'config_usuarios' },
       { label: 'Personas Asociadas', href: '/configuracion/personas', icon: Users, modulo: 'config_usuarios' },
+      { label: 'Tablas de Soporte', href: ADMIN_ROUTES.configuracion.tablasSoporte, icon: Database, modulo: 'config_tablas' },
       { label: 'Roles', href: ADMIN_ROUTES.configuracion.roles, icon: Shield, modulo: 'config_roles' },
       { label: 'Auditoria Productos', href: ADMIN_ROUTES.configuracion.auditoriaProductos, icon: History, modulo: 'config_auditoria_productos' },
       { label: 'Configuracion de Tablas', href: ADMIN_ROUTES.configuracion.tablas, icon: Settings, modulo: 'config_tablas' },
