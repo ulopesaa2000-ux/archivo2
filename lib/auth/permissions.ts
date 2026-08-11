@@ -84,6 +84,7 @@ export const ROUTE_PERMISSION_MAP = [
   { prefix: '/configuracion/roles', modulo: 'config_roles' },
   { prefix: '/configuracion/auditoria_producto', modulo: 'config_auditoria_productos' },
   { prefix: '/configuracion/tablas', modulo: 'config_tablas' },
+  { prefix: '/configuracion/tablas-soporte', modulo: 'config_tablas' },
 ] as const satisfies readonly { prefix: string; modulo: PermissionModule }[]
 
 export function createEmptyPermissionMatrix(): PermissionMatrix {
