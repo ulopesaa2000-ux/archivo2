@@ -5,7 +5,18 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from './permissions'
-import type { DraftNota, DraftProducto } from './types'
+import { fetchStockByBodegaAll, fetchStockMatrixAll } from './queries'
+import type {
+  DraftNota,
+  DraftProducto,
+  NotaOcrLineaSincronizada,
+  NotaOcrPropuestaLineRaw,
+  FiltrosStock,
+  FiltrosStockMatrix,
+  StockListItem,
+  StockMatrixItem,
+} from './types'
+import type { BodegaRow } from '@/lib/types/tables'
 
 export type ActionResult = {
   success: boolean
@@ -1115,6 +1126,122 @@ export async function getNotaDetallesAction(notaId: number) {
       piezas_sueltas: d.piezas_sueltas ?? 0,
     }
   })
+}
+
+// ════════════════════════════════════════════════════════════
+// SINCRONIZAR Y EDITAR LÍNEAS OCR (notas_ocr_propuestas.lineas)
+// ════════════════════════════════════════════════════════════
+
+export async function sincronizarLineasOcrAction(
+  lineas: Array<{
+    index: number
+    estilo_raw: string
+    cantidad_cajas: number
+    piezas_por_caja?: number | null
+    confianza?: number
+  }>
+): Promise<{ success: boolean; data?: NotaOcrLineaSincronizada[]; error?: string }> {
+  const supabase = await createClient()
+  const resultados: NotaOcrLineaSincronizada[] = []
+
+  for (const item of lineas) {
+    const rawText = item.estilo_raw?.trim() ?? ''
+    const cajas = item.cantidad_cajas ?? 0
+    const confianza = item.confianza ?? 0.8
+
+    if (!rawText) {
+      resultados.push({
+        index: item.index,
+        estilo_raw: '',
+        cantidad_cajas: cajas,
+        confianza,
+        encontrado: false,
+      })
+      continue
+    }
+
+    // Coincidencia exacta o por palabras en productos (sku_base o descripcion)
+    const cleanTerm = rawText.replace(/[\s\/_-]+/g, '%')
+
+    const { data: prods } = await supabase
+      .from('productos')
+      .select('id, sku_base, nombre, pz_en_caja')
+      .or(`sku_base.ilike.%${rawText}%,sku_base.ilike.%${cleanTerm}%,descripcion.ilike.%${rawText}%`)
+      .limit(1)
+
+    if (prods && prods.length > 0) {
+      const p = prods[0]
+      resultados.push({
+        index: item.index,
+        estilo_raw: rawText,
+        cantidad_cajas: cajas,
+        piezas_por_caja: item.piezas_por_caja ?? p.pz_en_caja,
+        confianza,
+        producto_id: p.id,
+        producto_sku: p.sku_base,
+        producto_nombre: p.nombre,
+        producto_pz_en_caja: p.pz_en_caja,
+        encontrado: true,
+      })
+      continue
+    }
+
+    // No se encontró ninguna coincidencia
+    resultados.push({
+      index: item.index,
+      estilo_raw: rawText,
+      cantidad_cajas: cajas,
+      piezas_por_caja: item.piezas_por_caja ?? null,
+      confianza,
+      encontrado: false,
+    })
+  }
+
+  return { success: true, data: resultados }
+}
+
+export async function actualizarPropuestaOcrLineasAction(
+  propuestaId: string,
+  lineas: NotaOcrPropuestaLineRaw[]
+): Promise<ActionResult> {
+  const supabase = await createClient()
+
+  const { error } = await (supabase as any)
+    .from('notas_ocr_propuestas')
+    .update({ lineas })
+    .eq('id', propuestaId)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/inventario/notas/nueva')
+  revalidatePath('/inventario/notas/propuestas')
+  return { success: true }
+}
+
+export async function exportStockByBodegaAction(
+  bodegaId: number,
+  filtros?: FiltrosStock
+): Promise<{ success: boolean; data?: StockListItem[]; error?: string }> {
+  try {
+    const items = await fetchStockByBodegaAll(bodegaId, filtros)
+    return { success: true, data: items }
+  } catch (err: any) {
+    return { success: false, error: err.message ?? 'Error al exportar stock' }
+  }
+}
+
+export async function exportStockMatrixAction(
+  filtros: FiltrosStockMatrix,
+  bodegas: BodegaRow[]
+): Promise<{ success: boolean; data?: StockMatrixItem[]; error?: string }> {
+  try {
+    const items = await fetchStockMatrixAll(filtros, bodegas)
+    return { success: true, data: items }
+  } catch (err: any) {
+    return { success: false, error: err.message ?? 'Error al exportar matriz de stock' }
+  }
 }
 
 

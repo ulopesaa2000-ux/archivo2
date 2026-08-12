@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Pagination } from '@/components/admin/Pagination'
 import { eliminarOcrPropuestaAction } from '@/modules/inventario/actions'
 import type { NotaOcrPropuesta } from '@/modules/inventario/types'
-import { Trash2, Eye, ArrowRight, CheckCircle2, AlertTriangle, HelpCircle, ImageIcon, Loader2 } from 'lucide-react'
+import { Trash2, Eye, ArrowRight, CheckCircle2, AlertTriangle, HelpCircle, ImageIcon, Loader2, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Fecha } from '@/components/shared/Fecha'
 
@@ -219,6 +219,12 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
                     <div className="flex items-center justify-end gap-1.5">
                       {estado === 'PENDIENTE_REVISION' ? (
                         <>
+                          <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
+                            <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1 text-primary border-primary/30 hover:bg-primary/5">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              <span>Editar SKUs</span>
+                            </Button>
+                          </Link>
                           <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}`}>
                             <Button size="sm" className="rounded-xl h-8 text-xs uppercase font-black tracking-wider gap-1">
                               Revisar
@@ -241,13 +247,23 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
                           </Button>
                         </>
                       ) : (
-                        p.nota_id && (
-                          <Link href={`/inventario/notas/${p.nota_id}`}>
-                            <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs uppercase font-black tracking-wider gap-1 border-emerald-500/20 hover:bg-emerald-50 text-emerald-700">
-                              Ver Nota {p.nota_numero ? `#${p.nota_numero}` : ''}
-                            </Button>
-                          </Link>
-                        )
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(!p.nota_estado_codigo || p.nota_estado_codigo === 'PEND') && (
+                            <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1 text-primary border-primary/30 hover:bg-primary/5">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                <span>Editar SKUs</span>
+                              </Button>
+                            </Link>
+                          )}
+                          {p.nota_id && (
+                            <Link href={`/inventario/notas/${p.nota_id}`}>
+                              <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs uppercase font-black tracking-wider gap-1 border-emerald-500/20 hover:bg-emerald-50 text-emerald-700">
+                                Ver Nota {p.nota_numero ? `#${p.nota_numero}` : ''}
+                              </Button>
+                            </Link>
+                          )}
+                        </div>
                       )}
                     </div>
                   </TableCell>

@@ -1,6 +1,7 @@
 // app/(admin)/inventario/stock/StockFilters.tsx
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -19,13 +20,29 @@ import {
 export function StockFilters() {
   const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
 
-  const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term || null)
-  }, 400)
-
   const currentQ          = searchParam('q')
   const currentStockCero  = searchParam('con_stock_cero') === 'true'
   const currentAgrupacion = searchParam('agrupar_por') || 'ninguno'
+
+  const [localQ, setLocalQ] = useState(currentQ)
+
+  useEffect(() => {
+    setLocalQ(currentQ)
+  }, [currentQ])
+
+  const handleSearch = useDebouncedCallback((term: string) => {
+    updateParam('q', term.trim() || null)
+  }, 300)
+
+  const onSearchChange = (val: string) => {
+    setLocalQ(val)
+    handleSearch(val)
+  }
+
+  const handleClear = () => {
+    setLocalQ('')
+    clearAll(['stock-search'])
+  }
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
@@ -35,8 +52,8 @@ export function StockFilters() {
         <Input
           id="stock-search"
           placeholder="Buscar por SKU o nombre..."
-          defaultValue={currentQ}
-          onChange={(e) => handleSearch(e.target.value)}
+          value={localQ}
+          onChange={(e) => onSearchChange(e.target.value)}
           className="pl-10"
         />
         {isPending && (
@@ -84,7 +101,7 @@ export function StockFilters() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => clearAll(['stock-search'])}
+          onClick={handleClear}
           className="text-muted-foreground"
         >
           <X className="h-3 w-3 mr-1" />
@@ -94,3 +111,4 @@ export function StockFilters() {
     </div>
   )
 }
+

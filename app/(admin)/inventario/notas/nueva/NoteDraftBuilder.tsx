@@ -6,6 +6,7 @@ import { useState, useTransition, useCallback, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,8 +26,9 @@ import {
 import {
   Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
-  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw
+  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check
 } from 'lucide-react'
+import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import Link from 'next/link'
 import {
   ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
@@ -34,7 +36,7 @@ import {
 import { guardarNotaAction, actualizarNotaAction, subirComprobanteNotaAction } from '@/modules/inventario/actions'
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
-  ProductoBusqueda, CajaParaSelector, NotaCompleta,
+  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import { cn, todayMX, formatForDateInput } from '@/lib/utils'
@@ -54,6 +56,8 @@ type Props = {
   userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
   ocrProposalId?: string
   defaultBodegaOrigenId?: number
+  initialOcrLineas?: NotaOcrPropuestaLineRaw[]
+  autoOpenOcrSync?: boolean
 }
 
 const TIPO_MOV_ICONS_COMP = {
@@ -66,12 +70,60 @@ const TIPO_MOV_ICONS_COMP = {
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas, ocrProposalId, defaultBodegaOrigenId,
+  currentUserLevel, userBodegas, ocrProposalId, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  // ── Modal de Sincronización y Edición OCR ─────────────────
+  const [showOcrSyncModal, setShowOcrSyncModal] = useState<boolean>(!!autoOpenOcrSync)
+  const [ocrRawLineas, setOcrRawLineas] = useState<NotaOcrPropuestaLineRaw[]>(
+    initialOcrLineas ?? (initialData?.cabecera as any)?.ocr_lineas ?? []
+  )
+
+  const handleApplyOcrLinesToDraft = (newProducts: DraftProducto[], updatedRawLineas: NotaOcrPropuestaLineRaw[]) => {
+    setOcrRawLineas(updatedRawLineas)
+    if (newProducts.length > 0) {
+      setDraft((prev) => ({
+        ...prev,
+        productos: newProducts,
+      }))
+      setSuccess(`Se sincronizaron ${newProducts.length} productos del OCR en la nota.`)
+    }
+  }
+
+  // ── Copiar Tabla de Productos a Excel (TSV) ──────────────
+  const [copiedDraft, setCopiedDraft] = useState(false)
+
+  const handleCopyDraftExcel = async () => {
+    if (draft.productos.length === 0) {
+      toast.error('No hay productos en la nota para copiar.')
+      return
+    }
+
+    try {
+      const header = ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
+      const rows = draft.productos.map((p) => {
+        const sku = p.producto_sku ?? '—'
+        const nombre = p.producto_nombre ?? '—'
+        const caja = p.caja_codigo ? `${p.caja_codigo}${p.caja_nombre_pack ? ` (${p.caja_nombre_pack})` : ''}` : '—'
+        const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
+
+        return [sku, nombre, caja, p.cajas, p.piezas_sueltas, totalEst].join('\t')
+      })
+
+      const tsvContent = [header, ...rows].join('\n')
+      await navigator.clipboard.writeText(tsvContent)
+
+      setCopiedDraft(true)
+      toast.success('Tabla copiada al portapapeles en formato Excel (TSV)')
+      setTimeout(() => setCopiedDraft(false), 2000)
+    } catch (err) {
+      toast.error('No se pudo copiar la tabla.')
+    }
+  }
 
   const [zoomScale, setZoomScale] = useState(1)
   const [rotateDeg, setRotateDeg] = useState(0)
@@ -900,27 +952,51 @@ export function NoteDraftBuilder({
 
       {/* ── Agregar productos ────────────────────────────── */}
       <Card className="shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
-        <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0">
+        <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0 flex-wrap gap-2">
           <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Productos en la Nota</CardTitle>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 text-xs font-semibold text-muted-foreground hover:text-foreground gap-1.5 rounded-xl border border-muted"
-            onClick={() => setShowExtraCols(!showExtraCols)}
-          >
-            {showExtraCols ? (
-              <>
-                <EyeOff className="h-3.5 w-3.5" />
-                <span>Ocultar Caja / Piezas</span>
-              </>
-            ) : (
-              <>
-                <Eye className="h-3.5 w-3.5" />
-                <span>Mostrar Caja / Piezas</span>
-              </>
+          <div className="flex items-center gap-2">
+            {draft.productos.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-bold gap-1.5 rounded-xl border border-muted shadow-sm hover:bg-accent text-foreground"
+                onClick={handleCopyDraftExcel}
+                title="Copiar contenido de la tabla para pegar en Excel o Google Sheets"
+              >
+                {copiedDraft ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="text-emerald-600 font-bold">¡Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>Copiar Tabla (Excel)</span>
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs font-semibold text-muted-foreground hover:text-foreground gap-1.5 rounded-xl border border-muted"
+              onClick={() => setShowExtraCols(!showExtraCols)}
+            >
+              {showExtraCols ? (
+                <>
+                  <EyeOff className="h-3.5 w-3.5" />
+                  <span>Ocultar Caja / Piezas</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>Mostrar Caja / Piezas</span>
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Buscador */}
@@ -1343,7 +1419,20 @@ export function NoteDraftBuilder({
                     Propuesta #{ocrProposalId}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(ocrProposalId || ocrRawLineas.length > 0) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowOcrSyncModal(true)}
+                      className="h-8 text-xs font-bold gap-1 rounded-lg border shadow-sm text-primary hover:text-primary bg-background"
+                      title="Editar cadenas de texto escaneadas y re-sincronizar SKUs"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      <span>Editar / Sincronizar OCR</span>
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"
@@ -1514,6 +1603,17 @@ export function NoteDraftBuilder({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Modal de Edición y Sincronización de Líneas OCR ── */}
+      <OcrLineasSyncModal
+        open={showOcrSyncModal}
+        onOpenChange={setShowOcrSyncModal}
+        ocrProposalId={ocrProposalId}
+        initialLineas={ocrRawLineas}
+        comprobanteUrl={comprobantePreview || initialData?.cabecera.comprobante_url}
+        bodegaOrigenId={draft.bodega_origen_id}
+        onApplyToDraft={handleApplyOcrLinesToDraft}
+      />
     </div>
   )
 }

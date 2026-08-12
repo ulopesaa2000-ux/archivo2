@@ -384,7 +384,7 @@ export async function fetchStockByBodega(
     .select(`
       id, bodega_id, producto_id, cajas, piezas_sueltas,
       ubicacion_pasillo, updated_at, caja_id,
-      producto:productos!inventario_stock_producto_id_fkey (
+      producto:productos!inner (
         id, sku_base, nombre, descripcion, familia, pz_en_caja,
         marca:cat_marcas!productos_marca_id_fkey ( nombre )
       ),
@@ -400,6 +400,17 @@ export async function fetchStockByBodega(
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
+  // ── Filtro: búsqueda por SKU, nombre, descripción o familia en base de datos ──
+  if (filtros?.q && filtros.q.trim()) {
+    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
+    if (cleanQ) {
+      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
+        foreignTable: 'producto',
+      })
+    }
+  }
+
   // ── Orden y paginación ──────────────────────────────────
   query = query
     .order('producto_id')
@@ -408,7 +419,7 @@ export async function fetchStockByBodega(
   const { data, count, error } = await query
 
   if (error) {
-    console.error('Error fetchStockByBodega:', error)
+    console.error('Error fetchStockByBodega:', error.message || error)
     return { items: [], total: 0 }
   }
 
@@ -439,22 +450,80 @@ export async function fetchStockByBodega(
     }
   })
 
-  // Aplicar filtro de búsqueda en cliente (Supabase no filtra dentro de relaciones fácilmente)
-  let filtered = items
-  if (filtros?.q) {
-    const term = filtros.q.toLowerCase()
-    filtered = items.filter(
-      (i) =>
-        i.producto_sku.toLowerCase().includes(term) ||
-        (i.producto_nombre?.toLowerCase().includes(term) ?? false)
-    )
-  }
-  if (filtros?.marca_id) {
-    // Este filtro se aplica a nivel de producto, pero no podemos filtrar en relación
-    // Lo dejamos para el futuro si es necesario optimizar con RPC
+  return { items, total: count ?? 0 }
+}
+
+export async function fetchStockByBodegaAll(
+  bodegaId: number,
+  filtros?: FiltrosStock
+): Promise<StockListItem[]> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('inventario_stock')
+    .select(`
+      id, bodega_id, producto_id, cajas, piezas_sueltas,
+      ubicacion_pasillo, updated_at, caja_id,
+      producto:productos!inner (
+        id, sku_base, nombre, descripcion, familia, pz_en_caja,
+        marca:cat_marcas!productos_marca_id_fkey ( nombre )
+      ),
+      caja:cajas_producto!inventario_stock_caja_id_fkey (
+        codigo_caja, nombre_pack
+      )
+    `)
+    .eq('bodega_id', bodegaId)
+    .is('caja_id', null)
+
+  if (!filtros?.con_stock_cero) {
+    query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
-  return { items: filtered, total: count ?? 0 }
+  if (filtros?.q && filtros.q.trim()) {
+    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
+    if (cleanQ) {
+      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
+        foreignTable: 'producto',
+      })
+    }
+  }
+
+  query = query.order('producto_id')
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchStockByBodegaAll:', error?.message || error)
+    return []
+  }
+
+  return data.map((s: any) => {
+    const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
+    const marca = prod?.marca
+      ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca)
+      : null
+    const caja = Array.isArray(s.caja) ? s.caja[0] : s.caja
+
+    return {
+      id: s.id,
+      bodega_id: s.bodega_id,
+      producto_id: s.producto_id,
+      cajas: s.cajas,
+      piezas_sueltas: s.piezas_sueltas,
+      ubicacion_pasillo: s.ubicacion_pasillo,
+      updated_at: s.updated_at,
+      caja_id: s.caja_id,
+      producto_sku: prod?.sku_base ?? '',
+      producto_nombre: prod?.nombre ?? null,
+      producto_descripcion: prod?.descripcion ?? null,
+      producto_familia: prod?.familia ?? null,
+      producto_pz_en_caja: prod?.pz_en_caja ?? null,
+      marca_nombre: marca?.nombre ?? null,
+      caja_codigo: caja?.codigo_caja ?? null,
+      caja_nombre_pack: caja?.nombre_pack ?? null,
+    }
+  })
 }
 
 export async function fetchStockDetallePorCaja(
@@ -525,9 +594,12 @@ export async function fetchStockMatrix(
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
   }
 
-  if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term}`)
+  if (filtros.q && filtros.q.trim()) {
+    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
+    if (cleanQ) {
+      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`)
+    }
   }
 
   query = query.order('id').range(from, to)
@@ -535,7 +607,7 @@ export async function fetchStockMatrix(
   const { data, count, error } = await query
 
   if (error || !data) {
-    console.error('Error fetchStockMatrix:', error)
+    console.error('Error fetchStockMatrix:', error?.message || error)
     return { items: [], total: 0 }
   }
 
@@ -569,6 +641,83 @@ export async function fetchStockMatrix(
   })
 
   return { items: items as StockMatrixItem[], total: count ?? 0 }
+}
+
+export async function fetchStockMatrixAll(
+  filtros: FiltrosStockMatrix,
+  bodegasDisponibles: BodegaRow[]
+): Promise<StockMatrixItem[]> {
+  const supabase = await createClient()
+
+  let bodegasAGestionar = bodegasDisponibles
+  if (filtros.ciudades && filtros.ciudades.length > 0) {
+    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.ciudades!.includes(b.ciudad || 'sin_asignar'))
+  }
+  if (filtros.bodegas && filtros.bodegas.length > 0) {
+    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.bodegas!.includes(b.id))
+  }
+  const bodegasIds = bodegasAGestionar.map((b) => b.id)
+
+  if (bodegasIds.length === 0) return []
+
+  let query = supabase
+    .from('productos')
+    .select(`
+      id, sku_base, nombre, descripcion, familia, pz_en_caja,
+      inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
+    `)
+
+  query = query.in('inventario_stock.bodega_id', bodegasIds)
+  query = query.is('inventario_stock.caja_id', null)
+
+  if (!filtros.con_stock_cero) {
+    query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
+  }
+
+  if (filtros.q && filtros.q.trim()) {
+    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
+    if (cleanQ) {
+      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`)
+    }
+  }
+
+  query = query.order('id')
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchStockMatrixAll:', error?.message || error)
+    return []
+  }
+
+  return data.map((prod: any) => {
+    const stockEntries = Array.isArray(prod.inventario_stock) ? prod.inventario_stock : [prod.inventario_stock]
+    const dict: Record<number, { cajas: number; piezas_sueltas: number; total: number }> = {}
+    let totalGeneral = 0
+
+    bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
+
+    stockEntries.forEach((s: any) => {
+      if (!dict[s.bodega_id]) dict[s.bodega_id] = { cajas: 0, piezas_sueltas: 0, total: 0 }
+      dict[s.bodega_id].cajas += s.cajas
+      dict[s.bodega_id].piezas_sueltas += s.piezas_sueltas
+      const localTotal = s.cajas
+      dict[s.bodega_id].total += localTotal
+      totalGeneral += localTotal
+    })
+
+    return {
+      producto_id: prod.id,
+      producto_sku: prod.sku_base,
+      producto_nombre: prod.nombre,
+      producto_descripcion: prod.descripcion,
+      producto_familia: prod.familia,
+      pz_en_caja: prod.pz_en_caja,
+      stock_por_bodega: dict,
+      total_general: totalGeneral,
+    }
+  })
 }
 
 // ════════════════════════════════════════════════════════════
@@ -642,9 +791,10 @@ export async function fetchEstadosNota(): Promise<EstadoNotaRow[]> {
 
 export async function searchProductos(
   term: string,
-  limit: number = 10
+  limit: number = 15
 ): Promise<ProductoBusqueda[]> {
   const supabase = await createClient()
+  const cleanTerm = term.trim().replace(/[\s\/_-]+/g, '%')
 
   const { data, error } = await supabase
     .from('productos')
@@ -656,7 +806,7 @@ export async function searchProductos(
       )
     `)
     .eq('activo', true)
-    .or(`sku_base.ilike.%${term}%,descripcion.ilike.%${term}%`)
+    .or(`sku_base.ilike.%${term}%,sku_base.ilike.%${cleanTerm}%,descripcion.ilike.%${term}%,descripcion.ilike.%${cleanTerm}%`)
     .order('sku_base')
     .limit(limit)
 
@@ -1097,9 +1247,18 @@ export async function fetchOcrPropuestas(
   // 3. Fetch referenced notas_inventario
   const notaIds = Array.from(new Set(rawData.map(d => d.nota_id).filter(Boolean)))
   const { data: notasData } = notaIds.length > 0
-    ? await supabase.from('notas_inventario').select('id, numero_nota').in('id', notaIds)
+    ? await supabase
+        .from('notas_inventario')
+        .select(`
+          id, numero_nota,
+          estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
+        `)
+        .in('id', notaIds)
     : { data: [] }
-  const notasMap = new Map(notasData?.map(n => [n.id, n.numero_nota]) || [])
+  const notasMap = new Map(notasData?.map((n: any) => {
+    const estCod = Array.isArray(n.estado) ? n.estado[0]?.codigo : n.estado?.codigo
+    return [n.id, { numero: n.numero_nota, estado_codigo: estCod }]
+  }) || [])
 
   // 4. Resolver los nombres de los usuarios revisores
   const revisorIds = Array.from(new Set(rawData.map(d => d.revisado_por).filter(Boolean)))
@@ -1112,7 +1271,7 @@ export async function fetchOcrPropuestas(
     const tm = p.tipo_movimiento_id ? tiposMap.get(Number(p.tipo_movimiento_id)) : null
     const bo = p.bodega_origen_id ? bodegasMap.get(Number(p.bodega_origen_id)) : null
     const bd = p.bodega_destino_id ? bodegasMap.get(Number(p.bodega_destino_id)) : null
-    const notaNumero = p.nota_id ? notasMap.get(Number(p.nota_id)) : null
+    const notaInfo = p.nota_id ? notasMap.get(Number(p.nota_id)) : null
 
     return {
       id: p.id,
@@ -1141,7 +1300,8 @@ export async function fetchOcrPropuestas(
       bodega_origen_nombre: bo?.nombre,
       bodega_destino_nombre: bd?.nombre,
       revisado_por_nombre: p.revisado_por ? usersMap.get(Number(p.revisado_por)) : undefined,
-      nota_numero: notaNumero || undefined
+      nota_numero: notaInfo?.numero || undefined,
+      nota_estado_codigo: notaInfo?.estado_codigo || undefined,
     }
   })
 

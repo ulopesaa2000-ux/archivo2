@@ -121,7 +121,7 @@ export default async function NotaDetallePage({
 
         <Separator />
 
-        {/* Productos */}
+        {/* Tabla de Productos con exportación Excel */}
         <NotaProductos detalles={nota.detalles} />
 
         <Separator />

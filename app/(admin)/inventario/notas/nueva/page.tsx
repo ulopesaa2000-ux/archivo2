@@ -17,10 +17,11 @@ export const metadata: Metadata = {
 export default async function NuevaNotaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ propuesta_id?: string }>
+  searchParams: Promise<{ propuesta_id?: string; edit_ocr?: string }>
 }) {
   const sp = await searchParams
   const propuestaId = sp.propuesta_id || undefined
+  const autoOpenOcrSync = sp.edit_ocr === 'true'
 
   const catalogosPromise = fetchCatalogosInventario()
   const [{ user }, catalogos] = await Promise.all([
@@ -182,9 +183,10 @@ export default async function NuevaNotaPage({
         historial: [],
       }
 
-      // Hack para meter el draft pre-mapeado
+      // Hack para meter el draft pre-mapeado y líneas OCR originales
       ;(initialData.cabecera as any).tipo_movimiento_id = tipoId
       ;(initialData.cabecera as any).productos_draft = mappedProductos
+      ;(initialData.cabecera as any).ocr_lineas = propuesta.lineas
     }
   }
 
@@ -232,6 +234,7 @@ export default async function NuevaNotaPage({
         initialData={initialData}
         ocrProposalId={ocrProposalId}
         defaultBodegaOrigenId={activeBodegaId}
+        autoOpenOcrSync={autoOpenOcrSync}
       />
     </div>
   )
