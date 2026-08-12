@@ -370,10 +370,46 @@ async function fetchNotaHistorial(
 // STOCK
 // ════════════════════════════════════════════════════════════
 
+function formatQueryError(error: any): string {
+  if (!error) return ''
+  if (typeof error === 'string') {
+    if (error.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(error)
+        return parsed.message || parsed.error || parsed.details || error
+      } catch {
+        return error
+      }
+    }
+    return error
+  }
+  if (typeof error === 'object') {
+    if (error.message) {
+      if (typeof error.message === 'string' && error.message.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(error.message)
+          return parsed.message || parsed.error || parsed.details || error.message
+        } catch {
+          return error.message
+        }
+      }
+      const details = error.details ? ` (${error.details})` : ''
+      const hint = error.hint ? ` [Hint: ${error.hint}]` : ''
+      return `${error.message}${details}${hint}`
+    }
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+  return String(error)
+}
+
 export async function fetchStockByBodega(
   bodegaId: number,
   filtros?: FiltrosStock
-): Promise<{ items: StockListItem[]; total: number }> {
+): Promise<{ items: StockListItem[]; total: number; totalCajas: number }> {
   const supabase = await createClient()
   const page = filtros?.page ?? 1
   const from = (page - 1) * PAGE_SIZE
@@ -395,9 +431,17 @@ export async function fetchStockByBodega(
     .eq('bodega_id', bodegaId)
     .is('caja_id', null) // Solo registros generales
 
+  // sumQuery sólo necesita el campo cajas si no hay búsqueda por texto
+  let sumQuery: any = supabase
+    .from('inventario_stock')
+    .select('cajas')
+    .eq('bodega_id', bodegaId)
+    .is('caja_id', null)
+
   // ── Filtro: stock en cero ───────────────────────────────
   if (!filtros?.con_stock_cero) {
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
+    sumQuery = sumQuery.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
   // ── Filtro: búsqueda por SKU, nombre, descripción o familia en base de datos ──
@@ -408,6 +452,20 @@ export async function fetchStockByBodega(
       query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
         foreignTable: 'producto',
       })
+      // Recrear sumQuery con el join para la búsqueda por texto
+      sumQuery = supabase
+        .from('inventario_stock')
+        .select('cajas, producto:productos!inner(sku_base, nombre, descripcion, familia)')
+        .eq('bodega_id', bodegaId)
+        .is('caja_id', null)
+
+      if (!filtros?.con_stock_cero) {
+        sumQuery = sumQuery.or('cajas.gt.0,piezas_sueltas.gt.0')
+      }
+
+      sumQuery = sumQuery.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
+        foreignTable: 'producto',
+      })
     }
   }
 
@@ -416,12 +474,18 @@ export async function fetchStockByBodega(
     .order('producto_id')
     .range(from, to)
 
-  const { data, count, error } = await query
+  const [{ data, count, error }, sumRes] = await Promise.all([
+    query,
+    sumQuery,
+  ])
 
   if (error) {
-    console.error('Error fetchStockByBodega:', error.message || error)
-    return { items: [], total: 0 }
+    console.error('Error fetchStockByBodega:', formatQueryError(error))
+    return { items: [], total: 0, totalCajas: 0 }
   }
+
+  const sumData = (sumRes as any)?.data
+  const totalCajas = (sumData ?? []).reduce((acc: number, curr: any) => acc + (Number(curr.cajas) || 0), 0)
 
   const items: StockListItem[] = (data ?? []).map((s: any) => {
     const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
@@ -450,7 +514,7 @@ export async function fetchStockByBodega(
     }
   })
 
-  return { items, total: count ?? 0 }
+  return { items, total: count ?? 0, totalCajas }
 }
 
 export async function fetchStockByBodegaAll(

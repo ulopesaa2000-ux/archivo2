@@ -127,3 +127,51 @@ export async function resetCompletoInventarioAction(): Promise<ResetResult> {
     message: '¡Reinicio Total completado! Todas las notas se han ocultado y el stock se ha puesto a 0 en todas las bodegas.',
   }
 }
+
+/**
+ * Reinicia las existencias de inventario poniendo cajas = 0 y piezas_sueltas = 0
+ * únicamente para una bodega específica (WHERE bodega_id = bodegaId).
+ */
+export async function resetStockCeroBodegaAction(bodegaId: number): Promise<ResetResult> {
+  const user = await getCurrentUser()
+  if (!user || user.rol?.nivel_acceso !== 1) {
+    return {
+      success: false,
+      error: 'Acceso Denegado: Esta acción está reservada exclusivamente para la Administración General (Super Admin Nivel 1).',
+    }
+  }
+
+  if (!bodegaId || isNaN(bodegaId)) {
+    return { success: false, error: 'ID de bodega no válido.' }
+  }
+
+  const supabase = await createClient()
+
+  // 1. Obtener nombre de la bodega para mensaje descriptivo
+  const { data: bodega } = await supabase
+    .from('bodegas')
+    .select('id, nombre')
+    .eq('id', bodegaId)
+    .single()
+
+  const bodegaNombre = bodega?.nombre || `Bodega #${bodegaId}`
+
+  // 2. Actualizar inventario_stock solo para esta bodega
+  const { error } = await supabase
+    .from('inventario_stock')
+    .update({ cajas: 0, piezas_sueltas: 0 } as any)
+    .eq('bodega_id', bodegaId)
+
+  if (error) {
+    console.error(`Error al reiniciar stock a 0 para bodega ${bodegaId}:`, error)
+    return { success: false, error: `Error al reiniciar stock de ${bodegaNombre}: ${error.message}` }
+  }
+
+  revalidatePath('/inventario/stock')
+  revalidatePath('/configuracion/inventario')
+
+  return {
+    success: true,
+    message: `Se ha reiniciado el stock a 0 en la bodega '${bodegaNombre}' (ID: ${bodegaId}) exitosamente.`,
+  }
+}

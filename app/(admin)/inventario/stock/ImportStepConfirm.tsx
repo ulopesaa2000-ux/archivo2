@@ -5,7 +5,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Loader2, FileCheck, AlertCircle, Warehouse, RotateCcw } from 'lucide-react'
 import { crearAjustesImportAction } from '@/modules/inventario/import-actions'
-import { resetStockCeroAction } from '@/modules/config/inventory-reset-actions'
+import { resetStockCeroAction, resetStockCeroBodegaAction } from '@/modules/config/inventory-reset-actions'
 import type { ImportFilaValida, NotaBodegaResult, ModoAjuste } from '@/modules/inventario/import-actions'
 
 type GrupoBodega = {
@@ -28,7 +28,8 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const isTodasBodegas = bodegaDefaultId === 0
-  const [resetStockPrevio, setResetStockPrevio] = useState<boolean>(isTodasBodegas && (modo === 'global' || modo === 'absoluto'))
+  // Desactivado por default según requerimiento
+  const [resetStockPrevio, setResetStockPrevio] = useState<boolean>(false)
   const [progressStatus, setProgressStatus] = useState<string | null>(null)
 
   const CHUNK_SIZE = 500
@@ -55,16 +56,28 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
   const handleConfirm = () => {
     setError(null)
     startTransition(async () => {
-      // Paso 1: Reiniciar stock a 0 si la casilla está marcada
+      // Paso 1: Reiniciar stock a 0 si la casilla está activada
       if (resetStockPrevio) {
-        setProgressStatus('Reiniciando el stock en 0 para todas las bodegas...')
-        const resetRes = await resetStockCeroAction()
-        if (!resetRes.success) {
-          setError(resetRes.error || 'Error al poner en stock 0 las bodegas.')
-          setProgressStatus(null)
-          return
+        if (isTodasBodegas && grupos.length === 0) {
+          setProgressStatus('Reiniciando el stock en 0 para todas las bodegas...')
+          const resetRes = await resetStockCeroAction()
+          if (!resetRes.success) {
+            setError(resetRes.error || 'Error al poner en stock 0 las bodegas.')
+            setProgressStatus(null)
+            return
+          }
+        } else {
+          for (const g of grupos) {
+            setProgressStatus(`Reiniciando existencias a 0 en bodega '${g.bodega_nombre}' (ID: ${g.bodega_id})...`)
+            const resetRes = await resetStockCeroBodegaAction(g.bodega_id)
+            if (!resetRes.success) {
+              setError(resetRes.error || `Error al reiniciar stock de la bodega ${g.bodega_nombre}.`)
+              setProgressStatus(null)
+              return
+            }
+          }
         }
-        await new Promise((res) => setTimeout(res, 400))
+        await new Promise((res) => setTimeout(res, 300))
       }
 
       // Paso 2: Procesamiento por lotes de 500 filas
@@ -123,29 +136,31 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
         </p>
       </div>
 
-      {/* Casilla de Reinicio de Stock a 0 (solo cuando la bodega seleccionada es 0 / Todas las bodegas) */}
-      {isTodasBodegas && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={resetStockPrevio}
-              onChange={(e) => setResetStockPrevio(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-amber-500 text-amber-600 focus:ring-amber-500"
-              disabled={isPending}
-            />
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 font-bold text-sm text-amber-950 dark:text-amber-200">
-                <RotateCcw className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                Poner en stock 0 todas las bodegas antes de importar
-              </div>
-              <p className="text-xs text-amber-800 dark:text-amber-300/80 leading-relaxed">
-                Establece a 0 las existencias en todas las bodegas antes de registrar las nuevas cantidades. Ideal para Corte Global e Inventario Total.
-              </p>
+      {/* Casilla de Reinicio de Stock a 0 (desactivada por default) */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetStockPrevio}
+            onChange={(e) => setResetStockPrevio(e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-amber-500 text-amber-600 focus:ring-amber-500"
+            disabled={isPending}
+          />
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 font-bold text-sm text-amber-950 dark:text-amber-200">
+              <RotateCcw className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              {grupos.length === 1
+                ? `Poner en stock 0 la bodega '${grupos[0]?.bodega_nombre}' (ID: ${grupos[0]?.bodega_id}) antes de importar`
+                : `Poner en stock 0 las ${grupos.length} bodegas involucradas antes de importar`}
             </div>
-          </label>
-        </div>
-      )}
+            <p className="text-xs text-amber-800 dark:text-amber-300/80 leading-relaxed">
+              {grupos.length === 1
+                ? `Establece a 0 todas las existencias de '${grupos[0]?.bodega_nombre}' antes de registrar las nuevas cantidades del archivo. Los productos no presentes en el archivo quedarán con 0 existencias.`
+                : `Establece a 0 todas las existencias en las ${grupos.length} bodegas (${grupos.map((g) => g.bodega_nombre).join(', ')}) antes de registrar las nuevas cantidades.`}
+            </p>
+          </div>
+        </label>
+      </div>
 
       {esMultiBodega && (
         <div className="flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
