@@ -97,7 +97,7 @@ async function StockNormalData({
   bodegaActivaId: number
   agruparPor?: string
 }) {
-  const { items, total } = await fetchStockByBodega(bodegaActivaId, filtros)
+  const { items, total, totalCajas } = await fetchStockByBodega(bodegaActivaId, filtros)
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
 
   return (
@@ -110,6 +110,7 @@ async function StockNormalData({
         subtitle={`${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`}
         bodegas={bodegas}
         bodegaActivaId={bodegaActivaId}
+        totalCajas={totalCajas}
       />
       <StockFilters />
       <StockTable items={items} bodegaId={bodegaActivaId} agruparPor={agruparPor} />

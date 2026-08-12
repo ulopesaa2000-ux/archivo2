@@ -44,6 +44,11 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
+        hostname: 'moda.sistemaindumentaria.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
         hostname: 'supabase.sistemaindumentaria.com',
         pathname: '/storage/v1/object/public/**',
       },
@@ -51,6 +56,11 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'supabase.sistemaindumentaria.com',
         pathname: '/storage/v1/render/image/public/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.sistemaindumentaria.com',
+        pathname: '/**',
       },
     ],
   },

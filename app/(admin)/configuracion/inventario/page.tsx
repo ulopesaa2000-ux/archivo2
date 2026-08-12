@@ -1,6 +1,6 @@
-// app/(admin)/configuracion/inventario/page.tsx
 import type { Metadata } from 'next'
 import { verifySession } from '@/lib/dal'
+import { createClient } from '@/lib/supabase/server'
 import { ResetInventarioClient } from './ResetInventarioClient'
 import { ShieldAlert, ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
@@ -33,6 +33,12 @@ export default async function ResetInventarioPage() {
     )
   }
 
+  const supabase = await createClient()
+  const { data: bodegas } = await supabase
+    .from('bodegas')
+    .select('id, nombre, codigo, ciudad, activa, es_virtual')
+    .order('id')
+
   return (
     <div className="space-y-6">
       <div>
@@ -44,7 +50,7 @@ export default async function ResetInventarioPage() {
         </p>
       </div>
 
-      <ResetInventarioClient />
+      <ResetInventarioClient bodegas={bodegas || []} />
     </div>
   )
 }

@@ -66,11 +66,11 @@ async function crearNotaSubconjunto(
   tipoCodigo: 'ENT' | 'SAL',
   modo: ModoAjuste
 ): Promise<NotaBodegaResult> {
-  const modoLabel = modo === 'global' ? 'Corte Global' : modo === 'absoluto' ? 'Inventario total' : 'Ajuste delta'
+  const modoShort = modo === 'global' ? 'Global' : modo === 'absoluto' ? 'Inv. Total' : 'Delta'
   const fechaRef = new Date().toISOString().slice(0, 10)
-  const tipoLabel = tipoCodigo === 'ENT' ? 'Entrada (Incremento)' : 'Salida (Reducción)'
-  const notaReferencia = `Ajuste (${modoLabel} - ${tipoLabel}) - ${fechaRef}`
-  const observaciones = `Importacion masiva (${modoLabel} - ${tipoLabel}): ${filas.length} productos - Bodega: ${bodegaNombre}`
+  const tipoShort = tipoCodigo === 'ENT' ? '+ENT' : '-SAL'
+  const notaReferencia = `Ajuste ${modoShort} ${tipoShort} ${fechaRef}`.slice(0, 50)
+  const observaciones = `Importacion masiva (${modoShort} ${tipoShort}): ${filas.length} productos - Bodega: ${bodegaNombre}`
 
   const { data: notaData, error: notaError } = await supabase.rpc('sp_crear_nota', {
     p_tipo_movimiento_id: tipoMovimientoId,
@@ -82,7 +82,7 @@ async function crearNotaSubconjunto(
   })
 
   if (notaError) {
-    throw new Error(`Error al crear nota de ${tipoLabel} para ${bodegaNombre}: ${notaError.message}`)
+    throw new Error(`Error al crear nota (${tipoShort}) para ${bodegaNombre}: ${notaError.message}`)
   }
 
   const resultado = Array.isArray(notaData) ? notaData[0] : notaData

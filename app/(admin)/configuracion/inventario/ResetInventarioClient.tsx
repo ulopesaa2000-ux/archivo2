@@ -5,7 +5,6 @@ import { useState, useTransition } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
   AlertDialog,
@@ -21,32 +20,68 @@ import { toast } from 'sonner'
 import {
   resetNotasAction,
   resetStockCeroAction,
+  resetStockCeroBodegaAction,
   resetCompletoInventarioAction,
 } from '@/modules/config/inventory-reset-actions'
 
-type ActionType = 'notas' | 'stock' | 'completo' | null
+type ActionType = 'notas' | 'stock' | 'completo' | 'bodega' | null
 
-export function ResetInventarioClient() {
+export type BodegaSimple = {
+  id: number
+  nombre: string
+  codigo: string | null
+  ciudad: string | null
+  activa: boolean | null
+  es_virtual: boolean | null
+}
+
+type Props = {
+  bodegas?: BodegaSimple[]
+}
+
+export function ResetInventarioClient({ bodegas = [] }: Props) {
   const [activeAction, setActiveAction] = useState<ActionType>(null)
+  const [selectedBodega, setSelectedBodega] = useState<BodegaSimple | null>(null)
+  const [selectedCardBodegaId, setSelectedCardBodegaId] = useState<number>(0)
   const [confirmText, setConfirmText] = useState('')
   const [isPending, startTransition] = useTransition()
 
-  const REQUIRED_KEYWORD = 'REINICIAR INVENTARIO'
+  const getRequiredKeyword = () => {
+    return activeAction === 'bodega' ? 'REINICIAR BODEGA' : 'REINICIAR INVENTARIO'
+  }
 
   const handleOpenDialog = (action: ActionType) => {
     setActiveAction(action)
+    setSelectedBodega(null)
     setConfirmText('')
+  }
+
+  const handleOpenBodegaDialog = (bodega: BodegaSimple) => {
+    setActiveAction('bodega')
+    setSelectedBodega(bodega)
+    setConfirmText('')
+  }
+
+  const handleOpenCardBodegaDialog = () => {
+    const b = bodegas.find((item) => item.id === selectedCardBodegaId)
+    if (b) {
+      handleOpenBodegaDialog(b)
+    } else {
+      toast.error('Por favor selecciona una bodega válida.')
+    }
   }
 
   const handleCloseDialog = () => {
     if (isPending) return
     setActiveAction(null)
+    setSelectedBodega(null)
     setConfirmText('')
   }
 
   const handleExecuteReset = () => {
-    if (confirmText.trim().toUpperCase() !== REQUIRED_KEYWORD) {
-      toast.error(`Escribe exactamente '${REQUIRED_KEYWORD}' para confirmar.`)
+    const requiredKeyword = getRequiredKeyword()
+    if (confirmText.trim().toUpperCase() !== requiredKeyword) {
+      toast.error(`Escribe exactamente '${requiredKeyword}' para confirmar.`)
       return
     }
 
@@ -58,6 +93,8 @@ export function ResetInventarioClient() {
         res = await resetStockCeroAction()
       } else if (activeAction === 'completo') {
         res = await resetCompletoInventarioAction()
+      } else if (activeAction === 'bodega' && selectedBodega) {
+        res = await resetStockCeroBodegaAction(selectedBodega.id)
       }
 
       if (res?.success) {
@@ -69,8 +106,10 @@ export function ResetInventarioClient() {
     })
   }
 
+  const currentKeyword = getRequiredKeyword()
+
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="space-y-8 max-w-5xl mx-auto">
       {/* Header Banner de Advertencia de Alta Seguridad */}
       <Card className="border-red-500/40 bg-gradient-to-r from-red-500/10 via-red-500/5 to-transparent shadow-lg shadow-red-500/5 overflow-hidden">
         <CardContent className="p-6 flex flex-col sm:flex-row items-start sm:items-center gap-5">
@@ -93,17 +132,17 @@ export function ResetInventarioClient() {
         </CardContent>
       </Card>
 
-      {/* Grid de Opciones de Reinicio */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Grid de 4 Opciones de Reinicio Operativo */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Opción 1: Vaciar Notas */}
         <Card className="border shadow-md hover:shadow-lg transition-all flex flex-col justify-between group">
           <CardHeader className="pb-3">
             <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit mb-2">
               <FileText className="h-5 w-5" />
             </div>
-            <CardTitle className="text-base font-bold">1. Vaciar Historial de Notas</CardTitle>
+            <CardTitle className="text-sm font-bold">1. Vaciar Notas</CardTitle>
             <CardDescription className="text-xs">
-              Oculta las notas de inventario existentes (`activo = false`). El listado de notas parecerá vacío sin borrar físicamente los registros.
+              Oculta las notas existentes (`activo = false`). El historial parecerá vacío sin borrar registros físicos.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -118,15 +157,15 @@ export function ResetInventarioClient() {
           </CardContent>
         </Card>
 
-        {/* Opción 2: Poner Stock a 0 */}
+        {/* Opción 2: Poner Stock a 0 (Global) */}
         <Card className="border shadow-md hover:shadow-lg transition-all flex flex-col justify-between group">
           <CardHeader className="pb-3">
             <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 w-fit mb-2">
               <Warehouse className="h-5 w-5" />
             </div>
-            <CardTitle className="text-base font-bold">2. Poner Stock a 0</CardTitle>
+            <CardTitle className="text-sm font-bold">2. Stock 0 (Global)</CardTitle>
             <CardDescription className="text-xs">
-              Establece las existencias en `0 cajas` y `0 piezas` para todos los productos en todas las bodegas registradas.
+              Establece existencias en `0 cajas` y `0 piezas` para todos los productos en todas las bodegas.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -141,31 +180,151 @@ export function ResetInventarioClient() {
           </CardContent>
         </Card>
 
-        {/* Opción 3: Reinicio Total */}
+        {/* Opción 3: Poner Stock a 0 (Personalizado por Bodega) */}
+        <Card className="border shadow-md hover:shadow-lg transition-all flex flex-col justify-between group border-indigo-500/30 bg-indigo-500/5">
+          <CardHeader className="pb-2">
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 w-fit mb-2">
+              <Warehouse className="h-5 w-5" />
+            </div>
+            <CardTitle className="text-sm font-bold text-indigo-950 dark:text-indigo-200">3. Stock 0 (Por Bodega)</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Establece a 0 las existencias únicamente en la bodega que selecciones sin tocar las demás.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            <select
+              value={selectedCardBodegaId}
+              onChange={(e) => setSelectedCardBodegaId(Number(e.target.value))}
+              className="w-full h-9 rounded-xl border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value={0}>Selecciona una bodega...</option>
+              {bodegas.map((b) => (
+                <option key={b.id} value={b.id}>
+                  #{b.id} - {b.nombre} {b.ciudad ? `(${b.ciudad})` : ''}
+                </option>
+              ))}
+            </select>
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!selectedCardBodegaId}
+              onClick={handleOpenCardBodegaDialog}
+              className="w-full font-bold text-xs uppercase tracking-wider h-10 border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 rounded-xl disabled:opacity-50"
+            >
+              Poner a 0 Bodega
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Opción 4: Reinicio Total */}
         <Card className="border-red-500/40 bg-gradient-to-br from-card via-card to-red-500/5 shadow-md hover:shadow-xl transition-all flex flex-col justify-between group">
           <CardHeader className="pb-3">
             <div className="p-2.5 rounded-xl bg-red-500 text-white shadow-md w-fit mb-2">
               <RotateCcw className="h-5 w-5" />
             </div>
-            <CardTitle className="text-base font-black text-red-600 dark:text-red-400">3. Reinicio Total de Inventario</CardTitle>
+            <CardTitle className="text-sm font-black text-red-600 dark:text-red-400">4. Reinicio Total</CardTitle>
             <CardDescription className="text-xs">
-              Ejecuta ambas acciones en un solo paso: oculta todo el historial de notas y reinicia todas las existencias de stock a 0.
+              Oculta todo el historial de notas y reinicia todas las existencias de stock a 0 en un solo paso.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
             <Button
               type="button"
               onClick={() => handleOpenDialog('completo')}
-              className="w-full font-black text-xs uppercase tracking-wider h-10 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md gap-2"
+              className="w-full font-black text-xs uppercase tracking-wider h-10 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md gap-1.5"
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className="h-3.5 w-3.5" />
               Reinicio Total
             </Button>
           </CardContent>
         </Card>
       </div>
 
-      {/* Ventana Modal Emergente de Advertencia (Adaptada Modo Claro / Oscuro con Sombras Rojas) */}
+      {/* Sección 4: Poner Stock a 0 por Bodega Específica */}
+      <Card className="border shadow-md hover:shadow-lg transition-all overflow-hidden">
+        <CardHeader className="pb-4 border-b bg-muted/20">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <Warehouse className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-bold">Detalle y Acciones Rápidas por Bodega</CardTitle>
+                <CardDescription className="text-xs">
+                  Consulta el listado de bodegas y ejecuta el reinicio a 0 cajas y 0 piezas de forma individual para cualquiera de ellas.
+                </CardDescription>
+              </div>
+            </div>
+            <Badge variant="outline" className="font-mono text-xs px-2.5 py-1">
+              {bodegas.length} bodegas
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {bodegas.length === 0 ? (
+            <div className="py-12 text-center text-xs text-muted-foreground">
+              No se encontraron bodegas registradas.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-muted/40 text-xs font-semibold text-muted-foreground border-b">
+                    <th className="px-4 py-3 text-left w-[90px]">ID Bodega</th>
+                    <th className="px-4 py-3 text-left">Nombre de la Bodega</th>
+                    <th className="px-4 py-3 text-left">Código / Ciudad</th>
+                    <th className="px-4 py-3 text-center w-[110px]">Estado</th>
+                    <th className="px-4 py-3 text-right w-[170px]">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y text-xs">
+                  {bodegas.map((b) => (
+                    <tr key={b.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3.5 font-mono font-bold">
+                        <Badge variant="secondary" className="font-mono text-[11px] font-bold">
+                          ID: {b.id}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="font-bold text-sm text-foreground">{b.nombre}</div>
+                        {b.es_virtual && (
+                          <span className="inline-block text-[10px] text-purple-600 dark:text-purple-400 font-medium">
+                            Bodega Virtual
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-muted-foreground">
+                        <div className="font-mono font-medium">{b.codigo || '—'}</div>
+                        <div className="text-[11px]">{b.ciudad || 'Sin ciudad'}</div>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        <Badge variant={b.activa ? 'default' : 'outline'} className="text-[10px]">
+                          {b.activa ? 'Activa' : 'Inactiva'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenBodegaDialog(b)}
+                          className="font-bold text-xs border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 rounded-lg gap-1.5 h-8"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Poner Stock a 0
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Ventana Modal Emergente de Advertencia */}
       <AlertDialog open={activeAction !== null} onOpenChange={(open) => !open && handleCloseDialog()}>
         <AlertDialogContent className="sm:max-w-lg max-w-full w-full rounded-2xl border-2 border-red-500/50 bg-card p-6 shadow-[0_10px_50px_rgba(239,68,68,0.3)] dark:shadow-[0_10px_60px_rgba(239,68,68,0.55)] ring-4 ring-red-500/20 backdrop-blur-md">
           <AlertDialogHeader className="space-y-3">
@@ -180,7 +339,9 @@ export function ResetInventarioClient() {
             {/* Letrero en Negritas Destacado */}
             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-center space-y-2">
               <p className="font-black text-red-600 dark:text-red-400 text-sm sm:text-base uppercase tracking-tight leading-snug">
-                ⚠️ ESTA ACCIÓN REINICIARÁ A 0 LA PARTE DEL INVENTARIO Y NOTAS PARA VOLVER A INICIAR.
+                {activeAction === 'bodega' && selectedBodega
+                  ? `⚠️ ESTA ACCIÓN REINICIARÁ A 0 TODO EL STOCK EXCLUSIVAMENTE EN LA BODEGA '${selectedBodega.nombre}' (ID: ${selectedBodega.id}).`
+                  : '⚠️ ESTA ACCIÓN REINICIARÁ A 0 LA PARTE DEL INVENTARIO Y NOTAS PARA VOLVER A INICIAR.'}
               </p>
               <p className="text-[11px] text-muted-foreground font-semibold">
                 Acción reservada únicamente para Super Admin Nivel 1.
@@ -192,14 +353,14 @@ export function ResetInventarioClient() {
             </AlertDialogDescription>
 
             <div className="p-2 bg-muted rounded-xl text-center font-mono font-black text-sm text-foreground tracking-widest border">
-              {REQUIRED_KEYWORD}
+              {currentKeyword}
             </div>
 
             <div className="pt-2">
               <Input
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={`Escribe '${REQUIRED_KEYWORD}' aquí...`}
+                placeholder={`Escribe '${currentKeyword}' aquí...`}
                 className="h-11 rounded-xl text-center font-mono text-sm uppercase tracking-wider font-bold border-red-500/30 focus-visible:ring-red-500"
                 disabled={isPending}
                 autoFocus
@@ -219,7 +380,7 @@ export function ResetInventarioClient() {
             <Button
               type="button"
               onClick={handleExecuteReset}
-              disabled={isPending || confirmText.trim().toUpperCase() !== REQUIRED_KEYWORD}
+              disabled={isPending || confirmText.trim().toUpperCase() !== currentKeyword}
               className="bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider h-11 rounded-xl shadow-lg gap-2"
             >
               {isPending ? (
