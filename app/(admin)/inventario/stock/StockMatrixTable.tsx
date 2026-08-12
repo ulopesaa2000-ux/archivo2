@@ -1,6 +1,20 @@
+// app/(admin)/inventario/stock/StockMatrixTable.tsx
 'use client'
 
-import { Download, Package, Maximize2, Minimize2, FileSpreadsheet, ChevronDown as ChevronDownIcon, FileBox } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
+import {
+  Download,
+  Package,
+  Maximize2,
+  Minimize2,
+  FileSpreadsheet,
+  ChevronDown as ChevronDownIcon,
+  FileBox,
+  ChevronRight,
+  ChevronDown,
+  Loader2,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/admin/Pagination'
 import {
@@ -11,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
+import { exportStockMatrixAction } from '@/modules/inventario/actions'
 import type { StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
 
@@ -21,10 +36,9 @@ type Props = {
   agruparPor?: string
 }
 
-import React, { useState, useMemo } from 'react'
-import { ChevronRight, ChevronDown } from 'lucide-react'
-
 export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: Props) {
+  const searchParams = useSearchParams()
+  const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const toggleGroup = (familia: string) => {
@@ -111,250 +125,281 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
   }
 
   const downloadExcel = async (mode: 'flat' | 'grouped' = 'flat') => {
-    toast.info('Generando Excel con formato profesional...')
+    setIsExporting(true)
+    toast.info('Obteniendo datos de toda la matriz para exportar...')
 
-    const workbook = new ExcelJS.Workbook()
-    
-    // --- HOJA 1: DATOS (Machine Readable) ---
-    const dataSheet = workbook.addWorksheet('Datos Stock')
-    
-    // Mapear descripción general por familia
-    const familyDescriptions: Record<string, string> = {}
-    items.forEach(item => {
-      const family = item.producto_familia || 'SIN FAMILIA'
-      if (!familyDescriptions[family]) {
-        familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
+    try {
+      const q = searchParams.get('q') || undefined
+      const con_stock_cero = searchParams.get('con_stock_cero') === 'true'
+      const ciudadesRaw = searchParams.get('ciudades')
+      const ciudades = ciudadesRaw ? ciudadesRaw.split(',').filter(Boolean) : undefined
+      const bodegasRaw = searchParams.get('bodegas')
+      const bodegas = bodegasRaw ? bodegasRaw.split(',').map(Number).filter(n => !isNaN(n)) : undefined
+
+      const res = await exportStockMatrixAction({ q, con_stock_cero, ciudades, bodegas }, bodegasColumnas)
+      if (!res.success || !res.data || res.data.length === 0) {
+        toast.error(res.error || 'No se encontraron datos para exportar.')
+        setIsExporting(false)
+        return
       }
-    })
 
-    const columns = [
-      { header: 'FAMILIA', key: 'familia', width: 20 },
-      { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
-      { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
-      { header: 'PZ X CAJA', key: 'pz_caja', width: 12 },
-      ...bodegasColumnas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 12 })),
-      { header: 'TOTAL GLOBAL', key: 'total', width: 15 }
-    ]
-    dataSheet.columns = columns
-
-    // Estilo Header Hoja 1
-    dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }
-    dataSheet.getRow(1).alignment = { horizontal: 'center' }
-
-    // Colores por familia
-    const uniqueFamilies = Array.from(new Set(items.map(i => i.producto_familia || 'SIN FAMILIA')))
-    const familyColorMap: Record<string, string> = {}
-    uniqueFamilies.forEach((f, idx) => {
-      familyColorMap[f] = idx % 2 === 0 ? 'FFD9EAF7' : 'FFFFFFFF'
-    })
-
-    items.forEach(item => {
-      const family = item.producto_familia || 'SIN FAMILIA'
-      const rowValues: any = {
-        familia: family,
-        desc_gral: familyDescriptions[family],
-        sku: item.producto_sku,
-        pz_caja: item.pz_en_caja ?? 1,
-        total: item.total_general
-      }
-      bodegasColumnas.forEach(b => {
-        rowValues[`b_${b.id}`] = item.stock_por_bodega[b.id]?.total ?? 0
-      })
-
-      const row = dataSheet.addRow(rowValues)
-      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: familyColorMap[family] } }
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } }
-      })
-      row.getCell('total').font = { bold: true, color: { argb: 'FFDC2626' } }
-    })
-
-    // --- HOJA 2: FORMATO IMPRESIÓN (Similar a la imagen) ---
-    const printSheet = workbook.addWorksheet('Formato Impresión')
-    
-    // Configuración para Impresión: Repetir encabezados en cada página
-    printSheet.pageSetup.printTitlesRow = '3:3'
-    printSheet.pageSetup.paperSize = 9 // A4
-    printSheet.pageSetup.orientation = 'landscape'
-    
-    // Márgenes estrechos (en pulgadas)
-    printSheet.pageSetup.margins = {
-      left: 0.25, right: 0.25,
-      top: 0.75, bottom: 0.75,
-      header: 0.3, footer: 0.3
-    }
-    
-    // Ajustar todas las columnas en una página
-    printSheet.pageSetup.fitToPage = true
-    printSheet.pageSetup.fitToWidth = 1
-    printSheet.pageSetup.fitToHeight = 0 // Altura automática según contenido
-    
-    // Títulos grandes arriba
-    printSheet.mergeCells('A1:C1')
-    printSheet.getCell('A1').value = 'REPORTE DE EXISTENCIAS GLOBAL'
-    printSheet.getCell('A1').font = { bold: true, size: 18 }
-    
-    // Headers de Bodegas Inclinados
-    const startBodegaCol = 4
-    const headerRowIdx = 3
-    const headerRow = printSheet.getRow(headerRowIdx)
-    headerRow.height = 90 // Más alto para el texto inclinado
-    
-    // Estilo para headers de Familia, Estilo, Descripcion
-    const mainHeaderStyle: Partial<ExcelJS.Style> = {
-      font: { bold: true, size: 12 },
-      alignment: { vertical: 'middle', horizontal: 'center' },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } },
-      border: { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    }
-
-    const c1 = printSheet.getCell(headerRowIdx, 1); c1.value = 'FAMILIA'; Object.assign(c1, mainHeaderStyle);
-    const c2 = printSheet.getCell(headerRowIdx, 2); c2.value = 'ESTILO'; Object.assign(c2, mainHeaderStyle);
-    const c3 = printSheet.getCell(headerRowIdx, 3); c3.value = 'DESCRIPCION'; Object.assign(c3, mainHeaderStyle);
-    
-    bodegasColumnas.forEach((b, idx) => {
-      const cell = printSheet.getCell(headerRowIdx, startBodegaCol + idx)
-      cell.value = b.nombre.toUpperCase()
-      cell.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
-      cell.font = { bold: true, size: 10 }
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
-      cell.border = { bottom: { style: 'medium' }, left: { style: 'thin' } }
-    })
-    
-    const globalCol = startBodegaCol + bodegasColumnas.length
-    const globalHeader = printSheet.getCell(headerRowIdx, globalCol)
-    globalHeader.value = 'GLOBAL'
-    globalHeader.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
-    globalHeader.font = { bold: true, color: { argb: 'FFDC2626' } }
-    globalHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
-
-    // Agrupar items por familia para facilitar el merge
-    const itemsByFamily: Record<string, typeof items> = {}
-    items.forEach(item => {
-      const f = item.producto_familia || 'SIN FAMILIA'
-      if (!itemsByFamily[f]) itemsByFamily[f] = []
-      itemsByFamily[f].push(item)
-    })
-
-    // Datos en Hoja de Impresión con Merge
-    let currentRowIdx = 4
-    Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
-      const startRow = currentRowIdx
-      const isEven = fIdx % 2 === 0
-      const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
+      const allItems = res.data
+      const workbook = new ExcelJS.Workbook()
       
-      familyItems.forEach((item, itemIdx) => {
-        const row = printSheet.getRow(currentRowIdx)
-        row.height = 35 // Filas más altas para que se vean cuadradas
-        
-        if (itemIdx === 0) {
-          printSheet.getCell(currentRowIdx, 1).value = family
-          printSheet.getCell(currentRowIdx, 3).value = familyDescriptions[family]
+      // --- HOJA 1: DATOS (Machine Readable) ---
+      const dataSheet = workbook.addWorksheet('Datos Stock')
+      
+      // Mapear descripción general por familia
+      const familyDescriptions: Record<string, string> = {}
+      allItems.forEach(item => {
+        const family = item.producto_familia || 'SIN FAMILIA'
+        if (!familyDescriptions[family]) {
+          familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
         }
-        
-        const estiloCell = printSheet.getCell(currentRowIdx, 2)
-        estiloCell.value = item.producto_sku
-        estiloCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-        estiloCell.font = { size: 11, bold: true }
-        
-        bodegasColumnas.forEach((b, bIdx) => {
-          const val = item.stock_por_bodega[b.id]?.total ?? 0
-          const cell = printSheet.getCell(currentRowIdx, startBodegaCol + bIdx)
-          cell.value = val // Mantener como número para cálculos en Excel
-          cell.alignment = { horizontal: 'center', vertical: 'middle' }
-          
-          // Estilo de número: 0 en gris, >0 en Negro Negrita
-          cell.font = { 
-            size: 13, 
-            bold: val > 0, 
-            color: { argb: val > 0 ? 'FF000000' : 'FFD1D5DB' } 
-          }
-          cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+      })
+
+      const columns = [
+        { header: 'FAMILIA', key: 'familia', width: 20 },
+        { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
+        { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
+        { header: 'PZ X CAJA', key: 'pz_caja', width: 12 },
+        ...bodegasColumnas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 12 })),
+        { header: 'TOTAL GLOBAL', key: 'total', width: 15 }
+      ]
+      dataSheet.columns = columns
+
+      // Estilo Header Hoja 1
+      dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }
+      dataSheet.getRow(1).alignment = { horizontal: 'center' }
+
+      // Colores por familia
+      const uniqueFamilies = Array.from(new Set(allItems.map(i => i.producto_familia || 'SIN FAMILIA')))
+      const familyColorMap: Record<string, string> = {}
+      uniqueFamilies.forEach((f, idx) => {
+        familyColorMap[f] = idx % 2 === 0 ? 'FFD9EAF7' : 'FFFFFFFF'
+      })
+
+      allItems.forEach(item => {
+        const family = item.producto_familia || 'SIN FAMILIA'
+        const rowValues: any = {
+          familia: family,
+          desc_gral: familyDescriptions[family],
+          sku: item.producto_sku,
+          pz_caja: item.pz_en_caja ?? 1,
+          total: item.total_general
+        }
+        bodegasColumnas.forEach(b => {
+          rowValues[`b_${b.id}`] = item.stock_por_bodega[b.id]?.total ?? 0
         })
-        
-        const totalCell = printSheet.getCell(currentRowIdx, globalCol)
-        totalCell.value = item.total_general
-        totalCell.font = { bold: true, color: { argb: 'FFDC2626' }, size: 13 }
-        totalCell.alignment = { horizontal: 'center', vertical: 'middle' }
-        totalCell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
 
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
-        currentRowIdx++
+        const row = dataSheet.addRow(rowValues)
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: familyColorMap[family] } }
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } }
+        })
+        row.getCell('total').font = { bold: true, color: { argb: 'FFDC2626' } }
       })
 
-      const endRow = currentRowIdx - 1
+      // --- HOJA 2: FORMATO IMPRESIÓN (Similar a la imagen) ---
+      const printSheet = workbook.addWorksheet('Formato Impresión')
       
-      // Realizar Merges para Familia y Descripcion
-      if (startRow < endRow) {
-        printSheet.mergeCells(startRow, 1, endRow, 1)
-        printSheet.mergeCells(startRow, 3, endRow, 3)
+      // Configuración para Impresión: Repetir encabezados en cada página
+      printSheet.pageSetup.printTitlesRow = '3:3'
+      printSheet.pageSetup.paperSize = 9 // A4
+      printSheet.pageSetup.orientation = 'landscape'
+      
+      // Márgenes estrechos (en pulgadas)
+      printSheet.pageSetup.margins = {
+        left: 0.25, right: 0.25,
+        top: 0.75, bottom: 0.75,
+        header: 0.3, footer: 0.3
+      }
+      
+      // Ajustar todas las columnas en una página
+      printSheet.pageSetup.fitToPage = true
+      printSheet.pageSetup.fitToWidth = 1
+      printSheet.pageSetup.fitToHeight = 0 // Altura automática según contenido
+      
+      // Títulos grandes arriba
+      printSheet.mergeCells('A1:C1')
+      printSheet.getCell('A1').value = 'REPORTE DE EXISTENCIAS GLOBAL'
+      printSheet.getCell('A1').font = { bold: true, size: 18 }
+      
+      // Headers de Bodegas Inclinados
+      const startBodegaCol = 4
+      const headerRowIdx = 3
+      const headerRow = printSheet.getRow(headerRowIdx)
+      headerRow.height = 90 // Más alto para el texto inclinado
+      
+      // Estilo para headers de Familia, Estilo, Descripcion
+      const mainHeaderStyle: Partial<ExcelJS.Style> = {
+        font: { bold: true, size: 12 },
+        alignment: { vertical: 'middle', horizontal: 'center' },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } },
+        border: { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
       }
 
-      // Estilo para las celdas merged
-      const familyCell = printSheet.getCell(startRow, 1);
-      const descCell = printSheet.getCell(startRow, 3);
+      const c1 = printSheet.getCell(headerRowIdx, 1); c1.value = 'FAMILIA'; Object.assign(c1, mainHeaderStyle);
+      const c2 = printSheet.getCell(headerRowIdx, 2); c2.value = 'ESTILO'; Object.assign(c2, mainHeaderStyle);
+      const c3 = printSheet.getCell(headerRowIdx, 3); c3.value = 'DESCRIPCION'; Object.assign(c3, mainHeaderStyle);
       
-      [familyCell, descCell].forEach((cell: any) => {
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.font = { bold: true, size: 10 };
-        cell.border = { 
-          bottom: { style: 'medium', color: { argb: 'FF475569' } },
-          left: { style: 'thin' },
-          right: { style: 'thin' }
-        };
-      });
-
-      // Borde grueso al final de cada bloque de familia para "margen"
-      const lastRow = printSheet.getRow(endRow)
-      lastRow.eachCell({ includeEmpty: true }, (cell) => {
-        cell.border = { 
-          ...cell.border,
-          bottom: { style: 'medium', color: { argb: 'FF475569' } } 
-        }
+      bodegasColumnas.forEach((b, idx) => {
+        const cell = printSheet.getCell(headerRowIdx, startBodegaCol + idx)
+        cell.value = b.nombre.toUpperCase()
+        cell.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
+        cell.font = { bold: true, size: 10 }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        cell.border = { bottom: { style: 'medium' }, left: { style: 'thin' } }
       })
-    })
+      
+      const globalCol = startBodegaCol + bodegasColumnas.length
+      const globalHeader = printSheet.getCell(headerRowIdx, globalCol)
+      globalHeader.value = 'GLOBAL'
+      globalHeader.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
+      globalHeader.font = { bold: true, color: { argb: 'FFDC2626' } }
+      globalHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
 
-    // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN
-    currentRowIdx += 2
-    printSheet.getCell(currentRowIdx, 3).value = 'TOTALES:'
-    printSheet.getCell(currentRowIdx, 3).font = { bold: true, size: 12 }
-    
-    bodegasColumnas.forEach((b, idx) => {
-      const cell = printSheet.getCell(currentRowIdx, startBodegaCol + idx)
-      cell.value = totalsPerBodega[b.id] ?? 0
-      cell.font = { bold: true, size: 12 }
-      cell.alignment = { horizontal: 'center' }
-      cell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    })
-    
-    const finalTotalCell = printSheet.getCell(currentRowIdx, globalCol)
-    finalTotalCell.value = grandTotal
-    finalTotalCell.font = { bold: true, size: 14, color: { argb: 'FFDC2626' } }
-    finalTotalCell.alignment = { horizontal: 'center' }
-    finalTotalCell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      // Agrupar items por familia para facilitar el merge
+      const itemsByFamily: Record<string, typeof allItems> = {}
+      const expTotalsPerBodega: Record<number, number> = {}
+      let expGrandTotal = 0
 
-    // Anchos Hoja Impresión
-    printSheet.getColumn(1).width = 15
-    printSheet.getColumn(2).width = 18
-    printSheet.getColumn(3).width = 50
-    bodegasColumnas.forEach((_, idx) => {
-      printSheet.getColumn(startBodegaCol + idx).width = 8
-    })
-    printSheet.getColumn(globalCol).width = 10
+      allItems.forEach(item => {
+        expGrandTotal += item.total_general
+        bodegasColumnas.forEach(b => {
+          if (!expTotalsPerBodega[b.id]) expTotalsPerBodega[b.id] = 0
+          expTotalsPerBodega[b.id] += (item.stock_por_bodega[b.id]?.total ?? 0)
+        })
 
-    // Descargar
-    const buffer = await workbook.xlsx.writeBuffer()
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `Reporte_Stock_${new Date().toISOString().split('T')[0]}.xlsx`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    toast.success('Excel profesional con vista de impresión generado')
+        const f = item.producto_familia || 'SIN FAMILIA'
+        if (!itemsByFamily[f]) itemsByFamily[f] = []
+        itemsByFamily[f].push(item)
+      })
+
+      // Datos en Hoja de Impresión con Merge
+      let currentRowIdx = 4
+      Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
+        const startRow = currentRowIdx
+        const isEven = fIdx % 2 === 0
+        const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
+        
+        familyItems.forEach((item, itemIdx) => {
+          const row = printSheet.getRow(currentRowIdx)
+          row.height = 35 // Filas más altas para que se vean cuadradas
+          
+          if (itemIdx === 0) {
+            printSheet.getCell(currentRowIdx, 1).value = family
+            printSheet.getCell(currentRowIdx, 3).value = familyDescriptions[family]
+          }
+          
+          const estiloCell = printSheet.getCell(currentRowIdx, 2)
+          estiloCell.value = item.producto_sku
+          estiloCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+          estiloCell.font = { size: 11, bold: true }
+          
+          bodegasColumnas.forEach((b, bIdx) => {
+            const val = item.stock_por_bodega[b.id]?.total ?? 0
+            const cell = printSheet.getCell(currentRowIdx, startBodegaCol + bIdx)
+            cell.value = val // Mantener como número para cálculos en Excel
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            
+            // Estilo de número: 0 en gris, >0 en Negro Negrita
+            cell.font = { 
+              size: 13, 
+              bold: val > 0, 
+              color: { argb: val > 0 ? 'FF000000' : 'FFD1D5DB' } 
+            }
+            cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+          })
+          
+          const totalCell = printSheet.getCell(currentRowIdx, globalCol)
+          totalCell.value = item.total_general
+          totalCell.font = { bold: true, color: { argb: 'FFDC2626' }, size: 13 }
+          totalCell.alignment = { horizontal: 'center', vertical: 'middle' }
+          totalCell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
+          currentRowIdx++
+        })
+
+        const endRow = currentRowIdx - 1
+        
+        // Realizar Merges para Familia y Descripcion
+        if (startRow < endRow) {
+          printSheet.mergeCells(startRow, 1, endRow, 1)
+          printSheet.mergeCells(startRow, 3, endRow, 3)
+        }
+
+        // Estilo para las celdas merged
+        const familyCell = printSheet.getCell(startRow, 1);
+        const descCell = printSheet.getCell(startRow, 3);
+        
+        [familyCell, descCell].forEach((cell: any) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          cell.font = { bold: true, size: 10 };
+          cell.border = { 
+            bottom: { style: 'medium', color: { argb: 'FF475569' } },
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+
+        // Borde grueso al final de cada bloque de familia para "margen"
+        const lastRow = printSheet.getRow(endRow)
+        lastRow.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = { 
+            ...cell.border,
+            bottom: { style: 'medium', color: { argb: 'FF475569' } } 
+          }
+        })
+      })
+
+      // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN
+      currentRowIdx += 2
+      printSheet.getCell(currentRowIdx, 3).value = 'TOTALES:'
+      printSheet.getCell(currentRowIdx, 3).font = { bold: true, size: 12 }
+      
+      bodegasColumnas.forEach((b, idx) => {
+        const cell = printSheet.getCell(currentRowIdx, startBodegaCol + idx)
+        cell.value = expTotalsPerBodega[b.id] ?? 0
+        cell.font = { bold: true, size: 12 }
+        cell.alignment = { horizontal: 'center' }
+        cell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      })
+      
+      const finalTotalCell = printSheet.getCell(currentRowIdx, globalCol)
+      finalTotalCell.value = expGrandTotal
+      finalTotalCell.font = { bold: true, size: 14, color: { argb: 'FFDC2626' } }
+      finalTotalCell.alignment = { horizontal: 'center' }
+      finalTotalCell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Anchos Hoja Impresión
+      printSheet.getColumn(1).width = 15
+      printSheet.getColumn(2).width = 18
+      printSheet.getColumn(3).width = 50
+      bodegasColumnas.forEach((_, idx) => {
+        printSheet.getColumn(startBodegaCol + idx).width = 8
+      })
+      printSheet.getColumn(globalCol).width = 10
+
+      // Descargar
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Reporte_Stock_Matriz_${new Date().toISOString().split('T')[0]}.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      toast.success(`Excel profesional generado (${allItems.length} productos exportados)`)
+    } catch (err: any) {
+      toast.error('Error al exportar Excel: ' + (err.message ?? 'Desconocido'))
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   if (bodegasColumnas.length === 0) {
@@ -400,10 +445,19 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Download className="mr-2 h-4 w-4" />
-              Exportar Excel
-              <ChevronDownIcon className="ml-2 h-4 w-4 opacity-50" />
+            <Button variant="outline" size="sm" disabled={isExporting} className="font-semibold text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30">
+              {isExporting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Exportando todo...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Exportar Excel
+                  <ChevronDownIcon className="ml-2 h-4 w-4 opacity-50" />
+                </>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-[200px]">

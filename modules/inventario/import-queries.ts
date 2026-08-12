@@ -173,6 +173,36 @@ export async function fetchBodegasParaImport(): Promise<BodegaRow[]> {
   return (data ?? []) as BodegaRow[]
 }
 
+export type TiposMovimientoMap = {
+  ENT: number
+  SAL: number
+  AJU: number
+}
+
+export async function fetchTiposMovimientoImport(): Promise<TiposMovimientoMap | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('cat_tipos_movimiento')
+    .select('id, codigo')
+    .in('codigo', ['ENT', 'SAL', 'AJU'])
+
+  if (!data) return null
+
+  const map: Partial<TiposMovimientoMap> = {}
+  for (const row of data) {
+    if (row.codigo === 'ENT') map.ENT = row.id
+    if (row.codigo === 'SAL') map.SAL = row.id
+    if (row.codigo === 'AJU') map.AJU = row.id
+  }
+
+  if (!map.ENT || !map.SAL) return null
+  return {
+    ENT: map.ENT,
+    SAL: map.SAL,
+    AJU: map.AJU ?? map.ENT,
+  }
+}
+
 export async function fetchTipoMovimientoAjuste(): Promise<number | null> {
   const supabase = await createClient()
   const { data } = await supabase

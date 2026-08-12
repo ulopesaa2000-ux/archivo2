@@ -2,12 +2,14 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight, Loader2, Package, Maximize2, Minimize2, Download, FileSpreadsheet } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
+import { exportStockByBodegaAction } from '@/modules/inventario/actions'
 import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types'
 
 export function StockTable({
@@ -19,6 +21,8 @@ export function StockTable({
   bodegaId: number
   agruparPor?: string
 }) {
+  const searchParams = useSearchParams()
+  const [isExporting, setIsExporting] = useState(false)
   const [expanded, setExpanded] = useState<Record<number, StockDetalleCaja[] | null>>({})
   const [loading, setLoading] = useState<Record<number, boolean>>({})
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -96,208 +100,232 @@ export function StockTable({
   }
 
   const downloadExcel = async () => {
-    toast.info('Generando Excel profesional de bodega...')
+    setIsExporting(true)
+    toast.info('Obteniendo existencias completas para exportar...')
 
-    const workbook = new ExcelJS.Workbook()
-    
-    // --- HOJA 1: DATOS ---
-    const dataSheet = workbook.addWorksheet('Datos Stock')
-    
-    // Mapear descripción general por familia
-    const familyDescriptions: Record<string, string> = {}
-    items.forEach(item => {
-      const family = item.producto_familia || 'SIN FAMILIA'
-      if (!familyDescriptions[family]) {
-        familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
+    try {
+      const q = searchParams.get('q') || undefined
+      const con_stock_cero = searchParams.get('con_stock_cero') === 'true'
+
+      const res = await exportStockByBodegaAction(bodegaId, { q, con_stock_cero })
+      if (!res.success || !res.data || res.data.length === 0) {
+        toast.error(res.error || 'No se encontraron datos para exportar.')
+        setIsExporting(false)
+        return
       }
-    })
 
-    dataSheet.columns = [
-      { header: 'FAMILIA', key: 'familia', width: 20 },
-      { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
-      { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
-      { header: 'MARCA', key: 'marca', width: 20 },
-      { header: 'CAJAS', key: 'cajas', width: 12 },
-      { header: 'PZ SUELTAS', key: 'piezas_sueltas', width: 12 },
-      { header: 'TOTAL PIEZAS', key: 'total_piezas', width: 15 },
-      { header: 'UBICACIÓN', key: 'ubicacion', width: 15 }
-    ]
-
-    // Estilo Header Hoja 1
-    dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }
-    dataSheet.getRow(1).alignment = { horizontal: 'center' }
-
-    // Colores por familia
-    const uniqueFamilies = Array.from(new Set(items.map(i => i.producto_familia || 'SIN FAMILIA')))
-    const familyColorMap: Record<string, string> = {}
-    uniqueFamilies.forEach((f, idx) => {
-      familyColorMap[f] = idx % 2 === 0 ? 'FFD9EAF7' : 'FFFFFFFF'
-    })
-
-    items.forEach(item => {
-      const family = item.producto_familia || 'SIN FAMILIA'
-      const row = dataSheet.addRow({
-        familia: family,
-        desc_gral: familyDescriptions[family],
-        sku: item.producto_sku,
-        marca: item.marca_nombre || '',
-        cajas: item.cajas,
-        piezas_sueltas: item.piezas_sueltas,
-        total_piezas: (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas,
-        ubicacion: item.ubicacion_pasillo || ''
-      })
-
-      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: familyColorMap[family] } }
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } }
-      })
-    })
-
-    // --- HOJA 2: FORMATO IMPRESIÓN ---
-    const printSheet = workbook.addWorksheet('Formato Impresión')
-    
-    // Configuración para Impresión: Repetir encabezados
-    printSheet.pageSetup.printTitlesRow = '3:3'
-    printSheet.pageSetup.paperSize = 9
-    printSheet.pageSetup.orientation = 'landscape'
-    
-    // Márgenes estrechos
-    printSheet.pageSetup.margins = {
-      left: 0.25, right: 0.25,
-      top: 0.75, bottom: 0.75,
-      header: 0.3, footer: 0.3
-    }
-    
-    // Ajustar columnas a una página
-    printSheet.pageSetup.fitToPage = true
-    printSheet.pageSetup.fitToWidth = 1
-    printSheet.pageSetup.fitToHeight = 0
-
-    printSheet.mergeCells('A1:C1')
-    printSheet.getCell('A1').value = `REPORTE DE EXISTENCIAS - BODEGA ${bodegaId}`
-    printSheet.getCell('A1').font = { bold: true, size: 18 }
-    
-    // Header Hoja 2
-    const headerRowIdx = 3
-    const headerRow = printSheet.getRow(headerRowIdx)
-    headerRow.height = 40
-    
-    const mainHeaderStyle: Partial<ExcelJS.Style> = {
-      font: { bold: true, size: 12 },
-      alignment: { vertical: 'middle', horizontal: 'center' },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } },
-      border: { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    }
-
-    const headers = ['FAMILIA', 'ESTILO', 'DESCRIPCION', 'CAJAS', 'PZ SUELTAS', 'TOTAL PIEZAS', 'UBICACION']
-    headers.forEach((h, i) => {
-      const cell = printSheet.getCell(headerRowIdx, i + 1)
-      cell.value = h
-      Object.assign(cell, mainHeaderStyle)
-    })
-
-    // Agrupar items por familia
-    const itemsByFamily: Record<string, typeof items> = {}
-    items.forEach(item => {
-      const f = item.producto_familia || 'SIN FAMILIA'
-      if (!itemsByFamily[f]) itemsByFamily[f] = []
-      itemsByFamily[f].push(item)
-    })
-
-    let currentRowIdx = 4
-    Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
-      const startRow = currentRowIdx
-      const isEven = fIdx % 2 === 0
-      const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
-
-      familyItems.forEach((item, itemIdx) => {
-        const row = printSheet.getRow(currentRowIdx)
-        row.height = 35
-        
-        if (itemIdx === 0) {
-          printSheet.getCell(currentRowIdx, 1).value = family
-          printSheet.getCell(currentRowIdx, 3).value = familyDescriptions[family]
-        }
-        
-        const estiloCell = printSheet.getCell(currentRowIdx, 2)
-        estiloCell.value = item.producto_sku
-        estiloCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-        estiloCell.font = { size: 11, bold: true }
-
-        const cajas = item.cajas
-        const pzSueltas = item.piezas_sueltas
-        const totalPz = (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
-        
-        const styleNum = (val: number) => ({
-          value: val,
-          alignment: { horizontal: 'center', vertical: 'middle' },
-          font: { size: 13, bold: val > 0, color: { argb: val > 0 ? 'FF000000' : 'FFD1D5DB' } }
-        })
-
-        Object.assign(printSheet.getCell(currentRowIdx, 4), styleNum(cajas))
-        Object.assign(printSheet.getCell(currentRowIdx, 5), styleNum(pzSueltas))
-        Object.assign(printSheet.getCell(currentRowIdx, 6), styleNum(totalPz))
-
-        printSheet.getCell(currentRowIdx, 7).value = item.ubicacion_pasillo || ''
-        
-        row.eachCell({ includeEmpty: true }, (cell) => {
-          cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
-        })
-
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
-        currentRowIdx++
-      })
-
-      const endRow = currentRowIdx - 1
+      const allItems = res.data
+      const workbook = new ExcelJS.Workbook()
       
-      if (startRow < endRow) {
-        printSheet.mergeCells(startRow, 1, endRow, 1)
-        printSheet.mergeCells(startRow, 3, endRow, 3)
+      // --- HOJA 1: DATOS ---
+      const dataSheet = workbook.addWorksheet('Datos Stock')
+      
+      // Mapear descripción general por familia
+      const familyDescriptions: Record<string, string> = {}
+      allItems.forEach(item => {
+        const family = item.producto_familia || 'SIN FAMILIA'
+        if (!familyDescriptions[family]) {
+          familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
+        }
+      })
+
+      dataSheet.columns = [
+        { header: 'FAMILIA', key: 'familia', width: 20 },
+        { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
+        { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
+        { header: 'MARCA', key: 'marca', width: 20 },
+        { header: 'CAJAS', key: 'cajas', width: 12 },
+        { header: 'PZ SUELTAS', key: 'piezas_sueltas', width: 12 },
+        { header: 'TOTAL PIEZAS', key: 'total_piezas', width: 15 },
+        { header: 'UBICACIÓN', key: 'ubicacion', width: 15 }
+      ]
+
+      // Estilo Header Hoja 1
+      dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }
+      dataSheet.getRow(1).alignment = { horizontal: 'center' }
+
+      // Colores por familia
+      const uniqueFamilies = Array.from(new Set(allItems.map(i => i.producto_familia || 'SIN FAMILIA')))
+      const familyColorMap: Record<string, string> = {}
+      uniqueFamilies.forEach((f, idx) => {
+        familyColorMap[f] = idx % 2 === 0 ? 'FFD9EAF7' : 'FFFFFFFF'
+      })
+
+      allItems.forEach(item => {
+        const family = item.producto_familia || 'SIN FAMILIA'
+        const row = dataSheet.addRow({
+          familia: family,
+          desc_gral: familyDescriptions[family],
+          sku: item.producto_sku,
+          marca: item.marca_nombre || '',
+          cajas: item.cajas,
+          piezas_sueltas: item.piezas_sueltas,
+          total_piezas: (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas,
+          ubicacion: item.ubicacion_pasillo || ''
+        })
+
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: familyColorMap[family] } }
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } }
+        })
+      })
+
+      // --- HOJA 2: FORMATO IMPRESIÓN ---
+      const printSheet = workbook.addWorksheet('Formato Impresión')
+      
+      // Configuración para Impresión: Repetir encabezados
+      printSheet.pageSetup.printTitlesRow = '3:3'
+      printSheet.pageSetup.paperSize = 9
+      printSheet.pageSetup.orientation = 'landscape'
+      
+      // Márgenes estrechos
+      printSheet.pageSetup.margins = {
+        left: 0.25, right: 0.25,
+        top: 0.75, bottom: 0.75,
+        header: 0.3, footer: 0.3
+      }
+      
+      // Ajustar columnas a una página
+      printSheet.pageSetup.fitToPage = true
+      printSheet.pageSetup.fitToWidth = 1
+      printSheet.pageSetup.fitToHeight = 0
+
+      printSheet.mergeCells('A1:C1')
+      printSheet.getCell('A1').value = `REPORTE DE EXISTENCIAS - BODEGA ${bodegaId}`
+      printSheet.getCell('A1').font = { bold: true, size: 18 }
+      
+      // Header Hoja 2
+      const headerRowIdx = 3
+      const headerRow = printSheet.getRow(headerRowIdx)
+      headerRow.height = 40
+      
+      const mainHeaderStyle: Partial<ExcelJS.Style> = {
+        font: { bold: true, size: 12 },
+        alignment: { vertical: 'middle', horizontal: 'center' },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } },
+        border: { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
       }
 
-      const familyCell = printSheet.getCell(startRow, 1);
-      const descCell = printSheet.getCell(startRow, 3);
+      const headers = ['FAMILIA', 'ESTILO', 'DESCRIPCION', 'CAJAS', 'PZ SUELTAS', 'TOTAL PIEZAS', 'UBICACION']
+      headers.forEach((h, i) => {
+        const cell = printSheet.getCell(headerRowIdx, i + 1)
+        cell.value = h
+        Object.assign(cell, mainHeaderStyle)
+      })
 
-      [familyCell, descCell].forEach((cell: any) => {
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.font = { bold: true, size: 10 };
-        cell.border = {
-          bottom: { style: 'medium', color: { argb: 'FF475569' } },
-          left: { style: 'thin' },
-          right: { style: 'thin' }
-        };
-      });
+      // Agrupar items por familia
+      const itemsByFamily: Record<string, typeof allItems> = {}
+      let expTotalCajas = 0
+      let expTotalPiezas = 0
 
-      // Borde grueso al final del bloque
-      printSheet.getRow(endRow).eachCell({ includeEmpty: true }, (cell: any) => {
-        cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF475569' } } };
-      });
-    })
+      allItems.forEach(item => {
+        expTotalCajas += item.cajas
+        expTotalPiezas += (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
 
-    // Resumen Footer
-    currentRowIdx += 2
-    printSheet.getCell(currentRowIdx, 3).value = 'TOTALES GENERALES:'
-    printSheet.getCell(currentRowIdx, 4).value = totalCajas
-    printSheet.getCell(currentRowIdx, 6).value = totalPiezas
-    printSheet.getRow(currentRowIdx).font = { bold: true, size: 12 }
+        const f = item.producto_familia || 'SIN FAMILIA'
+        if (!itemsByFamily[f]) itemsByFamily[f] = []
+        itemsByFamily[f].push(item)
+      })
 
-    printSheet.getColumn(1).width = 15
-    printSheet.getColumn(2).width = 18
-    printSheet.getColumn(3).width = 50
-    printSheet.getColumn(6).width = 15
+      let currentRowIdx = 4
+      Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
+        const startRow = currentRowIdx
+        const isEven = fIdx % 2 === 0
+        const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
 
-    const buffer = await workbook.xlsx.writeBuffer()
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `Stock_Bodega_${bodegaId}_${new Date().toISOString().split('T')[0]}.xlsx`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    toast.success('Excel profesional generado')
+        familyItems.forEach((item, itemIdx) => {
+          const row = printSheet.getRow(currentRowIdx)
+          row.height = 35
+          
+          if (itemIdx === 0) {
+            printSheet.getCell(currentRowIdx, 1).value = family
+            printSheet.getCell(currentRowIdx, 3).value = familyDescriptions[family]
+          }
+          
+          const estiloCell = printSheet.getCell(currentRowIdx, 2)
+          estiloCell.value = item.producto_sku
+          estiloCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+          estiloCell.font = { size: 11, bold: true }
+
+          const cajas = item.cajas
+          const pzSueltas = item.piezas_sueltas
+          const totalPz = (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
+          
+          const styleNum = (val: number) => ({
+            value: val,
+            alignment: { horizontal: 'center', vertical: 'middle' },
+            font: { size: 13, bold: val > 0, color: { argb: val > 0 ? 'FF000000' : 'FFD1D5DB' } }
+          })
+
+          Object.assign(printSheet.getCell(currentRowIdx, 4), styleNum(cajas))
+          Object.assign(printSheet.getCell(currentRowIdx, 5), styleNum(pzSueltas))
+          Object.assign(printSheet.getCell(currentRowIdx, 6), styleNum(totalPz))
+
+          printSheet.getCell(currentRowIdx, 7).value = item.ubicacion_pasillo || ''
+          
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+          })
+
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
+          currentRowIdx++
+        })
+
+        const endRow = currentRowIdx - 1
+        
+        if (startRow < endRow) {
+          printSheet.mergeCells(startRow, 1, endRow, 1)
+          printSheet.mergeCells(startRow, 3, endRow, 3)
+        }
+
+        const familyCell = printSheet.getCell(startRow, 1);
+        const descCell = printSheet.getCell(startRow, 3);
+
+        [familyCell, descCell].forEach((cell: any) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          cell.font = { bold: true, size: 10 };
+          cell.border = {
+            bottom: { style: 'medium', color: { argb: 'FF475569' } },
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+
+        // Borde grueso al final del bloque
+        printSheet.getRow(endRow).eachCell({ includeEmpty: true }, (cell: any) => {
+          cell.border = { ...cell.border, bottom: { style: 'medium', color: { argb: 'FF475569' } } };
+        });
+      })
+
+      // Resumen Footer
+      currentRowIdx += 2
+      printSheet.getCell(currentRowIdx, 3).value = 'TOTALES GENERALES:'
+      printSheet.getCell(currentRowIdx, 4).value = expTotalCajas
+      printSheet.getCell(currentRowIdx, 6).value = expTotalPiezas
+      printSheet.getRow(currentRowIdx).font = { bold: true, size: 12 }
+
+      printSheet.getColumn(1).width = 15
+      printSheet.getColumn(2).width = 18
+      printSheet.getColumn(3).width = 50
+      printSheet.getColumn(6).width = 15
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Stock_Bodega_${bodegaId}_Completo_${new Date().toISOString().split('T')[0]}.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      toast.success(`Excel profesional generado (${allItems.length} productos)`)
+    } catch (err: any) {
+      toast.error('Error al exportar Excel: ' + (err.message ?? 'Desconocido'))
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const toggleExpand = async (productoId: number) => {
@@ -354,9 +382,24 @@ export function StockTable({
           )}
         </div>
         
-        <Button variant="outline" size="sm" onClick={downloadExcel} className="text-green-600">
-          <Download className="mr-2 h-4 w-4" />
-          Exportar Excel
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={downloadExcel}
+          disabled={isExporting}
+          className="text-green-600 font-bold hover:bg-green-50 dark:hover:bg-green-950/30"
+        >
+          {isExporting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Exportando todo...
+            </>
+          ) : (
+            <>
+              <Download className="mr-2 h-4 w-4" />
+              Exportar Excel
+            </>
+          )}
         </Button>
       </div>
 

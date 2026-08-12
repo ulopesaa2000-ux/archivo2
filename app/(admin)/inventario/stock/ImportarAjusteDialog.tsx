@@ -125,13 +125,19 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
           />
         )}
 
-        {step === 'success' && resultNotas.length > 0 && (
+        {step === 'success' && (
           <div className="flex flex-col items-center gap-4 py-8">
             <CheckCircle2 className="h-12 w-12 text-emerald-600" />
             <div className="text-center">
-              <h3 className="text-lg font-semibold">Ajuste{resultNotas.length > 1 ? 's' : ''} aplicado{resultNotas.length > 1 ? 's' : ''} exitosamente</h3>
+              <h3 className="text-lg font-semibold">
+                {resultNotas.length === 0
+                  ? 'Inventario al día'
+                  : `Ajuste${resultNotas.length > 1 ? 's' : ''} aplicado${resultNotas.length > 1 ? 's' : ''} exitosamente`}
+              </h3>
               <p className="text-sm text-muted-foreground mt-1">
-                {resultNotas.length} nota{resultNotas.length > 1 ? 's' : ''} — {resultTotal} productos procesados
+                {resultNotas.length === 0
+                  ? 'Las existencias en sistema ya coinciden exactamente con el archivo importado.'
+                  : `${resultNotas.length} nota${resultNotas.length > 1 ? 's' : ''} — ${resultTotal} productos procesados`}
               </p>
             </div>
 
@@ -174,7 +180,7 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
               </div>
             )}
 
-            {resultNotas.length > 1 && (
+            {(resultNotas.length === 0 || resultNotas.length > 1) && (
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cerrar
               </Button>

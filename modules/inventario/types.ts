@@ -218,6 +218,20 @@ export type NotaOcrPropuestaLineRaw = {
   confianza: number
 }
 
+export type NotaOcrLineaSincronizada = {
+  index: number
+  estilo_raw: string
+  descripcion_raw?: string | null
+  cantidad_cajas: number
+  piezas_por_caja?: number | null
+  confianza: number
+  producto_id?: number | null
+  producto_sku?: string | null
+  producto_nombre?: string | null
+  producto_pz_en_caja?: number | null
+  encontrado: boolean
+}
+
 export type NotaOcrPropuestaLineConfirmed = {
   producto_id: number
   cajas: number
@@ -256,6 +270,7 @@ export type NotaOcrPropuesta = {
   bodega_destino_nombre?: string
   revisado_por_nombre?: string
   nota_numero?: string
+  nota_estado_codigo?: string
 }
 
 export type FiltrosOcrPropuestas = {

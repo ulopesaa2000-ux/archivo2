@@ -4,7 +4,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
-import { fetchTipoMovimientoAjuste } from './import-queries'
+import { fetchTiposMovimientoImport, type TiposMovimientoMap } from './import-queries'
 
 export type ModoAjuste = 'delta' | 'absoluto' | 'global'
 
@@ -56,39 +56,24 @@ async function fetchStockActual(
   return map
 }
 
-async function crearNotaAjusteParaBodega(
+async function crearNotaSubconjunto(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  filas: ImportFilaValida[],
+  filas: { producto_id: number; sku: string; cajas: number }[],
   bodegaId: number,
   bodegaNombre: string,
   usuarioId: number,
-  tipoAjuId: number,
+  tipoMovimientoId: number,
+  tipoCodigo: 'ENT' | 'SAL',
   modo: ModoAjuste
 ): Promise<NotaBodegaResult> {
-  let filasProcesar = filas
-
-  if (modo === 'absoluto' || modo === 'global') {
-    const productoIds = filas.map(f => f.producto_id)
-    const stockMap = await fetchStockActual(supabase, bodegaId, productoIds)
-
-    filasProcesar = filas.map(f => {
-      const stockActual = stockMap.get(f.producto_id) ?? 0
-      const delta = f.cajas - stockActual
-      return { ...f, cajas: delta }
-    }).filter(f => f.cajas !== 0)
-  }
-
-  if (filasProcesar.length === 0) {
-    throw new Error(`No hay diferencias de stock para ajustar en ${bodegaNombre}.`)
-  }
-
   const modoLabel = modo === 'global' ? 'Corte Global' : modo === 'absoluto' ? 'Inventario total' : 'Ajuste delta'
   const fechaRef = new Date().toISOString().slice(0, 10)
-  const notaReferencia = `Ajuste importado (${modoLabel}) - ${fechaRef}`
-  const observaciones = `Importacion masiva (${modoLabel}): ${filasProcesar.length} productos - Bodega: ${bodegaNombre}`
+  const tipoLabel = tipoCodigo === 'ENT' ? 'Entrada (Incremento)' : 'Salida (Reducción)'
+  const notaReferencia = `Ajuste (${modoLabel} - ${tipoLabel}) - ${fechaRef}`
+  const observaciones = `Importacion masiva (${modoLabel} - ${tipoLabel}): ${filas.length} productos - Bodega: ${bodegaNombre}`
 
   const { data: notaData, error: notaError } = await supabase.rpc('sp_crear_nota', {
-    p_tipo_movimiento_id: tipoAjuId,
+    p_tipo_movimiento_id: tipoMovimientoId,
     p_bodega_origen_id: bodegaId,
     p_bodega_destino_id: null as any,
     p_usuario_id: usuarioId,
@@ -97,7 +82,7 @@ async function crearNotaAjusteParaBodega(
   })
 
   if (notaError) {
-    throw new Error(`Error al crear nota para ${bodegaNombre}: ${notaError.message}`)
+    throw new Error(`Error al crear nota de ${tipoLabel} para ${bodegaNombre}: ${notaError.message}`)
   }
 
   const resultado = Array.isArray(notaData) ? notaData[0] : notaData
@@ -105,14 +90,14 @@ async function crearNotaAjusteParaBodega(
   const numeroNota = resultado?.numero_nota
 
   if (!notaId) {
-    throw new Error(`No se pudo crear la nota de ajuste para ${bodegaNombre}.`)
+    throw new Error(`No se pudo crear la nota para ${bodegaNombre}.`)
   }
 
   let productosProcesados = 0
-  for (const fila of filasProcesar) {
+  for (const fila of filas) {
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
       p_nota_id: notaId,
-      p_cajas: fila.cajas,
+      p_cajas: Math.abs(fila.cajas), // SIEMPRE POSITIVO para cumplir chk_detalle_positivo
       p_producto_id: fila.producto_id,
       p_variante_id: undefined,
       p_piezas_sueltas: 0,
@@ -153,6 +138,96 @@ async function crearNotaAjusteParaBodega(
   }
 }
 
+async function procesarBodega(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  filasBodega: ImportFilaValida[],
+  bodegaId: number,
+  bodegaNombre: string,
+  usuarioId: number,
+  tiposMap: TiposMovimientoMap,
+  modo: ModoAjuste
+): Promise<NotaBodegaResult[]> {
+  // 1. Consolidar/agrupar filas con el mismo producto_id en esta bodega (suma existencias/deltas)
+  const consolidadoMap = new Map<number, ImportFilaValida>()
+  for (const f of filasBodega) {
+    const existing = consolidadoMap.get(f.producto_id)
+    if (existing) {
+      existing.cajas += f.cajas
+    } else {
+      consolidadoMap.set(f.producto_id, { ...f })
+    }
+  }
+  const filasConsolidadas = Array.from(consolidadoMap.values())
+
+  // 2. Calcular deltas reales según el modo
+  let deltasCalculados: { producto_id: number; sku: string; delta: number }[] = []
+
+  if (modo === 'absoluto' || modo === 'global') {
+    const productoIds = filasConsolidadas.map(f => f.producto_id)
+    const stockMap = await fetchStockActual(supabase, bodegaId, productoIds)
+
+    deltasCalculados = filasConsolidadas.map(f => {
+      const stockActual = stockMap.get(f.producto_id) ?? 0
+      const delta = f.cajas - stockActual
+      return { producto_id: f.producto_id, sku: f.sku, delta }
+    }).filter(d => d.delta !== 0)
+  } else {
+    // modo === 'delta'
+    deltasCalculados = filasConsolidadas.map(f => ({
+      producto_id: f.producto_id,
+      sku: f.sku,
+      delta: f.cajas,
+    })).filter(d => d.delta !== 0)
+  }
+
+  if (deltasCalculados.length === 0) {
+    return []
+  }
+
+  // 3. Dividir en incrementos (Entradas) y reducciones (Salidas)
+  const positivos = deltasCalculados
+    .filter(d => d.delta > 0)
+    .map(d => ({ producto_id: d.producto_id, sku: d.sku, cajas: d.delta }))
+
+  const negativos = deltasCalculados
+    .filter(d => d.delta < 0)
+    .map(d => ({ producto_id: d.producto_id, sku: d.sku, cajas: Math.abs(d.delta) }))
+
+  const resultados: NotaBodegaResult[] = []
+
+  // Crear nota de Entrada para incrementos de stock
+  if (positivos.length > 0) {
+    const resEnt = await crearNotaSubconjunto(
+      supabase,
+      positivos,
+      bodegaId,
+      bodegaNombre,
+      usuarioId,
+      tiposMap.ENT,
+      'ENT',
+      modo
+    )
+    resultados.push(resEnt)
+  }
+
+  // Crear nota de Salida para deducciones de stock
+  if (negativos.length > 0) {
+    const resSal = await crearNotaSubconjunto(
+      supabase,
+      negativos,
+      bodegaId,
+      bodegaNombre,
+      usuarioId,
+      tiposMap.SAL,
+      'SAL',
+      modo
+    )
+    resultados.push(resSal)
+  }
+
+  return resultados
+}
+
 export async function crearAjustesImportAction(
   filas: ImportFilaValida[],
   modo: ModoAjuste = 'delta'
@@ -164,11 +239,12 @@ export async function crearAjustesImportAction(
 
   const supabase = await createClient()
 
-  const tipoAjuId = await fetchTipoMovimientoAjuste()
-  if (!tipoAjuId) {
-    return { success: false, error: 'No se encontro el tipo de movimiento AJU en catalogo.' }
+  const tiposMap = await fetchTiposMovimientoImport()
+  if (!tiposMap) {
+    return { success: false, error: 'No se encontraron los tipos de movimiento ENT y SAL en el catálogo.' }
   }
 
+  // Agrupar filas por bodega_id
   const porBodega = new Map<number, ImportFilaValida[]>()
   for (const fila of filas) {
     if (!porBodega.has(fila.bodega_id)) {
@@ -184,11 +260,13 @@ export async function crearAjustesImportAction(
     const bodegaNombre = filasBodega[0].bodega_nombre
 
     try {
-      const notaResult = await crearNotaAjusteParaBodega(
-        supabase, filasBodega, bodegaId, bodegaNombre, user.id, tipoAjuId, modo
+      const notasBodega = await procesarBodega(
+        supabase, filasBodega, bodegaId, bodegaNombre, user.id, tiposMap, modo
       )
-      notas.push(notaResult)
-      totalProcesados += notaResult.productos_procesados
+      for (const n of notasBodega) {
+        notas.push(n)
+        totalProcesados += n.productos_procesados
+      }
     } catch (err: any) {
       revalidatePath('/inventario/notas')
       revalidatePath('/inventario/stock')
