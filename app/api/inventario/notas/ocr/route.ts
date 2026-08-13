@@ -39,9 +39,34 @@ export async function POST(request: NextRequest) {
     const origenHint = String(incomingForm.get('origen_hint') || incomingForm.get('origen') || '')
     const destinoHint = String(incomingForm.get('destino_hint') || incomingForm.get('destino') || '')
 
-    // 3. Construir FormData para enviar a n8n
+    // 3. Optimizar imagen con Sharp preservando máxima nitidez para OCR
+    const rawBuffer = Buffer.from(await foto.arrayBuffer())
+    let optimizedBuffer: Buffer
+
+    try {
+      const sharp = (await import('sharp')).default
+      optimizedBuffer = await sharp(rawBuffer)
+        .rotate() // Respeta orientación EXIF de celulares
+        .resize({
+          width: 2400,
+          height: 2400,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({
+          quality: 85,
+          mozjpeg: true,
+        })
+        .toBuffer()
+    } catch (sharpError) {
+      console.warn('Fallo optimización con sharp, usando imagen original:', sharpError)
+      optimizedBuffer = rawBuffer
+    }
+
+    // 4. Construir FormData para enviar a n8n
     const n8nForm = new FormData()
-    n8nForm.append('foto', foto, foto.name)
+    const optimizedBlob = new Blob([new Uint8Array(optimizedBuffer)], { type: 'image/jpeg' })
+    n8nForm.append('foto', optimizedBlob, 'foto_nota.jpg')
     n8nForm.append('client_request_id', clientRequestId)
     if (tipoHint) {
       n8nForm.append('tipo_hint', tipoHint)
@@ -53,8 +78,8 @@ export async function POST(request: NextRequest) {
       n8nForm.append('destino_hint', destinoHint)
     }
 
-    // 4. Reenviar al webhook de n8n
-    console.log(`Enviando propuesta OCR a n8n: ID ${clientRequestId}`)
+    // 5. Reenviar al webhook de n8n
+    console.log(`Enviando propuesta OCR optimizada a n8n: ID ${clientRequestId} (${(optimizedBuffer.length / 1024).toFixed(1)} KB vs original ${(rawBuffer.length / 1024).toFixed(1)} KB)`)
     const n8nResponse = await fetch(n8nWebhookUrl, {
       method: 'POST',
       body: n8nForm,
