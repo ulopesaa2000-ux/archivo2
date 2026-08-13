@@ -951,19 +951,39 @@ export async function subirComprobanteNotaAction(
     return { success: false, error: 'No se recibió ningún archivo.' }
   }
 
-  const ext = file.name.split('.').pop() || 'jpg'
   const cleanNum = numNota.replace(/[^a-zA-Z0-9_\-]/g, '_')
   const cleanBod = bodCodigo.replace(/[^a-zA-Z0-9_\-]/g, '_')
   
-  // Guardar con formato estructurado por Mes y Año
-  const storagePath = `Notas/${yyyy}-${mm}/${cleanNum}-${cleanBod}-${dd}.${ext}`
+  // Guardar con formato estructurado por Mes y Año siempre como .jpg optimizado
+  const storagePath = `Notas/${yyyy}-${mm}/${cleanNum}-${cleanBod}-${dd}.jpg`
 
-  // 3. Subir a Supabase Storage
+  // 3. Optimizar y subir a Supabase Storage
   const fileArrayBuffer = await file.arrayBuffer()
+  let uploadBuffer: Buffer = Buffer.from(fileArrayBuffer)
+
+  try {
+    const sharp = (await import('sharp')).default
+    uploadBuffer = await sharp(Buffer.from(fileArrayBuffer))
+      .rotate() // auto-orientar
+      .resize({
+        width: 2400,
+        height: 2400,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality: 85,
+        mozjpeg: true,
+      })
+      .toBuffer()
+  } catch (sharpErr) {
+    console.warn('Fallo optimización sharp en subirComprobante, subiendo original:', sharpErr)
+  }
+
   const { error: uploadError } = await supabase.storage
     .from('product_images')
-    .upload(storagePath, Buffer.from(fileArrayBuffer), {
-      contentType: file.type || 'image/jpeg',
+    .upload(storagePath, uploadBuffer, {
+      contentType: 'image/jpeg',
       upsert: true,
     })
 
@@ -1206,8 +1226,8 @@ export async function actualizarPropuestaOcrLineasAction(
 ): Promise<ActionResult> {
   const supabase = await createClient()
 
-  const { error } = await (supabase as any)
-    .from('notas_ocr_propuestas')
+  const { error } = await supabase
+    .from('nota_ocr_propuestas')
     .update({ lineas })
     .eq('id', propuestaId)
 
