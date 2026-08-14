@@ -26,7 +26,7 @@ import {
 import {
   Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
-  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check
+  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste
 } from 'lucide-react'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import Link from 'next/link'
@@ -249,22 +249,84 @@ export function NoteDraftBuilder({
   // ── Comprobante Físico ───────────────────────────────────
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
   const [comprobantePreview, setComprobantePreview] = useState<string | null>(initialData?.cabecera.comprobante_url ?? null)
+  const [isDraggingComprobante, setIsDraggingComprobante] = useState(false)
+
+  const processComprobanteFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Por favor selecciona un archivo de imagen válido (.jpg, .png, .webp).')
+      return
+    }
+    setComprobanteFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setComprobantePreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      setComprobanteFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setComprobantePreview(reader.result as string)
+      processComprobanteFile(file)
+    }
+  }
+
+  const handlePasteComprobanteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        toast.info('Presiona Ctrl + V para pegar la imagen del portapapeles.')
+        return
       }
-      reader.readAsDataURL(file)
+      const items = await navigator.clipboard.read()
+      let found = false
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith('image/'))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          const ext = imageType.split('/')[1] || 'jpg'
+          const file = new File([blob], `comprobante_${Date.now()}.${ext}`, { type: imageType })
+          processComprobanteFile(file)
+          toast.success('¡Comprobante pegado desde el portapapeles!')
+          found = true
+          break
+        }
+      }
+      if (!found) {
+        toast.error('No se encontró ninguna imagen en el portapapeles.')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.info('No se pudo leer el portapapeles directamente. Presiona Ctrl + V.')
+    }
+  }
+
+  const handleComprobanteDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingComprobante(true)
+  }
+
+  const handleComprobanteDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingComprobante(false)
+  }
+
+  const handleComprobanteDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingComprobante(false)
+    const droppedFiles = e.dataTransfer.files
+    if (droppedFiles && droppedFiles.length > 0) {
+      processComprobanteFile(droppedFiles[0])
+      toast.success('¡Comprobante cargado correctamente!')
     }
   }
 
   const handleClearFile = () => {
     setComprobanteFile(null)
     setComprobantePreview(null)
+    setIsDraggingComprobante(false)
   }
 
   // Verificar si puede confirmar en la bodega origen seleccionada
@@ -425,7 +487,7 @@ export function NoteDraftBuilder({
       tempId: crypto.randomUUID(),
       producto_id: selectedProduct.id,
       producto_sku: selectedProduct.sku_base,
-      producto_nombre: selectedProduct.nombre,
+      producto_nombre: selectedProduct.descripcion || selectedProduct.nombre || '',
       producto_pz_en_caja: selectedProduct.pz_en_caja,
       cajas: cajasNum,
       piezas_sueltas: piezasNum,
@@ -557,7 +619,7 @@ export function NoteDraftBuilder({
           ...p,
           producto_id: newProduct.id,
           producto_sku: newProduct.sku_base,
-          producto_nombre: newProduct.nombre,
+          producto_nombre: newProduct.descripcion || newProduct.nombre || '',
           producto_pz_en_caja: newProduct.pz_en_caja,
           stock_origen_cajas: newStockCajas,
           stock_origen_piezas: newStockPiezas,
@@ -628,7 +690,7 @@ export function NoteDraftBuilder({
     startTransition(async () => {
       let result
       if (mode === 'edit' && notaId) {
-        result = await actualizarNotaAction(notaId, draft, confirmar)
+        result = await actualizarNotaAction(notaId, draft, confirmar, ocrProposalId)
       } else {
         result = await guardarNotaAction(draft, confirmar, ocrProposalId)
       }
@@ -918,7 +980,12 @@ export function NoteDraftBuilder({
                         </Button>
                       </div>
                     ) : (
-                      <div>
+                      <div
+                        onDragOver={handleComprobanteDragOver}
+                        onDragLeave={handleComprobanteDragLeave}
+                        onDrop={handleComprobanteDrop}
+                        className="space-y-2"
+                      >
                         <Input
                           type="file"
                           id="comprobante-uploader"
@@ -926,13 +993,33 @@ export function NoteDraftBuilder({
                           onChange={handleFileChange}
                           className="hidden"
                         />
-                        <Label
-                          htmlFor="comprobante-uploader"
-                          className="flex items-center justify-center gap-2 p-3 rounded-xl border border-dashed border-muted-foreground/30 hover:border-primary/50 cursor-pointer bg-background hover:bg-muted/30 transition-all text-center text-xs font-semibold"
+                        <div
+                          className={cn(
+                            "flex flex-col sm:flex-row items-center justify-between gap-2 p-3 rounded-2xl border-2 border-dashed transition-all",
+                            isDraggingComprobante
+                              ? "border-primary bg-primary/10 scale-[1.01]"
+                              : "border-muted-foreground/30 hover:border-primary/50 bg-background hover:bg-muted/20"
+                          )}
                         >
-                          <Upload className="h-4 w-4 text-muted-foreground" />
-                          <span>Tomar foto o subir archivo</span>
-                        </Label>
+                          <Label
+                            htmlFor="comprobante-uploader"
+                            className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Upload className="h-4 w-4 text-primary" />
+                            <span>{isDraggingComprobante ? '¡Suelta la imagen aquí!' : 'Subir archivo o arrastrar foto'}</span>
+                          </Label>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={handlePasteComprobanteFromClipboard}
+                            className="h-8 text-[11px] font-bold gap-1 rounded-xl shrink-0"
+                            title="Pegar imagen del portapapeles (Ctrl + V)"
+                          >
+                            <ClipboardPaste className="h-3.5 w-3.5" />
+                            <span>Pegar Portapapeles</span>
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

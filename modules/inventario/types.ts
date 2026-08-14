@@ -20,6 +20,8 @@ export type FiltrosNotas = {
   bodega_origen_id?: number
   fecha_desde?: string
   fecha_hasta?: string
+  sort_by?: string           // fecha_nota | numero_nota | bodega_origen_nombre | etc.
+  order?: 'asc' | 'desc'
   page?: number
   limit_bodega_ids?: number[]
   limit_usuario_id?: number

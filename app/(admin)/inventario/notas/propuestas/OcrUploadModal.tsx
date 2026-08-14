@@ -1,7 +1,7 @@
 // app/(admin)/inventario/notas/propuestas/OcrUploadModal.tsx
 'use client'
 
-import { useState, useTransition, useRef } from 'react'
+import { useState, useTransition, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
-import { Camera, Upload, Sparkles, Loader2, X, RefreshCw } from 'lucide-react'
+import { Camera, Upload, Sparkles, Loader2, X, ClipboardPaste, Image as ImageIcon } from 'lucide-react'
 import Image from 'next/image'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 export function OcrUploadModal({
   trigger,
@@ -26,31 +27,126 @@ export function OcrUploadModal({
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [tipo, setTipo] = useState<string>('entrada')
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+
+  // Helper para procesar y cargar archivo de imagen
+  const processImageFile = useCallback((selectedFile: File) => {
+    if (!selectedFile.type.startsWith('image/')) {
+      toast.error('Por favor selecciona un archivo de imagen válido (.jpg, .png, .webp).')
+      return
+    }
+    setFile(selectedFile)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setPreview(reader.result as string)
+    }
+    reader.readAsDataURL(selectedFile)
+  }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      setFile(selectedFile)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setPreview(reader.result as string)
+      processImageFile(selectedFile)
+    }
+  }
+
+  // Pegar desde Portapapeles (Click en Botón)
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        toast.info('Presiona Ctrl + V para pegar la imagen del portapapeles.')
+        return
       }
-      reader.readAsDataURL(selectedFile)
+      const items = await navigator.clipboard.read()
+      let imageFound = false
+
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith('image/'))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          const ext = imageType.split('/')[1] || 'jpg'
+          const pastedFile = new File([blob], `nota_portapapeles_${Date.now()}.${ext}`, { type: imageType })
+          processImageFile(pastedFile)
+          toast.success('¡Imagen pegada desde el portapapeles!')
+          imageFound = true
+          break
+        }
+      }
+
+      if (!imageFound) {
+        toast.error('No se encontró ninguna imagen en el portapapeles. Copia una imagen o captura y vuelve a intentar.')
+      }
+    } catch (err) {
+      console.error('Error leyendo portapapeles:', err)
+      toast.info('No se pudo acceder al portapapeles directamente. Presiona Ctrl + V en tu teclado para pegarla.')
+    }
+  }
+
+  // Listener global de pegar (Ctrl + V) cuando el modal está abierto
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      const clipboardItems = e.clipboardData?.items
+      if (!clipboardItems) return
+
+      for (let i = 0; i < clipboardItems.length; i++) {
+        if (clipboardItems[i].type.startsWith('image/')) {
+          const blob = clipboardItems[i].getAsFile()
+          if (blob) {
+            e.preventDefault()
+            processImageFile(blob)
+            toast.success('¡Imagen pegada desde el portapapeles (Ctrl + V)!')
+            break
+          }
+        }
+      }
+    }
+
+    window.addEventListener('paste', handleWindowPaste)
+    return () => window.removeEventListener('paste', handleWindowPaste)
+  }, [isOpen, processImageFile])
+
+  // Drag & Drop Handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isPending) setIsDraggingOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+    if (isPending) return
+
+    const droppedFiles = e.dataTransfer.files
+    if (droppedFiles && droppedFiles.length > 0) {
+      const droppedFile = droppedFiles[0]
+      processImageFile(droppedFile)
+      toast.success('¡Imagen soltada correctamente!')
     }
   }
 
   const clearSelection = () => {
     setFile(null)
     setPreview(null)
+    setIsDraggingOver(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (cameraInputRef.current) cameraInputRef.current.value = ''
   }
 
   const handleSubmit = () => {
     if (!file) {
-      toast.error('Por favor, captura o selecciona una foto de la nota.')
+      toast.error('Por favor, captura, pega o selecciona una foto de la nota.')
       return
     }
 
@@ -112,13 +208,13 @@ export function OcrUploadModal({
           trigger ? (
             trigger as any
           ) : (
-            <Button className="font-bold uppercase tracking-wider shadow-lg hover:scale-102 transition-transform" />
+            <Button className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white font-black uppercase tracking-wider shadow-lg shadow-orange-500/25 border-0 hover:scale-102 transition-all rounded-xl h-10 px-4" />
           )
         }
       >
         {!trigger && (
           <>
-            <Sparkles className="mr-2 h-4 w-4" />
+            <Sparkles className="mr-2 h-4 w-4 text-white animate-pulse" />
             Escanear OCR
           </>
         )}
@@ -127,15 +223,15 @@ export function OcrUploadModal({
       <DialogContent className="sm:max-w-xl max-w-full w-full h-full sm:h-auto overflow-y-auto bg-gradient-to-br from-card to-background border shadow-2xl rounded-none sm:rounded-2xl p-6">
         <DialogHeader>
           <DialogTitle className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-yellow-500 animate-pulse" />
+            <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
             Escanear Nota Física (OCR)
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Sube o toma una foto de tu orden física. Nuestra IA extraerá los productos y cantidades automáticamente.
+            Sube, arrastra, toma una foto o presiona <strong className="text-foreground">Ctrl + V</strong> para pegar tu nota física. La IA extraerá los productos automáticamente.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4 relative">
+        <div className="space-y-5 py-2 relative">
           {/* Campo Oculto para subida de archivo */}
           <input
             type="file"
@@ -156,27 +252,30 @@ export function OcrUploadModal({
             disabled={isPending}
           />
 
-          {/* Selectores de metadata básica */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tipo de Movimiento Estimado</Label>
-              <Select value={tipo} onValueChange={(val) => val && setTipo(val)} disabled={isPending}>
-                <SelectTrigger className="h-10 rounded-xl">
-                  <SelectValue placeholder="Selecciona tipo..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="entrada">Entrada (Ingreso)</SelectItem>
-                  <SelectItem value="salida">Salida (Egreso)</SelectItem>
-                  <SelectItem value="traspaso">Traspaso (Movimiento)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Selector de tipo estimado */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tipo de Movimiento Estimado</Label>
+            <Select value={tipo} onValueChange={(val) => val && setTipo(val)} disabled={isPending}>
+              <SelectTrigger className="h-10 rounded-xl">
+                <SelectValue placeholder="Selecciona tipo..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="entrada">Entrada (Ingreso)</SelectItem>
+                <SelectItem value="salida">Salida (Egreso)</SelectItem>
+                <SelectItem value="traspaso">Traspaso (Movimiento)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          {/* Visualizador de imagen / Dropzone */}
-          <div className="relative">
+          {/* Visualizador de imagen / Dropzone Principal */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className="relative"
+          >
             {preview ? (
-              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border bg-black shadow-inner group">
+              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border-2 border-primary/40 bg-black shadow-inner group">
                 <Image
                   src={preview}
                   alt="Vista previa de la nota"
@@ -187,7 +286,7 @@ export function OcrUploadModal({
                 {/* Capa de Escaneo Animada Premium en Procesamiento */}
                 {isPending && (
                   <div className="absolute inset-0 bg-black/30 pointer-events-none overflow-hidden">
-                    <div className="w-full h-1 bg-yellow-500 shadow-[0_0_15px_#f59e0b] absolute left-0 animate-scan-beam" style={{
+                    <div className="w-full h-1 bg-amber-500 shadow-[0_0_15px_#f59e0b] absolute left-0 animate-scan-beam" style={{
                       animation: 'scan 2.5s infinite ease-in-out'
                     }} />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/40">
@@ -199,11 +298,12 @@ export function OcrUploadModal({
                   </div>
                 )}
 
-                {/* Botón borrar */}
+                {/* Botón borrar / cambiar */}
                 {!isPending && (
                   <button
+                    type="button"
                     onClick={clearSelection}
-                    className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black text-white rounded-full transition-colors shadow-md"
+                    className="absolute top-3 right-3 p-2 bg-black/70 hover:bg-black text-white rounded-full transition-colors shadow-md z-10"
                     title="Remover imagen"
                   >
                     <X className="h-4 w-4" />
@@ -211,39 +311,75 @@ export function OcrUploadModal({
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Opción Cámara */}
-                <button
-                  type="button"
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed border-muted hover:border-primary/50 bg-background/50 hover:bg-muted/30 transition-all text-center group min-h-[160px]"
+              <div className="space-y-3">
+                {/* Dropzone Container */}
+                <div
+                  className={cn(
+                    "flex flex-col items-center justify-center p-6 rounded-2xl border-2 border-dashed transition-all text-center",
+                    isDraggingOver
+                      ? "border-amber-500 bg-amber-500/10 scale-[1.01] shadow-lg shadow-amber-500/10"
+                      : "border-muted-foreground/30 hover:border-amber-500/50 bg-background/60 hover:bg-muted/20"
+                  )}
                 >
-                  <div className="p-3 bg-primary/10 text-primary rounded-xl mb-3 group-hover:scale-110 transition-transform">
-                    <Camera className="h-6 w-6" />
+                  <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-2xl mb-2">
+                    <ImageIcon className="h-7 w-7" />
                   </div>
-                  <span className="text-xs font-bold uppercase tracking-tight">Usar Cámara</span>
-                  <span className="text-[10px] text-muted-foreground mt-1">Captura foto en vivo (móvil)</span>
-                </button>
+                  <p className="text-sm font-bold tracking-tight">
+                    {isDraggingOver ? '¡Suelta tu imagen aquí!' : 'Arrastra y suelta tu foto aquí'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    o pega directamente desde el portapapeles con <kbd className="px-1.5 py-0.5 bg-muted rounded border text-[10px] font-mono font-bold text-foreground">Ctrl + V</kbd>
+                  </p>
+                </div>
 
-                {/* Opción Archivo */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed border-muted hover:border-primary/50 bg-background/50 hover:bg-muted/30 transition-all text-center group min-h-[160px]"
-                >
-                  <div className="p-3 bg-secondary/10 text-secondary-foreground rounded-xl mb-3 group-hover:scale-110 transition-transform">
-                    <Upload className="h-6 w-6" />
-                  </div>
-                  <span className="text-xs font-bold uppercase tracking-tight">Cargar Archivo</span>
-                  <span className="text-[10px] text-muted-foreground mt-1">Busca imágenes locales (.jpg, .png)</span>
-                </button>
+                {/* Opciones de Carga Rápida */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Opción 1: Pegar Portapapeles */}
+                  <button
+                    type="button"
+                    onClick={handlePasteFromClipboard}
+                    className="flex flex-col items-center justify-center p-3.5 rounded-xl border border-muted hover:border-amber-500/60 bg-background hover:bg-amber-500/5 transition-all text-center group"
+                  >
+                    <div className="p-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl mb-1.5 group-hover:scale-110 transition-transform">
+                      <ClipboardPaste className="h-5 w-5" />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-tight">Pegar Portapapeles</span>
+                    <span className="text-[9px] text-muted-foreground">Ctrl + V</span>
+                  </button>
+
+                  {/* Opción 2: Archivo Local */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center p-3.5 rounded-xl border border-muted hover:border-primary/60 bg-background hover:bg-primary/5 transition-all text-center group"
+                  >
+                    <div className="p-2 bg-primary/10 text-primary rounded-xl mb-1.5 group-hover:scale-110 transition-transform">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-tight">Cargar Archivo</span>
+                    <span className="text-[9px] text-muted-foreground">.jpg, .png, .webp</span>
+                  </button>
+
+                  {/* Opción 3: Cámara Móvil */}
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center p-3.5 rounded-xl border border-muted hover:border-blue-500/60 bg-background hover:bg-blue-500/5 transition-all text-center group"
+                  >
+                    <div className="p-2 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl mb-1.5 group-hover:scale-110 transition-transform">
+                      <Camera className="h-5 w-5" />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-tight">Usar Cámara</span>
+                    <span className="text-[9px] text-muted-foreground">Foto en vivo</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Acciones */}
-        <div className="flex items-center justify-between border-t pt-4">
+        {/* Acciones del Footer */}
+        <div className="flex items-center justify-between border-t pt-4 mt-2">
           {preview ? (
             <Button
               variant="outline"
@@ -272,7 +408,7 @@ export function OcrUploadModal({
             <Button
               onClick={handleSubmit}
               disabled={!file || isPending}
-              className="rounded-xl uppercase font-black text-[10px] tracking-wider font-mono gap-1.5 shadow-md shadow-primary/20"
+              className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white uppercase font-black text-[10px] tracking-wider font-mono gap-1.5 shadow-md shadow-orange-500/25 border-0"
             >
               {isPending ? (
                 <>
@@ -281,7 +417,7 @@ export function OcrUploadModal({
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-4 w-4 text-yellow-400" />
+                  <Sparkles className="h-4 w-4 text-white" />
                   Enviar al OCR
                 </>
               )}

@@ -212,3 +212,27 @@ export async function fetchTipoMovimientoAjuste(): Promise<number | null> {
     .single()
   return data?.id ?? null
 }
+
+/**
+ * Busca productos por SKU base o Nombre en el catálogo activo para selector manual.
+ */
+export async function buscarProductosCatalogo(query: string): Promise<ProductoMatch[]> {
+  const supabase = await createClient()
+  if (!query || query.trim().length < 1) return []
+
+  const term = query.trim()
+  const { data } = await supabase
+    .from('productos')
+    .select('id, sku_base, nombre')
+    .eq('activo', true)
+    .or(`sku_base.ilike.%${term}%,nombre.ilike.%${term}%`)
+    .order('sku_base')
+    .limit(25)
+
+  return (data ?? []).map((p) => ({
+    producto_id: p.id,
+    sku_base: p.sku_base,
+    nombre: p.nombre,
+  }))
+}
+

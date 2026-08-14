@@ -219,13 +219,13 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
                     <div className="flex items-center justify-end gap-1.5">
                       {estado === 'PENDIENTE_REVISION' ? (
                         <>
-                          <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
+                          <Link href={p.nota_id ? `/inventario/notas/${p.nota_id}?propuesta_id=${p.id}&edit_ocr=true` : `/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
                             <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1 text-primary border-primary/30 hover:bg-primary/5">
                               <Sparkles className="h-3.5 w-3.5" />
                               <span>Editar SKUs</span>
                             </Button>
                           </Link>
-                          <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}`}>
+                          <Link href={p.nota_id ? `/inventario/notas/${p.nota_id}` : `/inventario/notas/nueva?propuesta_id=${p.id}`}>
                             <Button size="sm" className="rounded-xl h-8 text-xs uppercase font-black tracking-wider gap-1">
                               Revisar
                               <ArrowRight className="h-3.5 w-3.5" />
@@ -249,7 +249,7 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
                       ) : (
                         <div className="flex items-center justify-end gap-1.5">
                           {(!p.nota_estado_codigo || p.nota_estado_codigo === 'PEND') && (
-                            <Link href={`/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
+                            <Link href={p.nota_id ? `/inventario/notas/${p.nota_id}?propuesta_id=${p.id}&edit_ocr=true` : `/inventario/notas/nueva?propuesta_id=${p.id}&edit_ocr=true`}>
                               <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1 text-primary border-primary/30 hover:bg-primary/5">
                                 <Sparkles className="h-3.5 w-3.5" />
                                 <span>Editar SKUs</span>

@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select'
-import { Search, Loader2, X, Filter, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Loader2, X, Filter, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react'
 import {
   ESTADO_NOTA_COLORS,
   TIPO_MOVIMIENTO_ICONS,
@@ -31,6 +31,8 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
   const currentBodega  = searchParam('bodega_origen_id', '_all')
   const currentDesde   = searchParam('fecha_desde')
   const currentHasta   = searchParam('fecha_hasta')
+  const currentSortBy  = searchParam('sort_by', 'fecha_nota')
+  const currentOrder   = searchParam('order', 'desc')
 
   // Conteo de filtros secundarios activos (excluyendo q y estado_codigo si es PEND/CONF)
   const activeAdvancedCount = [
@@ -39,6 +41,7 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
     currentBodega !== '_all',
     Boolean(currentDesde),
     Boolean(currentHasta),
+    currentSortBy !== 'fecha_nota' || currentOrder !== 'desc',
   ].filter(Boolean).length
 
   // Estado del acordeón de filtros secundarios
@@ -163,7 +166,61 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
 
       {/* 3. Panel Desplegable de Filtros Secundarios (Plegable con Chevron) */}
       {showAdvanced && (
-        <div className="pt-3 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:flex lg:flex-wrap items-center gap-3 animate-in fade-in-50 slide-in-from-top-1 duration-200">
+        <div className="pt-3 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 lg:flex lg:flex-wrap items-center gap-3 animate-in fade-in-50 slide-in-from-top-1 duration-200">
+          {/* Ordenar por */}
+          <div className="space-y-1 sm:space-y-0">
+            <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block sm:hidden">Ordenar por</span>
+            <Select
+              value={`${currentSortBy}-${currentOrder}`}
+              onValueChange={(val) => {
+                if (!val) return
+                const [sb, ord] = val.split('-')
+                if (sb === 'fecha_nota' && ord === 'desc') {
+                  updateParam('sort_by', null)
+                  updateParam('order', null)
+                } else {
+                  updateParam('sort_by', sb)
+                  updateParam('order', ord)
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-[190px] h-9 text-xs font-medium">
+                <div className="flex items-center gap-1.5 truncate">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="truncate">
+                    {currentSortBy === 'fecha_nota' && currentOrder === 'desc'
+                      ? '📅 Fecha (Más reciente)'
+                      : currentSortBy === 'fecha_nota' && currentOrder === 'asc'
+                      ? '📅 Fecha (Más antigua)'
+                      : currentSortBy === 'numero_nota' && currentOrder === 'asc'
+                      ? '🔢 N° Nota (A-Z)'
+                      : currentSortBy === 'numero_nota' && currentOrder === 'desc'
+                      ? '🔢 N° Nota (Z-A)'
+                      : currentSortBy === 'bodega_origen_nombre'
+                      ? '🏬 Bodega Origen'
+                      : currentSortBy === 'estado_codigo'
+                      ? '⚡ Estado'
+                      : currentSortBy === 'costo_total'
+                      ? '💰 Costo Total'
+                      : currentSortBy === 'total_cajas'
+                      ? '📦 Total Cajas'
+                      : 'Ordenar por...'}
+                  </span>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fecha_nota-desc">📅 Fecha (Más reciente primero)</SelectItem>
+                <SelectItem value="fecha_nota-asc">📅 Fecha (Más antigua primero)</SelectItem>
+                <SelectItem value="numero_nota-asc">🔢 N° Nota (A - Z)</SelectItem>
+                <SelectItem value="numero_nota-desc">🔢 N° Nota (Z - A)</SelectItem>
+                <SelectItem value="bodega_origen_nombre-asc">🏬 Bodega Origen (A - Z)</SelectItem>
+                <SelectItem value="estado_codigo-asc">⚡ Estado</SelectItem>
+                <SelectItem value="costo_total-desc">💰 Costo (Mayor a menor)</SelectItem>
+                <SelectItem value="total_cajas-desc">📦 Cajas (Mayor a menor)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Tipo Movimiento */}
           <div className="space-y-1 sm:space-y-0">
             <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block sm:hidden">Tipo Movimiento</span>
