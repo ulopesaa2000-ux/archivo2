@@ -63,6 +63,7 @@ export async function fetchNotas(
         id, nombre, codigo
       )
     `, { count: 'exact' })
+    .eq('activo', true)
 
   // ── Filtro: búsqueda por numero_nota ────────────────────
   if (filtros.q) {
@@ -129,8 +130,40 @@ export async function fetchNotas(
   }
 
   // ── Ordenamiento y paginación ───────────────────────────
+  const sortKey = filtros.sort_by || 'fecha_nota'
+  const isAsc = filtros.order === 'asc'
+
+  let orderColumn = 'fecha_nota'
+  switch (sortKey) {
+    case 'numero_nota':
+      orderColumn = 'numero_nota'
+      break
+    case 'tipo_codigo':
+      orderColumn = 'tipo_movimiento_id'
+      break
+    case 'estado_codigo':
+      orderColumn = 'estado_id'
+      break
+    case 'bodega_origen_nombre':
+      orderColumn = 'bodega_origen_id'
+      break
+    case 'bodega_destino_nombre':
+      orderColumn = 'bodega_destino_id'
+      break
+    case 'total_cajas':
+      orderColumn = 'total_cajas'
+      break
+    case 'costo_total':
+      orderColumn = 'costo_total'
+      break
+    case 'fecha_nota':
+    default:
+      orderColumn = 'fecha_nota'
+      break
+  }
+
   query = query
-    .order('fecha_nota', { ascending: false })
+    .order(orderColumn, { ascending: isAsc })
     .range(from, to)
 
   const { data, count, error } = await query
@@ -1474,3 +1507,24 @@ export async function fetchOcrPropuestaById(
     nota_numero: notaNumero
   }
 }
+
+export async function fetchOcrPropuestaByNotaId(
+  notaId: number
+): Promise<NotaOcrPropuesta | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await (supabase as any)
+    .from('nota_ocr_propuestas')
+    .select('id')
+    .eq('nota_id', notaId)
+    .order('creado_en', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) {
+    return null
+  }
+
+  return fetchOcrPropuestaById(data.id)
+}
+

@@ -13,10 +13,12 @@ export type ResetResult = {
 
 /**
  * Reinicia las notas de inventario marcando activo = false.
+ * Puede aplicarse a todas las bodegas (bodegaId = undefined | 0)
+ * o a una bodega específica (bodega_origen_id = bodegaId OR bodega_destino_id = bodegaId).
  * Hace que los listados de notas e historial aparezcan aparentemente vacíos
- * sin eliminar registros físicos ni violar llaves foráneas.
+ * sin eliminar registros físicos ni violar llaves foráneas con nota_detalles.
  */
-export async function resetNotasAction(): Promise<ResetResult> {
+export async function resetNotasAction(bodegaId?: number): Promise<ResetResult> {
   const user = await getCurrentUser()
   if (!user || user.rol?.nivel_acceso !== 1) {
     return {
@@ -27,6 +29,37 @@ export async function resetNotasAction(): Promise<ResetResult> {
 
   const supabase = await createClient()
 
+  if (bodegaId && bodegaId > 0) {
+    // 1. Obtener datos de la bodega para mensaje de confirmación
+    const { data: bodega } = await supabase
+      .from('bodegas')
+      .select('id, nombre')
+      .eq('id', bodegaId)
+      .single()
+
+    const bodegaNombre = bodega?.nombre || `Bodega #${bodegaId}`
+
+    // 2. Ocultar notas asociadas a la bodega (origen o destino)
+    const { error } = await supabase
+      .from('notas_inventario')
+      .update({ activo: false } as any)
+      .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
+
+    if (error) {
+      console.error(`Error al ocultar notas de la bodega ${bodegaId}:`, error)
+      return { success: false, error: `Error al ocultar notas de ${bodegaNombre}: ${error.message}` }
+    }
+
+    revalidatePath('/inventario/notas')
+    revalidatePath('/configuracion/inventario')
+
+    return {
+      success: true,
+      message: `Se han ocultado las notas de inventario asociadas a la bodega '${bodegaNombre}' (ID: ${bodegaId}) exitosamente.`,
+    }
+  }
+
+  // Si no se especifica bodegaId (o es 0), se desactivan TODAS las notas de inventario
   const { error } = await supabase
     .from('notas_inventario')
     .update({ activo: false } as any)
@@ -42,7 +75,7 @@ export async function resetNotasAction(): Promise<ResetResult> {
 
   return {
     success: true,
-    message: 'Se han ocultado las notas de inventario exitosamente. El listado de notas aparece ahora vacío.',
+    message: 'Se han ocultado todas las notas de inventario del sistema exitosamente. El listado de notas aparece ahora vacío.',
   }
 }
 

@@ -38,6 +38,7 @@ export default async function DashboardVirtualPage(props: { params: Promise<{ id
     .select('id, numero_nota, observaciones, created_at, tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (codigo, nombre), estado:cat_estados_nota!notas_inventario_estado_id_fkey (codigo)')
     .or(`bodega_origen_id.eq.${id},bodega_destino_id.eq.${id}`)
     .eq('estado_id', 1) // PEND
+    .eq('activo', true)
     .order('created_at', { ascending: false })
     .limit(10)
 

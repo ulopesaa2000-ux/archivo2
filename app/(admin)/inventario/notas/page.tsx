@@ -35,6 +35,8 @@ export default async function NotasPage({
     ciudad?: string
     fecha_desde?: string
     fecha_hasta?: string
+    sort_by?: string
+    order?: 'asc' | 'desc'
     page?: string
   }>
 }) {
@@ -73,6 +75,8 @@ export default async function NotasPage({
     ciudad: sp.ciudad,
     fecha_desde: sp.fecha_desde,
     fecha_hasta: sp.fecha_hasta,
+    sort_by: sp.sort_by || 'fecha_nota',
+    order: (sp.order === 'asc' || sp.order === 'desc') ? sp.order : 'desc',
     page: sp.page ? parseInt(sp.page) : 1,
   }
 
@@ -211,7 +215,13 @@ export default async function NotasPage({
       <NotasFilters catalogos={catalogosFiltrados} />
 
       {/* Tabla (Server, se re-renderiza) */}
-      <NotasTable notas={notas} initialFeatures={features} bodegaFiltradaId={filtros.bodega_origen_id} />
+      <NotasTable
+        notas={notas}
+        initialFeatures={features}
+        bodegaFiltradaId={filtros.bodega_origen_id}
+        sortKey={filtros.sort_by}
+        sortOrder={filtros.order}
+      />
 
       {/* Paginación */}
       <Pagination total={total} />

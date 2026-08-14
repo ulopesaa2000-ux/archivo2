@@ -79,7 +79,7 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
     router.push(`/inventario/notas/${notaId}`)
   }
 
-  const maxW = step === 'preview' ? 'sm:max-w-2xl' : step === 'confirm' ? 'sm:max-w-xl' : 'sm:max-w-lg'
+  const maxW = step === 'preview' ? 'sm:max-w-5xl lg:max-w-6xl' : step === 'confirm' ? 'sm:max-w-xl' : 'sm:max-w-lg'
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

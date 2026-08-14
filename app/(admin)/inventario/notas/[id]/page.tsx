@@ -2,7 +2,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { fetchNotaById, fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { fetchNotaById, fetchCatalogosInventario, fetchOcrPropuestaById, fetchOcrPropuestaByNotaId } from '@/modules/inventario/queries'
 import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import { TabSkeleton } from '@/components/admin/PageSkeleton'
@@ -30,24 +30,36 @@ export async function generateMetadata({
 /**
  * Detalle de nota de inventario.
  *
- * Si la nota está en PEND/PROC → muestra el NoteDraftBuilder en modo edición
+ * Si la nota está en PEND/PROC → muestra el NoteDraftBuilder en modo edición con visor lateral OCR
  * Si la nota está en CONF/CANC → muestra vista solo lectura
  *
  * Todo se queda en /inventario/notas/[id] — NO navega a otra ruta.
  */
 export default async function NotaDetallePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{ propuesta_id?: string; edit_ocr?: string }>
 }) {
   const p = await params
+  const sp = searchParams ? await searchParams : {}
   const id = parseInt(p.id)
   if (isNaN(id)) notFound()
 
   const user = await getCurrentUser()
   if (!user) redirect('/login')
 
-  const nota = await fetchNotaById(id)
+  const notaPromise = fetchNotaById(id)
+  const ocrProposalPromise = sp.propuesta_id
+    ? fetchOcrPropuestaById(sp.propuesta_id)
+    : fetchOcrPropuestaByNotaId(id)
+
+  const [nota, ocrProposal] = await Promise.all([
+    notaPromise,
+    ocrProposalPromise,
+  ])
+
   if (!nota) notFound()
 
   // Validación de acceso por rol
@@ -99,6 +111,9 @@ export default async function NotaDetallePage({
           initialData={nota}
           currentUserLevel={user.rol?.nivel_acceso ?? 3}
           userBodegas={userBodegas}
+          ocrProposalId={ocrProposal?.id}
+          initialOcrLineas={ocrProposal?.lineas}
+          autoOpenOcrSync={sp.edit_ocr === 'true'}
         />
 
         <Separator className="my-6" />

@@ -26,11 +26,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Eye, FileText, Image as ImageIcon, CheckCircle2, Loader2, ExternalLink, Package } from 'lucide-react'
+import { MoreHorizontal, Eye, FileText, Image as ImageIcon, CheckCircle2, Loader2, ExternalLink, Package, Trash2 } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
 import type { NotaListItem } from '@/modules/inventario/types'
-import { confirmarNotaAction, getNotaDetallesAction } from '@/modules/inventario/actions'
+import { confirmarNotaAction, getNotaDetallesAction, eliminarNotaAction } from '@/modules/inventario/actions'
 import { toast } from 'sonner'
 
 type Props = {
@@ -39,6 +39,90 @@ type Props = {
   sortOrder?: 'asc' | 'desc'
   initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
   bodegaFiltradaId?: number
+}
+
+function NotaAccionesCell({ row }: { row: NotaListItem }) {
+  const router = useRouter()
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [isDeleting, startDeleteTransition] = useTransition()
+
+  const handleDelete = () => {
+    startDeleteTransition(async () => {
+      const res = await eliminarNotaAction(row.id)
+      if (res.success) {
+        toast.success(`Nota ${row.numero_nota} eliminada exitosamente`)
+        setShowDeleteDialog(false)
+        router.refresh()
+      } else {
+        toast.error(res.error ?? 'No se pudo eliminar la nota')
+      }
+    })
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}>
+              <Eye className="mr-2 h-3.5 w-3.5" />
+              Ver detalle
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setShowDeleteDialog(true)}
+            className="text-red-600 dark:text-red-400 focus:bg-red-500/10 focus:text-red-600 font-semibold cursor-pointer"
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" />
+            Eliminar nota
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent className="rounded-2xl border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 dark:text-red-400 font-bold">
+              ¿Eliminar Nota {row.numero_nota}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs text-muted-foreground pt-1">
+              <span>
+                Se borrará esta nota del sistema y ya no estará disponible en las listas ni en el historial.
+              </span>
+              <span className="block font-bold text-foreground">
+                ¿Estás seguro de continuar?
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="pt-2">
+            <AlertDialogCancel disabled={isDeleting} className="rounded-xl h-10 text-xs font-semibold">
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl h-10 gap-1.5"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                'Sí, eliminar nota'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
 }
 
 // Features base con FastCheck (expandable: true)
@@ -415,23 +499,7 @@ function NotasTableInner({
       key: 'acciones',
       header: '',
       headerClassName: 'w-[50px]',
-      cell: (row: NotaListItem) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}>
-                <Eye className="mr-2 h-3.5 w-3.5" />
-                Ver detalle
-              </Link>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      cell: (row: NotaListItem) => <NotaAccionesCell row={row} />,
     },
   ]
 

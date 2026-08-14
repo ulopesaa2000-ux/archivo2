@@ -221,7 +221,8 @@ export async function guardarNotaAction(
 export async function actualizarNotaAction(
   notaId: number,
   draft: DraftNota,
-  confirmar: boolean = false
+  confirmar: boolean = false,
+  ocrProposalId?: string
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
@@ -386,7 +387,21 @@ export async function actualizarNotaAction(
     }
   }
 
+  // ── 5. Actualizar estado de la propuesta OCR si aplica ───
+  if (ocrProposalId) {
+    await (supabase as any)
+      .from('nota_ocr_propuestas')
+      .update({
+        estado: 'REVISADO',
+        revisado_por: user.id,
+        revisado_en: new Date().toISOString(),
+        nota_id: notaId
+      })
+      .eq('id', ocrProposalId)
+  }
+
   revalidatePath('/inventario/notas')
+  revalidatePath('/inventario/notas/propuestas')
   revalidatePath(`/inventario/notas/${notaId}`)
   revalidatePath('/inventario/stock')
 
@@ -1185,7 +1200,7 @@ export async function sincronizarLineasOcrAction(
 
     const { data: prods } = await supabase
       .from('productos')
-      .select('id, sku_base, nombre, pz_en_caja')
+      .select('id, sku_base, nombre, descripcion, pz_en_caja')
       .or(`sku_base.ilike.%${rawText}%,sku_base.ilike.%${cleanTerm}%,descripcion.ilike.%${rawText}%`)
       .limit(1)
 
@@ -1199,7 +1214,7 @@ export async function sincronizarLineasOcrAction(
         confianza,
         producto_id: p.id,
         producto_sku: p.sku_base,
-        producto_nombre: p.nombre,
+        producto_nombre: p.descripcion ?? p.nombre ?? '',
         producto_pz_en_caja: p.pz_en_caja,
         encontrado: true,
       })
@@ -1263,5 +1278,60 @@ export async function exportStockMatrixAction(
     return { success: false, error: err.message ?? 'Error al exportar matriz de stock' }
   }
 }
+
+/**
+ * Elimina una nota de inventario marcándola como inactiva (activo = false).
+ * Para el usuario funciona como eliminación (deja de aparecer en las listas).
+ * Preserva las relaciones con nota_detalles para integridad referencial.
+ */
+export async function eliminarNotaAction(notaId: number): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) {
+    return { success: false, error: 'No autenticado.' }
+  }
+
+  const supabase = await createClient()
+
+  // 1. Obtener la nota para verificar bodega y permisos
+  const { data: nota, error: errorFetch } = await supabase
+    .from('notas_inventario')
+    .select('id, numero_nota, bodega_origen_id, bodega_destino_id')
+    .eq('id', notaId)
+    .single()
+
+  if (errorFetch || !nota) {
+    return { success: false, error: 'Nota no encontrada.' }
+  }
+
+  // 2. Verificar permisos
+  const perm = await can(user, 'editar_nota', {
+    bodegaOrigenId: nota.bodega_origen_id,
+    bodegaDestinoId: nota.bodega_destino_id || undefined,
+  })
+
+  if (!perm.ok) {
+    return { success: false, error: perm.motivo || 'No tienes permisos para eliminar esta nota.' }
+  }
+
+  // 3. Ocultar la nota (soft delete)
+  const { error: errorUpdate } = await supabase
+    .from('notas_inventario')
+    .update({ activo: false } as any)
+    .eq('id', notaId)
+
+  if (errorUpdate) {
+    console.error('Error al eliminar nota:', errorUpdate)
+    return { success: false, error: `Error al eliminar la nota: ${errorUpdate.message}` }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath(`/inventario/notas/${notaId}`)
+
+  return {
+    success: true,
+    numero_nota: nota.numero_nota,
+  }
+}
+
 
 

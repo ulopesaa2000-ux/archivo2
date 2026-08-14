@@ -43,15 +43,26 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
   const [activeAction, setActiveAction] = useState<ActionType>(null)
   const [selectedBodega, setSelectedBodega] = useState<BodegaSimple | null>(null)
   const [selectedCardBodegaId, setSelectedCardBodegaId] = useState<number>(0)
+  const [selectedNotasBodegaId, setSelectedNotasBodegaId] = useState<number>(0)
   const [confirmText, setConfirmText] = useState('')
   const [isPending, startTransition] = useTransition()
 
   const getRequiredKeyword = () => {
-    return activeAction === 'bodega' ? 'REINICIAR BODEGA' : 'REINICIAR INVENTARIO'
+    if (activeAction === 'bodega') return 'REINICIAR BODEGA'
+    if (activeAction === 'notas' && selectedNotasBodegaId > 0) return 'REINICIAR BODEGA'
+    return 'REINICIAR INVENTARIO'
   }
 
   const handleOpenDialog = (action: ActionType) => {
     setActiveAction(action)
+    setSelectedBodega(null)
+    setSelectedNotasBodegaId(0)
+    setConfirmText('')
+  }
+
+  const handleOpenNotasDialog = (bodegaId: number = 0) => {
+    setActiveAction('notas')
+    setSelectedNotasBodegaId(bodegaId)
     setSelectedBodega(null)
     setConfirmText('')
   }
@@ -75,6 +86,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
     if (isPending) return
     setActiveAction(null)
     setSelectedBodega(null)
+    setSelectedNotasBodegaId(0)
     setConfirmText('')
   }
 
@@ -88,7 +100,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
     startTransition(async () => {
       let res
       if (activeAction === 'notas') {
-        res = await resetNotasAction()
+        res = await resetNotasAction(selectedNotasBodegaId)
       } else if (activeAction === 'stock') {
         res = await resetStockCeroAction()
       } else if (activeAction === 'completo') {
@@ -135,21 +147,21 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
       {/* Grid de 4 Opciones de Reinicio Operativo */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Opción 1: Vaciar Notas */}
-        <Card className="border shadow-md hover:shadow-lg transition-all flex flex-col justify-between group">
+        <Card className="border shadow-md hover:shadow-lg transition-all flex flex-col justify-between group border-amber-500/30 bg-amber-500/5">
           <CardHeader className="pb-3">
             <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit mb-2">
               <FileText className="h-5 w-5" />
             </div>
             <CardTitle className="text-sm font-bold">1. Vaciar Notas</CardTitle>
             <CardDescription className="text-xs">
-              Oculta las notas existentes (`activo = false`). El historial parecerá vacío sin borrar registros físicos.
+              Oculta las notas (`activo = false`) de todas las bodegas o una específica sin romper relaciones con `nota_detalles`.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
             <Button
               type="button"
               variant="outline"
-              onClick={() => handleOpenDialog('notas')}
+              onClick={() => handleOpenNotasDialog(0)}
               className="w-full font-bold text-xs uppercase tracking-wider h-10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 rounded-xl"
             >
               Vaciar Notas
@@ -241,7 +253,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
         </Card>
       </div>
 
-      {/* Sección 4: Poner Stock a 0 por Bodega Específica */}
+      {/* Sección de Detalle y Acciones Rápidas por Bodega */}
       <Card className="border shadow-md hover:shadow-lg transition-all overflow-hidden">
         <CardHeader className="pb-4 border-b bg-muted/20">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -252,7 +264,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
               <div>
                 <CardTitle className="text-base font-bold">Detalle y Acciones Rápidas por Bodega</CardTitle>
                 <CardDescription className="text-xs">
-                  Consulta el listado de bodegas y ejecuta el reinicio a 0 cajas y 0 piezas de forma individual para cualquiera de ellas.
+                  Consulta el listado de bodegas y ejecuta de forma individual el vaciado de notas o el reinicio de stock a 0.
                 </CardDescription>
               </div>
             </div>
@@ -275,7 +287,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
                     <th className="px-4 py-3 text-left">Nombre de la Bodega</th>
                     <th className="px-4 py-3 text-left">Código / Ciudad</th>
                     <th className="px-4 py-3 text-center w-[110px]">Estado</th>
-                    <th className="px-4 py-3 text-right w-[170px]">Acción</th>
+                    <th className="px-4 py-3 text-right w-[240px]">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-xs">
@@ -304,16 +316,30 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
                         </Badge>
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenBodegaDialog(b)}
-                          className="font-bold text-xs border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 rounded-lg gap-1.5 h-8"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          Poner Stock a 0
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenNotasDialog(b.id)}
+                            className="font-bold text-xs border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 rounded-lg gap-1 h-8 px-2.5"
+                            title="Vaciar notas de esta bodega"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Vaciar Notas
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenBodegaDialog(b)}
+                            className="font-bold text-xs border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10 rounded-lg gap-1 h-8 px-2.5"
+                            title="Poner stock a 0 en esta bodega"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Stock 0
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -336,17 +362,49 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
               Confirmación de Alta Seguridad
             </AlertDialogTitle>
 
+            {/* Selector de alcance si la acción es 'vaciar notas' */}
+            {activeAction === 'notas' && (
+              <div className="space-y-1.5 text-left pt-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Alcance para vaciar notas:
+                </label>
+                <select
+                  value={selectedNotasBodegaId}
+                  onChange={(e) => setSelectedNotasBodegaId(Number(e.target.value))}
+                  disabled={isPending}
+                  className="w-full h-10 rounded-xl border bg-background px-3 text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value={0}>🌐 Todas las Bodegas (Reinicio Global)</option>
+                  {bodegas.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      🏬 Bodega #{b.id} - {b.nombre} {b.ciudad ? `(${b.ciudad})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Letrero en Negritas Destacado */}
             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-center space-y-2">
               <p className="font-black text-red-600 dark:text-red-400 text-sm sm:text-base uppercase tracking-tight leading-snug">
                 {activeAction === 'bodega' && selectedBodega
                   ? `⚠️ ESTA ACCIÓN REINICIARÁ A 0 TODO EL STOCK EXCLUSIVAMENTE EN LA BODEGA '${selectedBodega.nombre}' (ID: ${selectedBodega.id}).`
+                  : activeAction === 'notas' && selectedNotasBodegaId > 0
+                  ? `⚠️ ESTA ACCIÓN OCULTARÁ (ACTIVO = FALSE) TODAS LAS NOTAS DE LA BODEGA '${bodegas.find((b) => b.id === selectedNotasBodegaId)?.nombre}' (ID: ${selectedNotasBodegaId}).`
+                  : activeAction === 'notas'
+                  ? `⚠️ ESTA ACCIÓN OCULTARÁ (ACTIVO = FALSE) TODAS LAS NOTAS DE INVENTARIO DEL SISTEMA (GLOBAL).`
                   : '⚠️ ESTA ACCIÓN REINICIARÁ A 0 LA PARTE DEL INVENTARIO Y NOTAS PARA VOLVER A INICIAR.'}
               </p>
               <p className="text-[11px] text-muted-foreground font-semibold">
                 Acción reservada únicamente para Super Admin Nivel 1.
               </p>
             </div>
+
+            {activeAction === 'notas' && (
+              <p className="text-[11px] text-muted-foreground leading-relaxed bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl text-amber-800 dark:text-amber-300 text-left">
+                💡 <strong>Nota técnica de BD:</strong> Las notas no se eliminan físicamente (DELETE) para preservar las llaves foráneas con <code>nota_detalles</code>. Se marcan como <code>activo = false</code>, lo cual oculta el historial dejando las vistas de notas completamente vacías.
+              </p>
+            )}
 
             <AlertDialogDescription className="text-xs text-center text-muted-foreground pt-1">
               Para confirmar que deseas continuar con el reinicio, escribe la siguiente palabra clave en mayúsculas:
