@@ -113,7 +113,7 @@ async function StockNormalData({
         totalCajas={totalCajas}
       />
       <StockFilters />
-      <StockTable items={items} bodegaId={bodegaActivaId} agruparPor={agruparPor} />
+      <StockTable items={items} bodegaId={bodegaActivaId} agruparPor={agruparPor} bodegaNombre={bodegaActiva?.nombre} />
       <Pagination total={total} />
     </div>
   )

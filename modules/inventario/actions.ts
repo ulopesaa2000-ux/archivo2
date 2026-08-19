@@ -305,16 +305,17 @@ export async function actualizarNotaAction(
         return { success: false, error: 'Solo puedes editar notas creadas por ti mismo.' }
       }
     } else {
-      // Si es el creador, validar que tenga permisos para crear notas en la bodega de origen
+      // Si es el creador, validar que tenga permisos para crear/editar notas en la bodega de origen seleccionada
+      const origenAValidar = draft.bodega_origen_id || (nota as any).bodega_origen_id
       const { data: perm } = await supabase
         .from('usuario_bodegas')
         .select('puede_crear_notas')
         .eq('usuario_id', user.id)
-        .eq('bodega_id', (nota as any).bodega_origen_id)
+        .eq('bodega_id', origenAValidar)
         .single()
 
       if (!perm || !perm.puede_crear_notas) {
-        return { success: false, error: 'No tienes permiso para editar notas en esta bodega.' }
+        return { success: false, error: 'No tienes permiso para registrar o editar notas en la bodega de origen seleccionada.' }
       }
     }
   }
@@ -337,6 +338,9 @@ export async function actualizarNotaAction(
     observaciones: draft.observaciones || null,
     costo_total: draft.costo_total || 0,
     bodega_destino_id: draft.bodega_destino_id || null,
+  }
+  if (draft.bodega_origen_id) {
+    updateCabPayload.bodega_origen_id = draft.bodega_origen_id
   }
   if (draft.fecha_nota) {
     updateCabPayload.fecha_nota = draft.fecha_nota.includes('T')
@@ -389,14 +393,18 @@ export async function actualizarNotaAction(
 
   // ── 5. Actualizar estado de la propuesta OCR si aplica ───
   if (ocrProposalId) {
+    const ocrUpdatePayload: Record<string, any> = {
+      estado: 'REVISADO',
+      revisado_por: user.id,
+      revisado_en: new Date().toISOString(),
+      nota_id: notaId,
+    }
+    if (draft.bodega_origen_id) {
+      ocrUpdatePayload.bodega_origen_id = draft.bodega_origen_id
+    }
     await (supabase as any)
       .from('nota_ocr_propuestas')
-      .update({
-        estado: 'REVISADO',
-        revisado_por: user.id,
-        revisado_en: new Date().toISOString(),
-        nota_id: notaId
-      })
+      .update(ocrUpdatePayload)
       .eq('id', ocrProposalId)
   }
 

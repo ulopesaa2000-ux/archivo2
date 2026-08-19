@@ -16,10 +16,12 @@ export function StockTable({
   items,
   bodegaId,
   agruparPor,
+  bodegaNombre,
 }: {
   items: StockListItem[]
   bodegaId: number
   agruparPor?: string
+  bodegaNombre?: string
 }) {
   const searchParams = useSearchParams()
   const [isExporting, setIsExporting] = useState(false)
@@ -117,17 +119,25 @@ export function StockTable({
       const allItems = res.data
       const workbook = new ExcelJS.Workbook()
       
-      // --- HOJA 1: DATOS ---
-      const dataSheet = workbook.addWorksheet('Datos Stock')
-      
       // Mapear descripción general por familia
       const familyDescriptions: Record<string, string> = {}
+      let expTotalCajas = 0
+      let expTotalPzSueltas = 0
+      let expTotalPiezas = 0
+
       allItems.forEach(item => {
+        expTotalCajas += item.cajas
+        expTotalPzSueltas += item.piezas_sueltas
+        expTotalPiezas += (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
+
         const family = item.producto_familia || 'SIN FAMILIA'
         if (!familyDescriptions[family]) {
           familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
         }
       })
+
+      // --- HOJA 1: DATOS ---
+      const dataSheet = workbook.addWorksheet('Datos Stock')
 
       dataSheet.columns = [
         { header: 'FAMILIA', key: 'familia', width: 20 },
@@ -171,6 +181,36 @@ export function StockTable({
         })
       })
 
+      // Filas de Resumen al final de Hoja 1 (Datos Stock)
+      dataSheet.addRow({})
+      
+      const dataRowTotals = dataSheet.addRow({
+        familia: '',
+        desc_gral: '',
+        sku: 'TOTALES:',
+        marca: '',
+        cajas: expTotalCajas,
+        piezas_sueltas: expTotalPzSueltas,
+        total_piezas: expTotalPiezas,
+        ubicacion: ''
+      })
+      dataRowTotals.font = { bold: true }
+      dataRowTotals.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+      dataRowTotals.getCell('total_piezas').font = { bold: true, color: { argb: 'FFDC2626' } }
+
+      const dataRowBodega = dataSheet.addRow({
+        familia: '',
+        desc_gral: '',
+        sku: 'BODEGA:',
+        marca: '',
+        cajas: (bodegaNombre || `BODEGA ${bodegaId}`).toUpperCase(),
+        piezas_sueltas: '',
+        total_piezas: 'TOTAL',
+        ubicacion: ''
+      })
+      dataRowBodega.font = { bold: true }
+      dataRowBodega.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+
       // --- HOJA 2: FORMATO IMPRESIÓN ---
       const printSheet = workbook.addWorksheet('Formato Impresión')
       
@@ -192,7 +232,7 @@ export function StockTable({
       printSheet.pageSetup.fitToHeight = 0
 
       printSheet.mergeCells('A1:C1')
-      printSheet.getCell('A1').value = `REPORTE DE EXISTENCIAS - BODEGA ${bodegaId}`
+      printSheet.getCell('A1').value = `REPORTE DE EXISTENCIAS - ${(bodegaNombre || `BODEGA ${bodegaId}`).toUpperCase()}`
       printSheet.getCell('A1').font = { bold: true, size: 18 }
       
       // Header Hoja 2
@@ -216,13 +256,8 @@ export function StockTable({
 
       // Agrupar items por familia
       const itemsByFamily: Record<string, typeof allItems> = {}
-      let expTotalCajas = 0
-      let expTotalPiezas = 0
 
       allItems.forEach(item => {
-        expTotalCajas += item.cajas
-        expTotalPiezas += (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
-
         const f = item.producto_familia || 'SIN FAMILIA'
         if (!itemsByFamily[f]) itemsByFamily[f] = []
         itemsByFamily[f].push(item)
@@ -298,12 +333,63 @@ export function StockTable({
         });
       })
 
-      // Resumen Footer
+      // Resumen Footer Hoja 2 (Idéntico a la imagen de referencia: TOTAL CAJAS + BODEGA)
       currentRowIdx += 2
-      printSheet.getCell(currentRowIdx, 3).value = 'TOTALES GENERALES:'
-      printSheet.getCell(currentRowIdx, 4).value = expTotalCajas
-      printSheet.getCell(currentRowIdx, 6).value = expTotalPiezas
-      printSheet.getRow(currentRowIdx).font = { bold: true, size: 12 }
+
+      // Fila 1: TOTAL CAJAS
+      const rowCajasIdx = currentRowIdx
+      printSheet.getRow(rowCajasIdx).height = 28
+      printSheet.getCell(rowCajasIdx, 3).value = 'TOTAL CAJAS'
+      printSheet.getCell(rowCajasIdx, 3).font = { bold: true, size: 11, color: { argb: 'FF1E293B' } }
+      printSheet.getCell(rowCajasIdx, 3).alignment = { horizontal: 'right', vertical: 'middle' }
+      printSheet.getCell(rowCajasIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+      printSheet.getCell(rowCajasIdx, 3).border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      const cajasCell = printSheet.getCell(rowCajasIdx, 4)
+      cajasCell.value = expTotalCajas
+      cajasCell.font = { bold: true, size: 13, color: { argb: 'FF0F172A' } }
+      cajasCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cajasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+      cajasCell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      const pzSueltasCell = printSheet.getCell(rowCajasIdx, 5)
+      pzSueltasCell.value = expTotalPzSueltas
+      pzSueltasCell.font = { bold: true, size: 11, color: { argb: 'FF64748B' } }
+      pzSueltasCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      pzSueltasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+      pzSueltasCell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      const totalCajasFinalCell = printSheet.getCell(rowCajasIdx, 6)
+      totalCajasFinalCell.value = expTotalCajas
+      totalCajasFinalCell.font = { bold: true, size: 13, color: { argb: 'FFDC2626' } }
+      totalCajasFinalCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      totalCajasFinalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+      totalCajasFinalCell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      // Fila 2: NOMBRE DE BODEGA ABAJO
+      currentRowIdx++
+      const rowBodegaIdx = currentRowIdx
+      printSheet.getRow(rowBodegaIdx).height = 36
+      printSheet.getCell(rowBodegaIdx, 3).value = 'BODEGA'
+      printSheet.getCell(rowBodegaIdx, 3).font = { bold: true, size: 11, color: { argb: 'FF1E40AF' } }
+      printSheet.getCell(rowBodegaIdx, 3).alignment = { horizontal: 'right', vertical: 'middle' }
+      printSheet.getCell(rowBodegaIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      printSheet.getCell(rowBodegaIdx, 3).border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      printSheet.mergeCells(rowBodegaIdx, 4, rowBodegaIdx, 5)
+      const bodegaNombreCell = printSheet.getCell(rowBodegaIdx, 4)
+      bodegaNombreCell.value = (bodegaNombre || `BODEGA ${bodegaId}`).toUpperCase()
+      bodegaNombreCell.font = { bold: true, size: 11, color: { argb: 'FF0F172A' } }
+      bodegaNombreCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      bodegaNombreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      bodegaNombreCell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      const bodegaTotalLabelCell = printSheet.getCell(rowBodegaIdx, 6)
+      bodegaTotalLabelCell.value = 'TOTAL'
+      bodegaTotalLabelCell.font = { bold: true, size: 11, color: { argb: 'FFDC2626' } }
+      bodegaTotalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      bodegaTotalLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      bodegaTotalLabelCell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
       printSheet.getColumn(1).width = 15
       printSheet.getColumn(2).width = 18
