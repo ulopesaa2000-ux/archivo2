@@ -46,6 +46,8 @@ const NO_CAJA_VALUE = '_none'
 
 import { OcrUploadModal } from '../propuestas/OcrUploadModal'
 
+import type { ConfigInventario } from '@/modules/inventario/config-types'
+
 type Props = {
   catalogos: CatalogosInventario
   usuarioId: number
@@ -59,6 +61,8 @@ type Props = {
   defaultBodegaOrigenId?: number
   initialOcrLineas?: NotaOcrPropuestaLineRaw[]
   autoOpenOcrSync?: boolean
+  config?: ConfigInventario
+  userRoleId?: number
 }
 
 const TIPO_MOV_ICONS_COMP = {
@@ -71,7 +75,7 @@ const TIPO_MOV_ICONS_COMP = {
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas, ocrProposalId, ocrProposal, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync
+  currentUserLevel, userBodegas, ocrProposalId, ocrProposal, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync, config, userRoleId
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -222,10 +226,40 @@ export function NoteDraftBuilder({
         b.id === draft.bodega_destino_id
       )
 
-  // Tipos de movimiento permitidos (para bodegueros y encargados solo ENT, SAL, TRF; admins ven todos)
+  // Tipos de movimiento permitidos según configuración de roles
+  const rolKey = userRoleId ? String(userRoleId) : ''
+  const nivelKey = String(currentUserLevel)
+
+  const allowedCodigos =
+    (rolKey && config?.permisos_tipos_movimiento?.[rolKey]) ||
+    config?.permisos_tipos_movimiento?.[nivelKey] ||
+    (currentUserLevel <= 2 ? ['ENT', 'SAL', 'TRF', 'AJU', 'DEV'] : ['ENT', 'SAL', 'TRF'])
+
   const tiposMovimientoVisibles = catalogos.tiposMovimiento.filter((t) => {
-    if (esAdmin) return true
-    return ['ENT', 'SAL', 'TRF'].includes(t.codigo)
+    if (currentUserLevel === 1) return true
+
+    // Si es devolución (DEV) y el usuario es Nivel 3+:
+    if (t.codigo === 'DEV' && currentUserLevel > 2) {
+      const tienePermisoDevolucionIndividual = userBodegas.some((ub) => {
+        const key = `${usuarioId}_${ub.id}`
+        return config?.permisos_devolucion_usuario_bodega?.[key] === true
+      })
+      const permitidoPorRol = allowedCodigos.includes('DEV')
+      if (!permitidoPorRol && !tienePermisoDevolucionIndividual) return false
+    } else {
+      // Si no está permitido en la configuración de tipos para este rol/nivel, excluir
+      if (!allowedCodigos.includes(t.codigo as any)) return false
+    }
+
+    // Si es traspaso (TRF) y el usuario es Nivel 3+, verificar si tiene asignada alguna bodega con permiso de transferir
+    if (t.codigo === 'TRF' && currentUserLevel > 2) {
+      const tienePermisoTransferir = userBodegas.some(
+        (ub) => (ub.permisos_bodega?.puede_transferir ?? (ub as any).puede_transferir) === true
+      )
+      if (!tienePermisoTransferir) return false
+    }
+
+    return true
   })
 
   // ── Handlers e Inferencias para Bodega Origen y OCR ────────
@@ -867,7 +901,11 @@ export function NoteDraftBuilder({
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tipo de Movimiento *</Label>
               <div className={cn(
                 "grid gap-2 sm:gap-3",
-                tiposMovimientoVisibles.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-5"
+                tiposMovimientoVisibles.length === 1 ? "grid-cols-1" :
+                tiposMovimientoVisibles.length === 2 ? "grid-cols-2" :
+                tiposMovimientoVisibles.length === 3 ? "grid-cols-3" :
+                tiposMovimientoVisibles.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
+                "grid-cols-2 sm:grid-cols-5"
               )}>
                 {tiposMovimientoVisibles.map((t) => {
                   const Icon = TIPO_MOV_ICONS_COMP[t.codigo as keyof typeof TIPO_MOV_ICONS_COMP] || Package

@@ -17,6 +17,8 @@ import type { BodegaRow } from '@/lib/types/tables'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { sortBodegasWithConfig } from '@/modules/inventario/config-types'
 
 export const metadata: Metadata = {
   title: 'Stock por Bodega',
@@ -91,11 +93,13 @@ async function StockNormalData({
   bodegas,
   bodegaActivaId,
   agruparPor,
+  limiteNotasPendientes = 5,
 }: {
   filtros: FiltrosStock
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
+  limiteNotasPendientes?: number
 }) {
   const { items, total, totalCajas } = await fetchStockByBodega(bodegaActivaId, filtros)
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
@@ -103,7 +107,7 @@ async function StockNormalData({
   return (
     <div className="space-y-4">
       <Suspense fallback={null}>
-        <NotasPendientesPanel bodegaId={bodegaActivaId} />
+        <NotasPendientesPanel bodegaId={bodegaActivaId} limit={limiteNotasPendientes} />
       </Suspense>
       <StockPageHeader
         title="Stock por Bodega"
@@ -141,8 +145,8 @@ function StockSkeleton() {
 /**
  * Panel de notas pendientes por aprobar, filtrado por bodega.
  */
-async function NotasPendientesPanel({ bodegaId }: { bodegaId: number }) {
-  const notas = await fetchNotasPendientesPorBodega(bodegaId, 5)
+async function NotasPendientesPanel({ bodegaId, limit = 5 }: { bodegaId: number; limit?: number }) {
+  const notas = await fetchNotasPendientesPorBodega(bodegaId, limit)
   if (notas.length === 0) return null
 
   return (
@@ -178,11 +182,12 @@ async function StockPageContent({
   searchParams: Promise<StockPageSearchParams>
 }) {
   const { user } = await verifySession()
-  const [userBodegas, cookieStore, sp, catalogos] = await Promise.all([
+  const [userBodegas, cookieStore, sp, catalogos, config] = await Promise.all([
     fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99),
     cookies(),
     searchParams,
     fetchCatalogosInventario(),
+    fetchConfigInventario(),
   ])
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
   let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
@@ -211,8 +216,11 @@ async function StockPageContent({
     bodegaActivaId = 0
   }
 
-  // Bodegas permitidas para el usuario (para filtros y columnas matriz)
-  const bodegasPermitidas = isRestrictedUser ? userBodegas : catalogos.bodegas
+  // Bodegas permitidas para el usuario ordenadas según la configuración global
+  const bodegasBase = isRestrictedUser ? userBodegas : catalogos.bodegas
+  const bodegasPermitidas = sortBodegasWithConfig(bodegasBase, config)
+
+  const defaultAgrupacion = sp.agrupar_por || config.agrupacion_default_stock || 'familia'
 
   if (bodegaActivaId === 0) {
     const rawBodegas = parseArray(sp.bodegas)
@@ -223,7 +231,7 @@ async function StockPageContent({
 
     const filtros: FiltrosStockMatrix = {
       q: sp.q,
-      con_stock_cero: sp.con_stock_cero === 'true',
+      con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
       page: sp.page ? parseInt(sp.page) : 1,
       ciudades: rawCiudades.filter(v => v !== 'none'),
       bodegas: rawBodegas.filter(v => v !== 'none').map(v => parseInt(v, 10)),
@@ -236,7 +244,7 @@ async function StockPageContent({
           isNone={isNone} 
           bodegas={bodegasPermitidas} 
           bodegaActivaId={bodegaActivaId} 
-          agruparPor={sp.agrupar_por}
+          agruparPor={defaultAgrupacion}
         />
       </Suspense>
     )
@@ -244,7 +252,7 @@ async function StockPageContent({
 
   const filtros: FiltrosStock = {
     q: sp.q,
-    con_stock_cero: sp.con_stock_cero === 'true',
+    con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
     page: sp.page ? parseInt(sp.page) : 1,
   }
 
@@ -254,7 +262,8 @@ async function StockPageContent({
         filtros={filtros} 
         bodegas={bodegasPermitidas} 
         bodegaActivaId={bodegaActivaId} 
-        agruparPor={sp.agrupar_por}
+        agruparPor={defaultAgrupacion}
+        limiteNotasPendientes={config.limite_notas_pendientes_panel}
       />
     </Suspense>
   )

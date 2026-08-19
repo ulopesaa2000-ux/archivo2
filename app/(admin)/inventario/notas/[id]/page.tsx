@@ -14,6 +14,8 @@ import { NoteDraftBuilder } from '../nueva/NoteDraftBuilder'
 import { Separator } from '@/components/ui/separator'
 import { NotaComparadorLayout } from '@/app/(admin)/inventario/notas/[id]/components/NotaComparadorLayout'
 
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+
 export async function generateMetadata({
   params,
 }: {
@@ -54,10 +56,12 @@ export default async function NotaDetallePage({
   const ocrProposalPromise = sp.propuesta_id
     ? fetchOcrPropuestaById(sp.propuesta_id)
     : fetchOcrPropuestaByNotaId(id)
+  const configPromise = fetchConfigInventario()
 
-  const [nota, ocrProposal] = await Promise.all([
+  const [nota, ocrProposal, config] = await Promise.all([
     notaPromise,
     ocrProposalPromise,
+    configPromise,
   ])
 
   if (!nota) notFound()
@@ -115,6 +119,8 @@ export default async function NotaDetallePage({
           ocrProposal={ocrProposal}
           initialOcrLineas={ocrProposal?.lineas}
           autoOpenOcrSync={sp.edit_ocr === 'true'}
+          config={config}
+          userRoleId={user.rol_id ?? user.rol?.id}
         />
 
         <Separator className="my-6" />

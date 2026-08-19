@@ -72,6 +72,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Propuestas OCR', href: ADMIN_ROUTES.inventario.notaPropuestas, icon: Sparkles, modulo: 'inventario_notas' },
       { label: 'Stock', href: ADMIN_ROUTES.inventario.stock, icon: Warehouse, modulo: 'inventario_stock' },
       { label: 'Bodegas', href: ADMIN_ROUTES.inventario.bodegas, icon: Building2, modulo: 'inventario_bodegas' },
+      { label: 'Configuración', href: ADMIN_ROUTES.inventario.config, icon: Settings, modulo: 'inventario_config' },
     ],
   },
   {

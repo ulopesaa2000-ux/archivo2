@@ -69,6 +69,7 @@ export const ADMIN_ROUTES = {
     notaPropuestas: '/inventario/notas/propuestas',
     stock: '/inventario/stock',
     bodegas: '/inventario/bodegas',
+    config: '/inventario/config',
   },
   ordenesB2B: {
     lista: '/ordenes-b2b',
