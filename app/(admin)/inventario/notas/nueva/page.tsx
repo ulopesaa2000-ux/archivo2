@@ -10,6 +10,8 @@ import type { DraftNota, DraftProducto, NotaCompleta, NotaOcrPropuesta } from '@
 import { AlertCircle } from 'lucide-react'
 import { OcrUploadModal } from '../propuestas/OcrUploadModal'
 
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+
 export const metadata: Metadata = {
   title: 'Nueva Nota de Inventario',
 }
@@ -24,9 +26,11 @@ export default async function NuevaNotaPage({
   const autoOpenOcrSync = sp.edit_ocr === 'true'
 
   const catalogosPromise = fetchCatalogosInventario()
-  const [{ user }, catalogos] = await Promise.all([
+  const configPromise = fetchConfigInventario()
+  const [{ user }, catalogos, config] = await Promise.all([
     verifySession(),
     catalogosPromise,
+    configPromise,
   ])
 
   const cookieStore = await cookies()
@@ -238,6 +242,8 @@ export default async function NuevaNotaPage({
         ocrProposal={ocrProposal}
         defaultBodegaOrigenId={activeBodegaId}
         autoOpenOcrSync={autoOpenOcrSync}
+        config={config}
+        userRoleId={user.rol_id ?? user.rol?.id}
       />
     </div>
   )

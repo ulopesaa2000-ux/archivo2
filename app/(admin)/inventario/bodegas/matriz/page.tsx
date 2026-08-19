@@ -1,14 +1,15 @@
 // app/(admin)/inventario/bodegas/matriz/page.tsx
 import type { Metadata } from 'next'
 import { fetchBodegas, fetchTodasAsignacionesBodega } from '@/modules/inventario/queries'
+import { fetchConfigInventarioLive } from '@/modules/inventario/config-queries'
 import { fetchUsuarios } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { cn } from '@/lib/utils'
-import { MatrizPermisosClient } from './MatrizPermisosClient'
-import { ShieldCheck, ChevronLeft, Building2 } from 'lucide-react'
+import { AsignacionCiudadTab } from '@/components/admin/inventario/config/AsignacionCiudadTab'
+import { ShieldCheck, ChevronLeft, Building2, Settings } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Matriz de Permisos - Admin',
@@ -39,10 +40,11 @@ export default async function MatrizPermisosPage() {
   }
 
   // Carga de datos en paralelo
-  const [bodegas, usuarios, asignaciones] = await Promise.all([
+  const [bodegas, usuarios, asignaciones, config] = await Promise.all([
     fetchBodegas(),
     fetchUsuarios(),
     fetchTodasAsignacionesBodega(),
+    fetchConfigInventarioLive(),
   ])
 
   return (
@@ -68,10 +70,17 @@ export default async function MatrizPermisosPage() {
             Matriz de Permisos por Bodega
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Gestión centralizada de accesos y autorizaciones operativas para Jefes Operativos y Encargados.
+            Gestión centralizada de accesos, asignación rápida por ciudad y autorizaciones para Encargados y Bodegueros.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/inventario/config"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <Settings className="h-4 w-4 mr-1" />
+            Configuración Global
+          </Link>
           <Link
             href="/inventario/bodegas"
             className={buttonVariants({ variant: 'outline', size: 'sm' })}
@@ -82,11 +91,12 @@ export default async function MatrizPermisosPage() {
         </div>
       </div>
 
-      {/* Client-side visual matrix */}
-      <MatrizPermisosClient 
+      {/* Matriz interactiva de asignación por ciudad y accesos granulares */}
+      <AsignacionCiudadTab 
         bodegas={bodegas}
         usuarios={usuarios}
         asignacionesIniciales={asignaciones}
+        config={config}
       />
     </div>
   )
