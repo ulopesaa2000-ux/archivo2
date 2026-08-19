@@ -24,7 +24,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle,
+  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
   ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste
 } from 'lucide-react'
@@ -36,7 +36,7 @@ import {
 import { guardarNotaAction, actualizarNotaAction, subirComprobanteNotaAction } from '@/modules/inventario/actions'
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
-  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw
+  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import { cn, todayMX, formatForDateInput } from '@/lib/utils'
@@ -55,6 +55,7 @@ type Props = {
   currentUserLevel: number
   userBodegas: (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
   ocrProposalId?: string
+  ocrProposal?: NotaOcrPropuesta | null
   defaultBodegaOrigenId?: number
   initialOcrLineas?: NotaOcrPropuestaLineRaw[]
   autoOpenOcrSync?: boolean
@@ -70,7 +71,7 @@ const TIPO_MOV_ICONS_COMP = {
 
 export function NoteDraftBuilder({
   catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas, ocrProposalId, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync
+  currentUserLevel, userBodegas, ocrProposalId, ocrProposal, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -82,6 +83,11 @@ export function NoteDraftBuilder({
   const [ocrRawLineas, setOcrRawLineas] = useState<NotaOcrPropuestaLineRaw[]>(
     initialOcrLineas ?? (initialData?.cabecera as any)?.ocr_lineas ?? []
   )
+
+  // ── Cambio de Bodega Origen con confirmación y recalcular stock ─────
+  const [pendingBodegaOrigenId, setPendingBodegaOrigenId] = useState<number | null>(null)
+  const [showChangeBodegaDialog, setShowChangeBodegaDialog] = useState<boolean>(false)
+  const [isChangingBodega, setIsChangingBodega] = useState<boolean>(false)
 
   const handleApplyOcrLinesToDraft = (newProducts: DraftProducto[], updatedRawLineas: NotaOcrPropuestaLineRaw[]) => {
     setOcrRawLineas(updatedRawLineas)
@@ -221,6 +227,93 @@ export function NoteDraftBuilder({
     if (esAdmin) return true
     return ['ENT', 'SAL', 'TRF'].includes(t.codigo)
   })
+
+  // ── Handlers e Inferencias para Bodega Origen y OCR ────────
+  const handleRequestBodegaOrigenChange = (newBodegaId: number) => {
+    if (newBodegaId === draft.bodega_origen_id) return
+
+    if (draft.productos.length > 0 || mode === 'edit') {
+      setPendingBodegaOrigenId(newBodegaId)
+      setShowChangeBodegaDialog(true)
+    } else {
+      applyBodegaOrigenChange(newBodegaId)
+    }
+  }
+
+  const applyBodegaOrigenChange = async (newBodegaId: number) => {
+    setShowChangeBodegaDialog(false)
+    setIsChangingBodega(true)
+    const targetBodega = catalogos.bodegas.find((b) => b.id === newBodegaId)
+
+    setDraft((prev) => ({
+      ...prev,
+      bodega_origen_id: newBodegaId,
+      bodega_destino_id: prev.bodega_destino_id === newBodegaId ? null : prev.bodega_destino_id,
+    }))
+
+    if (draft.productos.length > 0) {
+      try {
+        const updatedProducts = await Promise.all(
+          draft.productos.map(async (p) => {
+            const res = await fetch(
+              `/api/inventario/notas/nueva/stock?producto_id=${p.producto_id}&bodega_id=${newBodegaId}`
+            )
+            if (res.ok) {
+              const stockData = await res.json()
+              return {
+                ...p,
+                stock_origen_cajas: stockData.cajas ?? 0,
+                stock_origen_piezas: stockData.piezas_sueltas ?? 0,
+              }
+            }
+            return p
+          })
+        )
+        setDraft((prev) => ({
+          ...prev,
+          productos: updatedProducts,
+        }))
+      } catch (err) {
+        console.error('Error al actualizar existencias de la bodega de origen:', err)
+      }
+    }
+
+    if (selectedProduct) {
+      fetchStock(selectedProduct.id, newBodegaId)
+    }
+
+    toast.success(`Bodega de origen actualizada a "${targetBodega?.nombre || 'nueva bodega'}".`)
+    setPendingBodegaOrigenId(null)
+    setIsChangingBodega(false)
+  }
+
+  // ── Detección y Comparación de Origen OCR ─────────────────
+  const detectedOrigenRaw = (
+    ocrProposal?.origen_detectado ||
+    (initialData?.cabecera as any)?.origen_detectado ||
+    ''
+  ).trim()
+
+  const detectedBodega = detectedOrigenRaw
+    ? (
+        (ocrProposal?.bodega_origen_id && catalogos.bodegas.find(b => b.id === ocrProposal.bodega_origen_id)) ||
+        catalogos.bodegas.find((b) => {
+          const raw = detectedOrigenRaw.toLowerCase()
+          const bName = b.nombre.toLowerCase().trim()
+          const bCode = b.codigo.toLowerCase().trim()
+          return bName === raw || bCode === raw || raw.includes(bName) || bName.includes(raw)
+        })
+      )
+    : null
+
+  const isOcrNote = Boolean(ocrProposalId || (ocrProposal && ocrProposal.origen_detectado) || detectedOrigenRaw)
+  const currentBodegaObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
+
+  const hasOcrOriginMismatch = isOcrNote && Boolean(detectedOrigenRaw) && (
+    detectedBodega
+      ? draft.bodega_origen_id !== detectedBodega.id
+      : !currentBodegaObj || !currentBodegaObj.nombre.toLowerCase().includes(detectedOrigenRaw.toLowerCase())
+  )
 
   // Pre-selección de bodega de origen priorizando la bodega activa del encabezado
   useEffect(() => {
@@ -808,6 +901,57 @@ export function NoteDraftBuilder({
               </div>
             </div>
 
+            {/* Banner de Discrepancia OCR en Origen */}
+            {hasOcrOriginMismatch && (
+              <div className="rounded-2xl border border-amber-400/50 bg-amber-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-xs uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                        Discrepancia en Origen Detectado por OCR
+                      </span>
+                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30">
+                        IA / Escáner
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-amber-900 dark:text-amber-100 font-medium leading-relaxed">
+                      El origen seleccionado (<strong>{currentBodegaObj?.nombre || 'Sin bodega'}</strong>) difiere del detectado en el documento físico: <strong className="underline underline-offset-2 font-mono">"{detectedOrigenRaw}"</strong>
+                      {detectedBodega ? ` (${detectedBodega.nombre})` : ''}.
+                    </p>
+                  </div>
+                </div>
+
+                {detectedBodega ? (
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-amber-500/20 flex-wrap">
+                    <span className="text-[11px] text-amber-800 dark:text-amber-200 font-medium">
+                      ¿Deseas corregir el origen con la bodega sugerida por el OCR?
+                    </span>
+                    {allowedBodegas.some(b => b.id === detectedBodega.id) ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleRequestBodegaOrigenChange(detectedBodega.id)}
+                        disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
+                        className="h-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-amber-500/20 border-0 shrink-0"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-white" />
+                        <span>Cambiar a {detectedBodega.nombre}</span>
+                      </Button>
+                    ) : (
+                      <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                        Bodega detectada ({detectedBodega.nombre}) no asignada a tu usuario
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-800 dark:text-amber-200 italic pt-1 border-t border-amber-500/20">
+                    No se encontró coincidencia automática de bodega para el texto "{detectedOrigenRaw}". Puedes seleccionar la bodega correcta manualmente en el desplegable.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Fecha del Movimiento / Nota */}
               <div className="space-y-2">
@@ -824,10 +968,8 @@ export function NoteDraftBuilder({
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bodega Origen *</Label>
                 <Select
                   value={draft.bodega_origen_id?.toString() ?? ''}
-                  onValueChange={(v) =>
-                    v && setDraft((prev) => ({ ...prev, bodega_origen_id: parseInt(v) }))
-                  }
-                  disabled={mode === 'edit' || todoBloqueado || soloEditaDestino}
+                  onValueChange={(v) => v && handleRequestBodegaOrigenChange(parseInt(v))}
+                  disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
                 >
                   <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue placeholder="Seleccionar origen...">
@@ -1701,6 +1843,43 @@ export function NoteDraftBuilder({
         bodegaOrigenId={draft.bodega_origen_id}
         onApplyToDraft={handleApplyOcrLinesToDraft}
       />
+
+      {/* ── Diálogo de Confirmación al Cambiar Bodega Origen ── */}
+      <AlertDialog open={showChangeBodegaDialog} onOpenChange={setShowChangeBodegaDialog}>
+        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+              ¿Cambiar Bodega de Origen?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
+              <span>
+                Estás a punto de cambiar el origen a{' '}
+                <strong className="text-foreground">
+                  {catalogos.bodegas.find((b) => b.id === pendingBodegaOrigenId)?.nombre || 'la nueva bodega'}
+                </strong>.
+              </span>
+              <span className="block text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
+                ⚠️ Esta acción recalculará automáticamente las existencias en vivo de todos los productos agregados en la nota con base en el inventario real de la nueva bodega.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel
+              onClick={() => setPendingBodegaOrigenId(null)}
+              className="rounded-xl font-bold uppercase text-xs tracking-wider"
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => pendingBodegaOrigenId && applyBodegaOrigenChange(pendingBodegaOrigenId)}
+              className="rounded-xl bg-primary font-bold uppercase text-xs tracking-wider shadow-md"
+            >
+              Confirmar Cambio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

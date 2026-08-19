@@ -112,6 +112,7 @@ export default async function NotaDetallePage({
           currentUserLevel={user.rol?.nivel_acceso ?? 3}
           userBodegas={userBodegas}
           ocrProposalId={ocrProposal?.id}
+          ocrProposal={ocrProposal}
           initialOcrLineas={ocrProposal?.lineas}
           autoOpenOcrSync={sp.edit_ocr === 'true'}
         />

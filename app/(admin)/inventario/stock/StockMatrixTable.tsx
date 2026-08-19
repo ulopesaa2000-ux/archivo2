@@ -146,25 +146,57 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
       const allItems = res.data
       const workbook = new ExcelJS.Workbook()
       
-      // --- HOJA 1: DATOS (Machine Readable) ---
-      const dataSheet = workbook.addWorksheet('Datos Stock')
-      
-      // Mapear descripción general por familia
+      // Mapear descripción general por familia y calcular totales
       const familyDescriptions: Record<string, string> = {}
+      const itemsByFamily: Record<string, typeof allItems> = {}
+      const expTotalsCajasPerBodega: Record<number, number> = {}
+      const expTotalsPiezasPerBodega: Record<number, number> = {}
+      let expGrandTotalCajas = 0
+      let expGrandTotalPiezas = 0
+
       allItems.forEach(item => {
         const family = item.producto_familia || 'SIN FAMILIA'
         if (!familyDescriptions[family]) {
           familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
         }
+
+        if (!itemsByFamily[family]) itemsByFamily[family] = []
+        itemsByFamily[family].push(item)
+
+        const pzCaja = item.pz_en_caja ?? 1
+        let itemTotalCajas = 0
+        let itemTotalPiezas = 0
+
+        bodegasColumnas.forEach(b => {
+          if (!expTotalsCajasPerBodega[b.id]) expTotalsCajasPerBodega[b.id] = 0
+          if (!expTotalsPiezasPerBodega[b.id]) expTotalsPiezasPerBodega[b.id] = 0
+
+          const cajas = item.stock_por_bodega[b.id]?.cajas ?? item.stock_por_bodega[b.id]?.total ?? 0
+          const piezasSueltas = item.stock_por_bodega[b.id]?.piezas_sueltas ?? 0
+          const totalPiezas = (cajas * pzCaja) + piezasSueltas
+
+          expTotalsCajasPerBodega[b.id] += cajas
+          expTotalsPiezasPerBodega[b.id] += totalPiezas
+
+          itemTotalCajas += cajas
+          itemTotalPiezas += totalPiezas
+        })
+
+        expGrandTotalCajas += itemTotalCajas
+        expGrandTotalPiezas += itemTotalPiezas
       })
+
+      // --- HOJA 1: DATOS (Machine Readable) ---
+      const dataSheet = workbook.addWorksheet('Datos Stock')
 
       const columns = [
         { header: 'FAMILIA', key: 'familia', width: 20 },
         { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
         { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
         { header: 'PZ X CAJA', key: 'pz_caja', width: 12 },
-        ...bodegasColumnas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 12 })),
-        { header: 'TOTAL GLOBAL', key: 'total', width: 15 }
+        ...bodegasColumnas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 14 })),
+        { header: 'TOTAL CAJAS', key: 'total_cajas', width: 15 },
+        { header: 'TOTAL PIEZAS', key: 'total_piezas', width: 15 }
       ]
       dataSheet.columns = columns
 
@@ -182,24 +214,74 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
 
       allItems.forEach(item => {
         const family = item.producto_familia || 'SIN FAMILIA'
+        const pzCaja = item.pz_en_caja ?? 1
+        let rowCajas = 0
+        let rowPiezas = 0
+
         const rowValues: any = {
           familia: family,
           desc_gral: familyDescriptions[family],
           sku: item.producto_sku,
-          pz_caja: item.pz_en_caja ?? 1,
-          total: item.total_general
+          pz_caja: pzCaja,
         }
+
         bodegasColumnas.forEach(b => {
-          rowValues[`b_${b.id}`] = item.stock_por_bodega[b.id]?.total ?? 0
+          const cajas = item.stock_por_bodega[b.id]?.cajas ?? item.stock_por_bodega[b.id]?.total ?? 0
+          const piezasSueltas = item.stock_por_bodega[b.id]?.piezas_sueltas ?? 0
+          const totalPiezas = (cajas * pzCaja) + piezasSueltas
+          rowValues[`b_${b.id}`] = cajas
+          rowCajas += cajas
+          rowPiezas += totalPiezas
         })
+
+        rowValues.total_cajas = rowCajas
+        rowValues.total_piezas = rowPiezas
 
         const row = dataSheet.addRow(rowValues)
         row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: familyColorMap[family] } }
         row.eachCell({ includeEmpty: true }, (cell) => {
           cell.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } }
         })
-        row.getCell('total').font = { bold: true, color: { argb: 'FFDC2626' } }
+        row.getCell('total_cajas').font = { bold: true, color: { argb: 'FF0F172A' } }
+        row.getCell('total_piezas').font = { bold: true, color: { argb: 'FFDC2626' } }
       })
+
+      // Filas de Resumen al final de Hoja 1 (Datos Stock)
+      dataSheet.addRow({})
+
+      const dataRowCajasValues: any = {
+        familia: '',
+        desc_gral: '',
+        sku: 'TOTAL CAJAS',
+        pz_caja: '',
+        total_cajas: expGrandTotalCajas,
+        total_piezas: ''
+      }
+      bodegasColumnas.forEach(b => {
+        dataRowCajasValues[`b_${b.id}`] = expTotalsCajasPerBodega[b.id] ?? 0
+      })
+      const dataRowCajas = dataSheet.addRow(dataRowCajasValues)
+      dataRowCajas.font = { bold: true }
+      dataRowCajas.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+      dataRowCajas.getCell('sku').alignment = { horizontal: 'right' }
+      dataRowCajas.getCell('total_cajas').font = { bold: true, color: { argb: 'FFDC2626' } }
+
+      const dataRowBodegasValues: any = {
+        familia: '',
+        desc_gral: '',
+        sku: 'BODEGAS',
+        pz_caja: '',
+        total_cajas: 'TOTAL',
+        total_piezas: ''
+      }
+      bodegasColumnas.forEach(b => {
+        dataRowBodegasValues[`b_${b.id}`] = b.nombre.toUpperCase()
+      })
+      const dataRowBodegas = dataSheet.addRow(dataRowBodegasValues)
+      dataRowBodegas.font = { bold: true, size: 9 }
+      dataRowBodegas.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      dataRowBodegas.getCell('sku').alignment = { horizontal: 'right' }
+      dataRowBodegas.getCell('total_cajas').font = { bold: true, color: { argb: 'FFDC2626' } }
 
       // --- HOJA 2: FORMATO IMPRESIÓN (Similar a la imagen) ---
       const printSheet = workbook.addWorksheet('Formato Impresión')
@@ -260,23 +342,6 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
       globalHeader.font = { bold: true, color: { argb: 'FFDC2626' } }
       globalHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
 
-      // Agrupar items por familia para facilitar el merge
-      const itemsByFamily: Record<string, typeof allItems> = {}
-      const expTotalsPerBodega: Record<number, number> = {}
-      let expGrandTotal = 0
-
-      allItems.forEach(item => {
-        expGrandTotal += item.total_general
-        bodegasColumnas.forEach(b => {
-          if (!expTotalsPerBodega[b.id]) expTotalsPerBodega[b.id] = 0
-          expTotalsPerBodega[b.id] += (item.stock_por_bodega[b.id]?.total ?? 0)
-        })
-
-        const f = item.producto_familia || 'SIN FAMILIA'
-        if (!itemsByFamily[f]) itemsByFamily[f] = []
-        itemsByFamily[f].push(item)
-      })
-
       // Datos en Hoja de Impresión con Merge
       let currentRowIdx = 4
       Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
@@ -299,7 +364,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
           estiloCell.font = { size: 11, bold: true }
           
           bodegasColumnas.forEach((b, bIdx) => {
-            const val = item.stock_por_bodega[b.id]?.total ?? 0
+            const val = item.stock_por_bodega[b.id]?.cajas ?? item.stock_por_bodega[b.id]?.total ?? 0
             const cell = printSheet.getCell(currentRowIdx, startBodegaCol + bIdx)
             cell.value = val // Mantener como número para cálculos en Excel
             cell.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -355,33 +420,68 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
         })
       })
 
-      // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN
+      // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN (Idéntico a la imagen de referencia: TOTAL CAJAS + BODEGAS)
       currentRowIdx += 2
-      printSheet.getCell(currentRowIdx, 3).value = 'TOTALES:'
-      printSheet.getCell(currentRowIdx, 3).font = { bold: true, size: 12 }
-      
+
+      // 1. FILA TOTAL CAJAS
+      const rowCajasIdx = currentRowIdx
+      printSheet.getRow(rowCajasIdx).height = 28
+      printSheet.getCell(rowCajasIdx, 3).value = 'TOTAL CAJAS'
+      printSheet.getCell(rowCajasIdx, 3).font = { bold: true, size: 11, color: { argb: 'FF1E293B' } }
+      printSheet.getCell(rowCajasIdx, 3).alignment = { horizontal: 'right', vertical: 'middle' }
+      printSheet.getCell(rowCajasIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+      printSheet.getCell(rowCajasIdx, 3).border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
       bodegasColumnas.forEach((b, idx) => {
-        const cell = printSheet.getCell(currentRowIdx, startBodegaCol + idx)
-        cell.value = expTotalsPerBodega[b.id] ?? 0
-        cell.font = { bold: true, size: 12 }
-        cell.alignment = { horizontal: 'center' }
-        cell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+        const cell = printSheet.getCell(rowCajasIdx, startBodegaCol + idx)
+        cell.value = expTotalsCajasPerBodega[b.id] ?? 0
+        cell.font = { bold: true, size: 12, color: { argb: 'FF0F172A' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+        cell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
       })
-      
-      const finalTotalCell = printSheet.getCell(currentRowIdx, globalCol)
-      finalTotalCell.value = expGrandTotal
-      finalTotalCell.font = { bold: true, size: 14, color: { argb: 'FFDC2626' } }
-      finalTotalCell.alignment = { horizontal: 'center' }
-      finalTotalCell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      const finalCajasCell = printSheet.getCell(rowCajasIdx, globalCol)
+      finalCajasCell.value = expGrandTotalCajas
+      finalCajasCell.font = { bold: true, size: 13, color: { argb: 'FFDC2626' } }
+      finalCajasCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      finalCajasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+      finalCajasCell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      // 2. FILA NOMBRE DE BODEGA ABAJO (Idéntica a la imagen de referencia)
+      currentRowIdx++
+      const rowBodegasIdx = currentRowIdx
+      printSheet.getRow(rowBodegasIdx).height = 42
+      printSheet.getCell(rowBodegasIdx, 3).value = 'BODEGAS'
+      printSheet.getCell(rowBodegasIdx, 3).font = { bold: true, size: 11, color: { argb: 'FF1E40AF' } }
+      printSheet.getCell(rowBodegasIdx, 3).alignment = { horizontal: 'right', vertical: 'middle' }
+      printSheet.getCell(rowBodegasIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      printSheet.getCell(rowBodegasIdx, 3).border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+      bodegasColumnas.forEach((b, idx) => {
+        const cell = printSheet.getCell(rowBodegasIdx, startBodegaCol + idx)
+        cell.value = b.nombre.toUpperCase()
+        cell.font = { bold: true, size: 9, color: { argb: 'FF0F172A' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        cell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      })
+
+      const finalBodegaTotalCell = printSheet.getCell(rowBodegasIdx, globalCol)
+      finalBodegaTotalCell.value = 'TOTAL'
+      finalBodegaTotalCell.font = { bold: true, size: 11, color: { argb: 'FFDC2626' } }
+      finalBodegaTotalCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      finalBodegaTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+      finalBodegaTotalCell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
       // Anchos Hoja Impresión
       printSheet.getColumn(1).width = 15
       printSheet.getColumn(2).width = 18
       printSheet.getColumn(3).width = 50
       bodegasColumnas.forEach((_, idx) => {
-        printSheet.getColumn(startBodegaCol + idx).width = 8
+        printSheet.getColumn(startBodegaCol + idx).width = 12
       })
-      printSheet.getColumn(globalCol).width = 10
+      printSheet.getColumn(globalCol).width = 12
 
       // Descargar
       const buffer = await workbook.xlsx.writeBuffer()

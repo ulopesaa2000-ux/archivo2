@@ -1060,6 +1060,7 @@ export async function fetchNotasPendientesPorBodega(
       bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (id, nombre, codigo),
       bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (id, nombre, codigo)
     `)
+    .eq('activo', true)
     .eq('estado_id', 1) // PEND
     .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
     .order('fecha_nota', { ascending: false })
@@ -1136,6 +1137,7 @@ export async function fetchNotasParaReporte(
         id, nombre, codigo
       )
     `)
+    .eq('activo', true)
 
   if (filtros.q) {
     query = query.ilike('numero_nota', `%${filtros.q}%`)
@@ -1254,6 +1256,7 @@ export async function fetchResumenReporteNotas(filtros: {
   let query = supabase
     .from('notas_inventario')
     .select('id, tipo_movimiento_id')
+    .eq('activo', true)
 
   if (filtros.fechaDesde) {
     query = query.gte('fecha_nota', filtros.fechaDesde)

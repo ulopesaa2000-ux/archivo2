@@ -6,7 +6,7 @@ import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { NoteDraftBuilder } from './NoteDraftBuilder'
 import { createStaticClient } from '@/lib/supabase/server'
-import type { DraftNota, DraftProducto, NotaCompleta } from '@/modules/inventario/types'
+import type { DraftNota, DraftProducto, NotaCompleta, NotaOcrPropuesta } from '@/modules/inventario/types'
 import { AlertCircle } from 'lucide-react'
 import { OcrUploadModal } from '../propuestas/OcrUploadModal'
 
@@ -38,10 +38,12 @@ export default async function NuevaNotaPage({
   let initialData: NotaCompleta | undefined = undefined
   let ocrUnmatchedLines: { estilo_raw: string; descripcion_raw: string; cajas: number; pz_por_caja: number | null }[] = []
   let ocrProposalId: string | undefined = propuestaId
+  let ocrProposal: NotaOcrPropuesta | null = null
 
   if (propuestaId) {
     const propuesta = await fetchOcrPropuestaById(propuestaId)
     if (propuesta) {
+      ocrProposal = propuesta
       const supabase = createStaticClient()
       
       // 1. Mapeo de Tipo de Movimiento estimado
@@ -233,6 +235,7 @@ export default async function NuevaNotaPage({
         userBodegas={userBodegas}
         initialData={initialData}
         ocrProposalId={ocrProposalId}
+        ocrProposal={ocrProposal}
         defaultBodegaOrigenId={activeBodegaId}
         autoOpenOcrSync={autoOpenOcrSync}
       />
