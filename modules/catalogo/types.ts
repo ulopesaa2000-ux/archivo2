@@ -207,3 +207,47 @@ export type ConjuntoResuelto = {
   es_requerido: boolean
   orden: number
 }
+
+// ── Stock de Producto por Bodega ────────────────────────────
+export type StockProductoBodegaItem = {
+  id: number
+  bodega_id: number
+  bodega_nombre: string
+  bodega_codigo: string
+  bodega_ciudad: string | null
+  es_virtual: boolean
+  cajas: number
+  piezas_sueltas: number
+  ubicacion_pasillo: string | null
+  caja_id: number | null
+  caja_codigo: string | null
+  caja_nombre_pack: string | null
+  updated_at: string | null
+}
+
+export type NotaStockPendienteItem = {
+  id: number
+  numero_nota: string
+  fecha_nota: string
+  tipo_codigo: string
+  tipo_nombre: string
+  afecta_inventario: number
+  cajas: number
+  piezas_sueltas: number
+  bodega_origen_id: number
+  bodega_origen_nombre: string
+  bodega_destino_id: number | null
+  bodega_destino_nombre: string | null
+}
+
+export type StockPronosticadoProducto = {
+  total_fisico_cajas: number
+  total_fisico_piezas: number
+  entradas_pendientes_cajas: number
+  entradas_pendientes_piezas: number
+  salidas_pendientes_cajas: number
+  salidas_pendientes_piezas: number
+  disponible_pronosticado_cajas: number
+  disponible_pronosticado_piezas: number
+  notas_pendientes: NotaStockPendienteItem[]
+}

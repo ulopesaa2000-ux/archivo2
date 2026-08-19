@@ -1,4 +1,5 @@
 // modules/catalogo/queries.ts
+// modules/catalogo/queries.ts
 'use server'
 
 import { cacheLife, cacheTag } from 'next/cache'
@@ -11,6 +12,7 @@ import type {
   FKDescriptivas, TagResuelto, ComplementoResuelto,
   AcabadoResuelto, VarianteResuelta, MedidaResuelta,
   ConjuntoResuelto, CajaConDetalle, CajaContenidoMap,
+  StockProductoBodegaItem, NotaStockPendienteItem, StockPronosticadoProducto,
 } from './types'
 import type {
   ProductoRow, ProductoWebRow, ProductoImagenRow,
@@ -835,4 +837,142 @@ export async function fetchProductosPorFamilia(
     ...p,
     imagen_principal: imagenesMap[p.id] || null,
   }))
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STOCK DE PRODUCTO POR BODEGA Y PRONOSTICADO (TAB STOCK)
+// ═══════════════════════════════════════════════════════════════
+
+export async function fetchStockProductoPorBodegas(
+  productoId: number
+): Promise<StockProductoBodegaItem[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('inventario_stock')
+    .select(`
+      id, bodega_id, producto_id, cajas, piezas_sueltas,
+      ubicacion_pasillo, updated_at, caja_id,
+      bodega:bodegas!inventario_stock_bodega_id_fkey (
+        id, nombre, codigo, ciudad, es_virtual, activa
+      ),
+      caja:cajas_producto!inventario_stock_caja_id_fkey (
+        id, codigo_caja, nombre_pack
+      )
+    `)
+    .eq('producto_id', productoId)
+    .order('bodega_id')
+
+  if (error || !data) {
+    console.error('Error fetchStockProductoPorBodegas:', error)
+    return []
+  }
+
+  return (data as any[]).map((row) => {
+    const bodega = Array.isArray(row.bodega) ? row.bodega[0] : row.bodega
+    const caja = Array.isArray(row.caja) ? row.caja[0] : row.caja
+
+    return {
+      id: row.id,
+      bodega_id: row.bodega_id,
+      bodega_nombre: bodega?.nombre ?? `Bodega #${row.bodega_id}`,
+      bodega_codigo: bodega?.codigo ?? '',
+      bodega_ciudad: bodega?.ciudad ?? null,
+      es_virtual: Boolean(bodega?.es_virtual),
+      cajas: Number(row.cajas ?? 0),
+      piezas_sueltas: Number(row.piezas_sueltas ?? 0),
+      ubicacion_pasillo: row.ubicacion_pasillo ?? null,
+      caja_id: row.caja_id ?? null,
+      caja_codigo: caja?.codigo_caja ?? null,
+      caja_nombre_pack: caja?.nombre_pack ?? null,
+      updated_at: row.updated_at ?? null,
+    }
+  })
+}
+
+export async function fetchStockPronosticadoProducto(
+  productoId: number
+): Promise<StockPronosticadoProducto> {
+  const supabase = await createClient()
+
+  // 1. Stock Físico Total
+  const stockFisico = await fetchStockProductoPorBodegas(productoId)
+  const total_fisico_cajas = stockFisico.reduce((sum, item) => sum + item.cajas, 0)
+  const total_fisico_piezas = stockFisico.reduce((sum, item) => sum + item.piezas_sueltas, 0)
+
+  // 2. Notas Pendientes (estado_id = 1 => PEND) que contienen este producto
+  const { data: notasDetalle, error } = await supabase
+    .from('nota_detalle_productos')
+    .select(`
+      id, nota_id, cajas, piezas_sueltas,
+      nota:notas_inventario!nota_detalle_productos_nota_id_fkey (
+        id, numero_nota, fecha_nota, estado_id, activo,
+        tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
+          codigo, nombre, afecta_inventario
+        ),
+        bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey ( id, nombre ),
+        bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey ( id, nombre )
+      )
+    `)
+    .eq('producto_id', productoId)
+
+  let entradas_pendientes_cajas = 0
+  let entradas_pendientes_piezas = 0
+  let salidas_pendientes_cajas = 0
+  let salidas_pendientes_piezas = 0
+  const notas_pendientes: NotaStockPendienteItem[] = []
+
+  if (!error && notasDetalle) {
+    for (const d of notasDetalle as any[]) {
+      const nota = Array.isArray(d.nota) ? d.nota[0] : d.nota
+      if (!nota || !nota.activo || nota.estado_id !== 1) continue // Solo notas activas y en PEND
+
+      const tipo = Array.isArray(nota.tipo_movimiento) ? nota.tipo_movimiento[0] : nota.tipo_movimiento
+      const origen = Array.isArray(nota.bodega_origen) ? nota.bodega_origen[0] : nota.bodega_origen
+      const destino = Array.isArray(nota.bodega_destino) ? nota.bodega_destino[0] : nota.bodega_destino
+      const afecta = tipo?.afecta_inventario ?? 0
+      const cajas = Number(d.cajas ?? 0)
+      const piezas = Number(d.piezas_sueltas ?? 0)
+
+      if (afecta > 0) {
+        // Entrada pendiente
+        entradas_pendientes_cajas += cajas
+        entradas_pendientes_piezas += piezas
+      } else if (afecta < 0) {
+        // Salida pendiente
+        salidas_pendientes_cajas += cajas
+        salidas_pendientes_piezas += piezas
+      }
+
+      notas_pendientes.push({
+        id: nota.id,
+        numero_nota: nota.numero_nota,
+        fecha_nota: nota.fecha_nota,
+        tipo_codigo: tipo?.codigo ?? '',
+        tipo_nombre: tipo?.nombre ?? '',
+        afecta_inventario: afecta,
+        cajas,
+        piezas_sueltas: piezas,
+        bodega_origen_id: origen?.id ?? 0,
+        bodega_origen_nombre: origen?.nombre ?? '—',
+        bodega_destino_id: destino?.id ?? null,
+        bodega_destino_nombre: destino?.nombre ?? null,
+      })
+    }
+  }
+
+  const disponible_pronosticado_cajas = total_fisico_cajas + entradas_pendientes_cajas - salidas_pendientes_cajas
+  const disponible_pronosticado_piezas = total_fisico_piezas + entradas_pendientes_piezas - salidas_pendientes_piezas
+
+  return {
+    total_fisico_cajas,
+    total_fisico_piezas,
+    entradas_pendientes_cajas,
+    entradas_pendientes_piezas,
+    salidas_pendientes_cajas,
+    salidas_pendientes_piezas,
+    disponible_pronosticado_cajas,
+    disponible_pronosticado_piezas,
+    notas_pendientes,
+  }
 }
