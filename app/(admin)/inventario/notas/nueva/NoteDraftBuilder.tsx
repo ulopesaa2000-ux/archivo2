@@ -888,10 +888,9 @@ export function NoteDraftBuilder({
         </div>
       )}
 
-      <div className={cn("grid grid-cols-1 gap-6 items-start", (ocrProposalId || comprobantePreview) ? "lg:grid-cols-12" : "")}>
-        <div className={cn("space-y-6", (ocrProposalId || comprobantePreview) ? "lg:col-span-6" : "")}>
-          {/* ── Configuración de la nota ────────────────────── */}
-          <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
+      <div className="w-full max-w-4xl mx-auto space-y-6">
+        {/* ── Configuración de la nota ────────────────────── */}
+        <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Detalles Generales</CardTitle>
           </CardHeader>
@@ -1431,8 +1430,8 @@ export function NoteDraftBuilder({
 
           {/* Tabla de productos en el draft */}
           {draft.productos.length > 0 ? (
-            <div className="rounded-2xl border overflow-hidden shadow-inner">
-              <table className="w-full text-sm">
+            <div className="rounded-2xl border overflow-x-auto shadow-inner">
+              <table className="w-full text-sm min-w-[580px] sm:min-w-full">
                 <thead>
                   <tr className="bg-muted/70 text-xs font-black uppercase tracking-widest text-muted-foreground">
                     <th className="px-2 py-3 w-[60px] text-center" title="Arrastrar o usar flechas para reordenar">Orden</th>
@@ -1621,168 +1620,170 @@ export function NoteDraftBuilder({
         </CardContent>
       </Card>
 
-      {/* ── Acciones ─────────────────────────────────────── */}
-      <div className="flex items-center justify-between pt-2">
-        <Link href={ADMIN_ROUTES.inventario.notas}>
-          <Button variant="outline" className="rounded-xl h-11 px-5 border">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Volver
-          </Button>
-        </Link>
+      {/* ── Visor de Nota Original (OCR / Comprobante) en flujo vertical ── */}
+      {(ocrProposalId || comprobantePreview) && (
+        <Card className="w-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden">
+          <CardHeader className="pb-2 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2 space-y-0">
+            <div>
+              <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground">
+                Nota Original Escaneada (OCR)
+              </CardTitle>
+              <CardDescription className="text-[10px]">
+                {ocrProposalId ? `Propuesta #${ocrProposalId}` : 'Comprobante adjunto'}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(ocrProposalId || ocrRawLineas.length > 0) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowOcrSyncModal(true)}
+                  className="h-8 text-xs font-bold gap-1 rounded-lg border shadow-sm text-primary hover:text-primary bg-background"
+                  title="Editar cadenas de texto escaneadas y re-sincronizar SKUs"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span>Editar / Sincronizar OCR</span>
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={handleZoomOut}
+                title="Alejar"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={handleZoomIn}
+                title="Acercar"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={handleRotate}
+                title="Rotar 90°"
+              >
+                <RotateCw className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={handleReset}
+                title="Restaurar"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              {comprobantePreview && (
+                <a
+                  href={comprobantePreview}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                  title="Ver original en pestaña nueva"
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[250px] max-h-[480px]">
+            {comprobantePreview ? (
+              <div className="w-full h-full overflow-auto flex items-center justify-center relative min-h-[250px] max-h-[450px]">
+                <div 
+                  className="relative w-full h-[400px] transition-transform duration-200 ease-out"
+                  style={{
+                    transform: `scale(${zoomScale}) rotate(${rotateDeg}deg)`,
+                    transformOrigin: 'center center',
+                  }}
+                >
+                  <Image
+                    src={comprobantePreview}
+                    alt="Nota escaneada"
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-muted-foreground p-6">
+                <ImageIcon className="h-10 w-10 opacity-30 mb-2" />
+                <span className="text-xs">No hay imagen de comprobante</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
+      {/* ── Acciones Finales ── */}
+      <div className="flex flex-col gap-3 pt-4 border-t">
+        {/* Fila 1: Botón Volver (solo ícono) + Guardar Borrador */}
         <div className="flex items-center gap-3">
+          <Link href={ADMIN_ROUTES.inventario.notas} className="shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 rounded-xl shrink-0 border-muted hover:bg-muted"
+              title="Volver a Notas de Inventario"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+
           {!todoBloqueado && (
             <Button
+              type="button"
               variant="outline"
               disabled={isPending || draft.productos.length === 0}
               onClick={() => handleSave(false)}
-              className="rounded-xl h-11 px-5"
+              className="flex-1 h-11 rounded-xl text-sm font-semibold gap-2 border-muted-foreground/30 hover:bg-muted/80 shadow-xs"
             >
               {isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Save className="h-4 w-4 mr-2" />
+                <Save className="h-4 w-4" />
               )}
               Guardar Borrador
             </Button>
           )}
-
-          {currentUserLevel <= 2 && !puedeConfirmar && draft.bodega_origen_id && (
-            <span className="text-xs text-amber-600 font-bold uppercase tracking-tighter">
-              * Sin permiso de confirmación en esta bodega
-            </span>
-          )}
-
-          {currentUserLevel <= 2 && (
-            <Button
-              disabled={isPending || draft.productos.length === 0 || !puedeConfirmar}
-              onClick={() => handleSave(true)}
-              variant={puedeConfirmar ? 'default' : 'secondary'}
-              className="rounded-xl h-11 px-6 font-bold uppercase tracking-wider shadow-md"
-            >
-              {isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-              )}
-              Confirmar
-            </Button>
-          )}
-        </div>
-      </div>
-
         </div>
 
-        {/* Panel lateral de la imagen (OCR / Comprobante) */}
-        {(ocrProposalId || comprobantePreview) && (
-          <div className="lg:col-span-6 lg:sticky lg:top-20 lg:h-[calc(100vh-100px)] flex flex-col gap-4">
-            <Card className="flex flex-col h-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden">
-              <CardHeader className="pb-2 border-b flex flex-row items-center justify-between space-y-0">
-                <div>
-                  <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground">
-                    Nota Original (OCR)
-                  </CardTitle>
-                  <CardDescription className="text-[10px]">
-                    Propuesta #{ocrProposalId}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {(ocrProposalId || ocrRawLineas.length > 0) && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowOcrSyncModal(true)}
-                      className="h-8 text-xs font-bold gap-1 rounded-lg border shadow-sm text-primary hover:text-primary bg-background"
-                      title="Editar cadenas de texto escaneadas y re-sincronizar SKUs"
-                    >
-                      <Sparkles className="h-3.5 w-3.5 text-primary" />
-                      <span>Editar / Sincronizar OCR</span>
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-lg"
-                    onClick={handleZoomOut}
-                    title="Alejar"
-                  >
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-lg"
-                    onClick={handleZoomIn}
-                    title="Acercar"
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-lg"
-                    onClick={handleRotate}
-                    title="Rotar 90°"
-                  >
-                    <RotateCw className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-lg"
-                    onClick={handleReset}
-                    title="Restaurar"
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </Button>
-                  {comprobantePreview && (
-                    <a
-                      href={comprobantePreview}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
-                      title="Ver original en pestaña nueva"
-                    >
-                      <ArrowUpRight className="h-4 w-4" />
-                    </a>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="flex-1 p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[300px]">
-                {comprobantePreview ? (
-                  <div className="w-full h-full overflow-auto flex items-center justify-center relative">
-                    <div 
-                      className="relative w-full h-full min-h-[350px] transition-transform duration-200 ease-out"
-                      style={{
-                        transform: `scale(${zoomScale}) rotate(${rotateDeg}deg)`,
-                        transformOrigin: 'center center',
-                      }}
-                    >
-                      <Image
-                        src={comprobantePreview}
-                        alt="Nota escaneada"
-                        fill
-                        className="object-contain"
-                        unoptimized
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-muted-foreground p-6">
-                    <ImageIcon className="h-10 w-10 opacity-30 mb-2" />
-                    <span className="text-xs">No hay imagen de comprobante</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        {/* Fila 2: Botón Grande Confirmar */}
+        {puedeConfirmar ? (
+          <Button
+            type="button"
+            disabled={isPending || draft.productos.length === 0}
+            onClick={() => handleSave(true)}
+            className="w-full h-12 sm:h-14 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 gap-2 transition-all active:scale-[0.99]"
+          >
+            {isPending ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5" />
+            )}
+            Confirmar Nota de Inventario
+          </Button>
+        ) : (
+          <div className="w-full p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center text-xs text-amber-700 dark:text-amber-300 font-medium">
+            * Nota en modo borrador. La confirmación definitiva requiere autorización de un Encargado o Admin.
           </div>
         )}
       </div>
+    </div>
 
       {/* ── Diálogo de confirmación ──────────────────────── */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>

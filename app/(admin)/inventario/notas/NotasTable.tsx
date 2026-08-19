@@ -26,9 +26,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Eye, FileText, Image as ImageIcon, CheckCircle2, Loader2, ExternalLink, Package, Trash2 } from 'lucide-react'
+import { 
+  MoreHorizontal, MoreVertical, Eye, FileText, Image as ImageIcon, 
+  CheckCircle2, Loader2, ExternalLink, Package, Trash2, 
+  Warehouse, Building2, Calendar, DollarSign, User, Clock 
+} from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
+import { cn } from '@/lib/utils'
 import type { NotaListItem } from '@/modules/inventario/types'
 import { confirmarNotaAction, getNotaDetallesAction, eliminarNotaAction } from '@/modules/inventario/actions'
 import { toast } from 'sonner'
@@ -41,7 +46,7 @@ type Props = {
   bodegaFiltradaId?: number
 }
 
-function NotaAccionesCell({ row }: { row: NotaListItem }) {
+function NotaAccionesCell({ row, isVertical = false }: { row: NotaListItem; isVertical?: boolean }) {
   const router = useRouter()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, startDeleteTransition] = useTransition()
@@ -63,8 +68,8 @@ function NotaAccionesCell({ row }: { row: NotaListItem }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-            <MoreHorizontal className="h-4 w-4" />
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
+            {isVertical ? <MoreVertical className="h-4 w-4" /> : <MoreHorizontal className="h-4 w-4" />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -292,23 +297,27 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
         ) : items.length === 0 ? (
           <p className="text-xs text-muted-foreground py-2 italic">Sin productos detallados.</p>
         ) : (
-          <div className="overflow-x-auto border rounded bg-background">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-muted/40 border-b font-medium text-muted-foreground">
+          <div className="overflow-x-auto border rounded-xl bg-background shadow-inner">
+            <table className="w-full text-xs text-left min-w-[320px] sm:min-w-full">
+              <thead className="bg-muted/50 border-b font-bold uppercase tracking-wider text-[10px] text-muted-foreground">
                 <tr>
-                  <th className="py-2 px-3">SKU Base</th>
-                  <th className="py-2 px-3">Descripción</th>
-                  <th className="py-2 px-3 text-center">Cajas</th>
-                  <th className="py-2 px-3 text-center">Piezas Sueltas</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">SKU</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">Cajas</th>
+                  <th className="py-2.5 px-3">Descripción</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap hidden md:table-cell">Piezas</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {items.map((item) => (
-                  <tr key={item.id} className="hover:bg-muted/20">
-                    <td className="py-2 px-3 font-mono font-medium">{item.sku_base}</td>
-                    <td className="py-2 px-3 truncate max-w-[280px]" title={item.descripcion}>{item.descripcion}</td>
-                    <td className="py-2 px-3 text-center font-semibold">{item.cajas}</td>
-                    <td className="py-2 px-3 text-center text-muted-foreground">{item.piezas_sueltas}</td>
+                  <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-2 px-3 font-mono font-bold text-primary whitespace-nowrap">{item.sku_base}</td>
+                    <td className="py-2 px-3 text-center font-mono font-extrabold text-foreground">{item.cajas}</td>
+                    <td className="py-2 px-3 min-w-[150px] max-w-[240px] truncate" title={item.descripcion}>
+                      {item.descripcion || '—'}
+                    </td>
+                    <td className="py-2 px-3 text-center text-muted-foreground hidden md:table-cell">
+                      {item.piezas_sueltas}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -504,17 +513,244 @@ function NotasTableInner({
   ]
 
   return (
-    <DataTable
-      columns={columns}
-      data={notas}
-      rowKey={(row) => row.id}
-      currentSortKey={sortKey}
-      currentOrder={sortOrder}
-      defaultSortKey="fecha_nota"
-      emptyMessage="No se encontraron notas con los filtros aplicados."
-      emptyIcon={<FileText className="h-12 w-12" />}
-      renderExpanded={(row) => <NotaFastCheckExpandedRow row={row} />}
-    />
+    <>
+      {/* ── Vista de Tabla para Pantallas Medianas y Grandes (Desktop/Tablet) ── */}
+      <div className="hidden md:block">
+        <DataTable
+          columns={columns}
+          data={notas}
+          rowKey={(row) => row.id}
+          currentSortKey={sortKey}
+          currentOrder={sortOrder}
+          defaultSortKey="fecha_nota"
+          emptyMessage="No se encontraron notas con los filtros aplicados."
+          emptyIcon={<FileText className="h-12 w-12" />}
+          renderExpanded={(row) => <NotaFastCheckExpandedRow row={row} />}
+        />
+      </div>
+
+      {/* ── Vista de Tarjetas Nativas para Móvil (Mobile Cards View) ── */}
+      <div className="md:hidden space-y-3">
+        {notas.length === 0 ? (
+          <div className="flex flex-col items-center justify-center min-h-[220px] rounded-2xl border bg-card/60 p-6 text-center space-y-3 shadow-xs">
+            <div className="p-3 rounded-full bg-muted text-muted-foreground">
+              <FileText className="h-8 w-8" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground">
+              No se encontraron notas con los filtros aplicados.
+            </p>
+          </div>
+        ) : (
+          notas.map((row) => (
+            <NotaMobileCard
+              key={row.id}
+              row={row}
+              bodegaFiltradaId={bodegaFiltradaId}
+            />
+          ))
+        )}
+      </div>
+    </>
+  )
+}
+
+function NotaMobileCard({
+  row,
+  bodegaFiltradaId,
+}: {
+  row: NotaListItem
+  bodegaFiltradaId?: number
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  // Tipo de movimiento badge formatting
+  let icon = TIPO_MOVIMIENTO_ICONS[row.tipo_codigo] ?? '•'
+  let color = TIPO_MOVIMIENTO_COLORS[row.tipo_codigo] ?? 'bg-gray-100 text-gray-800'
+  let nombre = row.tipo_nombre
+
+  if (row.tipo_codigo === 'TRF' && bodegaFiltradaId) {
+    if (row.bodega_destino_id === bodegaFiltradaId) {
+      icon = '↔↑'
+      color = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-300/30'
+      nombre = 'Traspaso (Entrada)'
+    } else if (row.bodega_origen_id === bodegaFiltradaId) {
+      icon = '↔↓'
+      color = 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-300/30'
+      nombre = 'Traspaso (Salida)'
+    }
+  }
+
+  // Estado badge color classes
+  const estadoColors = ESTADO_NOTA_COLORS[row.estado_codigo] ?? 'bg-gray-100 text-gray-800'
+  const isEstadoConfirmada = row.estado_codigo === 'CONF'
+  const isEstadoPendiente = row.estado_codigo === 'PEND' || row.estado_codigo === 'BORR'
+
+  // OCR Tag detection
+  const esOcr = Boolean(
+    (row.observaciones && (row.observaciones.includes('[OCR-PROP]') || row.observaciones.includes('OCR'))) ||
+    (row.nota_referencia && row.nota_referencia.includes('OCR'))
+  )
+
+  return (
+    <div className="rounded-2xl border border-border/80 bg-card/60 dark:bg-zinc-900/90 shadow-sm p-4 space-y-3.5 transition-all hover:border-primary/30">
+      {/* ── Header de la Tarjeta ── */}
+      <div className="flex items-center justify-between gap-2 border-b pb-3">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <Link
+            href={ADMIN_ROUTES.inventario.notaDetalle(row.id)}
+            className="font-mono font-bold text-sm tracking-tight text-foreground hover:text-primary transition-colors truncate"
+          >
+            {row.numero_nota}
+          </Link>
+          
+          <Badge variant="secondary" className={cn("text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0", color)}>
+            <span>{icon}</span>
+            <span>{nombre}</span>
+          </Badge>
+
+          {esOcr && (
+            <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase px-1.5 py-0 rounded shrink-0">
+              🤖 OCR
+            </Badge>
+          )}
+
+          {row.comprobante_url && (
+            <ComprobantePreviewButton url={row.comprobante_url} />
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <Badge variant="secondary" className={cn("text-xs font-bold px-2.5 py-0.5 rounded-full", estadoColors)}>
+            {row.estado_nombre}
+          </Badge>
+          <NotaAccionesCell row={row} isVertical />
+        </div>
+      </div>
+
+      {/* ── Grid 2 Columnas de Atributos ── */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        {/* Origen */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <Warehouse className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Origen</span>
+            <span className="font-bold text-foreground truncate block" title={row.bodega_origen_nombre}>
+              {row.bodega_origen_nombre}
+            </span>
+          </div>
+        </div>
+
+        {/* Destino */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <Building2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Destino</span>
+            <span className="font-bold text-foreground truncate block" title={row.bodega_destino_nombre ?? '—'}>
+              {row.bodega_destino_nombre ?? '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Cajas */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <Package className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Cajas</span>
+            <span className="font-bold font-mono text-foreground block">
+              {row.total_cajas ?? 0}
+            </span>
+          </div>
+        </div>
+
+        {/* Costo */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <DollarSign className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Costo</span>
+            <span className="font-bold font-mono text-foreground block">
+              {row.costo_total !== undefined && row.costo_total !== null && Number(row.costo_total) > 0 ? (
+                `$${Number(row.costo_total).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+              ) : (
+                '—'
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Estado */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            {isEstadoConfirmada ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            ) : isEstadoPendiente ? (
+              <Clock className="h-4 w-4 text-amber-500" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Estado</span>
+            <span className="font-bold text-foreground block truncate">
+              {row.estado_nombre}
+            </span>
+          </div>
+        </div>
+
+        {/* Fecha */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-muted/80 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <Calendar className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Fecha</span>
+            <span className="font-medium text-foreground text-[11px] block truncate">
+              <Fecha valor={row.fecha_nota} formato="fecha-hora" />
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Footer: Usuario ── */}
+      <div className="pt-2 border-t flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <div className="p-1.5 rounded-lg bg-muted/60 dark:bg-zinc-800 text-muted-foreground shrink-0">
+            <User className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] text-muted-foreground block font-medium">Usuario</span>
+            <span className="font-semibold text-foreground truncate block">
+              {row.usuario_nombre || 'Sistema'}
+            </span>
+          </div>
+        </div>
+
+        {/* Botón FastCheck desplegable */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="h-8 text-xs font-bold gap-1 rounded-xl text-primary hover:text-primary hover:bg-primary/10"
+        >
+          <span>{isExpanded ? 'Ocultar' : 'Ver Productos'}</span>
+        </Button>
+      </div>
+
+      {/* FastCheck desplegado en móvil */}
+      {isExpanded && (
+        <div className="pt-2 border-t">
+          <NotaFastCheckExpandedRow row={row} />
+        </div>
+      )}
+    </div>
   )
 }
 

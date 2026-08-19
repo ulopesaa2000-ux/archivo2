@@ -7,6 +7,7 @@ import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from './constants'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
+  '/perfil',
   '/catalogo',
   '/configuracion',
   '/contenedores',

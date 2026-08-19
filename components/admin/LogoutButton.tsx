@@ -37,15 +37,16 @@ export function LogoutButton() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground h-9 w-9 p-0 sm:w-auto sm:px-3 rounded-lg shrink-0"
             disabled={isPending}
+            title="Cerrar sesión"
           >
             {isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <LogOut className="h-4 w-4" />
             )}
-            <span className="ml-2 hidden sm:inline">Salir</span>
+            <span className="ml-2 hidden md:inline text-xs font-semibold">Salir</span>
           </Button>
         }
       />

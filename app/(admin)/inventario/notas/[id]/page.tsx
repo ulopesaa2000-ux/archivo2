@@ -97,7 +97,7 @@ export default async function NotaDetallePage({
     ])
 
     return (
-      <div className="space-y-4">
+      <div className="w-full max-w-4xl mx-auto space-y-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
             Editar Nota {nota.cabecera.numero_nota}

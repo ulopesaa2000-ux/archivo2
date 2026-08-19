@@ -410,3 +410,110 @@ export async function registerAction(
   redirect(redirectTo)
 }
 
+export type ProfileUpdateResult = {
+  success: boolean
+  error?: string
+  message?: string
+}
+
+/**
+ * Actualiza la información básica del usuario autenticado (nombre, username, teléfono).
+ * Mantiene campos delicados (rol, auth_user_id, email, tenant) protegidos.
+ */
+export async function updatePerfilAction(
+  prevState: ProfileUpdateResult,
+  formData: FormData
+): Promise<ProfileUpdateResult> {
+  try {
+    const nombreCompleto = formData.get('nombre_completo')?.toString()?.trim()
+    const username = formData.get('username')?.toString()?.trim()
+    const telefono = formData.get('telefono')?.toString()?.trim() || null
+
+    if (!nombreCompleto || !username) {
+      return {
+        success: false,
+        error: 'El nombre completo y nombre de usuario son obligatorios.',
+      }
+    }
+
+    const supabase = await createClient()
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !authUser) {
+      return {
+        success: false,
+        error: 'No se encontró una sesión activa.',
+      }
+    }
+
+    // 1. Verificar si el username ya existe en otro usuario distinto
+    const { data: existingUser } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('username', username)
+      .neq('auth_user_id', authUser.id)
+      .maybeSingle()
+
+    if (existingUser) {
+      return {
+        success: false,
+        error: `El nombre de usuario "${username}" ya está en uso. Por favor elige otro.`,
+      }
+    }
+
+    // 2. Actualizar registro en inv-tienda.usuarios
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('usuarios')
+      .update({
+        nombre_completo: nombreCompleto,
+        username,
+        telefono,
+      })
+      .eq('auth_user_id', authUser.id)
+      .select('id')
+      .single()
+
+    if (updateError) {
+      console.error('[updatePerfilAction] Error al actualizar usuarios:', updateError)
+      return {
+        success: false,
+        error: 'No se pudo guardar la información en la base de datos.',
+      }
+    }
+
+    // 3. Sincronizar tabla personas si existe una persona vinculada
+    if (updatedUser?.id) {
+      await supabase
+        .from('personas')
+        .update({
+          nombre_completo: nombreCompleto,
+          telefono_contacto: telefono,
+        })
+        .eq('usuario_id', updatedUser.id)
+    }
+
+    // 4. Sincronizar claims en auth.users
+    await syncUserClaims(authUser.id).catch((err) => {
+      console.error('[updatePerfilAction] Error al sincronizar claims:', err)
+    })
+
+    revalidatePath('/perfil')
+    revalidatePath('/dashboard')
+    revalidatePath('/', 'layout')
+
+    return {
+      success: true,
+      message: '¡Información de perfil actualizada con éxito!',
+    }
+  } catch (error) {
+    console.error('[updatePerfilAction] Error inesperado:', error)
+    return {
+      success: false,
+      error: 'Ocurrió un error inesperado al actualizar el perfil.',
+    }
+  }
+}
+

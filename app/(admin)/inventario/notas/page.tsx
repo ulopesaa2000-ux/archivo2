@@ -9,7 +9,8 @@ import { NotasTable } from './NotasTable'
 import { ReporteNotasButton } from './ReporteNotasButton'
 import { Pagination } from '@/components/admin/Pagination'
 import { Button } from '@/components/ui/button'
-import { Plus, Clock, RefreshCw, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Plus, Clock, RefreshCw, ArrowDownLeft, ArrowUpRight, Camera } from 'lucide-react'
 import Link from 'next/link'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { FiltrosNotas } from '@/modules/inventario/types'
@@ -129,27 +130,83 @@ export default async function NotasPage({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Notas de Inventario
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {total} nota{total !== 1 ? 's' : ''} encontrada{total !== 1 ? 's' : ''}
+    <div className="space-y-5">
+      {/* Header con Jerarquía Visual y Responsive */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-1">
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground">
+              Notas de Inventario
+            </h1>
+            <Badge variant="secondary" className="font-mono text-xs px-2.5 py-0.5 rounded-full font-bold">
+              {total}
+            </Badge>
+          </div>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Control de entradas, salidas, traslados y ajustes de existencias entre bodegas
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+
+        {/* Barra de Acciones Desktop */}
+        <div className="hidden md:flex items-center justify-end gap-2.5">
           <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
-          <OcrSerialScannerModal />
-          <Link href={ADMIN_ROUTES.inventario.notaNueva}>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva Nota
+          
+          <OcrSerialScannerModal
+            trigger={
+              <Button
+                variant="outline"
+                className="h-10 px-4 rounded-xl text-sm font-bold gap-2 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/50 transition-all shadow-xs"
+              >
+                <Camera className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Fotos en Serie (OCR)</span>
+                <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-amber-500/20 text-amber-700 dark:text-amber-300 font-mono">
+                  IA
+                </Badge>
+              </Button>
+            }
+          />
+
+          <Link href={ADMIN_ROUTES.inventario.notaNueva} className="shrink-0">
+            <Button className="h-10 px-4 rounded-xl text-sm font-bold gap-2 shadow-md hover:shadow-lg transition-all active:scale-[0.98]">
+              <Plus className="h-4 w-4 stroke-[2.5]" />
+              <span>Nueva Nota</span>
             </Button>
           </Link>
         </div>
+
+        {/* Barra de Acciones Móvil (Solo Reporte arriba, creación en FABs flotantes) */}
+        <div className="flex md:hidden items-center justify-center w-full">
+          <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
+        </div>
+      </div>
+
+      {/* ── Botones Flotantes (FABs) para Versión Móvil ── */}
+      <div className="fixed bottom-6 right-5 z-50 flex flex-col items-center gap-3 md:hidden">
+        {/* Botón 1: Cámara / Fotos OCR */}
+        <OcrSerialScannerModal
+          trigger={
+            <button
+              type="button"
+              className="h-12 w-12 rounded-full bg-amber-500 hover:bg-amber-600 active:scale-95 text-white shadow-xl shadow-amber-500/25 flex items-center justify-center border-2 border-background transition-all"
+              title="Fotos en Serie (OCR / IA)"
+            >
+              <Camera className="h-5 w-5 drop-shadow-xs" />
+              <span className="sr-only">Escanear Notas con Cámara (OCR)</span>
+            </button>
+          }
+        />
+
+        {/* Botón 2: Nueva Nota (+) */}
+        <Link href={ADMIN_ROUTES.inventario.notaNueva}>
+          <button
+            type="button"
+            className="h-14 w-14 rounded-full bg-primary hover:bg-primary/90 active:scale-95 text-primary-foreground shadow-2xl shadow-primary/30 flex items-center justify-center border-2 border-background transition-all"
+            title="Crear Nueva Nota"
+          >
+            <Plus className="h-7 w-7 stroke-[2.5]" />
+            <span className="sr-only">Nueva Nota</span>
+          </button>
+        </Link>
       </div>
 
       {/* KPI Cards */}

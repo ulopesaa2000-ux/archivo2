@@ -75,8 +75,8 @@ export function BodegaSelector({
 
   return (
     <>
-      <div className="relative flex items-center gap-2">
-        <Warehouse className="h-4 w-4 text-muted-foreground shrink-0" />
+      <div className="relative flex items-center gap-1 sm:gap-2 min-w-0">
+        <Warehouse className="h-4 w-4 text-muted-foreground shrink-0 hidden xs:block" />
         <Select
           value={bodegaActivaId?.toString() ?? ''}
           onValueChange={(value) => {
@@ -101,7 +101,7 @@ export function BodegaSelector({
             }
           }}
         >
-          <SelectTrigger className="h-8 max-w-[220px] text-sm">
+          <SelectTrigger className="h-8 min-w-[90px] max-w-[140px] xs:max-w-[170px] sm:max-w-[220px] text-xs sm:text-sm px-2 sm:px-3 font-semibold truncate">
             <SelectValue placeholder="Seleccionar bodega">
               {bodegaActivaId === 0 
                 ? 'Todas las bodegas' 
