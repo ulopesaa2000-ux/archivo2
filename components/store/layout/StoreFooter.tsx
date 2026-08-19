@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { Instagram, Facebook, Twitter, Phone, MessageCircle } from 'lucide-react'
 import { TikTokIcon } from '@/components/shared/TikTokIcon'
+import { StoreThemeToggle } from './StoreThemeToggle'
 
 export function StoreFooter() {
   const currentYear = new Date().getFullYear()
@@ -164,9 +165,15 @@ export function StoreFooter() {
       {/* Bottom bar */}
       <div className="bg-store-bg border-t border-store-border">
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-xs text-store-ink3">
+          <p className="text-xs text-store-ink3 text-center md:text-left">
             © {currentYear} Catálogo IDOL NAVY. Todos los derechos reservados.
           </p>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-store-ink3 hidden sm:inline">Tema:</span>
+            <StoreThemeToggle variant="segmented" size="sm" />
+          </div>
+
           <div className="flex items-center gap-4 text-xs text-store-ink3">
             <Link href="/contactos" className="hover:underline">
               Página de Contactos

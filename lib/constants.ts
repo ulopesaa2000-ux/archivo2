@@ -55,6 +55,7 @@ export const ESTADO_PRODUCTO_COLORS: Record<string, string> = {
 // ── Rutas admin ─────────────────────────────────────────────
 export const ADMIN_ROUTES = {
   dashboard: '/dashboard',
+  perfil: '/perfil',
   catalogo: {
     lista: '/catalogo',
     detalle: (id: number | string) => `/catalogo/${id}`,

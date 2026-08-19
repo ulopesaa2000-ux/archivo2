@@ -247,35 +247,48 @@ export function SidebarContent({
           ))}
         </nav>
 
-        <div className={cn('shrink-0 border-t p-4', isCollapsed && 'flex justify-center')}>
+        <div className={cn('shrink-0 border-t p-3', isCollapsed && 'flex justify-center p-2')}>
           {isCollapsed ? (
             <Tooltip>
               <TooltipTrigger render={
-                <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border bg-muted shadow-sm">
+                <Link
+                  href="/perfil"
+                  onClick={onNavigate}
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border bg-muted shadow-sm hover:ring-2 hover:ring-primary/20 hover:scale-105 transition-all"
+                  title="Mi perfil"
+                >
                   <span className="text-xs font-semibold">
                     {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
                   </span>
-                </div>
+                </Link>
               } />
               <TooltipContent side="right">
                 <div className="space-y-0.5 text-xs">
                   <p className="font-semibold text-foreground">{user.nombre_completo}</p>
                   <p className="text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
+                  <p className="text-[10px] text-primary pt-0.5">Ver / editar perfil →</p>
                 </div>
               </TooltipContent>
             </Tooltip>
           ) : (
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted shadow-sm">
+            <Link
+              href="/perfil"
+              onClick={onNavigate}
+              className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-muted/70 transition-colors group/user"
+              title="Ir a mi perfil"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted shadow-sm group-hover/user:ring-2 group-hover/user:ring-primary/20 transition-all">
                 <span className="text-xs font-semibold">
                   {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{user.nombre_completo}</p>
+                <p className="truncate text-sm font-semibold text-foreground group-hover/user:text-primary transition-colors">
+                  {user.nombre_completo}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
               </div>
-            </div>
+            </Link>
           )}
         </div>
       </div>

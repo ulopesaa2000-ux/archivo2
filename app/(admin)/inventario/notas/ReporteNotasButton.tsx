@@ -336,9 +336,10 @@ export function ReporteNotasButton({ bodegas, filtrosActuales }: Props) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline">
-            <FileSpreadsheet className="mr-2 h-4 w-4 text-green-600" />
-            Descargar Reporte
+          <Button variant="outline" className="h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold gap-2 border-muted shadow-xs hover:bg-muted/80">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="hidden xs:inline">Descargar Reporte</span>
+            <span className="xs:hidden">Reporte</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[200px]">

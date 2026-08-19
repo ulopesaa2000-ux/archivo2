@@ -3,7 +3,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, Menu, X, LogOut, LayoutDashboard, User, ChevronDown } from 'lucide-react'
+import { 
+  ShoppingCart, Menu, X, LogOut, LayoutDashboard, 
+  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User
+} from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { signOut } from '@/modules/auth/actions'
@@ -18,10 +21,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu'
+import { Badge } from '@/components/ui/badge'
+import { StoreThemeToggle } from './StoreThemeToggle'
 
 export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
   const { count } = useQuoteCart()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isDamaOpen, setIsDamaOpen] = useState(true)
+  const [isCaballeroOpen, setIsCaballeroOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
@@ -54,9 +61,12 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
 
   return (
     <>
-      <header className="h-[64px] bg-store-surface border-b border-store-border sticky top-0 z-50 px-4 md:px-8 flex items-center justify-between backdrop-blur-sm bg-opacity-95">
+      <header className="h-[60px] md:h-[64px] bg-store-surface border-b border-store-border sticky top-0 z-50 px-3 md:px-8 flex items-center justify-between backdrop-blur-md bg-opacity-95">
         {/* Logo */}
-        <Link href="/" className="font-serif text-xl md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight">
+        <Link 
+          href="/" 
+          className="font-serif text-lg md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight truncate max-w-[200px] xs:max-w-none"
+        >
           Catálogo IDOL NAVY
         </Link>
 
@@ -68,7 +78,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               <span>DAMA</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-70" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56 p-2">
+            <DropdownMenuContent align="start" className="w-56 p-2 rounded-2xl">
               <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-2 py-1">Categoría Dama</div>
               <DropdownMenuSeparator />
               {damaSubcategories.map((sub) => (
@@ -87,7 +97,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               <span>CABALLERO</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-70" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56 p-2">
+            <DropdownMenuContent align="start" className="w-56 p-2 rounded-2xl">
               <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-2 py-1">Categoría Caballero</div>
               <DropdownMenuSeparator />
               {caballeroSubcategories.map((sub) => (
@@ -103,9 +113,10 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
           {/* PROMOCIONES Link */}
           <Link
             href="/shop?oferta=true"
-            className="text-[13px] font-semibold text-store-ink2 hover:text-store-ink py-2 px-1 transition-colors"
+            className="text-[13px] font-semibold text-store-ink2 hover:text-store-ink py-2 px-1 transition-colors flex items-center gap-1"
           >
-            PROMOCIONES
+            <Tag className="h-3.5 w-3.5 text-amber-500" />
+            <span>PROMOCIONES</span>
           </Link>
 
           {/* CONTACTOS Link */}
@@ -117,24 +128,103 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
           </Link>
         </nav>
 
-        {/* Mobile menu button */}
-        <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="md:hidden p-2 rounded-lg hover:bg-store-surface transition-colors"
-          aria-label="Menú"
-        >
-          {isMenuOpen ? (
-            <X className="w-6 h-6 text-store-ink" />
+        {/* Mobile Action Trilogy (Carrito, Usuario/Login, Menú Catálogo) */}
+        <div className="flex md:hidden items-center gap-1.5">
+          {/* 1. Carrito Móvil Directo */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(OPEN_CART_EVENT))}
+            className="relative p-2 rounded-xl text-zinc-900 dark:text-white hover:bg-store-bg active:scale-95 transition-all"
+            aria-label="Ver carrito de cotización"
+            title="Ver cotización"
+          >
+            <ShoppingCart className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
+            {count > 0 && (
+              <span className="absolute top-1 right-1 bg-emerald-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-md">
+                {count}
+              </span>
+            )}
+          </button>
+
+          {/* 2. Usuario / Login Móvil */}
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full bg-store-accent/20 dark:bg-store-accent/30 border border-store-accent/50 flex items-center justify-center text-[12px] font-black text-zinc-900 dark:text-white active:scale-95 transition-all outline-none shadow-xs"
+                  aria-label="Menú de usuario"
+                >
+                  {user.nombre_completo?.charAt(0)?.toUpperCase() ?? 'U'}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-2 rounded-2xl shadow-xl">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="font-normal px-2 py-1.5">
+                    <div className="flex flex-col space-y-0.5">
+                      <p className="text-xs font-bold text-foreground truncate">{user.nombre_completo}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{user.rol?.nombre ?? 'Sin rol'}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/perfil" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                    <User className="h-4 w-4 text-primary" />
+                    <span>Mi perfil</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                    <LayoutDashboard className="h-4 w-4 text-primary" />
+                    <span>Panel admin</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2 text-red-600 focus:bg-red-500/10 focus:text-red-600"
+                  onSelect={handleLogout}
+                  disabled={isPending}
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>{isPending ? 'Cerrando...' : 'Cerrar sesión'}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
-            <Menu className="w-6 h-6 text-store-ink" />
+            <Link
+              href="/login"
+              className="p-2 rounded-xl text-zinc-900 dark:text-white hover:bg-store-bg active:scale-95 transition-all flex items-center justify-center"
+              aria-label="Iniciar sesión"
+              title="Iniciar sesión"
+            >
+              <LogIn className="w-5 h-5 text-zinc-900 dark:text-white" />
+            </Link>
           )}
-        </button>
+
+          {/* 3. Menú Catálogo Hamburguesa (3 líneas) */}
+          <button
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="p-2 rounded-xl hover:bg-store-bg active:scale-95 transition-all text-zinc-900 dark:text-white"
+            aria-label="Menú Catálogo"
+          >
+            {isMenuOpen ? (
+              <X className="w-5 h-5 text-zinc-900 dark:text-white" />
+            ) : (
+              <Menu className="w-5 h-5 text-zinc-900 dark:text-white" />
+            )}
+          </button>
+        </div>
 
         {/* Desktop actions */}
         <div className="hidden md:flex items-center gap-3 md:gap-4">
+          {/* Selector de Tema Encapsulado */}
+          <StoreThemeToggle variant="capsule" />
+
           {user ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-store-accent rounded-lg p-1 transition-colors hover:bg-store-bg">
+              <DropdownMenuTrigger className="flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-store-accent rounded-xl p-1 transition-colors hover:bg-store-bg">
                 <div className="w-8 h-8 rounded-full bg-store-accent/10 border border-store-border flex items-center justify-center">
                   <span className="text-[12px] font-semibold text-store-accent">
                     {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
@@ -149,7 +239,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                   </p>
                 </div>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-52 rounded-2xl">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
@@ -159,6 +249,12 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                   </DropdownMenuLabel>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/perfil" className="flex items-center gap-2 cursor-pointer font-medium">
+                    <User className="h-4 w-4" />
+                    Mi perfil
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
                     <LayoutDashboard className="h-4 w-4" />
@@ -185,6 +281,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               Iniciar sesión
             </Link>
           )}
+
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event(OPEN_CART_EVENT))}
@@ -205,147 +302,150 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
       {/* Slide-over Cart Drawer */}
       <CartDrawer />
 
-      {/* Mobile menu overlay */}
+      {/* Mobile Catálogo Menu Drawer */}
       {isMenuOpen && (
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 md:hidden animate-in fade-in duration-200"
             onClick={() => setIsMenuOpen(false)}
           />
 
           {/* Menu panel */}
-          <div className="fixed right-0 top-0 h-full w-64 bg-store-surface z-50 shadow-xl transform transition-transform duration-300 ease-in-out">
-            <div className="p-4 border-b border-store-border">
-              <div className="flex items-center justify-between">
-                <span className="font-serif text-xl text-store-ink">Menú</span>
-                <button
-                  onClick={() => setIsMenuOpen(false)}
-                  className="p-2 rounded-lg hover:bg-store-bg transition-colors"
-                  aria-label="Cerrar menú"
-                >
-                  <X className="w-5 h-5 text-store-ink" />
-                </button>
-              </div>
+          <div className="fixed right-0 top-0 h-full w-[290px] max-w-[85vw] bg-store-surface z-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out border-l border-store-border">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-store-border flex items-center justify-between">
+              <span className="font-serif text-lg font-bold text-store-ink">Explorar Catálogo</span>
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-store-bg text-store-ink transition-colors"
+                aria-label="Cerrar menú"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Mobile user info */}
-            {user && (
-              <div className="p-4 border-b border-store-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-store-accent/10 border border-store-border flex items-center justify-center">
-                    <span className="text-sm font-semibold text-store-accent">
-                      {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-store-ink truncate">
-                      {user.nombre_completo}
-                    </p>
-                    <p className="text-[11px] text-store-ink3 truncate">
-                      {user.rol?.nombre ?? 'Sin rol'}
-                    </p>
-                  </div>
+            {/* Categorías con Acordeones Desplegables */}
+            <nav className="p-4 overflow-y-auto flex-1 space-y-3 text-sm">
+              {/* 1. Selector de Tema en Móvil (Arriba) */}
+              <div className="pb-3 border-b border-store-border/70">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Modo de Pantalla
+                  </span>
                 </div>
-              </div>
-            )}
-
-            <nav className="p-4 overflow-y-auto max-h-[calc(100vh-120px)] space-y-4">
-              {/* Dama Group */}
-              <div>
-                <p className="px-3 text-xs font-bold text-store-ink uppercase tracking-wider mb-1">DAMA</p>
-                <ul className="space-y-1">
-                  {damaSubcategories.map((sub) => (
-                    <li key={sub.name}>
-                      <Link
-                        href={sub.href}
-                        onClick={() => setIsMenuOpen(false)}
-                        className="block px-4 py-1.5 text-[13px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors"
-                      >
-                        {sub.name}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <StoreThemeToggle variant="segmented" size="sm" className="w-full justify-between" />
               </div>
 
-              {/* Caballero Group */}
-              <div>
-                <p className="px-3 text-xs font-bold text-store-ink uppercase tracking-wider mb-1">CABALLERO</p>
-                <ul className="space-y-1">
-                  {caballeroSubcategories.map((sub) => (
-                    <li key={sub.name}>
-                      <Link
-                        href={sub.href}
-                        onClick={() => setIsMenuOpen(false)}
-                        className="block px-4 py-1.5 text-[13px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors"
-                      >
-                        {sub.name}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+              {/* 2. Dama Accordion (Abierto por default) */}
+              <div className="rounded-2xl border border-store-border/60 overflow-hidden bg-store-bg/40">
+                <button
+                  type="button"
+                  onClick={() => setIsDamaOpen(!isDamaOpen)}
+                  className="w-full flex items-center justify-between p-3 font-bold text-xs uppercase tracking-wider text-store-ink hover:bg-store-bg transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>👗</span>
+                    <span>DAMA</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                      {damaSubcategories.length}
+                    </Badge>
+                  </div>
+                  {isDamaOpen ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </button>
+
+                {isDamaOpen && (
+                  <ul className="p-2 pt-0 space-y-0.5 border-t border-store-border/40 animate-in fade-in-50 duration-150">
+                    {damaSubcategories.map((sub) => (
+                      <li key={sub.name}>
+                        <Link
+                          href={sub.href}
+                          onClick={() => setIsMenuOpen(false)}
+                          className="block px-3 py-2 text-xs font-medium text-store-ink2 hover:bg-store-surface hover:text-store-ink rounded-xl transition-colors"
+                        >
+                          {sub.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
-              {/* Direct links */}
-              <div className="pt-2 border-t border-store-border space-y-1">
+              {/* 3. Caballero Accordion */}
+              <div className="rounded-2xl border border-store-border/60 overflow-hidden bg-store-bg/40">
+                <button
+                  type="button"
+                  onClick={() => setIsCaballeroOpen(!isCaballeroOpen)}
+                  className="w-full flex items-center justify-between p-3 font-bold text-xs uppercase tracking-wider text-store-ink hover:bg-store-bg transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>👔</span>
+                    <span>CABALLERO</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                      {caballeroSubcategories.length}
+                    </Badge>
+                  </div>
+                  {isCaballeroOpen ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </button>
+
+                {isCaballeroOpen && (
+                  <ul className="p-2 pt-0 space-y-0.5 border-t border-store-border/40 animate-in fade-in-50 duration-150">
+                    {caballeroSubcategories.map((sub) => (
+                      <li key={sub.name}>
+                        <Link
+                          href={sub.href}
+                          onClick={() => setIsMenuOpen(false)}
+                          className="block px-3 py-2 text-xs font-medium text-store-ink2 hover:bg-store-surface hover:text-store-ink rounded-xl transition-colors"
+                        >
+                          {sub.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* 4. Enlaces Rápidos Directos (Promociones & Contactos) */}
+              <div className="pt-1 space-y-1.5">
                 <Link
                   href="/shop?oferta=true"
                   onClick={() => setIsMenuOpen(false)}
-                  className="block px-3 py-2 text-[14px] font-semibold text-store-ink hover:bg-store-bg rounded-md"
+                  className="flex items-center justify-between p-3 rounded-2xl font-bold text-xs text-store-ink hover:bg-store-bg border border-amber-500/20 bg-amber-500/5 transition-all"
                 >
-                  PROMOCIONES
+                  <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <Tag className="w-4 h-4" />
+                    <span>PROMOCIONES</span>
+                  </div>
+                  <Badge className="bg-amber-500 text-black font-black text-[9px] px-1.5 py-0">
+                    OFERTA
+                  </Badge>
                 </Link>
+
                 <Link
                   href="/contactos"
                   onClick={() => setIsMenuOpen(false)}
-                  className="block px-3 py-2 text-[14px] font-semibold text-store-ink hover:bg-store-bg rounded-md"
+                  className="flex items-center gap-2 p-3 rounded-2xl font-bold text-xs text-store-ink hover:bg-store-bg border border-store-border/60 bg-store-bg/40 transition-all"
                 >
-                  CONTACTOS
-                </Link>
-              </div>
-
-              {/* User Actions */}
-              <div className="pt-2 border-t border-store-border space-y-1">
-                {user ? (
-                  <>
-                    <Link
-                      href="/dashboard"
-                      onClick={() => setIsMenuOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
-                    >
-                      <LayoutDashboard className="h-4 w-4" />
-                      Panel admin
-                    </Link>
-                    <button
-                      onClick={() => { setIsMenuOpen(false); handleLogout() }}
-                      disabled={isPending}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-[14px] text-red-600 hover:bg-red-50 rounded-md transition-colors font-medium text-left"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      {isPending ? 'Cerrando...' : 'Cerrar sesión'}
-                    </button>
-                  </>
-                ) : (
-                  <Link
-                    href="/login"
-                    onClick={() => setIsMenuOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
-                  >
-                    <User className="h-4 w-4" />
-                    Iniciar sesión
-                  </Link>
-                )}
-                <Link
-                  href="/cotizacion"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 text-[14px] text-store-ink2 hover:bg-store-bg hover:text-store-ink rounded-md transition-colors font-medium"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                  Mi cotización ({count})
+                  <Phone className="w-4 h-4 text-primary" />
+                  <span>CONTACTOS</span>
                 </Link>
               </div>
             </nav>
+
+            {/* Drawer Footer */}
+            <div className="p-4 border-t border-store-border text-center">
+              <p className="text-[11px] text-muted-foreground">
+                Catálogo IDOL NAVY &copy; {new Date().getFullYear()}
+              </p>
+            </div>
           </div>
         </>
       )}
