@@ -28,6 +28,7 @@ import {
   Users,
   Warehouse,
   RotateCcw,
+  Sliders,
 } from 'lucide-react'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -112,6 +113,7 @@ const GROUPS: NavGroup[] = [
     label: 'Configuracion',
     icon: Settings,
     items: [
+      { label: 'General', href: ADMIN_ROUTES.configuracion.general, icon: Sliders, modulo: 'config_usuarios' },
       { label: 'Usuarios', href: ADMIN_ROUTES.configuracion.usuarios, icon: Users, modulo: 'config_usuarios' },
       { label: 'Personas Asociadas', href: '/configuracion/personas', icon: Users, modulo: 'config_usuarios' },
       { label: 'Tablas de Soporte', href: ADMIN_ROUTES.configuracion.tablasSoporte, icon: Database, modulo: 'config_tablas' },

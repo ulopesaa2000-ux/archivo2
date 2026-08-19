@@ -18,6 +18,7 @@ import {
   fetchConjuntoProducto,
   fetchCatalogosEdicion,
   fetchPuntosMedida,
+  fetchStockProductoPorBodegas,
 } from '@/modules/catalogo/queries'
 import type { CatalogosEdicion, FKDescriptivas } from '@/modules/catalogo/types'
 import type { ProductoRow } from '@/lib/types/tables'
@@ -26,7 +27,7 @@ import { TabSkeleton } from '@/components/admin/PageSkeleton'
 import { HeroProducto } from './components/HeroProducto'
 import { ProductoNavigation } from './components/ProductoNavigation'
 import { CatalogoDetailActions } from './components/CatalogoDetailActions'
-import { TabCatalogos } from './components/TabCatalogos'
+import { TabStock } from './components/TabStock'
 import { TabEcommerce } from './components/TabEcommerce'
 import { TabImagenes } from './components/TabImagenes'
 import { TabCajas } from './components/TabCajas'
@@ -81,6 +82,7 @@ export default async function CatalogoDetallePage(props: {
   const fk = await resolveFKDescriptivas(producto, catalogosHero)
   const catalogosEdicionPromise = fetchCatalogosEdicion()
   const cajasPromise = fetchCajasProducto(producto.id)
+  const stockPromise = fetchStockProductoPorBodegas(producto.id)
   const imagenesPromise = Promise.resolve(imagenes)
 
   return (
@@ -121,6 +123,7 @@ export default async function CatalogoDetallePage(props: {
           catalogosPromise={catalogosEdicionPromise}
           imagenesPromise={imagenesPromise}
           cajasPromise={cajasPromise}
+          stockPromise={stockPromise}
         />
       </Suspense>
 
@@ -142,6 +145,7 @@ async function CatalogoTabsAsync({
   catalogosPromise,
   imagenesPromise,
   cajasPromise,
+  stockPromise,
 }: {
   producto: ProductoRow
   fk: FKDescriptivas
@@ -151,6 +155,7 @@ async function CatalogoTabsAsync({
   catalogosPromise: Promise<CatalogosEdicion>
   imagenesPromise: ReturnType<typeof fetchImagenesProducto>
   cajasPromise: ReturnType<typeof fetchCajasProducto>
+  stockPromise: ReturnType<typeof fetchStockProductoPorBodegas>
 }) {
   const catalogos = await catalogosPromise
 
@@ -170,20 +175,18 @@ async function CatalogoTabsAsync({
 
       <Separator />
 
-      <Tabs defaultValue="catalogos" className="flex-col">
+      <Tabs defaultValue="imagenes" className="flex-col">
         <TabsList className="flex-wrap h-auto group-data-[orientation=horizontal]/tabs:h-auto gap-1 mb-4 p-1">
-          <TabsTrigger value="catalogos">Catálogos</TabsTrigger>
           <TabsTrigger value="imagenes">Imágenes</TabsTrigger>
+          <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="cajas">Cajas</TabsTrigger>
+          <TabsTrigger value="variantes">Variantes</TabsTrigger>
+          <TabsTrigger value="medidas">Medidas</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="complementos">Complementos</TabsTrigger>
           <TabsTrigger value="acabados">Acabados</TabsTrigger>
-          <TabsTrigger value="variantes">Variantes</TabsTrigger>
-          <TabsTrigger value="medidas">Medidas</TabsTrigger>
           {producto.es_conjunto && <TabsTrigger value="conjunto">Conjunto</TabsTrigger>}
         </TabsList>
-
-        <TabsContent value="catalogos"><TabCatalogos fk={fk} /></TabsContent>
 
         <TabsContent value="imagenes">
           <Suspense fallback={<TabSkeleton />}>
@@ -192,6 +195,17 @@ async function CatalogoTabsAsync({
               skuBase={producto.sku_base}
               canEdit={userCanEdit}
               imagenesPromise={imagenesPromise}
+            />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="stock">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabStockAsync
+              productoId={producto.id}
+              skuBase={producto.sku_base}
+              pzEnCaja={producto.pz_en_caja}
+              stockPromise={stockPromise}
             />
           </Suspense>
         </TabsContent>
@@ -207,24 +221,6 @@ async function CatalogoTabsAsync({
               canDelete={canDeleteCajas}
               cajasPromise={cajasPromise}
             />
-          </Suspense>
-        </TabsContent>
-
-        <TabsContent value="tags">
-          <Suspense fallback={<TabSkeleton />}>
-            <TabTagsAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
-          </Suspense>
-        </TabsContent>
-
-        <TabsContent value="complementos">
-          <Suspense fallback={<TabSkeleton />}>
-            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
-          </Suspense>
-        </TabsContent>
-
-        <TabsContent value="acabados">
-          <Suspense fallback={<TabSkeleton />}>
-            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
           </Suspense>
         </TabsContent>
 
@@ -248,6 +244,24 @@ async function CatalogoTabsAsync({
               tipoPrendaNombre={fk.tipo_prenda}
               canEdit={userCanEdit}
             />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="tags">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabTagsAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="complementos">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="acabados">
+          <Suspense fallback={<TabSkeleton />}>
+            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
           </Suspense>
         </TabsContent>
 
@@ -297,6 +311,27 @@ async function TabImagenesAsync({
 }) {
   const imagenes = await imagenesPromise
   return <TabImagenes imagenes={imagenes} productoId={productoId} skuBase={skuBase} canEdit={canEdit} />
+}
+
+async function TabStockAsync({
+  productoId,
+  skuBase,
+  pzEnCaja,
+  stockPromise,
+}: {
+  productoId: number
+  skuBase: string
+  pzEnCaja?: number | null
+  stockPromise: ReturnType<typeof fetchStockProductoPorBodegas>
+}) {
+  return (
+    <TabStock
+      productoId={productoId}
+      skuBase={skuBase}
+      pzEnCaja={pzEnCaja}
+      stockPromise={stockPromise}
+    />
+  )
 }
 
 async function TabCajasAsync({

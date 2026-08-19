@@ -87,6 +87,7 @@ export const ADMIN_ROUTES = {
     ordenDetalle: (id: number) => `/ecommerce/ordenes-venta/${id}`,
   },
   configuracion: {
+    general: '/configuracion/general',
     usuarios: '/configuracion/usuarios',
     roles: '/configuracion/roles',
     auditoriaProductos: '/configuracion/auditoria_producto',
