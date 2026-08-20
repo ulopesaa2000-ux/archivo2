@@ -242,12 +242,10 @@ export type NotaStockPendienteItem = {
 
 export type StockPronosticadoProducto = {
   total_fisico_cajas: number
-  total_fisico_piezas: number
+  total_fisico_piezas?: number
   entradas_pendientes_cajas: number
-  entradas_pendientes_piezas: number
   salidas_pendientes_cajas: number
-  salidas_pendientes_piezas: number
+  transferencias_cajas: number
   disponible_pronosticado_cajas: number
-  disponible_pronosticado_piezas: number
   notas_pendientes: NotaStockPendienteItem[]
 }

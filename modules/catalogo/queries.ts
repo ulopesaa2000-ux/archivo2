@@ -917,9 +917,8 @@ export async function fetchStockPronosticadoProducto(
     .eq('producto_id', productoId)
 
   let entradas_pendientes_cajas = 0
-  let entradas_pendientes_piezas = 0
   let salidas_pendientes_cajas = 0
-  let salidas_pendientes_piezas = 0
+  let transferencias_cajas = 0
   const notas_pendientes: NotaStockPendienteItem[] = []
 
   if (!error && notasDetalle) {
@@ -931,17 +930,19 @@ export async function fetchStockPronosticadoProducto(
       const origen = Array.isArray(nota.bodega_origen) ? nota.bodega_origen[0] : nota.bodega_origen
       const destino = Array.isArray(nota.bodega_destino) ? nota.bodega_destino[0] : nota.bodega_destino
       const afecta = tipo?.afecta_inventario ?? 0
+      const tipoCodigo = String(tipo?.codigo ?? '').toUpperCase()
       const cajas = Number(d.cajas ?? 0)
       const piezas = Number(d.piezas_sueltas ?? 0)
 
       if (afecta > 0) {
         // Entrada pendiente
         entradas_pendientes_cajas += cajas
-        entradas_pendientes_piezas += piezas
       } else if (afecta < 0) {
         // Salida pendiente
         salidas_pendientes_cajas += cajas
-        salidas_pendientes_piezas += piezas
+      } else if (tipoCodigo === 'TRF' || nota.bodega_destino_id) {
+        // Transferencia / Traspaso en tránsito
+        transferencias_cajas += cajas
       }
 
       notas_pendientes.push({
@@ -962,17 +963,14 @@ export async function fetchStockPronosticadoProducto(
   }
 
   const disponible_pronosticado_cajas = total_fisico_cajas + entradas_pendientes_cajas - salidas_pendientes_cajas
-  const disponible_pronosticado_piezas = total_fisico_piezas + entradas_pendientes_piezas - salidas_pendientes_piezas
 
   return {
     total_fisico_cajas,
     total_fisico_piezas,
     entradas_pendientes_cajas,
-    entradas_pendientes_piezas,
     salidas_pendientes_cajas,
-    salidas_pendientes_piezas,
+    transferencias_cajas,
     disponible_pronosticado_cajas,
-    disponible_pronosticado_piezas,
     notas_pendientes,
   }
 }
