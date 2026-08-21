@@ -191,12 +191,32 @@ export function NoteDraftBuilder({
         })),
       }
     }
+    // Obtener tipo de movimiento default según rol / nivel del usuario
+    const rKey = userRoleId ? String(userRoleId) : ''
+    const nKey = String(currentUserLevel)
+    const defaultTipoCodigo =
+      (rKey && config?.tipo_movimiento_default_por_rol?.[rKey]) ||
+      config?.tipo_movimiento_default_por_rol?.[nKey] ||
+      config?.tipo_movimiento_default_general ||
+      (userRoleId === 18 ? 'SAL' : 'ENT')
+
+    const matchedDefaultTipo = catalogos.tiposMovimiento.find((t) => t.codigo === defaultTipoCodigo)
+    const initialTipoIdPorRol = (config?.auto_seleccionar_tipo_default !== false) ? (matchedDefaultTipo?.id ?? null) : null
+    const initialBodegaOrigenId = (config?.auto_seleccionar_bodega_activa !== false && defaultBodegaOrigenId)
+      ? defaultBodegaOrigenId
+      : null
+
     // Si viene de propuesta OCR
     if (initialData && (initialData.cabecera as any).productos_draft) {
       const hc = initialData.cabecera as any
+      const ocrPriorizar = config?.ocr_priorizar_tipo_detectado !== false
+      const finalOcrTipoId = ocrPriorizar && hc.tipo_movimiento_id
+        ? hc.tipo_movimiento_id
+        : (initialTipoIdPorRol ?? hc.tipo_movimiento_id ?? null)
+
       return {
-        tipo_movimiento_id: hc.tipo_movimiento_id ?? null,
-        bodega_origen_id: hc.bodega_origen_id ?? null,
+        tipo_movimiento_id: finalOcrTipoId,
+        bodega_origen_id: hc.bodega_origen_id || initialBodegaOrigenId,
         bodega_destino_id: hc.bodega_destino_id ?? null,
         fecha_nota: hc.fecha_nota ? formatForDateInput(hc.fecha_nota) : todayMX(),
         nota_referencia: hc.nota_referencia ?? '',
@@ -205,9 +225,10 @@ export function NoteDraftBuilder({
         productos: hc.productos_draft || [],
       }
     }
+
     return {
-      tipo_movimiento_id: null,
-      bodega_origen_id: null,
+      tipo_movimiento_id: initialTipoIdPorRol,
+      bodega_origen_id: initialBodegaOrigenId,
       bodega_destino_id: null,
       fecha_nota: todayMX(),
       nota_referencia: '',

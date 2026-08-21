@@ -24,9 +24,10 @@ import { ClearFilters } from '@/components/admin/ClearFilters'
 
 type Props = {
   bodegas: BodegaRow[]
+  defaultAgrupacion?: string
 }
 
-export function StockMatrixFilters({ bodegas }: Props) {
+export function StockMatrixFilters({ bodegas, defaultAgrupacion = 'ninguno' }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -83,7 +84,7 @@ export function StockMatrixFilters({ bodegas }: Props) {
   const isNone = searchParams.get('bodegas') === 'none'
   const isTodas = !isNone && currentBodegas.length === 0
 
-  const currentAgrupacion = searchParams.get('agrupar_por') || 'ninguno'
+  const currentAgrupacion = searchParams.get('agrupar_por') || defaultAgrupacion
 
   const toggleCiudad = (ciudad: string) => {
     const list = new Set(currentCiudades)
@@ -128,7 +129,7 @@ export function StockMatrixFilters({ bodegas }: Props) {
         <DropdownMenuContent align="start" className="w-[160px]">
           <DropdownMenuRadioGroup
             value={currentAgrupacion}
-            onValueChange={(val) => setParam('agrupar_por', val === 'ninguno' ? null : val)}
+            onValueChange={(val) => setParam('agrupar_por', val === defaultAgrupacion ? null : val)}
           >
             <DropdownMenuRadioItem value="ninguno">Sin agrupar</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="familia">Por Familia</DropdownMenuRadioItem>

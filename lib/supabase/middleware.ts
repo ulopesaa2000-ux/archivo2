@@ -82,6 +82,21 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Redirección inteligente en la raíz "/":
+  // Si un usuario de staff (Admin, Bodeguero, etc.) entra a la raíz "/", enviarlo a /dashboard.
+  // Si es un visitante sin login o un "Cliente Ecomerce", permanece en la tienda "/".
+  if (user && pathname === '/') {
+    const claims = user.app_metadata?.inv_tienda_claims
+    const rolNombre = (claims?.rol_nombre || user.user_metadata?.rol || '').toLowerCase()
+    const isCliente = claims?.rol_id === 19 || rolNombre.includes('cliente')
+
+    if (!isCliente && (claims || (claims?.nivel_acceso ?? 99) <= 3)) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+  }
+
   if (user && isProtectedRoute && pathname !== '/unauthorized') {
     const claims = user.app_metadata?.inv_tienda_claims
     const modulo = permissionForPath(pathname)

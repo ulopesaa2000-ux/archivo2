@@ -106,6 +106,7 @@ export type FiltrosStock = {
   marca_id?: number
   con_stock_cero?: boolean
   page?: number
+  limit?: number
 }
 
 export type StockListItem = {
@@ -144,6 +145,7 @@ export type FiltrosStockMatrix = {
   ciudades?: string[]
   bodegas?: number[]
   page?: number
+  limit?: number
 }
 
 export type StockMatrixItem = {

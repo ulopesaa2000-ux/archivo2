@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { actualizarConfigInventarioAction } from '@/modules/inventario/config-actions'
-import type { ConfigInventario, TipoMovimientoCodigo } from '@/modules/inventario/config-types'
+import type { ConfigInventario, TipoMovimientoCodigo, AlcanceVisionNotas, AccionEliminarNota } from '@/modules/inventario/config-types'
 import { DEFAULT_CONFIG_INVENTARIO } from '@/modules/inventario/config-types'
 import type { BodegaRow, RolRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import type { UsuarioConDetalle } from '@/modules/config/types'
@@ -74,14 +74,54 @@ export function InventarioConfigForm({
         updatedList = currentList.filter((t) => t !== tipo)
       }
 
+      // Si el tipo desmarcado era el predeterminado para este rol, cambiar al primero disponible
+      const currentDefaults = { ...(prev.tipo_movimiento_default_por_rol || {}) }
+      if (!checked && currentDefaults[rolKey] === tipo) {
+        currentDefaults[rolKey] = updatedList[0] || 'ENT'
+      }
+
       return {
         ...prev,
         permisos_tipos_movimiento: {
           ...currentMap,
           [rolKey]: updatedList,
         },
+        tipo_movimiento_default_por_rol: currentDefaults,
       }
     })
+  }
+
+  // Manejador para el tipo de movimiento predeterminado por rol
+  const handleTipoDefaultRolChange = (rolKey: string, tipo: TipoMovimientoCodigo) => {
+    setConfig((prev) => ({
+      ...prev,
+      tipo_movimiento_default_por_rol: {
+        ...(prev.tipo_movimiento_default_por_rol || {}),
+        [rolKey]: tipo,
+      },
+    }))
+  }
+
+  // Manejador para el alcance de visión de notas por rol
+  const handleAlcanceVisionChange = (rolKey: string, alcance: AlcanceVisionNotas) => {
+    setConfig((prev) => ({
+      ...prev,
+      alcance_vision_notas_por_rol: {
+        ...(prev.alcance_vision_notas_por_rol || {}),
+        [rolKey]: alcance,
+      },
+    }))
+  }
+
+  // Manejador para la acción al eliminar/cancelar notas por rol
+  const handleAccionEliminarChange = (rolKey: string, accion: AccionEliminarNota) => {
+    setConfig((prev) => ({
+      ...prev,
+      accion_eliminar_nota_por_rol: {
+        ...(prev.accion_eliminar_nota_por_rol || {}),
+        [rolKey]: accion,
+      },
+    }))
   }
 
   // Guardar configuración global
@@ -178,6 +218,9 @@ export function InventarioConfigForm({
             roles={roles}
             onChange={handleFieldChange}
             onPermisoTipoMovimientoChange={handlePermisoTipoMovimientoChange}
+            onTipoDefaultRolChange={handleTipoDefaultRolChange}
+            onAlcanceVisionChange={handleAlcanceVisionChange}
+            onAccionEliminarChange={handleAccionEliminarChange}
           />
         </TabsContent>
 

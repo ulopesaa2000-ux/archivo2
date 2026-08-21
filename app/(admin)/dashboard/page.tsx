@@ -18,7 +18,7 @@ import { DashboardEcommerceView } from './components/DashboardEcommerceView'
 import { DashboardGeneralView } from './components/DashboardGeneralView'
 
 export const metadata: Metadata = {
-  title: 'Panel de Control | inv-tienda',
+  title: 'Panel de Control | Idol Navy',
   description: 'Dashboard operativo multi-perspectiva (Comercial, Inventario, Catálogo, Ecommerce)',
 }
 

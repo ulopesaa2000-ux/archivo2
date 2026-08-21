@@ -139,7 +139,10 @@ export function getEffectivePermissions(user: UsuarioConRol | null | undefined):
       }
     }
     const nivel = user?.rol?.nivel_acceso ?? 99
-    if (nivel === 4 || nivel === 5) {
+    const isClienteEcommerce = user?.rol_id === 19 || (user?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+    if (isClienteEcommerce) {
+      matrix.ecommerce_ordenes = { puede_leer: true, puede_crear: true, puede_editar: false, puede_eliminar: false }
+    } else if (nivel === 4 || nivel === 5) {
       matrix.b2b_ordenes = { puede_leer: true, puede_crear: false, puede_editar: false, puede_eliminar: false }
       matrix.b2b_contenedores = { puede_leer: true, puede_crear: false, puede_editar: false, puede_eliminar: false }
     }

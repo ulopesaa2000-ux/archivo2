@@ -17,12 +17,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-export function StockFilters() {
+export function StockFilters({ defaultAgrupacion = 'ninguno' }: { defaultAgrupacion?: string }) {
   const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
 
   const currentQ          = searchParam('q')
   const currentStockCero  = searchParam('con_stock_cero') === 'true'
-  const currentAgrupacion = searchParam('agrupar_por') || 'ninguno'
+  const currentAgrupacion = searchParam('agrupar_por') || defaultAgrupacion
 
   const [localQ, setLocalQ] = useState(currentQ)
 
@@ -74,7 +74,7 @@ export function StockFilters() {
         <DropdownMenuContent align="start" className="w-[160px]">
           <DropdownMenuRadioGroup
             value={currentAgrupacion}
-            onValueChange={(val) => updateParam('agrupar_por', val === 'ninguno' ? null : val)}
+            onValueChange={(val) => updateParam('agrupar_por', val === defaultAgrupacion ? null : val)}
           >
             <DropdownMenuRadioItem value="ninguno">Sin agrupar</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="familia">Por Familia</DropdownMenuRadioItem>

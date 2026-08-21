@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import type { UsuarioConRol } from '@/lib/types/tables'
 
+import { fetchConfigInventario } from './config-queries'
+
 export type AccionInventario =
   | 'consultar_stock'
   | 'crear_nota'
@@ -88,8 +90,10 @@ export async function can(
     }
 
     case 'confirmar_nota': {
-      const bOrigenId = ctx?.bodegaOrigenId ?? ctx?.bodegaId
-      if (!bOrigenId && ctx?.notaId) {
+      let bOrigenId = ctx?.bodegaOrigenId ?? ctx?.bodegaId
+      let bDestinoId = ctx?.bodegaDestinoId
+
+      if (ctx?.notaId) {
         // Si viene notaId, consultar bodegas de la nota
         const supabase = await createClient()
         const { data: nota } = await supabase
@@ -97,34 +101,54 @@ export async function can(
           .select('bodega_origen_id, bodega_destino_id')
           .eq('id', ctx.notaId)
           .single()
-        
+
         if (!nota) return { ok: false, motivo: 'Nota no encontrada.' }
-        
-        const permOrigen = permisos.find(p => p.bodega_id === nota.bodega_origen_id)
-        if (!permOrigen?.puede_confirmar_notas) {
-          return { ok: false, motivo: 'No tienes permiso para confirmar notas en la bodega de origen.' }
-        }
-        if (nota.bodega_destino_id) {
-          const permDestino = permisos.find(p => p.bodega_id === nota.bodega_destino_id)
-          if (!permDestino?.puede_confirmar_notas) {
-            return { ok: false, motivo: 'No tienes permiso para confirmar notas en la bodega de destino.' }
-          }
-        }
-        return { ok: true }
+        bOrigenId = nota.bodega_origen_id
+        bDestinoId = nota.bodega_destino_id || undefined
       }
 
+      const config = await fetchConfigInventario()
+      const esTraspaso = bDestinoId !== undefined && bDestinoId !== null
+
+      if (esTraspaso) {
+        const permDestino = permisos.find((p) => p.bodega_id === bDestinoId)
+        const permOrigen = permisos.find((p) => p.bodega_id === bOrigenId)
+
+        if (config.requiere_aprobacion_traspaso) {
+          // Si requiere aprobación de la bodega receptora:
+          // La confirmación definitiva (que procesa y mueve stock) debe realizarla la bodega de destino
+          if (!permDestino || (!permDestino.puede_confirmar_notas && !permDestino.puede_crear_notas)) {
+            return {
+              ok: false,
+              motivo: 'Este traspaso requiere ser confirmado por el encargado de la bodega destino receptora.',
+            }
+          }
+          return { ok: true }
+        } else {
+          // Si NO requiere aprobación de la bodega receptora:
+          // Puede ser confirmado por quien tenga permiso en origen O en destino
+          const tienePermiso =
+            (permOrigen && (permOrigen.puede_confirmar_notas || permOrigen.puede_crear_notas)) ||
+            (permDestino && (permDestino.puede_confirmar_notas || permDestino.puede_crear_notas))
+
+          if (!tienePermiso) {
+            return {
+              ok: false,
+              motivo: 'No tienes permisos en la bodega de origen ni en la bodega de destino para confirmar esta nota.',
+            }
+          }
+          return { ok: true }
+        }
+      }
+
+      // Notas normales (Entrada, Salida, Ajuste, Devolución)
       if (bOrigenId) {
-        const permOrigen = permisos.find(p => p.bodega_id === bOrigenId)
-        if (!permOrigen?.puede_confirmar_notas) {
+        const permOrigen = permisos.find((p) => p.bodega_id === bOrigenId)
+        if (!permOrigen || (!permOrigen.puede_confirmar_notas && !permOrigen.puede_crear_notas)) {
           return { ok: false, motivo: 'No tienes permiso para confirmar notas en esta bodega.' }
         }
       }
-      if (ctx?.bodegaDestinoId) {
-        const permDestino = permisos.find(p => p.bodega_id === ctx.bodegaDestinoId)
-        if (!permDestino?.puede_confirmar_notas) {
-          return { ok: false, motivo: 'No tienes permiso para confirmar notas en la bodega de destino.' }
-        }
-      }
+
       return { ok: true }
     }
 

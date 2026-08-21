@@ -16,7 +16,6 @@ import {
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Pagination } from '@/components/admin/Pagination'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +33,10 @@ type Props = {
   bodegasColumnas: BodegaRow[]
   total: number
   agruparPor?: string
+  totalesCajasRealesPorBodega?: Record<number, number>
 }
 
-export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: Props) {
+export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, totalesCajasRealesPorBodega }: Props) {
   const searchParams = useSearchParams()
   const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -97,6 +97,13 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
     
     return { totalsPerBodega: totals, grandTotal: grand }
   }, [items, bodegasColumnas])
+
+  const grandTotalReal = useMemo(() => {
+    if (totalesCajasRealesPorBodega && Object.keys(totalesCajasRealesPorBodega).length > 0) {
+      return Object.values(totalesCajasRealesPorBodega).reduce((a, b) => a + b, 0)
+    }
+    return grandTotal
+  }, [totalesCajasRealesPorBodega, grandTotal])
 
   const expandAll = () => {
     if (!groupedItems) return
@@ -579,17 +586,38 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-muted/50 border-b font-semibold text-muted-foreground">
-              <th className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px]">Familia</th>
-              <th className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[160px] min-w-[160px] border-l">SKU</th>
-              <th className="px-4 py-3 text-left border-l min-w-[250px]">Descripción</th>
-              <th className="px-4 py-3 text-center border-l bg-muted/50" title="Solo enumera cajas completas">TOTAL</th>
-              {bodegasColumnas.map(b => (
-                <th key={b.id} className="px-4 py-3 text-center border-l whitespace-nowrap">
-                  <span className="block truncate max-w-[120px] mx-auto" title={b.nombre}>
-                    {b.nombre}
-                  </span>
-                </th>
-              ))}
+              <th className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] align-bottom">
+                Familia
+              </th>
+              <th className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[160px] min-w-[160px] border-l align-bottom">
+                SKU
+              </th>
+              <th className="px-4 py-3 text-left border-l min-w-[250px] align-bottom">
+                Descripción
+              </th>
+              <th className="px-3 py-2.5 text-center border-l bg-primary/5 align-bottom" title="Total general de cajas en todas las bodegas">
+                <div className="flex flex-col items-center gap-1 min-w-[85px]">
+                  <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-2xs tabular-nums">
+                    {grandTotalReal.toLocaleString('es-MX')} {grandTotalReal === 1 ? 'caja' : 'cajas'}
+                  </div>
+                  <span className="font-bold text-primary text-xs uppercase tracking-wider">TOTAL</span>
+                </div>
+              </th>
+              {bodegasColumnas.map((b) => {
+                const totalCajasBodega = totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0
+                return (
+                  <th key={b.id} className="px-3 py-2.5 text-center border-l whitespace-nowrap align-bottom">
+                    <div className="flex flex-col items-center gap-1 min-w-[90px]">
+                      <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-100/90 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-300/70 dark:border-blue-700/50 shadow-2xs tabular-nums">
+                        {totalCajasBodega.toLocaleString('es-MX')} {totalCajasBodega === 1 ? 'caja' : 'cajas'}
+                      </div>
+                      <span className="block truncate max-w-[125px] font-bold text-foreground text-xs" title={b.nombre}>
+                        {b.nombre}
+                      </span>
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -710,8 +738,6 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor }: 
           </tfoot>
         </table>
       </div>
-
-      <Pagination total={total} />
     </div>
   )
 }

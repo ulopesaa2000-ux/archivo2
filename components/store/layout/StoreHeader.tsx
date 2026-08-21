@@ -1,6 +1,7 @@
 // components/store/layout/StoreHeader.tsx
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { 
@@ -65,9 +66,19 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
         {/* Logo */}
         <Link 
           href="/" 
-          className="font-serif text-lg md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight truncate max-w-[200px] xs:max-w-none"
+          className="flex items-center gap-2.5 font-serif text-lg md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight truncate max-w-[240px] xs:max-w-none"
         >
-          Catálogo IDOL NAVY
+          <div className="w-8 h-8 md:w-9 md:h-9 shrink-0 rounded-lg overflow-hidden bg-white p-0.5 shadow-xs border border-store-border">
+            <Image
+              src="/icons/icon-192.png"
+              alt="Idol Navy"
+              width={36}
+              height={36}
+              className="w-full h-full object-contain rounded-md"
+              priority
+            />
+          </div>
+          <span>IDOL NAVY</span>
         </Link>
 
         {/* Desktop Navigation */}
@@ -169,17 +180,25 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
+                  <Link href="/ecommerce/ordenes-venta" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                    <Tag className="h-4 w-4 text-primary" />
+                    <span>Mis cotizaciones / órdenes</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link href="/perfil" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
                     <User className="h-4 w-4 text-primary" />
                     <span>Mi perfil</span>
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
-                    <LayoutDashboard className="h-4 w-4 text-primary" />
-                    <span>Panel admin</span>
-                  </Link>
-                </DropdownMenuItem>
+                {(!user.rol_id || user.rol_id !== 19) && !(user.rol?.nombre || '').toLowerCase().includes('cliente') && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                      <LayoutDashboard className="h-4 w-4 text-primary" />
+                      <span>Panel admin</span>
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"
@@ -239,7 +258,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                   </p>
                 </div>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52 rounded-2xl">
+              <DropdownMenuContent align="end" className="w-56 rounded-2xl">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
@@ -250,17 +269,25 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
+                  <Link href="/ecommerce/ordenes-venta" className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Tag className="h-4 w-4" />
+                    Mis cotizaciones / órdenes
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link href="/perfil" className="flex items-center gap-2 cursor-pointer font-medium">
                     <User className="h-4 w-4" />
                     Mi perfil
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
-                    <LayoutDashboard className="h-4 w-4" />
-                    Panel admin
-                  </Link>
-                </DropdownMenuItem>
+                {(!user.rol_id || user.rol_id !== 19) && !(user.rol?.nombre || '').toLowerCase().includes('cliente') && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
+                      <LayoutDashboard className="h-4 w-4" />
+                      Panel admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"

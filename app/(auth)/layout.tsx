@@ -40,7 +40,7 @@ export default function AuthLayout({
 
       {/* Footer mínimo */}
       <p className="mt-8 text-xs font-light text-slate-400 dark:text-slate-600 tracking-wider">
-        inv-tienda © 2026 • Sistema de Control Premium
+        Idol Navy © 2026 • Catálogo & Control Premium
       </p>
     </div>
   )

@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: SITE_NAME,
     short_name: SITE_NAME,
-    description: 'Sistema de administración, inventario y e-commerce de indumentaria',
+    description: 'Catálogo de moda y sistema de administración Idol Navy',
     start_url: '/',
     display: 'standalone',
     background_color: '#0a0e17',
