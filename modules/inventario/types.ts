@@ -281,3 +281,17 @@ export type FiltrosOcrPropuestas = {
   estado?: string
   page?: number
 }
+
+// ── Productos Sustitutos por Familia con Stock ──────────────
+export type ProductoSustitutoFamilia = {
+  id: number
+  sku_base: string
+  nombre: string | null
+  descripcion: string | null
+  familia: string | null
+  pz_en_caja: number | null
+  cajas_disponibles: number
+  piezas_disponibles: number
+  marca_nombre: string | null
+  es_misma_familia: boolean
+}

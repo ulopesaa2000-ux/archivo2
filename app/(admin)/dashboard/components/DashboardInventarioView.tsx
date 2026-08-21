@@ -29,6 +29,67 @@ export function DashboardInventarioView({ data, periodo }: DashboardInventarioVi
 
   return (
     <div className="space-y-6">
+      {/* ── Acciones Operativas Principales (Arriba y Destacadas) ── */}
+      <div className="p-4 sm:p-5 rounded-2xl border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-xs space-y-3 sm:space-y-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="space-y-0.5">
+            <h2 className="text-sm sm:text-base font-black text-foreground uppercase tracking-tight flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              Acciones Operativas de Inventario
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Acceso rápido para registrar movimientos o consultar existencias en tiempo real.
+            </p>
+          </div>
+          <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-background/80 text-muted-foreground border-border hidden sm:inline-flex">
+            Bodega: {bodegaNombre}
+          </Badge>
+        </div>
+
+        {/* Botones Grandes en Grid: 1 columna en móvil (grandes y táctiles) / 2 columnas en desktop */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <Link
+            href={ADMIN_ROUTES.inventario.notas}
+            className="group relative flex items-center justify-between p-4 sm:p-5 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/95 shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 transition-all active:scale-[0.98] border border-primary-foreground/10 overflow-hidden min-h-[72px] sm:min-h-[80px]"
+          >
+            <div className="flex items-center gap-3.5 sm:gap-4">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-white/20 text-white shrink-0 group-hover:scale-110 transition-transform">
+                <Layers className="w-6 h-6 sm:w-7 sm:h-7" />
+              </div>
+              <div className="text-left">
+                <span className="text-base sm:text-lg font-black tracking-tight block leading-tight">
+                  Notas de Inventario
+                </span>
+                <span className="text-xs text-primary-foreground/80 font-medium block mt-0.5">
+                  Ver historial, crear nota o escanear OCR
+                </span>
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
+          </Link>
+
+          <Link
+            href={ADMIN_ROUTES.inventario.stock}
+            className="group relative flex items-center justify-between p-4 sm:p-5 rounded-2xl bg-card hover:bg-muted/80 text-foreground border-2 border-border/90 hover:border-primary/40 shadow-xs hover:shadow-md transition-all active:scale-[0.98] overflow-hidden min-h-[72px] sm:min-h-[80px]"
+          >
+            <div className="flex items-center gap-3.5 sm:gap-4">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-primary/10 text-primary shrink-0 group-hover:scale-110 transition-transform">
+                <Package className="w-6 h-6 sm:w-7 sm:h-7" />
+              </div>
+              <div className="text-left">
+                <span className="text-base sm:text-lg font-black tracking-tight block leading-tight">
+                  Consultar Stock
+                </span>
+                <span className="text-xs text-muted-foreground font-medium block mt-0.5">
+                  Existencias por SKU y bodega
+                </span>
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all shrink-0 ml-2" />
+          </Link>
+        </div>
+      </div>
+
       {/* ── KPIs de Inventario ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         
@@ -223,31 +284,6 @@ export function DashboardInventarioView({ data, periodo }: DashboardInventarioVi
             )}
           </CardContent>
         </Card>
-      </div>
-
-      {/* ── Atajos Operativos Rápidos ── */}
-      <div className="p-4 rounded-2xl border border-border bg-card/60 flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <p className="text-xs font-bold text-foreground">Acciones Operativas de Inventario</p>
-          <p className="text-[11px] text-muted-foreground">Crea notas de movimiento o consulta el stock en tiempo real.</p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href={ADMIN_ROUTES.inventario.notaNueva}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs transition-all"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>Nueva Nota</span>
-          </Link>
-          <Link
-            href={ADMIN_ROUTES.inventario.stock}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-border bg-background hover:bg-muted transition-all"
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Consultar Stock</span>
-          </Link>
-        </div>
       </div>
     </div>
   )

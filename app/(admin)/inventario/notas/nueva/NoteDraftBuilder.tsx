@@ -29,6 +29,7 @@ import {
   ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste
 } from 'lucide-react'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
+import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
 import Link from 'next/link'
 import {
   ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
@@ -36,7 +37,8 @@ import {
 import { guardarNotaAction, actualizarNotaAction, subirComprobanteNotaAction } from '@/modules/inventario/actions'
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
-  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta
+  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta,
+  ProductoSustitutoFamilia
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import { cn, todayMX, formatForDateInput } from '@/lib/utils'
@@ -342,12 +344,21 @@ export function NoteDraftBuilder({
     setIsChangingBodega(false)
   }
 
-  // ── Detección y Comparación de Origen OCR ─────────────────
+  // ── Detección y Comparación de Origen y Tipo OCR ─────────
+  const [dismissedTipoMismatch, setDismissedTipoMismatch] = useState<boolean>(false)
+  const [dismissedOriginMismatch, setDismissedOriginMismatch] = useState<boolean>(false)
+
   const detectedOrigenRaw = (
     ocrProposal?.origen_detectado ||
     (initialData?.cabecera as any)?.origen_detectado ||
     ''
   ).trim()
+
+  const detectedTipoRaw = (
+    ocrProposal?.tipo_movimiento_detectado ||
+    (initialData?.cabecera as any)?.tipo_movimiento_detectado ||
+    ''
+  ).trim().toUpperCase()
 
   const detectedBodega = detectedOrigenRaw
     ? (
@@ -361,14 +372,23 @@ export function NoteDraftBuilder({
       )
     : null
 
-  const isOcrNote = Boolean(ocrProposalId || (ocrProposal && ocrProposal.origen_detectado) || detectedOrigenRaw)
+  const detectedTipoObj = detectedTipoRaw
+    ? (
+        (ocrProposal?.tipo_movimiento_id && catalogos.tiposMovimiento.find(t => t.id === ocrProposal.tipo_movimiento_id)) ||
+        catalogos.tiposMovimiento.find(t => t.codigo === detectedTipoRaw || t.nombre.toUpperCase() === detectedTipoRaw)
+      )
+    : null
+
+  const isOcrNote = Boolean(ocrProposalId || (ocrProposal && ocrProposal.origen_detectado) || detectedOrigenRaw || detectedTipoRaw)
   const currentBodegaObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
 
-  const hasOcrOriginMismatch = isOcrNote && Boolean(detectedOrigenRaw) && (
+  const hasOcrOriginMismatch = !dismissedOriginMismatch && isOcrNote && Boolean(detectedOrigenRaw) && (
     detectedBodega
       ? draft.bodega_origen_id !== detectedBodega.id
       : !currentBodegaObj || !currentBodegaObj.nombre.toLowerCase().includes(detectedOrigenRaw.toLowerCase())
   )
+
+  const hasOcrTipoMismatch = !dismissedTipoMismatch && isOcrNote && Boolean(detectedTipoObj) && draft.tipo_movimiento_id !== detectedTipoObj?.id
 
   // Pre-selección de bodega de origen priorizando la bodega activa del encabezado
   useEffect(() => {
@@ -710,11 +730,87 @@ export function NoteDraftBuilder({
     setDragOverIndex(null)
   }
 
-  // ── Sustituidor rápido de SKU ──────────────────────────────
+  // ── Sustituidor rápido de SKU manual ──────────────────────
   const [swapProductTempId, setSwapProductTempId] = useState<string | null>(null)
   const [swapSearchTerm, setSwapSearchTerm] = useState<string>('')
   const [swapSearchResults, setSwapSearchResults] = useState<ProductoBusqueda[]>([])
   const [isSearchingSwap, setIsSearchingSwap] = useState<boolean>(false)
+
+  // ── Modal de Sustitución Inteligente por Familia con Stock ─
+  const [sustitutoModalOpen, setSustitutoModalOpen] = useState(false)
+  const [sustitutoTargetProduct, setSustitutoTargetProduct] = useState<{
+    tempId: string
+    productoId: number
+    sku: string
+    nombre: string | null
+  } | null>(null)
+
+  const handleOpenSustitutosModal = (prod: DraftProducto) => {
+    setSustitutoTargetProduct({
+      tempId: prod.tempId,
+      productoId: prod.producto_id,
+      sku: prod.producto_sku,
+      nombre: prod.producto_nombre,
+    })
+    setSustitutoModalOpen(true)
+  }
+
+  const handleSelectSustituto = (
+    sustituto: ProductoSustitutoFamilia,
+    productoOriginalSku: string,
+    familia: string | null
+  ) => {
+    if (!sustitutoTargetProduct) return
+    const targetTempId = sustitutoTargetProduct.tempId
+
+    setDraft((prev) => {
+      const updatedProds = prev.productos.map((p) => {
+        if (p.tempId !== targetTempId) return p
+        return {
+          ...p,
+          producto_id: sustituto.id,
+          producto_sku: sustituto.sku_base,
+          producto_nombre: sustituto.descripcion || sustituto.nombre || '',
+          producto_pz_en_caja: sustituto.pz_en_caja,
+          stock_origen_cajas: sustituto.cajas_disponibles,
+          stock_origen_piezas: sustituto.piezas_disponibles,
+        }
+      })
+
+      // Agregar leyenda descriptiva a observaciones
+      const familiaTxt = familia ? ` de la familia '${familia}'` : ''
+      const logEntry = `[Auto-ajuste: Se sustituyó '${productoOriginalSku}' por '${sustituto.sku_base}'${familiaTxt} con existencias en bodega origen]`
+      const newObs = prev.observaciones
+        ? `${prev.observaciones.trim()}\n${logEntry}`
+        : logEntry
+
+      return {
+        ...prev,
+        productos: updatedProds,
+        observaciones: newObs,
+      }
+    })
+
+    toast.success(`Producto sustituido por '${sustituto.sku_base}' con existencias y registrado en observaciones.`)
+    setSustitutoTargetProduct(null)
+  }
+
+  // ── Evaluación de Stock Negativo según Configuración ─────────
+  const esMovimientoSalidaOTraslado =
+    tipoSeleccionado?.codigo === 'SAL' ||
+    tipoSeleccionado?.codigo === 'TRF' ||
+    tipoSeleccionado?.afecta_inventario === -1
+
+  const permitirStockNegativo = config?.permitir_stock_negativo === true
+
+  const productosConDeficit = (esMovimientoSalidaOTraslado && draft.bodega_origen_id)
+    ? draft.productos.filter((p) => p.cajas > (p.stock_origen_cajas ?? 0))
+    : []
+  const hayDeficitStock = productosConDeficit.length > 0
+
+  // Confirmación rápida de stock negativo cuando está permitido
+  const [showNegativeStockConfirmDialog, setShowNegativeStockConfirmDialog] = useState(false)
+  const [pendingConfirmState, setPendingConfirmState] = useState<boolean>(false)
 
   const doSearchSwap = useDebouncedCallback(async (term: string) => {
     if (term.length < 2) {
@@ -823,6 +919,23 @@ export function NoteDraftBuilder({
 
   // ── Guardar ─────────────────────────────────────────────
   const handleSave = (confirmar: boolean) => {
+    if (hayDeficitStock) {
+      if (!permitirStockNegativo) {
+        toast.error(
+          `No se puede guardar: ${productosConDeficit.length} producto(s) en rojo no tienen suficiente stock y el sistema prohíbe stock negativo. Usa el botón ✨ para seleccionar sustitutos de la misma familia.`
+        )
+        setError(
+          `Operación bloqueada: Hay ${productosConDeficit.length} producto(s) en rojo con existencias insuficientes en la bodega origen. La configuración actual prohíbe generar saldos negativos.`
+        )
+        return
+      } else {
+        // Permitir stock negativo activo: Confirmación rápida sin bloqueo permanente
+        setPendingConfirmState(confirmar)
+        setShowNegativeStockConfirmDialog(true)
+        return
+      }
+    }
+
     if (confirmar) {
       setShowConfirmDialog(true)
       return
@@ -959,6 +1072,62 @@ export function NoteDraftBuilder({
               </div>
             </div>
 
+            {/* Banner de Discrepancia OCR en Tipo de Movimiento */}
+            {hasOcrTipoMismatch && detectedTipoObj && (
+              <div className="rounded-2xl border border-sky-400/50 bg-sky-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-xs uppercase tracking-wider text-sky-900 dark:text-sky-200">
+                        Discrepancia en Tipo de Movimiento Detectado
+                      </span>
+                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-sky-500/20 text-sky-800 dark:text-sky-300 border-sky-500/30">
+                        OCR / Escáner
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-sky-950 dark:text-sky-100 font-medium leading-relaxed">
+                      Tienes seleccionado <strong>"{tipoSeleccionado?.nombre || 'Sin tipo'}"</strong>, pero el documento físico tiene marcada la casilla de <strong className="underline underline-offset-2 font-mono uppercase">"{detectedTipoObj.nombre} ({detectedTipoObj.codigo})"</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-2 border-t border-sky-500/20 flex-wrap">
+                  <span className="text-[11px] text-sky-900 dark:text-sky-200 font-medium">
+                    ¿Deseas aplicar el tipo de movimiento detectado en el documento?
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDismissedTipoMismatch(true)}
+                      className="h-8 rounded-xl text-xs font-semibold"
+                    >
+                      Mantener {tipoSeleccionado?.nombre}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setDraft((prev) => ({
+                          ...prev,
+                          tipo_movimiento_id: detectedTipoObj.id,
+                          bodega_destino_id: null,
+                        }))
+                        setDismissedTipoMismatch(true)
+                        toast.success(`Tipo de movimiento actualizado a "${detectedTipoObj.nombre}".`)
+                      }}
+                      className="h-8 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-md shadow-sky-600/20 border-0 shrink-0"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-white" />
+                      <span>Cambiar a {detectedTipoObj.nombre}</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Banner de Discrepancia OCR en Origen */}
             {hasOcrOriginMismatch && (
               <div className="rounded-2xl border border-amber-400/50 bg-amber-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -985,27 +1154,52 @@ export function NoteDraftBuilder({
                     <span className="text-[11px] text-amber-800 dark:text-amber-200 font-medium">
                       ¿Deseas corregir el origen con la bodega sugerida por el OCR?
                     </span>
-                    {allowedBodegas.some(b => b.id === detectedBodega.id) ? (
+                    <div className="flex items-center gap-2">
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => handleRequestBodegaOrigenChange(detectedBodega.id)}
-                        disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
-                        className="h-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-amber-500/20 border-0 shrink-0"
+                        variant="outline"
+                        onClick={() => setDismissedOriginMismatch(true)}
+                        className="h-8 rounded-xl text-xs font-semibold"
                       >
-                        <Sparkles className="h-3.5 w-3.5 text-white" />
-                        <span>Cambiar a {detectedBodega.nombre}</span>
+                        Mantener {currentBodegaObj?.nombre || 'actual'}
                       </Button>
-                    ) : (
-                      <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                        Bodega detectada ({detectedBodega.nombre}) no asignada a tu usuario
-                      </span>
-                    )}
+                      {allowedBodegas.some(b => b.id === detectedBodega.id) ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            handleRequestBodegaOrigenChange(detectedBodega.id)
+                            setDismissedOriginMismatch(true)
+                          }}
+                          disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
+                          className="h-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-amber-500/20 border-0 shrink-0"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-white" />
+                          <span>Cambiar a {detectedBodega.nombre}</span>
+                        </Button>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                          Bodega ({detectedBodega.nombre}) no asignada a tu usuario
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-amber-800 dark:text-amber-200 italic pt-1 border-t border-amber-500/20">
-                    No se encontró coincidencia automática de bodega para el texto "{detectedOrigenRaw}". Puedes seleccionar la bodega correcta manualmente en el desplegable.
-                  </p>
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-amber-500/20 flex-wrap">
+                    <p className="text-[11px] text-amber-800 dark:text-amber-200 italic">
+                      No se encontró coincidencia automática de bodega para el texto "{detectedOrigenRaw}". Puedes seleccionar la bodega correcta manualmente en el desplegable.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDismissedOriginMismatch(true)}
+                      className="h-7 rounded-lg text-xs"
+                    >
+                      Descartar
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1449,6 +1643,32 @@ export function NoteDraftBuilder({
             </div>
           )}
 
+          {/* Banner de Estado de Existencias / Déficit */}
+          {hayDeficitStock && (
+            <div className={cn(
+              "p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-300",
+              !permitirStockNegativo
+                ? "bg-destructive/10 border-destructive/30 text-destructive dark:text-red-300"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300"
+            )}>
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-0.5">
+                  <p className="font-bold">
+                    {!permitirStockNegativo
+                      ? `⚠️ ${productosConDeficit.length} producto(s) en rojo sin existencias suficientes en bodega origen`
+                      : `⚠️ ${productosConDeficit.length} producto(s) en ámbar generarán saldo negativo en bodega origen`}
+                  </p>
+                  <p className="opacity-90">
+                    {!permitirStockNegativo
+                      ? 'La política del sistema prohíbe inventario negativo. Usa el botón ✨ en cada fila para seleccionar un sustituto de la misma familia con stock.'
+                      : 'La política permite stock negativo. Puedes continuar guardando o usar el botón ✨ para seleccionar un sustituto de la misma familia.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Tabla de productos en el draft */}
           {draft.productos.length > 0 ? (
             <div className="rounded-2xl border overflow-x-auto shadow-inner">
@@ -1468,7 +1688,8 @@ export function NoteDraftBuilder({
                 <tbody>
                   {draft.productos.map((p, index) => {
                     const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
-                    const isRowNegative = (tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && 
+                    const isRowNegative = (tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF' || tipoSeleccionado?.afecta_inventario === -1) && 
+                      draft.bodega_origen_id !== null &&
                       p.cajas > (p.stock_origen_cajas ?? 0)
 
                     return (
@@ -1484,7 +1705,9 @@ export function NoteDraftBuilder({
                           draggedIndex === index ? "opacity-30 bg-primary/10" : "",
                           dragOverIndex === index ? "border-t-2 border-t-primary bg-primary/10" : "",
                           isRowNegative 
-                            ? "bg-orange-500/5 hover:bg-orange-500/10 border-l-4 border-l-orange-500" 
+                            ? (!permitirStockNegativo
+                                ? "bg-destructive/10 hover:bg-destructive/15 border-l-4 border-l-destructive"
+                                : "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-500")
                             : "hover:bg-muted/30"
                         )}
                       >
@@ -1520,23 +1743,45 @@ export function NoteDraftBuilder({
                           </div>
                         </td>
 
-                        {/* SKU con Sustituidor Rápido */}
+                        {/* SKU con Sustituidor Rápido y Asistente por Familia */}
                         <td className="px-4 py-3 font-mono text-xs font-semibold">
-                          <div className="flex items-center gap-1.5">
-                            <span>{p.producto_sku}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={cn(isRowNegative && (!permitirStockNegativo ? "text-destructive font-black" : "text-amber-700 dark:text-amber-300 font-black"))}>
+                              {p.producto_sku}
+                            </span>
                             {!todoBloqueado && !soloEditaDestino && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSwapProductTempId(p.tempId)
-                                  setSwapSearchTerm('')
-                                  setSwapSearchResults([])
-                                }}
-                                className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-primary transition-colors shrink-0"
-                                title="Sustituir SKU de este producto"
-                              >
-                                <RefreshCw className="h-3 w-3" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {/* Botón Asistente Sustitutos Familia */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSustitutosModal(p)}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs shrink-0",
+                                    isRowNegative
+                                      ? (!permitirStockNegativo
+                                          ? "bg-destructive/20 text-destructive hover:bg-destructive hover:text-destructive-foreground animate-pulse"
+                                          : "bg-amber-500/20 text-amber-800 dark:text-amber-300 hover:bg-amber-500 hover:text-black")
+                                      : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"
+                                  )}
+                                  title="Buscar sustitutos de la misma familia con stock en bodega origen"
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  <span className="hidden sm:inline">Sustituir</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSwapProductTempId(p.tempId)
+                                    setSwapSearchTerm('')
+                                    setSwapSearchResults([])
+                                  }}
+                                  className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-primary transition-colors shrink-0"
+                                  title="Buscar manualmente otro SKU"
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                </button>
+                              </div>
                             )}
                           </div>
                         </td>
@@ -1544,8 +1789,15 @@ export function NoteDraftBuilder({
                         <td className="px-4 py-3 text-xs truncate max-w-[200px]">
                           <p className="font-semibold text-foreground/80">{p.producto_nombre ?? '—'}</p>
                           {isRowNegative && (
-                            <span className="text-[9px] font-black uppercase tracking-tighter text-orange-600 block mt-0.5 animate-pulse">
-                              ⚠️ Excede stock actual en bodega ({p.stock_origen_cajas} cajas)
+                            <span className={cn(
+                              "text-[9px] font-black uppercase tracking-tight block mt-0.5",
+                              !permitirStockNegativo
+                                ? "text-destructive animate-pulse"
+                                : "text-amber-700 dark:text-amber-400"
+                            )}>
+                              {!permitirStockNegativo
+                                ? `❌ Sin stock suficiente (${p.stock_origen_cajas ?? 0} cajas disp.)`
+                                : `⚠️ Saldo negativo proyectado (${p.stock_origen_cajas ?? 0} cajas disp.)`}
                             </span>
                           )}
                         </td>
@@ -1936,6 +2188,63 @@ export function NoteDraftBuilder({
               className="rounded-xl bg-primary font-bold uppercase text-xs tracking-wider shadow-md"
             >
               Confirmar Cambio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Modal de Sustitución por Familia con Stock ──────── */}
+      <SustitutoFamiliaModal
+        open={sustitutoModalOpen}
+        onOpenChange={setSustitutoModalOpen}
+        productoId={sustitutoTargetProduct?.productoId ?? null}
+        productoActualSku={sustitutoTargetProduct?.sku ?? null}
+        productoActualNombre={sustitutoTargetProduct?.nombre ?? null}
+        bodegaOrigenId={draft.bodega_origen_id}
+        bodegaNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
+        onSelectSustituto={handleSelectSustituto}
+      />
+
+      {/* ── Diálogo de Advertencia Rápida para Stock Negativo ─ */}
+      <AlertDialog open={showNegativeStockConfirmDialog} onOpenChange={setShowNegativeStockConfirmDialog}>
+        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+              Advertencia: Saldo Negativo Proyectado
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
+              <span>
+                Esta nota contiene{' '}
+                <strong className="text-foreground">{productosConDeficit.length} producto(s)</strong> que superan el stock físico disponible en{' '}
+                <strong className="text-foreground">
+                  {catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre || 'la bodega origen'}
+                </strong>.
+              </span>
+              <span className="block text-xs font-medium text-amber-900 dark:text-amber-200 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
+                ⚠️ Debido a que la configuración del sistema tiene <strong>habilitado el stock negativo</strong>, la operación se procesará dejando existencias menores a 0.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel
+              onClick={() => setShowNegativeStockConfirmDialog(false)}
+              className="rounded-xl font-bold uppercase text-xs tracking-wider"
+            >
+              Revisar / Modificar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowNegativeStockConfirmDialog(false)
+                if (pendingConfirmState) {
+                  setShowConfirmDialog(true)
+                } else {
+                  doSave(false)
+                }
+              }}
+              className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold uppercase text-xs tracking-wider shadow-md"
+            >
+              Continuar y Guardar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
