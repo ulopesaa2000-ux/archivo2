@@ -211,7 +211,7 @@ export function NotasConfigTab({
             </div>
 
             {/* Switch: Editar bodega origen */}
-            <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20 md:col-span-2">
+            <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
               <div className="space-y-0.5">
                 <Label className="font-medium text-sm">Permitir editar bodega origen</Label>
                 <p className="text-xs text-muted-foreground">
@@ -221,6 +221,20 @@ export function NotasConfigTab({
               <Switch
                 checked={config.permitir_editar_bodega_origen}
                 onCheckedChange={(v) => onChange('permitir_editar_bodega_origen', v)}
+              />
+            </div>
+
+            {/* Switch: Editar tipo de movimiento */}
+            <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
+              <div className="space-y-0.5">
+                <Label className="font-medium text-sm">Permitir editar tipo de movimiento</Label>
+                <p className="text-xs text-muted-foreground">
+                  Permite a encargados autorizados cambiar el tipo de movimiento de una nota en borrador (con diálogo de confirmación).
+                </p>
+              </div>
+              <Switch
+                checked={config.permitir_editar_tipo_movimiento}
+                onCheckedChange={(v) => onChange('permitir_editar_tipo_movimiento', v)}
               />
             </div>
           </div>
