@@ -4,6 +4,8 @@
 import type { BodegaRow } from '@/lib/types/tables'
 
 export type TipoMovimientoCodigo = 'ENT' | 'SAL' | 'TRF' | 'AJU' | 'DEV'
+export type AlcanceVisionNotas = 'todas_bodegas' | 'solo_propias'
+export type AccionEliminarNota = 'eliminar_soft' | 'solo_cancelar' | 'ninguno'
 
 export type VistaDefaultStock = 'individual' | 'matriz'
 export type AgrupacionDefaultStock = 'plano' | 'familia'
@@ -11,7 +13,7 @@ export type CriterioOrdenBodegas = 'manual' | 'por_ciudad' | 'alfabetico'
 
 export interface ConfigInventario {
   id: number
-  // ── 1. Notas de Inventario ──
+  // ── 1. Notas de Inventario y Visión ──
   limite_notas_pendientes_panel: number
   prefijo_numero_nota: string
   auto_generar_numero_nota: boolean
@@ -20,13 +22,28 @@ export interface ConfigInventario {
   requiere_aprobacion_entrada: boolean
   requiere_aprobacion_salida: boolean
   permitir_editar_bodega_origen: boolean
-  alertar_discrepancia_ocr: boolean
-  dias_limite_notas_pendientes_alerta: number
   mostrar_piezas_en_notas: boolean
+  dias_limite_notas_pendientes_alerta: number
+  auto_seleccionar_bodega_activa: boolean
+  auto_seleccionar_tipo_default: boolean
+  modo_vision_notas_nueva: 'completo' | 'compacto'
 
-  // ── 2. Permisos por Rol y Usuario para Tipos de Movimiento ──
+  // ── 1.1 Configuración de Notas OCR ──
+  alertar_discrepancia_ocr: boolean
+  ocr_priorizar_tipo_detectado: boolean
+  ocr_auto_abrir_sincronizador: boolean
+  ocr_tipo_movimiento_fallback: TipoMovimientoCodigo
+
+  // ── 2. Permisos, Tipo Predeterminado, Visión y Eliminación por Rol ──
   // Record<nivel_acceso | rol_id, TipoMovimientoCodigo[]>
   permisos_tipos_movimiento: Record<string, TipoMovimientoCodigo[]>
+  // Record<rol_id | nivel_acceso, TipoMovimientoCodigo>
+  tipo_movimiento_default_por_rol: Record<string, TipoMovimientoCodigo>
+  tipo_movimiento_default_general: TipoMovimientoCodigo
+  // Record<rol_id | nivel_acceso, AlcanceVisionNotas>
+  alcance_vision_notas_por_rol: Record<string, AlcanceVisionNotas>
+  // Record<rol_id | nivel_acceso, AccionEliminarNota>
+  accion_eliminar_nota_por_rol: Record<string, AccionEliminarNota>
   // Record<`${usuario_id}_${bodega_id}`, boolean> para autorizaciones individuales de devolución
   permisos_devolucion_usuario_bodega?: Record<string, boolean>
 
@@ -73,9 +90,16 @@ export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
   requiere_aprobacion_entrada: false,
   requiere_aprobacion_salida: true,
   permitir_editar_bodega_origen: true,
-  alertar_discrepancia_ocr: true,
-  dias_limite_notas_pendientes_alerta: 7,
   mostrar_piezas_en_notas: true,
+  dias_limite_notas_pendientes_alerta: 7,
+  auto_seleccionar_bodega_activa: true,
+  auto_seleccionar_tipo_default: true,
+  modo_vision_notas_nueva: 'completo',
+
+  alertar_discrepancia_ocr: true,
+  ocr_priorizar_tipo_detectado: true,
+  ocr_auto_abrir_sincronizador: false,
+  ocr_tipo_movimiento_fallback: 'ENT',
 
   permisos_tipos_movimiento: {
     '1': ['ENT', 'SAL', 'TRF', 'AJU', 'DEV'],
@@ -83,6 +107,25 @@ export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
     '3': ['ENT', 'SAL', 'TRF'],
     '4': ['ENT', 'SAL'],
     '5': ['ENT', 'SAL'],
+  },
+  tipo_movimiento_default_por_rol: {
+    '6': 'ENT',
+    '9': 'ENT',
+    '10': 'ENT',
+    '18': 'SAL',
+  },
+  tipo_movimiento_default_general: 'ENT',
+  alcance_vision_notas_por_rol: {
+    '6': 'todas_bodegas',
+    '9': 'todas_bodegas',
+    '10': 'todas_bodegas',
+    '18': 'solo_propias',
+  },
+  accion_eliminar_nota_por_rol: {
+    '6': 'eliminar_soft',
+    '9': 'eliminar_soft',
+    '10': 'eliminar_soft',
+    '18': 'solo_cancelar',
   },
   permisos_devolucion_usuario_bodega: {},
 

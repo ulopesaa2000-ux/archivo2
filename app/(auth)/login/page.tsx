@@ -1,13 +1,14 @@
 // app/(auth)/login/page.tsx
 import type { Metadata } from 'next'
+import Image from 'next/image'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import { LoginForm } from './LoginForm'
 import { getCurrentUser } from '@/modules/auth/queries'
 
 export const metadata: Metadata = {
-  title: 'Iniciar Sesión',
-  description: 'Accede al panel de administración de inv-tienda',
+  title: 'Iniciar Sesión | Idol Navy',
+  description: 'Accede al catálogo y sistema de administración Idol Navy',
 }
 
 /**
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
  * 
  * Es un Server Component que verifica de manera integral:
  * 1. Si el usuario existe en nuestra DB (getCurrentUser hace esto internamente validando Supabase Auth).
- * 2. Si es válido, lo envía en un solo salto a /dashboard.
+ * 2. Si es válido, lo envía en un solo salto a /dashboard o / según su rol.
  * 3. Si no es válido (ej. falta token, o usuario inactivo), muestra el form.
  */
 async function LoginContent({
@@ -32,18 +33,27 @@ async function LoginContent({
   // salta directo, si no, se queda en el login a ver por qué falló su validación
   const verifiedUser = await getCurrentUser();
   if (verifiedUser) {
-    redirect(redirectTo);
+    const isClientRole = verifiedUser.rol_id === 19 || (verifiedUser.rol?.nombre || '').toLowerCase().includes('cliente')
+    const finalRedirect = (isClientRole && redirectTo === '/dashboard') ? '/' : redirectTo
+    redirect(finalRedirect);
   }
 
   return (
     <>
       <div className="text-center space-y-3">
-        <div className="mx-auto w-14 h-14 rounded-2xl bg-slate-900 dark:bg-white flex items-center justify-center shadow-xl shadow-slate-900/10 dark:shadow-none animate-bounce duration-[4000ms]">
-          <span className="text-white dark:text-slate-950 font-bold text-2xl tracking-tighter">IT</span>
+        <div className="mx-auto w-16 h-16 rounded-2xl bg-white p-1 flex items-center justify-center shadow-xl shadow-slate-900/10 ring-1 ring-slate-200/60 dark:ring-slate-800">
+          <Image
+            src="/icons/icon-192.png"
+            alt="Idol Navy Logo"
+            width={56}
+            height={56}
+            className="w-full h-full object-contain rounded-xl"
+            priority
+          />
         </div>
         <div className="space-y-1">
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-            inv-tienda
+            Idol Navy
           </h1>
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
             Catálogo • B2B • E-commerce

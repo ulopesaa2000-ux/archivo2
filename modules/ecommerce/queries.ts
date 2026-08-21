@@ -788,6 +788,8 @@ export async function fetchMedidasPublicas(productoId: number): Promise<{
 // ═══════════════════════════════════════════════════════════════
 // ÓRDENES DE VENTA / COTIZACIONES (ADMIN)
 // ═══════════════════════════════════════════════════════════════
+// ÓRDENES DE VENTA (ECOMMERCE ADMIN & PORTAL CLIENTE)
+// ═══════════════════════════════════════════════════════════════
 
 export async function fetchOrdenesVenta(
   filtros: FiltrosOrdenesVenta
@@ -800,6 +802,19 @@ export async function fetchOrdenesVenta(
   let query = (supabase
     .from('ordenes_venta') as any)
     .select('*', { count: 'exact' })
+
+  // Filtrado de seguridad: si es un Cliente Ecomerce, solo ve sus propias órdenes
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const currentUser = await getCurrentUser()
+  const isClienteEcommerce = currentUser?.rol_id === 19 || (currentUser?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+
+  if (isClienteEcommerce && currentUser) {
+    if (currentUser.email) {
+      query = query.or(`usuario_id.eq.${currentUser.id},email_cliente.eq.${currentUser.email}`)
+    } else {
+      query = query.eq('usuario_id', currentUser.id)
+    }
+  }
 
   if (filtros.estado) {
     query = query.eq('estado', filtros.estado)
@@ -867,6 +882,18 @@ export async function fetchOrdenVentaById(
   if (ordenError || !orden) {
     console.error('Error fetchOrdenVentaById:', ordenError)
     return null
+  }
+
+  // Validación de seguridad para clientes: no pueden ver órdenes ajenas
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const currentUser = await getCurrentUser()
+  const isClienteEcommerce = currentUser?.rol_id === 19 || (currentUser?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+
+  if (isClienteEcommerce && currentUser) {
+    if (orden.usuario_id !== currentUser.id && orden.email_cliente !== currentUser.email) {
+      console.warn(`[fetchOrdenVentaById] Acceso no autorizado a orden ${id} por cliente ${currentUser.id}`)
+      return null
+    }
   }
 
   const { data: items, error: itemsError } = await supabase

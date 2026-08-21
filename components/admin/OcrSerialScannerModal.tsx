@@ -11,19 +11,46 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import {
-  Camera, Plus, Sparkles, Upload, Trash2, CheckCircle2, Layers, X, Images,
-  MoreVertical, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Scale, Building2
+  Camera, Plus, Sparkles, Layers, X, Images,
+  MoreVertical, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Scale, RotateCcw, Package
 } from 'lucide-react'
 import Image from 'next/image'
 import { useOcrBatchQueue } from '@/hooks/useOcrBatchQueue'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
+import { TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
+
+const TIPO_MOV_ICONS: Record<string, any> = {
+  ENT: ArrowDownLeft,
+  SAL: ArrowUpRight,
+  TRF: ArrowLeftRight,
+  AJU: Scale,
+  DEV: RotateCcw,
+}
 
 const TIPO_LABELS: Record<string, { label: string; short: string; color: string }> = {
   entrada: { label: 'Entrada', short: 'ENT', color: 'bg-emerald-600 text-white border-emerald-500' },
   salida: { label: 'Salida', short: 'SAL', color: 'bg-blue-600 text-white border-blue-500' },
   traslado: { label: 'Traslado', short: 'TRF', color: 'bg-purple-600 text-white border-purple-500' },
   ajuste: { label: 'Ajuste', short: 'AJU', color: 'bg-amber-600 text-white border-amber-500' },
+  devolucion: { label: 'Devolución', short: 'DEV', color: 'bg-rose-600 text-white border-rose-500' },
+}
+
+const CODIGO_TO_HINT: Record<string, string> = {
+  ENT: 'entrada',
+  SAL: 'salida',
+  TRF: 'traslado',
+  AJU: 'ajuste',
+  DEV: 'devolucion',
+}
+
+const HINT_TO_CODIGO: Record<string, string> = {
+  entrada: 'ENT',
+  salida: 'SAL',
+  traslado: 'TRF',
+  ajuste: 'AJU',
+  devolucion: 'DEV',
 }
 
 type CapturedFileItem = {
@@ -35,19 +62,37 @@ type CapturedFileItem = {
   destinoHint?: string
 }
 
+export type TipoMovimientoPermitido = {
+  id: number
+  codigo: string
+  nombre: string
+}
+
 export function OcrSerialScannerModal({
   trigger,
-  defaultTipoHint = 'entrada',
+  defaultTipoCodigo = 'ENT',
+  defaultTipoHint,
+  tiposMovimiento,
+  bodegas: propBodegas,
 }: {
   trigger?: React.ReactNode
+  defaultTipoCodigo?: string
   defaultTipoHint?: string
+  tiposMovimiento?: TipoMovimientoPermitido[]
+  bodegas?: { id: number; nombre: string; codigo: string }[]
 }) {
   const { addBatchToQueue } = useOcrBatchQueue()
   const [isOpen, setIsOpen] = useState(false)
-  const [globalTipoHint, setGlobalTipoHint] = useState<string>(defaultTipoHint)
+
+  // Determinar código inicial a partir de defaultTipoCodigo o defaultTipoHint
+  const initialCodigo = defaultTipoCodigo || (defaultTipoHint ? (HINT_TO_CODIGO[defaultTipoHint] || 'ENT') : 'ENT')
+  const initialHint = defaultTipoHint || CODIGO_TO_HINT[initialCodigo] || 'entrada'
+
+  const [selectedCodigo, setSelectedCodigo] = useState<string>(initialCodigo)
+  const [globalTipoHint, setGlobalTipoHint] = useState<string>(initialHint)
   const [globalOrigenHint, setGlobalOrigenHint] = useState<string>('AUTO')
   const [globalDestinoHint, setGlobalDestinoHint] = useState<string>('AUTO')
-  const [bodegas, setBodegas] = useState<{ id: number; nombre: string; codigo: string }[]>([])
+  const [bodegas, setBodegas] = useState<{ id: number; nombre: string; codigo: string }[]>(propBodegas || [])
 
   // Lista de archivos capturados localmente en esta sesión
   const [capturedFiles, setCapturedFiles] = useState<CapturedFileItem[]>([])
@@ -55,18 +100,52 @@ export function OcrSerialScannerModal({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
+  // Sincronizar bodegas si cambian las props
+  useEffect(() => {
+    if (propBodegas && propBodegas.length > 0) {
+      setBodegas(propBodegas)
+    }
+  }, [propBodegas])
+
+  // Sincronizar cuando el modal se abre con las preferencias del rol y la bodega activa
+  useEffect(() => {
+    if (isOpen) {
+      const code = defaultTipoCodigo || (defaultTipoHint ? (HINT_TO_CODIGO[defaultTipoHint] || 'ENT') : 'ENT')
+      setSelectedCodigo(code)
+      setGlobalTipoHint(CODIGO_TO_HINT[code] || 'entrada')
+
+      const currentBodegas = propBodegas && propBodegas.length > 0 ? propBodegas : bodegas
+      if (currentBodegas.length === 1) {
+        // Si el usuario solo tiene 1 bodega asignada (ej: Bodeguero con COCINA), preseleccionar su única bodega
+        setGlobalOrigenHint(currentBodegas[0].nombre)
+      } else {
+        // Leer cookie de bodega activa
+        const cookieVal = typeof document !== 'undefined'
+          ? document.cookie.split('; ').find((r) => r.startsWith('bodega_activa_id='))?.split('=')[1]
+          : null
+        const activeId = cookieVal ? parseInt(cookieVal, 10) : null
+        if (activeId && activeId > 0 && currentBodegas.length > 0) {
+          const activeBodega = currentBodegas.find((b) => b.id === activeId)
+          if (activeBodega) {
+            setGlobalOrigenHint(activeBodega.nombre)
+          }
+        }
+      }
+    }
+  }, [isOpen, defaultTipoCodigo, defaultTipoHint, propBodegas, bodegas])
+
   useEffect(() => {
     async function loadBodegas() {
+      if (propBodegas && propBodegas.length > 0) return
       try {
         const supabase = createClient()
         const { data } = await supabase
           .from('bodegas')
           .select('id, nombre, codigo')
-          .order('nombre', { ascending: true })
+          .eq('activa', true)
         if (data) {
           setBodegas(data as any)
 
-          // Leer la bodega activa del encabezado (cookie bodega_activa_id)
           const cookieVal = typeof document !== 'undefined'
             ? document.cookie.split('; ').find((r) => r.startsWith('bodega_activa_id='))?.split('=')[1]
             : null
@@ -82,12 +161,20 @@ export function OcrSerialScannerModal({
         console.error('Error cargando bodegas:', e)
       }
     }
-    if (isOpen && bodegas.length === 0) {
+    if (isOpen && (!propBodegas || propBodegas.length === 0) && bodegas.length === 0) {
       loadBodegas()
     }
-  }, [isOpen, bodegas.length])
+  }, [isOpen, propBodegas, bodegas.length])
 
-  // Agregar archivos desde file input (múltiples de galería o disparos de cámara)
+  // Tipos visibles/permitidos (usar los provistos o fallback estándar)
+  const tiposDisponibles: TipoMovimientoPermitido[] = tiposMovimiento && tiposMovimiento.length > 0
+    ? tiposMovimiento
+    : [
+        { id: 1, codigo: 'ENT', nombre: 'Entrada' },
+        { id: 2, codigo: 'SAL', nombre: 'Salida' },
+        { id: 3, codigo: 'TRF', nombre: 'Transferencia' },
+      ]
+
   const handleFilesAdded = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files
     if (!selectedFiles || selectedFiles.length === 0) return
@@ -104,8 +191,8 @@ export function OcrSerialScannerModal({
     setCapturedFiles((prev) => [...prev, ...newEntries])
     toast.success(`Se agregaron ${newEntries.length} ${newEntries.length === 1 ? 'foto' : 'fotos'} a la lista.`)
 
-    // Resetear valor para permitir tomar más fotos consecutivas
-    e.target.value = ''
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (cameraInputRef.current) cameraInputRef.current.value = ''
   }
 
   const handleUpdateItemTipo = (id: string, newTipo: string) => {
@@ -117,9 +204,7 @@ export function OcrSerialScannerModal({
   const handleRemoveCaptured = (id: string) => {
     setCapturedFiles((prev) => {
       const target = prev.find((item) => item.id === id)
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl)
-      }
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
       return prev.filter((item) => item.id !== id)
     })
   }
@@ -135,16 +220,16 @@ export function OcrSerialScannerModal({
       return
     }
 
-    const batch = capturedFiles.map((item) => ({
-      file: item.file,
-      tipoHint: item.tipoHint,
-      origenHint: item.origenHint || (globalOrigenHint !== 'AUTO' ? globalOrigenHint : undefined),
-      destinoHint: item.destinoHint || (globalDestinoHint !== 'AUTO' ? globalDestinoHint : undefined),
-    }))
+    addBatchToQueue(
+      capturedFiles.map((item) => ({
+        file: item.file,
+        tipoHint: item.tipoHint,
+        origenHint: item.origenHint || (globalOrigenHint !== 'AUTO' ? globalOrigenHint : undefined),
+        destinoHint: item.destinoHint || (globalDestinoHint !== 'AUTO' ? globalDestinoHint : undefined),
+      }))
+    )
 
-    addBatchToQueue(batch)
-
-    // Limpiar estado local y cerrar modal
+    toast.success(`Se agregaron ${capturedFiles.length} notas a la cola de procesamiento en segundo plano.`)
     setCapturedFiles([])
     setIsOpen(false)
   }
@@ -154,9 +239,7 @@ export function OcrSerialScannerModal({
       open={isOpen}
       onOpenChange={(open) => {
         setIsOpen(open)
-        if (!open && capturedFiles.length > 0) {
-          handleClearAll()
-        }
+        if (!open) handleClearAll()
       }}
     >
       <DialogTrigger
@@ -164,9 +247,7 @@ export function OcrSerialScannerModal({
           trigger ? (
             (trigger as any)
           ) : (
-            <Button
-              className="bg-amber-500 hover:bg-amber-600 text-white font-bold uppercase tracking-wider shadow-lg hover:scale-102 transition-transform h-11 px-4 rounded-xl gap-2"
-            >
+            <Button className="bg-amber-500 hover:bg-amber-600 text-white font-bold uppercase tracking-wider shadow-lg hover:scale-102 transition-transform h-11 px-4 rounded-xl gap-2">
               <div className="relative flex items-center justify-center">
                 <Camera className="h-5 w-5" />
                 <Plus className="h-3 w-3 absolute -top-1 -right-1 bg-amber-700 text-white rounded-full" />
@@ -177,101 +258,96 @@ export function OcrSerialScannerModal({
         }
       />
 
-      <DialogContent className="sm:max-w-2xl max-w-full w-full h-full sm:h-auto overflow-y-auto bg-gradient-to-br from-card to-background border shadow-2xl rounded-none sm:rounded-2xl p-6">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-amber-500 text-white shadow-md">
-              <Camera className="h-5 w-5" />
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden bg-background border shadow-2xl rounded-none sm:rounded-2xl">
+        <DialogHeader className="p-6 pb-4 border-b bg-muted/20">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-amber-500 text-white shadow-md">
+              <Camera className="h-6 w-6 stroke-[2]" />
             </div>
-            Captura de Fotos en Serie (IA / OCR)
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Toma fotos de varias notas físicas seguidas con la cámara o selecciona varias de la galería. Puedes asignar o cambiar la bodega de origen y destino por defecto si la nota en papel no las especifica.
-          </DialogDescription>
+            <div>
+              <DialogTitle className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                Captura de Fotos en Serie (IA / OCR)
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Toma fotos de varias notas físicas seguidas con la cámara o selecciona varias de la galería. Puedes asignar o cambiar la bodega de origen y destino por defecto si la nota en papel no las especifica.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-6 py-2">
-          {/* Inputs Ocultos */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFilesAdded}
-            accept="image/*"
-            multiple
-            className="hidden"
-          />
-
-          <input
-            type="file"
-            ref={cameraInputRef}
-            onChange={handleFilesAdded}
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-          />
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <input type="file" ref={fileInputRef} onChange={handleFilesAdded} accept="image/*" multiple className="hidden" />
+          <input type="file" ref={cameraInputRef} onChange={handleFilesAdded} accept="image/*" capture="environment" className="hidden" />
 
           {/* Configuración de Encabezado / Valores por Defecto */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-muted/40 border">
-            {/* Tipo */}
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                Tipo Predeterminado
+          <div className="space-y-4 p-4 rounded-2xl bg-muted/40 border">
+            {/* Tipo Predeterminado con IDÉNTICO estilo a Nueva Nota */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                <span>Tipo de Movimiento Predeterminado *</span>
+                <span className="text-[10px] lowercase opacity-70 font-normal">sincronizado por rol</span>
               </Label>
-              <Select value={globalTipoHint} onValueChange={(val) => val && setGlobalTipoHint(val)}>
-                <SelectTrigger className="h-10 rounded-xl text-xs">
-                  <SelectValue placeholder="Tipo..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="entrada">📥 Entrada (Recepción)</SelectItem>
-                  <SelectItem value="salida">📤 Salida (Venta)</SelectItem>
-                  <SelectItem value="traslado">↔️ Traslado entre Bodegas</SelectItem>
-                  <SelectItem value="ajuste">⚖️ Ajuste de Inventario</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className={cn(
+                "grid gap-2 sm:gap-3",
+                tiposDisponibles.length === 1 ? "grid-cols-1" :
+                tiposDisponibles.length === 2 ? "grid-cols-2" :
+                tiposDisponibles.length === 3 ? "grid-cols-3" :
+                tiposDisponibles.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
+                "grid-cols-2 sm:grid-cols-5"
+              )}>
+                {tiposDisponibles.map((t) => {
+                  const Icon = TIPO_MOV_ICONS[t.codigo] || Package
+                  const isSelected = selectedCodigo === t.codigo
+                  const colorMap = TIPO_MOVIMIENTO_COLORS[t.codigo] || 'bg-primary text-primary-foreground'
+                  return (
+                    <button
+                      key={t.codigo}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCodigo(t.codigo)
+                        setGlobalTipoHint(CODIGO_TO_HINT[t.codigo] || 'entrada')
+                      }}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3.5 sm:p-4 rounded-2xl border transition-all text-center gap-1.5 group min-h-[64px] sm:min-h-[72px]",
+                        isSelected
+                          ? cn("border-transparent font-bold shadow-lg shadow-black/10 scale-102 ring-2 ring-primary/20", colorMap.split(' ')[0], colorMap.split(' ')[1])
+                          : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
+                      )}
+                    >
+                      <Icon className="h-5 w-5 sm:h-6 sm:w-6 transition-transform group-hover:scale-110" />
+                      <span className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none">
+                        {t.nombre}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
-            {/* Bodega Origen */}
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                Origen (si no está en papel)
-              </Label>
-              <Select value={globalOrigenHint} onValueChange={(val) => val && setGlobalOrigenHint(val)}>
-                <SelectTrigger className="h-10 rounded-xl text-xs">
-                  <SelectValue placeholder="Origen por defecto..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="AUTO">🤖 Deducir por OCR (o Defecto)</SelectItem>
-                  {bodegas.map((b) => (
-                    <SelectItem key={b.id} value={b.nombre}>
-                      🏢 {b.nombre} ({b.codigo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Bodega Destino */}
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                Destino (opcional)
-              </Label>
-              <Select value={globalDestinoHint} onValueChange={(val) => val && setGlobalDestinoHint(val)}>
-                <SelectTrigger className="h-10 rounded-xl text-xs">
-                  <SelectValue placeholder="Destino por defecto..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="AUTO">🤖 Deducir por OCR (o ninguno)</SelectItem>
-                  {bodegas.map((b) => (
-                    <SelectItem key={b.id} value={b.nombre}>
-                      🏢 {b.nombre} ({b.codigo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Origen (si no está en papel)</Label>
+                <Select value={globalOrigenHint} onValueChange={(val) => { if (val) setGlobalOrigenHint(val) }}>
+                  <SelectTrigger className="h-10 rounded-xl text-xs"><SelectValue placeholder="Origen..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="AUTO">🤖 Deducir por OCR (o Defecto)</SelectItem>
+                    {bodegas.map((b) => <SelectItem key={b.id} value={b.nombre}>🏢 {b.nombre} ({b.codigo})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Destino (opcional)</Label>
+                <Select value={globalDestinoHint} onValueChange={(val) => { if (val) setGlobalDestinoHint(val) }}>
+                  <SelectTrigger className="h-10 rounded-xl text-xs"><SelectValue placeholder="Destino..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="AUTO">🤖 Deducir por OCR (o ninguno)</SelectItem>
+                    {bodegas.map((b) => <SelectItem key={b.id} value={b.nombre}>🏢 {b.nombre} ({b.codigo})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
-          {/* Botones Principales de Captura */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Button
               type="button"
@@ -303,15 +379,15 @@ export function OcrSerialScannerModal({
             </Button>
           </div>
 
-          {/* Carrete / Galería de Fotos Capturadas con Opciones de 3 Puntos */}
-          <div className="space-y-3 pt-2">
+          {/* Carrete / Lista de Fotos Capturadas */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Label className="text-xs font-bold uppercase tracking-wider text-foreground">
+                <span className="text-xs font-black uppercase tracking-wider">
                   Carrete de Notas Capturadas
-                </Label>
-                <Badge className="bg-amber-500 text-white font-black text-xs rounded-full px-2.5">
-                  {capturedFiles.length} {capturedFiles.length === 1 ? 'foto' : 'fotos'}
+                </span>
+                <Badge variant="secondary" className="font-mono text-xs px-2 py-0.5 bg-amber-500 text-white font-bold">
+                  {capturedFiles.length} foto{capturedFiles.length !== 1 ? 's' : ''}
                 </Badge>
               </div>
 
@@ -373,17 +449,19 @@ export function OcrSerialScannerModal({
                         </Badge>
 
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="icon"
-                              className="h-6 w-6 rounded-md bg-black/60 hover:bg-black/80 text-white border border-white/20 p-0"
-                              title="Cambiar tipo de movimiento"
-                            >
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="icon"
+                                className="h-6 w-6 rounded-md bg-black/60 hover:bg-black/80 text-white border border-white/20 p-0"
+                                title="Cambiar tipo de movimiento"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            }
+                          />
                           <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem
                               onClick={() => handleUpdateItemTipo(item.id, 'entrada')}

@@ -14,22 +14,75 @@ import Image from 'next/image'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Scale, RotateCcw, Package } from 'lucide-react'
+import { TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
+
+const TIPO_MOV_ICONS: Record<string, any> = {
+  ENT: ArrowDownLeft,
+  SAL: ArrowUpRight,
+  TRF: ArrowLeftRight,
+  AJU: Scale,
+  DEV: RotateCcw,
+}
+
+const CODIGO_TO_HINT: Record<string, string> = {
+  ENT: 'entrada',
+  SAL: 'salida',
+  TRF: 'traslado',
+  AJU: 'ajuste',
+  DEV: 'devolucion',
+}
+
+const HINT_TO_CODIGO: Record<string, string> = {
+  entrada: 'ENT',
+  salida: 'SAL',
+  traslado: 'TRF',
+  traspaso: 'TRF',
+  ajuste: 'AJU',
+  devolucion: 'DEV',
+}
+
 export function OcrUploadModal({
   trigger,
   redirectToNueva = false,
+  defaultTipo = 'entrada',
+  defaultTipoCodigo,
+  tiposMovimiento,
 }: {
   trigger?: React.ReactNode
   redirectToNueva?: boolean
+  defaultTipo?: string
+  defaultTipoCodigo?: string
+  tiposMovimiento?: { id: number; codigo: string; nombre: string }[]
 }) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
-  const [tipo, setTipo] = useState<string>('entrada')
+
+  const initialCode = defaultTipoCodigo || HINT_TO_CODIGO[defaultTipo] || 'ENT'
+  const [selectedCodigo, setSelectedCodigo] = useState<string>(initialCode)
+  const [tipo, setTipo] = useState<string>(defaultTipo || CODIGO_TO_HINT[initialCode] || 'entrada')
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      const code = defaultTipoCodigo || HINT_TO_CODIGO[defaultTipo] || 'ENT'
+      setSelectedCodigo(code)
+      setTipo(CODIGO_TO_HINT[code] || 'entrada')
+    }
+  }, [isOpen, defaultTipo, defaultTipoCodigo])
+
+  const tiposDisponibles = tiposMovimiento && tiposMovimiento.length > 0
+    ? tiposMovimiento
+    : [
+        { id: 1, codigo: 'ENT', nombre: 'Entrada' },
+        { id: 2, codigo: 'SAL', nombre: 'Salida' },
+        { id: 3, codigo: 'TRF', nombre: 'Transferencia' },
+      ]
 
   // Helper para procesar y cargar archivo de imagen
   const processImageFile = useCallback((selectedFile: File) => {
@@ -252,19 +305,49 @@ export function OcrUploadModal({
             disabled={isPending}
           />
 
-          {/* Selector de tipo estimado */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tipo de Movimiento Estimado</Label>
-            <Select value={tipo} onValueChange={(val) => val && setTipo(val)} disabled={isPending}>
-              <SelectTrigger className="h-10 rounded-xl">
-                <SelectValue placeholder="Selecciona tipo..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="entrada">Entrada (Ingreso)</SelectItem>
-                <SelectItem value="salida">Salida (Egreso)</SelectItem>
-                <SelectItem value="traspaso">Traspaso (Movimiento)</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Selector de tipo estimado con botones idénticos a Nueva Nota */}
+          <div className="space-y-2">
+            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+              <span>Tipo de Movimiento Estimado *</span>
+              <span className="text-[10px] lowercase opacity-70 font-normal">sincronizado por rol</span>
+            </Label>
+            <div className={cn(
+              "grid gap-2 sm:gap-3",
+              tiposDisponibles.length === 1 ? "grid-cols-1" :
+              tiposDisponibles.length === 2 ? "grid-cols-2" :
+              tiposDisponibles.length === 3 ? "grid-cols-3" :
+              tiposDisponibles.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
+              "grid-cols-2 sm:grid-cols-5"
+            )}>
+              {tiposDisponibles.map((t) => {
+                const Icon = TIPO_MOV_ICONS[t.codigo] || Package
+                const isSelected = selectedCodigo === t.codigo
+                const colorMap = TIPO_MOVIMIENTO_COLORS[t.codigo] || 'bg-primary text-primary-foreground'
+                return (
+                  <button
+                    key={t.codigo}
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => {
+                      setSelectedCodigo(t.codigo)
+                      setTipo(CODIGO_TO_HINT[t.codigo] || 'entrada')
+                    }}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-3 sm:p-3.5 rounded-2xl border transition-all text-center gap-1.5 group min-h-[60px] sm:min-h-[68px]",
+                      isPending && "opacity-50 cursor-not-allowed",
+                      isSelected
+                        ? cn("border-transparent font-bold shadow-lg shadow-black/10 scale-102 ring-2 ring-primary/20", colorMap.split(' ')[0], colorMap.split(' ')[1])
+                        : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-5 w-5 sm:h-6 sm:w-6 transition-transform group-hover:scale-110" />
+                    <span className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none">
+                      {t.nombre}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {/* Visualizador de imagen / Dropzone Principal */}

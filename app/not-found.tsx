@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Home, ArrowLeft } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Página no encontrada | inv-tienda',
+  title: 'Página no encontrada | Idol Navy',
   description: 'La página que buscas no existe. Regresa al catálogo o inicia búsqueda.',
 }
 

@@ -1,7 +1,7 @@
 // app/(admin)/inventario/stock/page.tsx
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
-import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix, fetchNotasPendientesPorBodega } from '@/modules/inventario/queries'
+import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix, fetchNotasPendientesPorBodega, fetchTotalesCajasPorBodegas } from '@/modules/inventario/queries'
 import { StockFilters } from '@/app/(admin)/inventario/stock/StockFilters'
 import { StockTable } from '@/app/(admin)/inventario/stock/StockTable'
 import { StockMatrixFilters } from '@/app/(admin)/inventario/stock/StockMatrixFilters'
@@ -16,6 +16,7 @@ import type { FiltrosStock, FiltrosStockMatrix, StockMatrixItem } from '@/module
 import type { BodegaRow } from '@/lib/types/tables'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { verifySession } from '@/lib/dal'
+import { can as canUser, isSuperAdmin as checkSuperAdmin } from '@/lib/auth/permissions'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { fetchConfigInventario } from '@/modules/inventario/config-queries'
 import { sortBodegasWithConfig } from '@/modules/inventario/config-types'
@@ -45,25 +46,21 @@ async function StockMatrixData({
   bodegas,
   bodegaActivaId,
   agruparPor,
+  defaultAgrupacionConfig = 'ninguno',
+  pageSize = 20,
+  showImport = true,
 }: {
   filtros: FiltrosStockMatrix
   isNone: boolean
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
+  defaultAgrupacionConfig?: string
+  pageSize?: number
+  showImport?: boolean
 }) {
-  const stockMatrixPromise = isNone
-    ? Promise.resolve({ items: [] as StockMatrixItem[], total: 0 })
-    : fetchStockMatrix(filtros, bodegas)
-  let items: StockMatrixItem[] = []
-  let total = 0
   let bodegasColumnas = bodegas
-
   if (!isNone) {
-    const res = await stockMatrixPromise
-    items = res.items
-    total = res.total
-
     if (filtros.ciudades && filtros.ciudades.length > 0) {
       bodegasColumnas = bodegasColumnas.filter((b) => filtros.ciudades!.includes(b.ciudad || 'sin_asignar'))
     }
@@ -74,6 +71,23 @@ async function StockMatrixData({
     bodegasColumnas = []
   }
 
+  const stockMatrixPromise = isNone
+    ? Promise.resolve({ items: [] as StockMatrixItem[], total: 0 })
+    : fetchStockMatrix(filtros, bodegas)
+
+  const totalesCajasPromise = isNone || bodegasColumnas.length === 0
+    ? Promise.resolve({} as Record<number, number>)
+    : fetchTotalesCajasPorBodegas(bodegasColumnas.map((b) => b.id))
+
+  const [res, totalesCajasRealesPorBodega] = await Promise.all([
+    stockMatrixPromise,
+    totalesCajasPromise,
+  ])
+
+  const items = isNone ? [] : res.items
+  const total = isNone ? 0 : res.total
+  const grandTotalCajas = Object.values(totalesCajasRealesPorBodega).reduce((a, b) => a + b, 0)
+
   return (
     <div className="space-y-4">
       <StockPageHeader
@@ -81,9 +95,18 @@ async function StockMatrixData({
         subtitle={`Todas las bodegas disponibles — ${total} producto${total !== 1 ? 's' : ''}`}
         bodegas={bodegas}
         bodegaActivaId={bodegaActivaId}
+        totalCajas={grandTotalCajas}
+        showImport={showImport}
       />
-      <StockMatrixFilters bodegas={bodegas} />
-      <StockMatrixTable items={items} bodegasColumnas={bodegasColumnas} total={total} agruparPor={agruparPor} />
+      <StockMatrixFilters bodegas={bodegas} defaultAgrupacion={defaultAgrupacionConfig} />
+      <StockMatrixTable
+        items={items}
+        bodegasColumnas={bodegasColumnas}
+        total={total}
+        agruparPor={agruparPor}
+        totalesCajasRealesPorBodega={totalesCajasRealesPorBodega}
+      />
+      <Pagination total={total} pageSize={pageSize} />
     </div>
   )
 }
@@ -93,13 +116,19 @@ async function StockNormalData({
   bodegas,
   bodegaActivaId,
   agruparPor,
+  defaultAgrupacionConfig = 'ninguno',
+  pageSize = 20,
   limiteNotasPendientes = 5,
+  showImport = true,
 }: {
   filtros: FiltrosStock
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
+  defaultAgrupacionConfig?: string
+  pageSize?: number
   limiteNotasPendientes?: number
+  showImport?: boolean
 }) {
   const { items, total, totalCajas } = await fetchStockByBodega(bodegaActivaId, filtros)
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
@@ -115,10 +144,11 @@ async function StockNormalData({
         bodegas={bodegas}
         bodegaActivaId={bodegaActivaId}
         totalCajas={totalCajas}
+        showImport={showImport}
       />
-      <StockFilters />
+      <StockFilters defaultAgrupacion={defaultAgrupacionConfig} />
       <StockTable items={items} bodegaId={bodegaActivaId} agruparPor={agruparPor} bodegaNombre={bodegaActiva?.nombre} />
-      <Pagination total={total} />
+      <Pagination total={total} pageSize={pageSize} />
     </div>
   )
 }
@@ -220,7 +250,16 @@ async function StockPageContent({
   const bodegasBase = isRestrictedUser ? userBodegas : catalogos.bodegas
   const bodegasPermitidas = sortBodegasWithConfig(bodegasBase, config)
 
-  const defaultAgrupacion = sp.agrupar_por || config.agrupacion_default_stock || 'familia'
+  const configuredDefaultAgrupacion =
+    config.agrupacion_default_stock === 'plano' ? 'ninguno' : (config.agrupacion_default_stock || 'familia')
+  const defaultAgrupacion = sp.agrupar_por || configuredDefaultAgrupacion
+  const pageSize = config.paginacion_stock_tamano || 20
+
+  // Verificar si el rol del usuario tiene permisos de crear/editar en el módulo inventario_stock
+  const canImport =
+    checkSuperAdmin(user) ||
+    canUser(user, 'inventario_stock', 'puede_crear') ||
+    canUser(user, 'inventario_stock', 'puede_editar')
 
   if (bodegaActivaId === 0) {
     const rawBodegas = parseArray(sp.bodegas)
@@ -233,6 +272,7 @@ async function StockPageContent({
       q: sp.q,
       con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
       page: sp.page ? parseInt(sp.page) : 1,
+      limit: pageSize,
       ciudades: rawCiudades.filter(v => v !== 'none'),
       bodegas: rawBodegas.filter(v => v !== 'none').map(v => parseInt(v, 10)),
     }
@@ -245,6 +285,9 @@ async function StockPageContent({
           bodegas={bodegasPermitidas} 
           bodegaActivaId={bodegaActivaId} 
           agruparPor={defaultAgrupacion}
+          defaultAgrupacionConfig={configuredDefaultAgrupacion}
+          pageSize={pageSize}
+          showImport={canImport}
         />
       </Suspense>
     )
@@ -254,6 +297,7 @@ async function StockPageContent({
     q: sp.q,
     con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
     page: sp.page ? parseInt(sp.page) : 1,
+    limit: pageSize,
   }
 
   return (
@@ -263,7 +307,10 @@ async function StockPageContent({
         bodegas={bodegasPermitidas} 
         bodegaActivaId={bodegaActivaId} 
         agruparPor={defaultAgrupacion}
+        defaultAgrupacionConfig={configuredDefaultAgrupacion}
+        pageSize={pageSize}
         limiteNotasPendientes={config.limite_notas_pendientes_panel}
+        showImport={canImport}
       />
     </Suspense>
   )

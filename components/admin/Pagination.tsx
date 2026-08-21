@@ -7,14 +7,14 @@ import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { PAGE_SIZE } from '@/lib/constants'
 
-export function Pagination({ total }: { total: number }) {
+export function Pagination({ total, pageSize = PAGE_SIZE }: { total: number; pageSize?: number }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
   const currentPage = Number(searchParams.get('page') ?? '1')
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.ceil(total / pageSize)
 
   if (totalPages <= 1) return null
 
@@ -30,8 +30,8 @@ export function Pagination({ total }: { total: number }) {
     })
   }
 
-  const from = (currentPage - 1) * PAGE_SIZE + 1
-  const to = Math.min(currentPage * PAGE_SIZE, total)
+  const from = (currentPage - 1) * pageSize + 1
+  const to = Math.min(currentPage * pageSize, total)
 
   return (
     <div className={`flex items-center justify-between py-4 ${isPending ? 'opacity-50' : ''}`}>

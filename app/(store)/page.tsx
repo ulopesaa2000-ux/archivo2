@@ -32,11 +32,11 @@ import {
 } from '@/lib/utils/storeConfig'
 
 export const metadata: Metadata = {
-  title: 'inv-tienda | Moda que te define - Colección 2026',
-  description: 'Descubre nuestra exclusiva colección de moda 2026. Chamarra, pants, gorros y accesorios diseñados con los mejores materiales. Calidad y estilo en cada prenda.',
+  title: 'Idol Navy | Moda que te define - Colección 2026',
+  description: 'Descubre nuestra exclusiva colección de moda Idol Navy 2026. Chamarras, rompevientos, chalecos y conjuntos diseñados con los mejores materiales. Calidad y estilo en cada prenda.',
   openGraph: {
-    title: 'inv-tienda | Moda que te define',
-    description: 'Explora nuestra colección 2026 de moda exclusiva. Calidad y diseño en un solo lugar.',
+    title: 'Idol Navy | Moda que te define',
+    description: 'Explora nuestra colección 2026 de moda exclusiva Idol Navy. Calidad y diseño en un solo lugar.',
     images: ['/og-image.jpg'],
   }
 }

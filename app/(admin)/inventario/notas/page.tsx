@@ -21,6 +21,8 @@ import { fetchBodegasUsuario } from '@/modules/auth/queries'
 
 import { OcrSerialScannerModal } from '@/components/admin/OcrSerialScannerModal'
 
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+
 export const metadata: Metadata = {
   title: 'Notas de Inventario',
 }
@@ -89,28 +91,84 @@ export default async function NotasPage({
           <Clock className="h-10 w-10 animate-pulse" />
         </div>
         <div className="max-w-md space-y-2">
-          <h2 className="text-xl font-bold tracking-tight">Sin Bodegas Asignadas</h2>
+          <h3 className="text-xl font-black tracking-tight">Sin Bodegas Asignadas</h3>
           <p className="text-sm text-muted-foreground">
-            No tienes bodegas asignadas en la matriz de permisos. Contacta a tu administrador para configurar tus accesos.
+            No tienes bodegas vinculadas a tu cuenta para consultar notas. Contacta al administrador para que te asigne una bodega en la configuración.
           </p>
         </div>
       </div>
     )
   }
 
-  // Restricciones para Nivel 3+ (Encargado y Bodeguero)
+  // Cargar configuración de inventario para evaluar permisos y reglas
+  const [config, tableConfig, catalogos] = await Promise.all([
+    fetchConfigInventario(),
+    fetchUserTableConfig('/inventario/notas'),
+    fetchCatalogosInventario(),
+  ])
+
+  const rolKey = user.rol?.id ? String(user.rol.id) : ''
+  const nivelKey = String(user.rol?.nivel_acceso ?? 99)
+
+  // Restricciones de bodegas para Nivel 3+ (Encargado y Bodeguero)
   if (!isSuperAdmin && !isAdminInventario) {
     filtros.limit_bodega_ids = userBodegas.map(b => b.id)
-    if (user.rol?.nombre === 'Bodeguero') {
-      filtros.limit_usuario_id = user.id
-    }
   }
 
-  const [{ notas, total }, catalogos, tableConfig] = await Promise.all([
-    fetchNotas(filtros),
-    fetchCatalogosInventario(),
-    fetchUserTableConfig('/inventario/notas'),
-  ])
+  // Alcance de visión configurado para este rol (todas las notas de sus bodegas vs solo las creadas por el usuario)
+  const alcanceVision =
+    (rolKey && config?.alcance_vision_notas_por_rol?.[rolKey]) ||
+    config?.alcance_vision_notas_por_rol?.[nivelKey] ||
+    (user.rol?.nombre === 'Bodeguero' || user.rol?.id === 18 ? 'solo_propias' : 'todas_bodegas')
+
+  if (alcanceVision === 'solo_propias' && !isSuperAdmin) {
+    filtros.limit_usuario_id = user.id
+  }
+
+  const { notas, total } = await fetchNotas(filtros)
+
+  // Tipos de movimiento permitidos según configuración de roles
+  const defaultCodigo =
+    (rolKey && config?.tipo_movimiento_default_por_rol?.[rolKey]) ||
+    config?.tipo_movimiento_default_por_rol?.[nivelKey] ||
+    config?.tipo_movimiento_default_general ||
+    (user.rol?.id === 18 ? 'SAL' : 'ENT')
+
+  const accionEliminar =
+    (rolKey && config?.accion_eliminar_nota_por_rol?.[rolKey]) ||
+    config?.accion_eliminar_nota_por_rol?.[nivelKey] ||
+    (user.rol?.id === 18 ? 'solo_cancelar' : 'eliminar_soft')
+
+  const allowedCodigos =
+    (rolKey && config?.permisos_tipos_movimiento?.[rolKey]) ||
+    config?.permisos_tipos_movimiento?.[nivelKey] ||
+    (isSuperAdmin || isAdminInventario ? ['ENT', 'SAL', 'TRF', 'AJU', 'DEV'] : ['ENT', 'SAL', 'TRF'])
+
+  const tiposMovimientoVisibles = catalogos.tiposMovimiento.filter((t) => {
+    if (isSuperAdmin) return true
+
+    // Si es devolución (DEV) y el usuario es Nivel 3+:
+    if (t.codigo === 'DEV' && (user.rol?.nivel_acceso ?? 99) > 2) {
+      const tienePermisoDevolucionIndividual = userBodegas.some((ub) => {
+        const key = `${user.id}_${ub.id}`
+        return config?.permisos_devolucion_usuario_bodega?.[key] === true
+      })
+      const permitidoPorRol = allowedCodigos.includes('DEV')
+      if (!permitidoPorRol && !tienePermisoDevolucionIndividual) return false
+    } else {
+      if (!allowedCodigos.includes(t.codigo as any)) return false
+    }
+
+    // Si es traspaso (TRF) y el usuario es Nivel 3+, verificar si tiene asignada alguna bodega con permiso de transferir
+    if (t.codigo === 'TRF' && (user.rol?.nivel_acceso ?? 99) > 2) {
+      const tienePermisoTransferir = userBodegas.some(
+        (ub) => (ub.permisos_bodega?.puede_transferir ?? (ub as any).puede_transferir) === true
+      )
+      if (!tienePermisoTransferir) return false
+    }
+
+    return true
+  })
 
   // Filtrar catálogo de bodegas para nivel 3
   const activeBodegas = user.rol?.nivel_acceso !== undefined && user.rol.nivel_acceso > 2
@@ -152,6 +210,9 @@ export default async function NotasPage({
           <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
           
           <OcrSerialScannerModal
+            tiposMovimiento={tiposMovimientoVisibles}
+            defaultTipoCodigo={defaultCodigo}
+            bodegas={catalogosFiltrados.bodegas}
             trigger={
               <Button
                 variant="outline"
@@ -184,6 +245,9 @@ export default async function NotasPage({
       <div className="fixed bottom-6 right-5 z-50 flex flex-col items-center gap-3 md:hidden">
         {/* Botón 1: Cámara / Fotos OCR */}
         <OcrSerialScannerModal
+          tiposMovimiento={tiposMovimientoVisibles}
+          defaultTipoCodigo={defaultCodigo}
+          bodegas={catalogosFiltrados.bodegas}
           trigger={
             <button
               type="button"
@@ -278,6 +342,7 @@ export default async function NotasPage({
         bodegaFiltradaId={filtros.bodega_origen_id}
         sortKey={filtros.sort_by}
         sortOrder={filtros.order}
+        accionEliminar={accionEliminar}
       />
 
       {/* Paginación */}

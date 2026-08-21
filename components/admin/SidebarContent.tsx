@@ -2,6 +2,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -140,7 +141,12 @@ export function SidebarContent({
   const groups = GROUPS
     .map((group) => {
       const nivel = user?.rol?.nivel_acceso ?? 99
-      if (nivel >= 4) {
+      const isClienteEcommerce = user?.rol_id === 19 || (user?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+      if (isClienteEcommerce) {
+        if (['Catalogo', 'Inventario', 'Bodegas Virtuales', 'B2B', 'Configuracion'].includes(group.label)) {
+          return { ...group, items: [] }
+        }
+      } else if (nivel >= 4) {
         if (['Catalogo', 'Inventario', 'Bodegas Virtuales', 'Ecommerce', 'Configuracion'].includes(group.label)) {
           return { ...group, items: [] }
         }
@@ -194,10 +200,16 @@ export function SidebarContent({
         {!isCollapsed ? (
           <div className="flex h-14 shrink-0 items-center justify-between border-b p-4">
             <Link href={ADMIN_ROUTES.dashboard} className="flex items-center gap-3" onClick={onNavigate}>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-                <span className="text-sm font-bold text-primary-foreground">IT</span>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white p-0.5 shadow-sm border border-border overflow-hidden">
+                <Image
+                  src="/icons/icon-192.png"
+                  alt="Idol Navy"
+                  width={36}
+                  height={36}
+                  className="w-full h-full object-contain rounded-md"
+                />
               </div>
-              <span className="text-lg font-bold">inv-tienda</span>
+              <span className="text-lg font-bold">Idol Navy</span>
             </Link>
             {onToggleCollapse && (
               <button
@@ -211,8 +223,14 @@ export function SidebarContent({
           </div>
         ) : (
           <div className="relative flex h-14 shrink-0 items-center justify-center overflow-hidden border-b p-4">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary shadow-sm">
-              <span className="text-sm font-bold text-primary-foreground">IT</span>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white p-0.5 shadow-sm border border-border overflow-hidden">
+              <Image
+                src="/icons/icon-192.png"
+                alt="Idol Navy"
+                width={36}
+                height={36}
+                className="w-full h-full object-contain rounded-md"
+              />
             </div>
             {onToggleCollapse && (
               <button

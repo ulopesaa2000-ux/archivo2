@@ -7,7 +7,7 @@ import { PerfilForm } from './PerfilForm'
 import { ChevronRight, Home, User } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Mi Perfil | inv-tienda',
+  title: 'Mi Perfil | Idol Navy',
   description: 'Información y configuración del perfil de usuario',
 }
 

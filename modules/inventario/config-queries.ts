@@ -31,6 +31,10 @@ export async function fetchConfigInventario(): Promise<ConfigInventario> {
       ...DEFAULT_CONFIG_INVENTARIO,
       ...(data as unknown as Partial<ConfigInventario>),
       permisos_tipos_movimiento: (data as any).permisos_tipos_movimiento ?? DEFAULT_CONFIG_INVENTARIO.permisos_tipos_movimiento,
+      tipo_movimiento_default_por_rol: (data as any).tipo_movimiento_default_por_rol ?? DEFAULT_CONFIG_INVENTARIO.tipo_movimiento_default_por_rol,
+      alcance_vision_notas_por_rol: (data as any).alcance_vision_notas_por_rol ?? DEFAULT_CONFIG_INVENTARIO.alcance_vision_notas_por_rol,
+      accion_eliminar_nota_por_rol: (data as any).accion_eliminar_nota_por_rol ?? DEFAULT_CONFIG_INVENTARIO.accion_eliminar_nota_por_rol,
+      permisos_devolucion_usuario_bodega: (data as any).permisos_devolucion_usuario_bodega ?? DEFAULT_CONFIG_INVENTARIO.permisos_devolucion_usuario_bodega,
       orden_ciudades: (data as any).orden_ciudades ?? DEFAULT_CONFIG_INVENTARIO.orden_ciudades,
       orden_bodegas_ids: (data as any).orden_bodegas_ids ?? DEFAULT_CONFIG_INVENTARIO.orden_bodegas_ids,
     }
@@ -61,6 +65,10 @@ export async function fetchConfigInventarioLive(): Promise<ConfigInventario> {
       ...DEFAULT_CONFIG_INVENTARIO,
       ...(data as unknown as Partial<ConfigInventario>),
       permisos_tipos_movimiento: (data as any).permisos_tipos_movimiento ?? DEFAULT_CONFIG_INVENTARIO.permisos_tipos_movimiento,
+      tipo_movimiento_default_por_rol: (data as any).tipo_movimiento_default_por_rol ?? DEFAULT_CONFIG_INVENTARIO.tipo_movimiento_default_por_rol,
+      alcance_vision_notas_por_rol: (data as any).alcance_vision_notas_por_rol ?? DEFAULT_CONFIG_INVENTARIO.alcance_vision_notas_por_rol,
+      accion_eliminar_nota_por_rol: (data as any).accion_eliminar_nota_por_rol ?? DEFAULT_CONFIG_INVENTARIO.accion_eliminar_nota_por_rol,
+      permisos_devolucion_usuario_bodega: (data as any).permisos_devolucion_usuario_bodega ?? DEFAULT_CONFIG_INVENTARIO.permisos_devolucion_usuario_bodega,
       orden_ciudades: (data as any).orden_ciudades ?? DEFAULT_CONFIG_INVENTARIO.orden_ciudades,
       orden_bodegas_ids: (data as any).orden_bodegas_ids ?? DEFAULT_CONFIG_INVENTARIO.orden_bodegas_ids,
     }

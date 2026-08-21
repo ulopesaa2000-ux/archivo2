@@ -187,21 +187,24 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
   }
 })
 
+import { sortBodegasWithConfig } from '@/modules/inventario/config-types'
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+
 export const fetchBodegasUsuario = cache(async (
   usuarioId: number,
   nivelAcceso: number
 ): Promise<(BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]> => {
   const supabase = await createClient()
+  const config = await fetchConfigInventario()
 
   if (nivelAcceso <= 2) {
     const { data, error } = await supabase
       .from('bodegas')
       .select('*')
       .eq('activa', true)
-      .order('nombre')
 
     if (error || !data) return []
-    return data
+    return sortBodegasWithConfig(data as BodegaRow[], config) as (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
   }
 
   const { data, error } = await supabase
@@ -215,7 +218,7 @@ export const fetchBodegasUsuario = cache(async (
 
   if (error || !data) return []
 
-  return (data as (UsuarioBodegaRow & { bodega: BodegaRow | BodegaRow[] })[])
+  const result = (data as (UsuarioBodegaRow & { bodega: BodegaRow | BodegaRow[] })[])
     .filter((ub) => {
       const bodega = Array.isArray(ub.bodega) ? ub.bodega[0] : ub.bodega
       return bodega?.activa === true
@@ -236,4 +239,6 @@ export const fetchBodegasUsuario = cache(async (
         },
       }
     })
+
+  return sortBodegasWithConfig(result as BodegaRow[], config) as (BodegaRow & { permisos_bodega?: UsuarioBodegaRow })[]
 })

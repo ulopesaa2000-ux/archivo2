@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from './permissions'
 import { fetchStockByBodegaAll, fetchStockMatrixAll } from './queries'
+import { fetchConfigInventario } from './config-queries'
 import type {
   DraftNota,
   DraftProducto,
@@ -62,19 +63,7 @@ export async function guardarNotaAction(
     return { success: false, error: permCrear.motivo }
   }
 
-  if (confirmar) {
-    const permConfirmar = await can(user, 'confirmar_nota', {
-      bodegaOrigenId: draft.bodega_origen_id,
-      bodegaDestinoId: draft.bodega_destino_id || undefined,
-    })
-    if (!permConfirmar.ok) {
-      return { success: false, error: permConfirmar.motivo }
-    }
-  }
-
-  if (draft.productos.length === 0) {
-    return { success: false, error: 'Agrega al menos un producto.' }
-  }
+  const config = await fetchConfigInventario()
 
   // Validar requiere_destino y restricción de tipo para roles no-admin
   const { data: tipoMov } = await supabase
@@ -82,6 +71,30 @@ export async function guardarNotaAction(
     .select('codigo, requiere_destino')
     .eq('id', draft.tipo_movimiento_id)
     .single()
+
+  const isTraspaso = tipoMov?.codigo === 'TRF'
+
+  // Si se solicitó confirmar pero es traspaso con aprobación requerida y el creador no administra el destino:
+  let delegarEnProceso = false
+  if (confirmar) {
+    const permConfirmar = await can(user, 'confirmar_nota', {
+      bodegaOrigenId: draft.bodega_origen_id,
+      bodegaDestinoId: draft.bodega_destino_id || undefined,
+    })
+
+    if (!permConfirmar.ok) {
+      if (isTraspaso && config.requiere_aprobacion_traspaso) {
+        // En traspasos con aprobación de destino, el envío desde origen pasa a estado PROC (En Proceso / Tránsito)
+        delegarEnProceso = true
+      } else {
+        return { success: false, error: permConfirmar.motivo }
+      }
+    }
+  }
+
+  if (draft.productos.length === 0) {
+    return { success: false, error: 'Agrega al menos un producto.' }
+  }
 
   if (user.rol && user.rol.nivel_acceso > 2) {
     if (tipoMov?.codigo === 'AJU' || tipoMov?.codigo === 'DEV') {
@@ -163,15 +176,31 @@ export async function guardarNotaAction(
     }
   }
 
-  // ── 3. Confirmar si se solicitó ─────────────────────────
+  // ── 3. Confirmar o Marcar En Proceso si se solicitó ─────────────────────────
   if (confirmar) {
-    const confirmResult = await confirmarNotaAction(notaId)
-    if (!confirmResult.success) {
-      return {
-        success: false,
-        error: confirmResult.error,
-        nota_id: notaId,
-        numero_nota: numeroNota,
+    if (delegarEnProceso) {
+      // Pasar a estado PROC (En Proceso / Tránsito / Enviada a Destino)
+      const { data: estadoProc } = await supabase
+        .from('cat_estados_nota')
+        .select('id')
+        .eq('codigo', 'PROC')
+        .single()
+
+      if (estadoProc) {
+        await supabase
+          .from('notas_inventario')
+          .update({ estado_id: estadoProc.id })
+          .eq('id', notaId)
+      }
+    } else {
+      const confirmResult = await confirmarNotaAction(notaId)
+      if (!confirmResult.success) {
+        return {
+          success: false,
+          error: confirmResult.error,
+          nota_id: notaId,
+          numero_nota: numeroNota,
+        }
       }
     }
   }
@@ -242,12 +271,20 @@ export async function actualizarNotaAction(
 
   if (!nota) return { success: false, error: 'Nota no encontrada.' }
 
+  // ── Validar permisos de confirmación si se solicitó ───────────
+  if (confirmar) {
+    const permConfirmar = await can(user, 'confirmar_nota', {
+      notaId,
+      bodegaOrigenId: draft.bodega_origen_id || nota.bodega_origen_id,
+      bodegaDestinoId: draft.bodega_destino_id || nota.bodega_destino_id || undefined,
+    })
+    if (!permConfirmar.ok) {
+      return { success: false, error: permConfirmar.motivo || 'No tienes permisos para confirmar esta nota.' }
+    }
+  }
+
   // ── Validar permisos de bodega si es nivel 3+ ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
-    if (confirmar) {
-      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
-    }
-
     const esCreador = nota.usuario_id === user.id
     const esEncargado = user.rol?.nombre === 'Encargado de Bodega'
     const esTransferencia = nota.bodega_destino_id !== null
@@ -540,19 +577,27 @@ export async function cambiarEstadoNotaAction(
 
   const supabase = await createClient()
 
-  // ── Validar permisos de nivel 3+ en cambio de estado ───────────
+  // Obtener código del nuevo estado
+  const { data: nuevoEstado } = await supabase
+    .from('cat_estados_nota')
+    .select('codigo')
+    .eq('id', nuevoEstadoId)
+    .single()
+
+  // Si se solicita cambiar a CONF, delegar a confirmarNotaAction (que ejecuta triggers y valida permisos de destino/admin)
+  if (nuevoEstado?.codigo === 'CONF') {
+    return confirmarNotaAction(notaId)
+  }
+
+  // ── Validar permisos de nivel 3+ para estados intermedios (PEND / PROC) ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
     const { data: nota } = await supabase
       .from('notas_inventario')
-      .select('usuario_id, estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )')
+      .select('usuario_id, bodega_origen_id, bodega_destino_id, estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )')
       .eq('id', notaId)
       .single()
 
     if (!nota) return { success: false, error: 'Nota no encontrada.' }
-
-    if (nota.usuario_id !== user.id) {
-      return { success: false, error: 'Solo puedes cambiar el estado de notas creadas por ti mismo.' }
-    }
 
     const estadoCodigo = Array.isArray((nota as any).estado)
       ? (nota as any).estado[0]?.codigo
@@ -561,24 +606,13 @@ export async function cambiarEstadoNotaAction(
     if (estadoCodigo !== 'PEND' && estadoCodigo !== 'PROC') {
       return { success: false, error: 'Solo puedes modificar notas que estén en estado Pendiente o En Proceso.' }
     }
-
-    // Verificar que el nuevo estado no sea CONF
-    const { data: nuevoEstado } = await supabase
-      .from('cat_estados_nota')
-      .select('codigo')
-      .eq('id', nuevoEstadoId)
-      .single()
-
-    if (nuevoEstado?.codigo === 'CONF') {
-      return { success: false, error: 'No tienes permisos para confirmar notas. Esta acción está reservada para administradores.' }
-    }
   }
 
   const { error } = await supabase
     .from('notas_inventario')
     .update({ 
       estado_id: nuevoEstadoId,
-      usuario_id: user.id // Opcional: registrar quién hizo el último cambio
+      usuario_id: user.id
     })
     .eq('id', notaId)
 
@@ -1288,11 +1322,17 @@ export async function exportStockMatrixAction(
 }
 
 /**
- * Elimina una nota de inventario marcándola como inactiva (activo = false).
- * Para el usuario funciona como eliminación (deja de aparecer en las listas).
- * Preserva las relaciones con nota_detalles para integridad referencial.
+ * Gestiona la eliminación o cancelación de una nota según el rol del usuario y la configuración:
+ * - Para Administradores / Encargados (eliminar_soft):
+ *   - Si la nota NO está confirmada (PEND/PROC): se marca inactiva (activo = false) y pasa a estado Cancelada (CANC / 3).
+ *   - Si la nota SÍ está confirmada (CONF): se marca inactiva (activo = false) sin alterar su estado para no afectar el historial de stock.
+ * - Para Bodegueros (solo_cancelar):
+ *   - Solo en sus notas creadas: pasa a estado Cancelada (CANC) manteniendo activo = true para que el administrador pueda revisarla o borrarla.
  */
-export async function eliminarNotaAction(notaId: number): Promise<ActionResult> {
+export async function eliminarNotaAction(
+  notaId: number,
+  motivo?: string
+): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) {
     return { success: false, error: 'No autenticado.' }
@@ -1300,10 +1340,13 @@ export async function eliminarNotaAction(notaId: number): Promise<ActionResult> 
 
   const supabase = await createClient()
 
-  // 1. Obtener la nota para verificar bodega y permisos
+  // 1. Obtener la nota para verificar estado, creador y bodegas
   const { data: nota, error: errorFetch } = await supabase
     .from('notas_inventario')
-    .select('id, numero_nota, bodega_origen_id, bodega_destino_id')
+    .select(`
+      id, numero_nota, estado_id, usuario_id, bodega_origen_id, bodega_destino_id,
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
+    `)
     .eq('id', notaId)
     .single()
 
@@ -1311,7 +1354,66 @@ export async function eliminarNotaAction(notaId: number): Promise<ActionResult> 
     return { success: false, error: 'Nota no encontrada.' }
   }
 
-  // 2. Verificar permisos
+  const estadoCodigo = Array.isArray((nota as any).estado)
+    ? (nota as any).estado[0]?.codigo
+    : (nota as any).estado?.codigo
+
+  // 2. Obtener configuración de inventario para este rol
+  const config = await fetchConfigInventario()
+  const rolKey = user.rol?.id ? String(user.rol.id) : ''
+  const nivelKey = String(user.rol?.nivel_acceso ?? 99)
+
+  const accionPermitida =
+    (rolKey && config.accion_eliminar_nota_por_rol?.[rolKey]) ||
+    config.accion_eliminar_nota_por_rol?.[nivelKey] ||
+    (user.rol?.id === 18 ? 'solo_cancelar' : 'eliminar_soft')
+
+  // 3. Evaluar permisos
+  if (accionPermitida === 'ninguno') {
+    return { success: false, error: 'Tu rol no tiene permisos para eliminar ni cancelar notas.' }
+  }
+
+  // ── Caso A: Rol configurado como 'solo_cancelar' (ej. Bodeguero) ──
+  if (accionPermitida === 'solo_cancelar') {
+    // Si es nivel 3+, verificar que la nota haya sido creada por él
+    if (user.rol && user.rol.nivel_acceso >= 3 && nota.usuario_id !== user.id) {
+      return { success: false, error: 'Solo puedes cancelar notas creadas por ti mismo.' }
+    }
+
+    if (estadoCodigo === 'CONF') {
+      return {
+        success: false,
+        error: 'Esta nota ya fue confirmada. Solo un administrador puede gestionarla.',
+      }
+    }
+
+    if (estadoCodigo === 'CANC') {
+      return { success: false, error: 'Esta nota ya se encuentra cancelada.' }
+    }
+
+    // Cancelar administrativamente (sp_cancelar_nota o update a CANC con activo = true)
+    const { error: errorCancelar } = await supabase.rpc('sp_cancelar_nota', {
+      p_nota_id: notaId,
+      p_usuario_id: user.id,
+      p_motivo: motivo || 'Cancelada por el usuario',
+    })
+
+    if (errorCancelar) {
+      console.error('Error en sp_cancelar_nota:', errorCancelar)
+      return { success: false, error: `Error al cancelar nota: ${errorCancelar.message}` }
+    }
+
+    revalidatePath('/inventario/notas')
+    revalidatePath(`/inventario/notas/${notaId}`)
+    revalidatePath('/inventario/stock')
+
+    return {
+      success: true,
+      numero_nota: nota.numero_nota,
+    }
+  }
+
+  // ── Caso B: Rol configurado como 'eliminar_soft' (ej. Admin / Encargado) ──
   const perm = await can(user, 'editar_nota', {
     bodegaOrigenId: nota.bodega_origen_id,
     bodegaDestinoId: nota.bodega_destino_id || undefined,
@@ -1321,10 +1423,18 @@ export async function eliminarNotaAction(notaId: number): Promise<ActionResult> 
     return { success: false, error: perm.motivo || 'No tienes permisos para eliminar esta nota.' }
   }
 
-  // 3. Ocultar la nota (soft delete)
+  // Preparar payload de actualización:
+  // - Si no está confirmada (PEND / PROC / CANC), pasa a activo = false y estado CANC (3).
+  // - Si ya está confirmada (CONF), solo se oculta (activo = false) sin alterar estado ni stock.
+  const updatePayload: { activo: boolean; estado_id?: number } = { activo: false }
+
+  if (estadoCodigo !== 'CONF') {
+    updatePayload.estado_id = 3 // CANC
+  }
+
   const { error: errorUpdate } = await supabase
     .from('notas_inventario')
-    .update({ activo: false } as any)
+    .update(updatePayload as any)
     .eq('id', notaId)
 
   if (errorUpdate) {
@@ -1334,6 +1444,7 @@ export async function eliminarNotaAction(notaId: number): Promise<ActionResult> 
 
   revalidatePath('/inventario/notas')
   revalidatePath(`/inventario/notas/${notaId}`)
+  revalidatePath('/inventario/stock')
 
   return {
     success: true,

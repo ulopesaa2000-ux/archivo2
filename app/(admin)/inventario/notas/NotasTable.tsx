@@ -28,13 +28,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { 
   MoreHorizontal, MoreVertical, Eye, FileText, Image as ImageIcon, 
-  CheckCircle2, Loader2, ExternalLink, Package, Trash2, 
+  CheckCircle2, Loader2, ExternalLink, Package, Trash2, Ban,
   Warehouse, Building2, Calendar, DollarSign, User, Clock 
 } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import type { NotaListItem } from '@/modules/inventario/types'
+import type { AccionEliminarNota } from '@/modules/inventario/config-types'
 import { confirmarNotaAction, getNotaDetallesAction, eliminarNotaAction } from '@/modules/inventario/actions'
 import { toast } from 'sonner'
 
@@ -44,22 +45,39 @@ type Props = {
   sortOrder?: 'asc' | 'desc'
   initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
   bodegaFiltradaId?: number
+  accionEliminar?: AccionEliminarNota
 }
 
-function NotaAccionesCell({ row, isVertical = false }: { row: NotaListItem; isVertical?: boolean }) {
+function NotaAccionesCell({
+  row,
+  isVertical = false,
+  accionEliminar = 'eliminar_soft',
+}: {
+  row: NotaListItem
+  isVertical?: boolean
+  accionEliminar?: AccionEliminarNota
+}) {
   const router = useRouter()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, startDeleteTransition] = useTransition()
+
+  const isSoloCancelar = accionEliminar === 'solo_cancelar'
+  const isNinguno = accionEliminar === 'ninguno'
+  const yaCancelada = row.estado_codigo === 'CANC'
 
   const handleDelete = () => {
     startDeleteTransition(async () => {
       const res = await eliminarNotaAction(row.id)
       if (res.success) {
-        toast.success(`Nota ${row.numero_nota} eliminada exitosamente`)
+        toast.success(
+          isSoloCancelar
+            ? `Nota ${row.numero_nota} cancelada exitosamente`
+            : `Nota ${row.numero_nota} eliminada exitosamente`
+        )
         setShowDeleteDialog(false)
         router.refresh()
       } else {
-        toast.error(res.error ?? 'No se pudo eliminar la nota')
+        toast.error(res.error ?? (isSoloCancelar ? 'No se pudo cancelar la nota' : 'No se pudo eliminar la nota'))
       }
     })
   }
@@ -79,26 +97,55 @@ function NotaAccionesCell({ row, isVertical = false }: { row: NotaListItem; isVe
               Ver detalle
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setShowDeleteDialog(true)}
-            className="text-red-600 dark:text-red-400 focus:bg-red-500/10 focus:text-red-600 font-semibold cursor-pointer"
-          >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Eliminar nota
-          </DropdownMenuItem>
+
+          {!isNinguno && !yaCancelada && (
+            <DropdownMenuItem
+              onClick={() => setShowDeleteDialog(true)}
+              className={cn(
+                "font-semibold cursor-pointer",
+                isSoloCancelar
+                  ? "text-amber-600 dark:text-amber-400 focus:bg-amber-500/10 focus:text-amber-600"
+                  : "text-red-600 dark:text-red-400 focus:bg-red-500/10 focus:text-red-600"
+              )}
+            >
+              {isSoloCancelar ? (
+                <>
+                  <Ban className="mr-2 h-3.5 w-3.5" />
+                  Cancelar nota
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-3.5 w-3.5" />
+                  Eliminar nota
+                </>
+              )}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent className="rounded-2xl border">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-red-600 dark:text-red-400 font-bold">
-              ¿Eliminar Nota {row.numero_nota}?
+            <AlertDialogTitle className={cn("font-bold", isSoloCancelar ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400")}>
+              {isSoloCancelar
+                ? `¿Cancelar Nota ${row.numero_nota}?`
+                : `¿Eliminar Nota ${row.numero_nota}?`}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2 text-xs text-muted-foreground pt-1">
-              <span>
-                Se borrará esta nota del sistema y ya no estará disponible en las listas ni en el historial.
-              </span>
+              {isSoloCancelar ? (
+                <span>
+                  La nota cambiará a estado <strong>Cancelada</strong>. El administrador podrá revisarla o decidir eliminarla definitivamente.
+                </span>
+              ) : row.estado_codigo === 'CONF' ? (
+                <span>
+                  Esta nota ya fue confirmada. Se ocultará de las listas conservando el historial de movimientos de inventario.
+                </span>
+              ) : (
+                <span>
+                  Se borrará esta nota del sistema y pasará automáticamente a estado Cancelada.
+                </span>
+              )}
               <span className="block font-bold text-foreground">
                 ¿Estás seguro de continuar?
               </span>
@@ -106,21 +153,26 @@ function NotaAccionesCell({ row, isVertical = false }: { row: NotaListItem; isVe
           </AlertDialogHeader>
           <AlertDialogFooter className="pt-2">
             <AlertDialogCancel disabled={isDeleting} className="rounded-xl h-10 text-xs font-semibold">
-              Cancelar
+              Descartar
             </AlertDialogCancel>
             <Button
               type="button"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl h-10 gap-1.5"
+              className={cn(
+                "text-white font-bold text-xs uppercase tracking-wider rounded-xl h-10 gap-1.5",
+                isSoloCancelar
+                  ? "bg-amber-600 hover:bg-amber-700"
+                  : "bg-red-600 hover:bg-red-700"
+              )}
             >
               {isDeleting ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Eliminando...
+                  {isSoloCancelar ? 'Cancelando...' : 'Eliminando...'}
                 </>
               ) : (
-                'Sí, eliminar nota'
+                isSoloCancelar ? 'Sí, cancelar nota' : 'Sí, eliminar nota'
               )}
             </Button>
           </AlertDialogFooter>
@@ -212,7 +264,8 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
     })
   }
 
-  const isPending = row.estado_codigo === 'PEND' || row.estado_codigo === 'BORR'
+  const isConfirmable = row.estado_codigo === 'PEND' || row.estado_codigo === 'BORR' || row.estado_codigo === 'PROC'
+  const isTraspasoEnProceso = row.tipo_codigo === 'TRF' && row.estado_codigo === 'PROC'
 
   return (
     <div className="p-4 bg-muted/15 border rounded-lg space-y-4 my-2 animate-in fade-in duration-200">
@@ -239,7 +292,7 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {isPending && (
+          {isConfirmable && (
             <AlertDialog>
               <AlertDialogTrigger
                 render={
@@ -255,19 +308,25 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Confirmar Nota Ahora
+                {isTraspasoEnProceso ? 'Confirmar Recepción / Llegada' : 'Confirmar Nota Ahora'}
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>¿Confirmar Nota {row.numero_nota}?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {isTraspasoEnProceso
+                      ? `¿Confirmar Recepción de Traspaso ${row.numero_nota}?`
+                      : `¿Confirmar Nota ${row.numero_nota}?`}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta acción procesará el inventario en la bodega {row.bodega_origen_nombre} ({row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.
+                    {isTraspasoEnProceso
+                      ? `Esta acción confirmará la llegada de la mercancía a ${row.bodega_destino_nombre || 'la bodega destino'} e ingresará el stock transferido (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`
+                      : `Esta acción procesará el inventario en la bodega ${row.bodega_origen_nombre} (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancelar</AlertDialogCancel>
                   <AlertDialogAction onClick={handleQuickConfirm} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                    Confirmar e Impactar Stock
+                    {isTraspasoEnProceso ? 'Confirmar Recepción e Ingresar Stock' : 'Confirmar e Impactar Stock'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -350,6 +409,7 @@ function NotasTableInner({
   sortKey,
   sortOrder,
   bodegaFiltradaId,
+  accionEliminar,
 }: Props) {
   const ctx = useDataTableContext()
   const isExpandedRow = (row: NotaListItem) => ctx.expandedIds.has(row.id)
@@ -508,7 +568,7 @@ function NotasTableInner({
       key: 'acciones',
       header: '',
       headerClassName: 'w-[50px]',
-      cell: (row: NotaListItem) => <NotaAccionesCell row={row} />,
+      cell: (row: NotaListItem) => <NotaAccionesCell row={row} accionEliminar={accionEliminar} />,
     },
   ]
 
@@ -546,6 +606,7 @@ function NotasTableInner({
               key={row.id}
               row={row}
               bodegaFiltradaId={bodegaFiltradaId}
+              accionEliminar={accionEliminar}
             />
           ))
         )}
@@ -557,9 +618,11 @@ function NotasTableInner({
 function NotaMobileCard({
   row,
   bodegaFiltradaId,
+  accionEliminar,
 }: {
   row: NotaListItem
   bodegaFiltradaId?: number
+  accionEliminar?: AccionEliminarNota
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -623,7 +686,7 @@ function NotaMobileCard({
           <Badge variant="secondary" className={cn("text-xs font-bold px-2.5 py-0.5 rounded-full", estadoColors)}>
             {row.estado_nombre}
           </Badge>
-          <NotaAccionesCell row={row} isVertical />
+          <NotaAccionesCell row={row} isVertical accionEliminar={accionEliminar} />
         </div>
       </div>
 

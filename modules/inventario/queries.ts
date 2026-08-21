@@ -30,6 +30,8 @@ import type {
   EstadoNotaRow,
   UsuarioBodegaRow,
 } from '@/lib/types/tables'
+import { fetchConfigInventario } from './config-queries'
+import { sortBodegasWithConfig } from './config-types'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO DE NOTAS
@@ -117,16 +119,14 @@ export async function fetchNotas(
     query = query.lte('fecha_nota', `${filtros.fecha_hasta}T23:59:59`)
   }
 
-  // ── Filtro: scoping por Bodegas y Usuario (para nivel 3) ──
+  // ── Filtro: scoping por Bodegas y Usuario (para nivel 3 / alcance de visión) ──
+  if (filtros.limit_usuario_id) {
+    query = query.eq('usuario_id', filtros.limit_usuario_id)
+  }
+
   if (filtros.limit_bodega_ids && filtros.limit_bodega_ids.length > 0) {
     const idsStr = filtros.limit_bodega_ids.join(',')
-    if (filtros.limit_usuario_id) {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
-    } else {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
-    }
-  } else if (filtros.limit_usuario_id) {
-    query = query.eq('usuario_id', filtros.limit_usuario_id)
+    query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
   }
 
   // ── Ordenamiento y paginación ───────────────────────────
@@ -444,9 +444,10 @@ export async function fetchStockByBodega(
   filtros?: FiltrosStock
 ): Promise<{ items: StockListItem[]; total: number; totalCajas: number }> {
   const supabase = await createClient()
+  const limit = filtros?.limit ?? PAGE_SIZE
   const page = filtros?.page ?? 1
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  const from = (page - 1) * limit
+  const to = from + limit - 1
 
   let query = supabase
     .from('inventario_stock')
@@ -662,9 +663,10 @@ export async function fetchStockMatrix(
   bodegasDisponibles: BodegaRow[]
 ): Promise<{ items: StockMatrixItem[]; total: number }> {
   const supabase = await createClient()
+  const limit = filtros.limit ?? PAGE_SIZE
   const page = filtros.page ?? 1
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  const from = (page - 1) * limit
+  const to = from + limit - 1
 
   let bodegasAGestionar = bodegasDisponibles
   if (filtros.ciudades && filtros.ciudades.length > 0) {
@@ -738,6 +740,38 @@ export async function fetchStockMatrix(
   })
 
   return { items: items as StockMatrixItem[], total: count ?? 0 }
+}
+
+/**
+ * Consulta los totales reales consolidados de cajas para cada bodega en la base de datos completa (sin paginación).
+ */
+export async function fetchTotalesCajasPorBodegas(
+  bodegasIds: number[]
+): Promise<Record<number, number>> {
+  if (bodegasIds.length === 0) return {}
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('inventario_stock')
+    .select('bodega_id, cajas')
+    .in('bodega_id', bodegasIds)
+    .is('caja_id', null)
+
+  if (error || !data) {
+    console.error('Error fetchTotalesCajasPorBodegas:', error)
+    return {}
+  }
+
+  const totals: Record<number, number> = {}
+  bodegasIds.forEach((id) => (totals[id] = 0))
+
+  data.forEach((row: any) => {
+    const bId = row.bodega_id
+    if (bId !== null && bId !== undefined) {
+      totals[bId] = (totals[bId] || 0) + (Number(row.cajas) || 0)
+    }
+  })
+
+  return totals
 }
 
 export async function fetchStockMatrixAll(
@@ -827,6 +861,7 @@ export async function fetchCatalogosInventario(): Promise<CatalogosInventario> {
   cacheTag('inventario-catalogos')
 
   const supabase = createStaticClient()
+  const config = await fetchConfigInventario()
 
   const [tiposRes, estadosRes, bodegasRes] = await Promise.all([
     supabase
@@ -840,14 +875,15 @@ export async function fetchCatalogosInventario(): Promise<CatalogosInventario> {
     supabase
       .from('bodegas')
       .select('*')
-      .eq('activa', true)
-      .order('nombre'),
+      .eq('activa', true),
   ])
+
+  const bodegasSorted = sortBodegasWithConfig((bodegasRes.data ?? []) as BodegaRow[], config)
 
   return {
     tiposMovimiento: (tiposRes.data ?? []) as TipoMovimientoRow[],
     estadosNota: (estadosRes.data ?? []) as EstadoNotaRow[],
-    bodegas: (bodegasRes.data ?? []) as BodegaRow[],
+    bodegas: bodegasSorted,
   }
 }
 

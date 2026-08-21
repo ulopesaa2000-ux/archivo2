@@ -324,7 +324,7 @@ export async function registerAction(
 
   const supabase = await createClient()
 
-  // 1. Intentar el registro en Supabase Auth
+  // 1. Intentar el registro en Supabase Auth con rol 'Cliente Ecomerce'
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
@@ -332,7 +332,7 @@ export async function registerAction(
       data: {
         nombre_completo: cleanNombre,
         telefono: cleanTelefono,
-        rol: 'Cliente B2B Lectura'
+        rol: 'Cliente Ecomerce',
       }
     }
   })
@@ -354,18 +354,34 @@ export async function registerAction(
     return { success: false, error: 'No se pudo crear la cuenta de usuario.' }
   }
 
-  // Esperar un momento corto para que el trigger handle_new_user_tenant cree el usuario
-  // y luego buscarlo en la tabla usuarios para vincular la persona.
+  // Buscar el rol Cliente Ecomerce (id 19 o por nombre)
+  const { data: rolCliente } = await supabase
+    .from('roles')
+    .select('id')
+    .ilike('nombre', 'Cliente Ecomerce%')
+    .limit(1)
+    .maybeSingle()
+
+  const clienteRolId = rolCliente?.id || 19
+
+  // Esperar o asegurar registro en inv-tienda.usuarios
   let usuario = null
   for (let i = 0; i < 5; i++) {
     const { data: usuarioData } = await supabase
       .from('usuarios')
-      .select('id')
+      .select('id, rol_id')
       .eq('auth_user_id', authData.user.id)
       .maybeSingle()
 
     if (usuarioData) {
       usuario = usuarioData
+      // Si el trigger le asignó otro rol por fallback, forzar rol de Cliente Ecomerce
+      if (usuarioData.rol_id !== clienteRolId) {
+        await supabase
+          .from('usuarios')
+          .update({ rol_id: clienteRolId, activo: true })
+          .eq('id', usuarioData.id)
+      }
       break
     }
     // Pequeño delay de 200ms
@@ -373,31 +389,49 @@ export async function registerAction(
   }
 
   if (!usuario) {
-    console.error('[Register] No se encontró el registro de usuario en inv-tienda.usuarios después de 1 segundo')
-    return {
-      success: true, // Se creó en Auth
-      error: 'Tu cuenta ha sido creada en el sistema con éxito, pero por favor inicia sesión de forma manual.',
+    // Si el trigger de BD tardó o no corrió, crearlo directamente vía service role / client
+    const { data: nuevoUsuario } = await supabase
+      .from('usuarios')
+      .insert({
+        auth_user_id: authData.user.id,
+        username: cleanEmail.split('@')[0],
+        nombre_completo: cleanNombre,
+        email: cleanEmail,
+        telefono: cleanTelefono,
+        rol_id: clienteRolId,
+        tenant: 'inv-tienda',
+        activo: true,
+      })
+      .select('id')
+      .maybeSingle()
+
+    usuario = nuevoUsuario
+  }
+
+  // 2. Crear o actualizar el registro en la tabla personas
+  if (usuario?.id) {
+    try {
+      await supabase
+        .from('personas')
+        .upsert({
+          tipo_entidad: 'Cliente Retail',
+          nombre_completo: cleanNombre,
+          email_contacto: cleanEmail,
+          telefono_contacto: cleanTelefono,
+          usuario_id: usuario.id,
+          activo: true,
+        }, { onConflict: 'usuario_id' })
+    } catch (err) {
+      console.error('[Register] Error al registrar persona:', err)
     }
-  }
 
-  // 2. Crear el registro en la tabla personas
-  const { error: personaError } = await supabase
-    .from('personas')
-    .insert({
-      tipo_entidad: 'Cliente Retail',
-      nombre_completo: cleanNombre,
-      email_contacto: cleanEmail,
-      telefono_contacto: cleanTelefono,
-      usuario_id: usuario.id,
-      activo: true
+    // Sincronizar claims para que tenga permisos en JWT de inmediato
+    await syncUserClaims(authData.user.id).catch((err: unknown) => {
+      console.error('[Register] Error al sincronizar claims:', err)
     })
-
-  if (personaError) {
-    console.error('[Register] Error al insertar en la tabla personas:', personaError.message)
-    // No bloqueamos porque el usuario ya está creado en Auth y en usuarios.
   }
 
-  // 3. Autologuear iniciando sesión para que no tenga que escribir sus credenciales
+  // 3. Iniciar sesión automáticamente
   const loginResult = await signIn(cleanEmail, password)
   if (!loginResult.success) {
     return {
@@ -406,8 +440,9 @@ export async function registerAction(
     }
   }
 
-  // Redirigir a donde corresponda
-  redirect(redirectTo)
+  // Clientes nuevos redirigen por defecto a la tienda "/" si el redirect era a /dashboard
+  const targetRedirect = (!redirectTo || redirectTo === '/dashboard') ? '/' : redirectTo
+  redirect(targetRedirect)
 }
 
 export type ProfileUpdateResult = {
