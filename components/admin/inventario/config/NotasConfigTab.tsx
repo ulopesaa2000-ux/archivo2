@@ -210,12 +210,12 @@ export function NotasConfigTab({
               />
             </div>
 
-            {/* Switch: Editar bodega origen */}
+            {/* Switch: Editar bodegas (origen y destino) */}
             <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
               <div className="space-y-0.5">
-                <Label className="font-medium text-sm">Permitir editar bodega origen</Label>
+                <Label className="font-medium text-sm">Permitir editar bodegas (origen y destino)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Permite a encargados autorizados cambiar el origen de una nota en borrador.
+                  Permite a encargados autorizados cambiar la bodega de origen y la bodega de destino de una nota en borrador.
                 </p>
               </div>
               <Switch

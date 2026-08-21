@@ -289,8 +289,19 @@ export function NoteDraftBuilder({
     return true
   })
 
-  // ── Permiso para editar tipo de movimiento en borrador ───
+  // ── Permiso para editar tipo de movimiento y bodegas en borrador ───
   const puedeEditarTipo = mode === 'create' || (config?.permitir_editar_tipo_movimiento !== false && !todoBloqueado && !soloEditaDestino)
+
+  const puedeEditarBodegaOrigen = mode === 'create' || (
+    config?.permitir_editar_bodega_origen !== false &&
+    !isChangingBodega &&
+    (esAdmin || esCreador)
+  )
+
+  const puedeEditarBodegaDestino = mode === 'create' || (
+    config?.permitir_editar_bodega_origen !== false &&
+    (esAdmin || esCreador || esEncargado)
+  )
 
   // ── Handlers para Tipo de Movimiento ──────────────────────
   const handleRequestTipoMovimientoChange = (newTipoId: number) => {
@@ -1248,7 +1259,7 @@ export function NoteDraftBuilder({
                 <Select
                   value={draft.bodega_origen_id?.toString() ?? ''}
                   onValueChange={(v) => v && handleRequestBodegaOrigenChange(parseInt(v))}
-                  disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
+                  disabled={!puedeEditarBodegaOrigen}
                 >
                   <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue placeholder="Seleccionar origen...">
@@ -1279,7 +1290,7 @@ export function NoteDraftBuilder({
                     onValueChange={(v) =>
                       v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
                     }
-                    disabled={todoBloqueado || (mode === 'edit' && (!esTransferencia || (!esAdmin && !esEncargado)))}
+                    disabled={!puedeEditarBodegaDestino}
                   >
                     <SelectTrigger className="h-11 rounded-xl">
                       <SelectValue placeholder="Seleccionar destino...">
