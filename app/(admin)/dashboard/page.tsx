@@ -58,8 +58,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const vistaValida: DashboardView[] = ['comercial', 'inventario', 'catalogo', 'ecommerce', 'general']
   const periodoValido: DashboardPeriod[] = ['semana', 'mes', 'todo']
 
-  // Si es B2B arranca siempre en 'comercial', si no lee el query param o por defecto 'comercial'
-  const defaultVista: DashboardView = isB2B ? 'comercial' : 'comercial'
+  // Por defecto arranca en 'inventario' (Inventario & Bodegas) para todos los usuarios
+  const defaultVista: DashboardView = 'inventario'
   const vista: DashboardView = (params.vista && vistaValida.includes(params.vista as DashboardView))
     ? (params.vista as DashboardView)
     : defaultVista

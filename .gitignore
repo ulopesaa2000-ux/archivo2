@@ -64,4 +64,5 @@ tests/e2e/.auth/
 # Scratch folder
 /scratch/
 
-
+# Backups y volcados temporales
+plans/backups/

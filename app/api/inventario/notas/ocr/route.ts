@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     const tipoHint = String(incomingForm.get('tipo_hint') || '')
     const origenHint = String(incomingForm.get('origen_hint') || incomingForm.get('origen') || '')
     const destinoHint = String(incomingForm.get('destino_hint') || incomingForm.get('destino') || '')
+    const priorizarIa = incomingForm.get('priorizar_ia')
 
     // 3. Optimizar imagen con Sharp preservando máxima nitidez para OCR
     const rawBuffer = Buffer.from(await foto.arrayBuffer())
@@ -68,6 +69,10 @@ export async function POST(request: NextRequest) {
     const optimizedBlob = new Blob([new Uint8Array(optimizedBuffer)], { type: 'image/jpeg' })
     n8nForm.append('foto', optimizedBlob, 'foto_nota.jpg')
     n8nForm.append('client_request_id', clientRequestId)
+    n8nForm.append('usuario_id', String(user.id))
+    if (priorizarIa !== null && priorizarIa !== undefined) {
+      n8nForm.append('priorizar_ia', String(priorizarIa))
+    }
     if (tipoHint) {
       n8nForm.append('tipo_hint', tipoHint)
     }

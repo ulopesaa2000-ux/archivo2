@@ -23,6 +23,7 @@ import type {
   StockMatrixItem,
   NotaOcrPropuesta,
   FiltrosOcrPropuestas,
+  ProductoSustitutoFamilia,
 } from './types'
 import type {
   BodegaRow,
@@ -998,6 +999,118 @@ export async function fetchProductoStockEnBodega(
   return {
     cajas: Number(data.cajas) || 0,
     piezas_sueltas: Number(data.piezas_sueltas) || 0,
+  }
+}
+
+export async function fetchProductosSustitutosFamilia(
+  productoId: number,
+  bodegaId: number
+): Promise<{
+  productoActual: { id: number; sku_base: string; nombre: string | null; familia: string | null; pz_en_caja: number | null } | null
+  sustitutos: ProductoSustitutoFamilia[]
+}> {
+  const supabase = await createClient()
+
+  // 1. Obtener producto actual
+  const { data: prodActual } = await supabase
+    .from('productos')
+    .select('id, sku_base, nombre, descripcion, familia, pz_en_caja, marca_id')
+    .eq('id', productoId)
+    .maybeSingle()
+
+  if (!prodActual) {
+    return { productoActual: null, sustitutos: [] }
+  }
+
+  const familia = prodActual.familia?.trim() || null
+
+  // 2. Si tiene familia, buscar productos de la misma familia que tengan stock > 0 en la bodega
+  let sustitutos: ProductoSustitutoFamilia[] = []
+
+  if (familia) {
+    const { data: prodsFamilia } = await supabase
+      .from('inventario_stock')
+      .select(`
+        cajas, piezas_sueltas,
+        producto:productos!inner (
+          id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
+          marca:cat_marcas!productos_marca_id_fkey ( nombre )
+        )
+      `)
+      .eq('bodega_id', bodegaId)
+      .is('caja_id', null)
+      .eq('producto.familia', familia)
+      .eq('producto.activo', true)
+      .neq('producto.id', productoId)
+      .or('cajas.gt.0,piezas_sueltas.gt.0')
+
+    if (prodsFamilia && prodsFamilia.length > 0) {
+      sustitutos = prodsFamilia.map((item: any) => ({
+        id: item.producto.id,
+        sku_base: item.producto.sku_base,
+        nombre: item.producto.nombre,
+        descripcion: item.producto.descripcion,
+        familia: item.producto.familia,
+        pz_en_caja: item.producto.pz_en_caja,
+        cajas_disponibles: Number(item.cajas) || 0,
+        piezas_disponibles: Number(item.piezas_sueltas) || 0,
+        marca_nombre: item.producto.marca?.nombre ?? null,
+        es_misma_familia: true,
+      }))
+    }
+  }
+
+  // Si no se encontraron por familia o no tiene familia, buscar por misma marca o productos relacionados con stock
+  if (sustitutos.length === 0) {
+    let queryFallback = supabase
+      .from('inventario_stock')
+      .select(`
+        cajas, piezas_sueltas,
+        producto:productos!inner (
+          id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
+          marca:cat_marcas!productos_marca_id_fkey ( nombre )
+        )
+      `)
+      .eq('bodega_id', bodegaId)
+      .is('caja_id', null)
+      .eq('producto.activo', true)
+      .neq('producto.id', productoId)
+      .or('cajas.gt.0,piezas_sueltas.gt.0')
+
+    if (prodActual.marca_id) {
+      queryFallback = queryFallback.eq('producto.marca_id', prodActual.marca_id)
+    }
+
+    const { data: prodsFallback } = await queryFallback.limit(10)
+
+    if (prodsFallback && prodsFallback.length > 0) {
+      sustitutos = prodsFallback.map((item: any) => ({
+        id: item.producto.id,
+        sku_base: item.producto.sku_base,
+        nombre: item.producto.nombre,
+        descripcion: item.producto.descripcion,
+        familia: item.producto.familia,
+        pz_en_caja: item.producto.pz_en_caja,
+        cajas_disponibles: Number(item.cajas) || 0,
+        piezas_disponibles: Number(item.piezas_sueltas) || 0,
+        marca_nombre: item.producto.marca?.nombre ?? null,
+        es_misma_familia: false,
+      }))
+    }
+  }
+
+  // Ordenar por cajas_disponibles descendente
+  sustitutos.sort((a, b) => b.cajas_disponibles - a.cajas_disponibles)
+
+  return {
+    productoActual: {
+      id: prodActual.id,
+      sku_base: prodActual.sku_base,
+      nombre: prodActual.nombre ?? prodActual.descripcion,
+      familia: prodActual.familia,
+      pz_en_caja: prodActual.pz_en_caja,
+    },
+    sustitutos,
   }
 }
 
