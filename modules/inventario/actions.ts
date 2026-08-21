@@ -376,6 +376,9 @@ export async function actualizarNotaAction(
     costo_total: draft.costo_total || 0,
     bodega_destino_id: draft.bodega_destino_id || null,
   }
+  if (draft.tipo_movimiento_id) {
+    updateCabPayload.tipo_movimiento_id = draft.tipo_movimiento_id
+  }
   if (draft.bodega_origen_id) {
     updateCabPayload.bodega_origen_id = draft.bodega_origen_id
   }

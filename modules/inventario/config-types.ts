@@ -22,6 +22,7 @@ export interface ConfigInventario {
   requiere_aprobacion_entrada: boolean
   requiere_aprobacion_salida: boolean
   permitir_editar_bodega_origen: boolean
+  permitir_editar_tipo_movimiento: boolean
   mostrar_piezas_en_notas: boolean
   dias_limite_notas_pendientes_alerta: number
   auto_seleccionar_bodega_activa: boolean
@@ -90,6 +91,7 @@ export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
   requiere_aprobacion_entrada: false,
   requiere_aprobacion_salida: true,
   permitir_editar_bodega_origen: true,
+  permitir_editar_tipo_movimiento: true,
   mostrar_piezas_en_notas: true,
   dias_limite_notas_pendientes_alerta: 7,
   auto_seleccionar_bodega_activa: true,

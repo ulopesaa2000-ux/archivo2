@@ -95,6 +95,10 @@ export function NoteDraftBuilder({
   const [showChangeBodegaDialog, setShowChangeBodegaDialog] = useState<boolean>(false)
   const [isChangingBodega, setIsChangingBodega] = useState<boolean>(false)
 
+  // ── Cambio de Tipo de Movimiento con confirmación ───────────
+  const [pendingTipoMovimientoId, setPendingTipoMovimientoId] = useState<number | null>(null)
+  const [showChangeTipoDialog, setShowChangeTipoDialog] = useState<boolean>(false)
+
   const handleApplyOcrLinesToDraft = (newProducts: DraftProducto[], updatedRawLineas: NotaOcrPropuestaLineRaw[]) => {
     setOcrRawLineas(updatedRawLineas)
     if (newProducts.length > 0) {
@@ -284,6 +288,35 @@ export function NoteDraftBuilder({
 
     return true
   })
+
+  // ── Permiso para editar tipo de movimiento en borrador ───
+  const puedeEditarTipo = mode === 'create' || (config?.permitir_editar_tipo_movimiento !== false && !todoBloqueado && !soloEditaDestino)
+
+  // ── Handlers para Tipo de Movimiento ──────────────────────
+  const handleRequestTipoMovimientoChange = (newTipoId: number) => {
+    if (newTipoId === draft.tipo_movimiento_id) return
+
+    if (draft.productos.length > 0 || mode === 'edit') {
+      setPendingTipoMovimientoId(newTipoId)
+      setShowChangeTipoDialog(true)
+    } else {
+      applyTipoMovimientoChange(newTipoId)
+    }
+  }
+
+  const applyTipoMovimientoChange = (newTipoId: number) => {
+    setShowChangeTipoDialog(false)
+    const targetTipo = catalogos.tiposMovimiento.find((t) => t.id === newTipoId)
+
+    setDraft((prev) => ({
+      ...prev,
+      tipo_movimiento_id: newTipoId,
+      bodega_destino_id: targetTipo?.requiere_destino ? prev.bodega_destino_id : null,
+    }))
+
+    toast.success(`Tipo de movimiento actualizado a "${targetTipo?.nombre || 'nuevo tipo'}".`)
+    setPendingTipoMovimientoId(null)
+  }
 
   // ── Handlers e Inferencias para Bodega Origen y OCR ────────
   const handleRequestBodegaOrigenChange = (newBodegaId: number) => {
@@ -1048,17 +1081,11 @@ export function NoteDraftBuilder({
                     <button
                       key={t.id}
                       type="button"
-                      disabled={mode === 'edit' || todoBloqueado || soloEditaDestino}
-                      onClick={() => {
-                        setDraft((prev) => ({
-                          ...prev,
-                          tipo_movimiento_id: t.id,
-                          bodega_destino_id: null,
-                        }))
-                      }}
+                      disabled={!puedeEditarTipo}
+                      onClick={() => handleRequestTipoMovimientoChange(t.id)}
                       className={cn(
                         "flex flex-col items-center justify-center p-3.5 sm:p-4 rounded-2xl border transition-all text-center gap-1.5 group min-h-[64px] sm:min-h-[72px]",
-                        (mode === 'edit' || todoBloqueado || soloEditaDestino) && "opacity-50 cursor-not-allowed",
+                        !puedeEditarTipo && "opacity-50 cursor-not-allowed",
                         isSelected 
                           ? cn("border-transparent font-bold shadow-lg shadow-black/10 scale-102 ring-2 ring-primary/20", colorMap.split(' ')[0], colorMap.split(' ')[1])
                           : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
@@ -2186,6 +2213,43 @@ export function NoteDraftBuilder({
             <AlertDialogAction
               onClick={() => pendingBodegaOrigenId && applyBodegaOrigenChange(pendingBodegaOrigenId)}
               className="rounded-xl bg-primary font-bold uppercase text-xs tracking-wider shadow-md"
+            >
+              Confirmar Cambio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Diálogo de Confirmación al Cambiar Tipo de Movimiento ── */}
+      <AlertDialog open={showChangeTipoDialog} onOpenChange={setShowChangeTipoDialog}>
+        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <AlertCircle className="h-5 w-5 text-sky-500 shrink-0" />
+              ¿Cambiar Tipo de Movimiento?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
+              <span>
+                Estás a punto de cambiar el tipo de movimiento de esta nota a{' '}
+                <strong className="text-foreground">
+                  {catalogos.tiposMovimiento.find((t) => t.id === pendingTipoMovimientoId)?.nombre || 'el nuevo tipo'}
+                </strong>.
+              </span>
+              <span className="block text-xs font-medium text-sky-900 dark:text-sky-200 bg-sky-500/10 border border-sky-500/20 p-3 rounded-xl">
+                ℹ️ El tipo de movimiento define cómo afectará al inventario (Entrada, Salida, Traspaso o Ajuste). La lista de productos y cantidades se mantendrá intacta.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel
+              onClick={() => setPendingTipoMovimientoId(null)}
+              className="rounded-xl font-bold uppercase text-xs tracking-wider"
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => pendingTipoMovimientoId && applyTipoMovimientoChange(pendingTipoMovimientoId)}
+              className="rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold uppercase text-xs tracking-wider shadow-md"
             >
               Confirmar Cambio
             </AlertDialogAction>
