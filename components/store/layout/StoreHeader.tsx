@@ -12,6 +12,7 @@ import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { signOut } from '@/modules/auth/actions'
 import { CartDrawer, OPEN_CART_EVENT } from '@/components/store/cotizacion/CartDrawer'
+import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import type { UsuarioConRol } from '@/lib/types/tables'
 import {
   DropdownMenu,
@@ -27,11 +28,20 @@ import { StoreThemeToggle } from './StoreThemeToggle'
 
 export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
   const { count } = useQuoteCart()
+  const { config } = useConfigEcommerce()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDamaOpen, setIsDamaOpen] = useState(true)
   const [isCaballeroOpen, setIsCaballeroOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
+
+  const handleCartClick = () => {
+    if (config?.modo_vista_carrito === 'pagina') {
+      router.push('/cotizacion')
+    } else {
+      window.dispatchEvent(new Event(OPEN_CART_EVENT))
+    }
+  }
 
   const damaSubcategories = [
     { name: 'Todas las prendas de Dama', href: '/shop?genero=dama' },
@@ -65,7 +75,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
       <header className="h-[60px] md:h-[64px] bg-store-surface border-b border-store-border sticky top-0 z-50 px-3 md:px-8 flex items-center justify-between backdrop-blur-md bg-opacity-95">
         {/* Logo */}
         <Link 
-          href="/" 
+          href="/inicio" 
           className="flex items-center gap-2.5 font-serif text-lg md:text-2xl text-store-ink hover:text-store-accent transition-colors duration-300 font-bold tracking-tight truncate max-w-[240px] xs:max-w-none"
         >
           <div className="w-8 h-8 md:w-9 md:h-9 shrink-0 rounded-lg overflow-hidden bg-white p-0.5 shadow-xs border border-store-border">
@@ -144,7 +154,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
           {/* 1. Carrito Móvil Directo */}
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new Event(OPEN_CART_EVENT))}
+            onClick={handleCartClick}
             className="relative p-2 rounded-xl text-zinc-900 dark:text-white hover:bg-store-bg active:scale-95 transition-all"
             aria-label="Ver carrito de cotización"
             title="Ver cotización"
@@ -311,7 +321,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
 
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new Event(OPEN_CART_EVENT))}
+            onClick={handleCartClick}
             className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
             title="Ver carrito / Cotización"
           >

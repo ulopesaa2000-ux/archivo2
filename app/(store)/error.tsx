@@ -53,7 +53,7 @@ export default function StoreErrorPage({
           </button>
           
           <Link
-            href="/"
+            href="/inicio"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground dark:text-gray-200 font-semibold text-sm px-6 py-2.5 rounded-xl transition-all border border-border"
           >
             <Home className="w-4 h-4" />

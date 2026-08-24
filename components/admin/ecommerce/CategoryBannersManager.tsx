@@ -16,7 +16,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Image as ImageIcon, Trash2, Eye, ExternalLink, Loader2, Sparkles, Tag, Package } from 'lucide-react'
+import { Plus, Image as ImageIcon, Trash2, Edit3, Loader2, Sparkles, Tag, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CategoriaBannerResuelto } from '@/modules/ecommerce/banners'
 import {
@@ -38,10 +38,19 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
   const [isPending, startTransition] = useTransition()
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Estado para el modal de edición
+  const [editingBanner, setEditingBanner] = useState<CategoriaBannerResuelto | null>(null)
+  const [editPreviewUrl, setEditPreviewUrl] = useState<string | null>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0]
     if (file) {
-      setPreviewUrl(URL.createObjectURL(file))
+      const url = URL.createObjectURL(file)
+      if (isEdit) {
+        setEditPreviewUrl(url)
+      } else {
+        setPreviewUrl(url)
+      }
     }
   }
 
@@ -58,6 +67,26 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
         router.refresh()
       } else {
         toast.error(res.error || 'Error al crear el banner.')
+      }
+    })
+  }
+
+  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!editingBanner) return
+
+    const formData = new FormData(e.currentTarget)
+    formData.set('id', String(editingBanner.id))
+
+    startTransition(async () => {
+      const res = await updateBannerCategoriaAction(formData)
+      if (res.success) {
+        toast.success('Banner promocional actualizado exitosamente.')
+        setEditingBanner(null)
+        setEditPreviewUrl(null)
+        router.refresh()
+      } else {
+        toast.error(res.error || 'Error al actualizar el banner.')
       }
     })
   }
@@ -92,6 +121,11 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
     })
   }
 
+  const openEditModal = (b: CategoriaBannerResuelto) => {
+    setEditingBanner(b)
+    setEditPreviewUrl(b.imagen_url)
+  }
+
   return (
     <Card className="border-store-border shadow-xs">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -101,7 +135,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
             Banners Promocionales de Categorías
           </CardTitle>
           <CardDescription>
-            Banners panorámicos (16:9) que promocionan prendas o colecciones en la cabecera de las categorías (ej. <em>Chamarra Dama</em>).
+            Banners panorámicos (16:9) que se muestran en la cabecera del catálogo al filtrar por categoría (ej. <em>Dama</em>, <em>Caballero</em>, <em>Chamarras</em>).
           </CardDescription>
         </div>
 
@@ -129,7 +163,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                 <Input
                   id="nombre"
                   name="nombre"
-                  placeholder="Ej: Promo Chamarra Polar Bicolor Dama"
+                  placeholder="Ej: Colección Dama Primavera"
                   required
                 />
               </div>
@@ -198,7 +232,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                   <Input
                     id="titulo_banner"
                     name="titulo_banner"
-                    placeholder="Ej: CHAMARRA POLAR BICOLOR PARA DAMA"
+                    placeholder="Ej: COLECCIÓN DAMA 2026"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -206,7 +240,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                   <Input
                     id="subtitulo_banner"
                     name="subtitulo_banner"
-                    placeholder="Ej: CH-M-G-EG • 32 PZAS"
+                    placeholder="Ej: CH-M-G-EG • 72 PZAS"
                   />
                 </div>
               </div>
@@ -221,7 +255,8 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                   name="file"
                   type="file"
                   accept="image/*"
-                  onChange={handleFileChange}
+                  onChange={(e) => handleFileChange(e, false)}
+                  required
                 />
 
                 {previewUrl && (
@@ -255,7 +290,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
           <div className="text-center py-10 border border-dashed rounded-lg text-sm text-muted-foreground space-y-2">
             <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground/50" />
             <p className="font-medium">No hay banners promocionales registrados.</p>
-            <p className="text-xs">Crea tu primer banner panorámico para destacar productos sobre las categorías.</p>
+            <p className="text-xs">Crea tu primer banner panorámico para destacar prendas o colecciones sobre las categorías.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -277,12 +312,12 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                       {b.activo ? 'Activo' : 'Inactivo'}
                     </Badge>
                     {b.genero_nombre && (
-                      <Badge variant="outline" className="bg-white/80 backdrop-blur-xs text-xs">
+                      <Badge variant="outline" className="bg-white/80 dark:bg-black/80 backdrop-blur-xs text-xs font-semibold">
                         {b.genero_nombre}
                       </Badge>
                     )}
                     {b.tipo_prenda_nombre && (
-                      <Badge variant="outline" className="bg-white/80 backdrop-blur-xs text-xs">
+                      <Badge variant="outline" className="bg-white/80 dark:bg-black/80 backdrop-blur-xs text-xs font-semibold">
                         {b.tipo_prenda_nombre}
                       </Badge>
                     )}
@@ -295,16 +330,19 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                   {b.titulo_banner && (
                     <p className="text-muted-foreground font-mono truncate">{b.titulo_banner}</p>
                   )}
+                  {b.subtitulo_banner && (
+                    <p className="text-muted-foreground text-[11px] truncate">{b.subtitulo_banner}</p>
+                  )}
 
                   {b.producto_nombre && (
-                    <div className="flex items-center gap-1 text-[#2D5A3D] font-medium bg-[#2D5A3D]/10 p-1.5 rounded-md">
+                    <div className="flex items-center gap-1 text-[#2D5A3D] dark:text-emerald-400 font-medium bg-[#2D5A3D]/10 p-1.5 rounded-md">
                       <Tag className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">Producto: [{b.producto_sku}] {b.producto_nombre}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Acciones */}
+                {/* Acciones: Editar, Activo, Eliminar */}
                 <div className="flex items-center justify-between border-t pt-2 mt-auto text-xs">
                   <div className="flex items-center gap-2">
                     <Label className="text-[11px] text-muted-foreground">Estado:</Label>
@@ -315,22 +353,175 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                     />
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => handleDelete(b.id)}
-                    disabled={isPending}
-                  >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    Eliminar
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1 text-xs"
+                      onClick={() => openEditModal(b)}
+                      disabled={isPending}
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                      Editar
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => handleDelete(b.id)}
+                      disabled={isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline ml-1">Eliminar</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </CardContent>
+
+      {/* Modal de Edición de Banner */}
+      <Dialog open={Boolean(editingBanner)} onOpenChange={(open) => !open && setEditingBanner(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit3 className="h-5 w-5 text-store-accent" />
+              Editar Banner Promocional ({editingBanner?.nombre})
+            </DialogTitle>
+          </DialogHeader>
+
+          {editingBanner && (
+            <form onSubmit={handleEditSubmit} className="space-y-4 pt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit_nombre" className="text-xs font-semibold">Nombre de Identificación *</Label>
+                <Input
+                  id="edit_nombre"
+                  name="nombre"
+                  defaultValue={editingBanner.nombre}
+                  required
+                />
+              </div>
+
+              {/* Categoría: Género + Tipo de Prenda */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit_genero_id" className="text-xs font-semibold">Género de Categoría</Label>
+                  <Select name="genero_id" defaultValue={editingBanner.genero_id ? String(editingBanner.genero_id) : ''}>
+                    <SelectTrigger id="edit_genero_id">
+                      <SelectValue placeholder="— Todos los géneros —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— Todos los géneros —</SelectItem>
+                      {generos.map((g) => (
+                        <SelectItem key={g.id} value={String(g.id)}>{g.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit_tipo_prenda_id" className="text-xs font-semibold">Tipo de Prenda</Label>
+                  <Select name="tipo_prenda_id" defaultValue={editingBanner.tipo_prenda_id ? String(editingBanner.tipo_prenda_id) : ''}>
+                    <SelectTrigger id="edit_tipo_prenda_id">
+                      <SelectValue placeholder="— Todos los tipos —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— Todos los tipos —</SelectItem>
+                      {tiposPrenda.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Producto Asociado para Detalle */}
+              <div className="space-y-1.5">
+                <Label htmlFor="edit_producto_id" className="text-xs font-semibold flex items-center gap-1.5">
+                  <Package className="h-3.5 w-3.5 text-store-accent" />
+                  Producto Promocionado / Asociado (Opcional)
+                </Label>
+                <Select name="producto_id" defaultValue={editingBanner.producto_id ? String(editingBanner.producto_id) : ''}>
+                  <SelectTrigger id="edit_producto_id">
+                    <SelectValue placeholder="— Seleccionar producto para ver en detalle —" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    <SelectItem value="">— Ninguno (Solo informativo) —</SelectItem>
+                    {productos.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        [{p.sku_base}] {p.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Al hacer clic en el banner en el catálogo, se enlazará a este producto.
+                </p>
+              </div>
+
+              {/* Título y Subtítulo sobre el Banner */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit_titulo_banner" className="text-xs font-semibold">Título del Banner (Opcional)</Label>
+                  <Input
+                    id="edit_titulo_banner"
+                    name="titulo_banner"
+                    defaultValue={editingBanner.titulo_banner || ''}
+                    placeholder="Ej: COLECCIÓN DAMA 2026"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit_subtitulo_banner" className="text-xs font-semibold">Subtítulo / Especificaciones</Label>
+                  <Input
+                    id="edit_subtitulo_banner"
+                    name="subtitulo_banner"
+                    defaultValue={editingBanner.subtitulo_banner || ''}
+                    placeholder="Ej: CH-M-G-EG • 72 PZAS"
+                  />
+                </div>
+              </div>
+
+              {/* Imagen actual y opción de reemplazo */}
+              <div className="space-y-2 border-t pt-3">
+                <Label htmlFor="edit_file" className="text-xs font-bold text-store-ink">
+                  Imagen del Banner Panorámico (Dejar vacío para conservar la actual)
+                </Label>
+                <Input
+                  id="edit_file"
+                  name="file"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleFileChange(e, true)}
+                />
+
+                {editPreviewUrl && (
+                  <div className="relative aspect-[16/9] w-full rounded-lg overflow-hidden border border-store-border shadow-xs mt-2 bg-black/5">
+                    <Image
+                      src={editPreviewUrl}
+                      alt="Vista previa del banner"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditingBanner(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" size="sm" disabled={isPending} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
+                  {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Guardar Cambios
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

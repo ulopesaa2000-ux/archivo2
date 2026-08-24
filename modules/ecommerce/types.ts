@@ -27,7 +27,7 @@ export interface ConfigEcommerce extends ConfigEcommerceRow {
   tipo_precio_visible: TipoPrecioVisible
   tipo_venta: TipoVenta
   tipo_orden_generada: TipoOrdenGenerada
-  modo_vista_carrito?: ModoVistaCarrito
+  modo_vista_carrito: ModoVistaCarrito | string | null
 }
 
 // ═══════════════════════════════════════════════════════════════

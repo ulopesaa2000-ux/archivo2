@@ -97,10 +97,10 @@ export async function fetchProductosWebAdmin(
     )
     .eq('activo', true)
 
-  // Filtro de texto (SKU o nombre)
+  // Filtro de texto (SKU, nombre o descripción)
   if (filtros.q) {
     const term = `%${filtros.q}%`
-    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term}`)
+    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term}`)
   }
   if (filtros.marca_id) {
     query = query.eq('marca_id', filtros.marca_id)

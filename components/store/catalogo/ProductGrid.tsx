@@ -83,7 +83,9 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
     })
 
     setAdded(true)
-    window.dispatchEvent(new Event('inv_open_cart_drawer'))
+    if (config?.modo_vista_carrito !== 'pagina') {
+      window.dispatchEvent(new Event('inv_open_cart_drawer'))
+    }
     setTimeout(() => {
       setAdded(false)
     }, 2000)
@@ -118,27 +120,41 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
       </div>
 
       <div className="px-1">
-        <div className="text-[11px] text-muted-foreground dark:text-gray-400 tracking-[0.05em] uppercase mb-1.5 truncate">
-          {producto.marca || 'Marca'}
-        </div>
-        <div className="text-[14px] text-foreground dark:text-gray-100 font-medium mb-2 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
-          {producto.nombre}
-        </div>
-        
-        <div className="flex items-center justify-between min-h-[24px]">
+        {/* Fila superior: Marca a la izquierda, Precio o 'Consultar precio' a la derecha */}
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <span className="text-[11px] text-muted-foreground dark:text-gray-400 tracking-[0.05em] uppercase truncate font-medium">
+            {producto.marca || 'Marca'}
+          </span>
+
           {showPrice && precio ? (
-            <div className="text-[15px] text-foreground dark:text-gray-100 font-semibold">
+            <div className="text-[13px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
               {formatearPrecio(precio, config!)}
               {precioAnterior && (
-                <span className="text-[12px] text-muted-foreground line-through ml-2 font-normal">
+                <span className="text-[11px] text-muted-foreground line-through ml-1.5 font-normal">
                   {formatearPrecio(precioAnterior, config!)}
                 </span>
               )}
             </div>
           ) : (
-            <div className="text-[13px] text-muted-foreground dark:text-gray-400 italic">
+            <span className="text-[11px] text-muted-foreground dark:text-gray-400 italic shrink-0">
               Consultar precio
+            </span>
+          )}
+        </div>
+
+        {/* Fila central: Nombre / Descripción principal (h1 estilo de tarjeta) */}
+        <div className="text-[14px] text-foreground dark:text-gray-100 font-semibold mb-2 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+          {producto.nombre}
+        </div>
+        
+        {/* Fila inferior: SKU (h2 estilo subtítulo) a la izquierda, Botón de acción a la derecha */}
+        <div className="flex items-center justify-between min-h-[26px]">
+          {config?.mostrar_sku && producto.sku_base ? (
+            <div className="text-[13px] font-mono font-medium text-muted-foreground dark:text-gray-300 truncate">
+              {producto.sku_base}
             </div>
+          ) : (
+            <div />
           )}
 
           <button

@@ -225,7 +225,7 @@ export function DashboardEcommerceView({ data, periodo }: DashboardEcommerceView
 
         <div className="flex items-center gap-2 flex-wrap">
           <Link
-            href="/"
+            href="/inicio"
             target="_blank"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-border bg-background hover:bg-muted transition-all"
           >

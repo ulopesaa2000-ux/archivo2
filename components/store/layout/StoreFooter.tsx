@@ -16,7 +16,7 @@ export function StoreFooter() {
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Brand & Regional Contacts column */}
           <div className="space-y-4">
-            <Link href="/" className="font-serif text-2xl text-store-ink hover:text-store-accent transition-colors inline-block font-bold">
+            <Link href="/inicio" className="font-serif text-2xl text-store-ink hover:text-store-accent transition-colors inline-block font-bold">
               Catálogo IDOL NAVY
             </Link>
             <p className="text-xs text-store-ink2 leading-relaxed max-w-xs">

@@ -53,7 +53,7 @@ export function AddToQuoteButton({ producto, config }: AddToQuoteButtonProps) {
       setIsAdding(false)
       if (redirectToSolicitud) {
         router.push('/cotizacion/solicitud')
-      } else {
+      } else if (config?.modo_vista_carrito !== 'pagina') {
         // Abrir panel lateral del carrito permaneciendo en la página del producto
         window.dispatchEvent(new Event('inv_open_cart_drawer'))
       }

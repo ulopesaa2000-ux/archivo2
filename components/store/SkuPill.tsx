@@ -12,16 +12,18 @@ interface SkuPillProps {
 export function SkuPill({ href, sku, color = 'emerald' }: SkuPillProps) {
   const colorClass =
     color === 'amber'
-      ? 'text-amber-300 hover:bg-amber-800/80'
-      : 'text-emerald-300 hover:bg-emerald-800/80'
+      ? 'text-amber-300 border-amber-500/30 hover:bg-amber-950/80 hover:text-amber-200'
+      : 'text-emerald-300 border-emerald-500/30 hover:bg-emerald-950/80 hover:text-emerald-200'
 
   return (
     <Link
       href={href}
       onClick={(e) => e.stopPropagation()}
-      className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-20 ${colorClass} text-[10px] font-mono font-semibold bg-black/60 px-2.5 py-1 rounded-full hover:text-white transition-colors whitespace-nowrap`}
+      className={`absolute bottom-3 right-3 z-20 ${colorClass} text-[10px] font-mono font-semibold bg-black/75 backdrop-blur-xs border px-2.5 py-1 rounded-full hover:text-white transition-all shadow-md whitespace-nowrap flex items-center gap-1`}
+      title={`Ver producto ${sku}`}
     >
-      {sku}
+      <span>SKU:</span>
+      <span>{sku}</span>
     </Link>
   )
 }

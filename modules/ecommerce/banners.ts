@@ -33,6 +33,7 @@ export interface CategoriaBannerResuelto extends CategoriaBannerRow {
 
 /**
  * Obtiene todos los banners de categorías para el panel de administración
+ * con nombres descriptivos de género, tipo de prenda y producto
  */
 export async function fetchBannersCategorias(): Promise<CategoriaBannerResuelto[]> {
   try {
@@ -51,23 +52,52 @@ export async function fetchBannersCategorias(): Promise<CategoriaBannerResuelto[
       return []
     }
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      nombre: row.nombre,
-      genero_id: row.genero_id,
-      tipo_prenda_id: row.tipo_prenda_id,
-      producto_id: row.producto_id,
-      producto_web_id: row.producto_web_id,
-      slug_categoria: row.slug_categoria,
-      imagen_url: row.imagen_url,
-      titulo_banner: row.titulo_banner,
-      subtitulo_banner: row.subtitulo_banner,
-      link_destino: row.link_destino,
-      activo: row.activo ?? true,
-      orden: row.orden ?? 0,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }))
+    const rows = data || []
+    if (rows.length === 0) return []
+
+    // Obtener catálogos para enriquecer nombres
+    const [generosRes, tiposRes, prodsRes] = await Promise.all([
+      supabase.from('cat_generos').select('id, nombre'),
+      supabase.from('cat_tipo_prenda').select('id, nombre'),
+      supabase.from('productos').select('id, nombre, sku_base, productos_web!left(slug)'),
+    ])
+
+    const generosMap = new Map((generosRes.data || []).map((g: any) => [g.id, g.nombre]))
+    const tiposMap = new Map((tiposRes.data || []).map((t: any) => [t.id, t.nombre]))
+    const prodsMap = new Map((prodsRes.data || []).map((p: any) => [
+      p.id,
+      {
+        nombre: p.nombre,
+        sku_base: p.sku_base,
+        slug: Array.isArray(p.productos_web) ? p.productos_web[0]?.slug : p.productos_web?.slug,
+      }
+    ]))
+
+    return rows.map((row: any) => {
+      const prodInfo = row.producto_id ? prodsMap.get(row.producto_id) : null
+      return {
+        id: row.id,
+        nombre: row.nombre,
+        genero_id: row.genero_id,
+        genero_nombre: row.genero_id ? (generosMap.get(row.genero_id) || (row.genero_id === 1 ? 'Dama' : row.genero_id === 2 ? 'Caballero' : 'Unisex')) : null,
+        tipo_prenda_id: row.tipo_prenda_id,
+        tipo_prenda_nombre: row.tipo_prenda_id ? tiposMap.get(row.tipo_prenda_id) : null,
+        producto_id: row.producto_id,
+        producto_nombre: prodInfo?.nombre || null,
+        producto_sku: prodInfo?.sku_base || null,
+        producto_slug: prodInfo?.slug || null,
+        producto_web_id: row.producto_web_id,
+        slug_categoria: row.slug_categoria,
+        imagen_url: row.imagen_url,
+        titulo_banner: row.titulo_banner,
+        subtitulo_banner: row.subtitulo_banner,
+        link_destino: row.link_destino,
+        activo: row.activo ?? true,
+        orden: row.orden ?? 0,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }
+    })
   } catch (err) {
     console.warn('Exception in fetchBannersCategorias:', err)
     return []
@@ -75,7 +105,9 @@ export async function fetchBannersCategorias(): Promise<CategoriaBannerResuelto[
 }
 
 /**
- * Obtiene el banner promocional activo para una categoría específica en la tienda pública
+ * Obtiene el banner promocional panorámico activo para una categoría específica en la tienda pública (/shop)
+ * Si la tienda general no tiene filtro de categoría, retorna null.
+ * Solo retorna un banner si está explícitamente cargado y activo en la tabla `categoria_banners`.
  */
 export async function fetchBannerCategoriaActivo(params: {
   generoId?: number | null
@@ -85,19 +117,29 @@ export async function fetchBannerCategoriaActivo(params: {
   slug?: string | null
 }): Promise<CategoriaBannerResuelto | null> {
   try {
+    // Si la búsqueda no tiene ningún filtro de categoría o género, la tienda general va sin banners
+    const hasGenero = Boolean(params.generoId || params.genero)
+    const hasTipo = Boolean(params.tipoPrendaId || params.tipo)
+    const hasSlug = Boolean(params.slug)
+
+    if (!hasGenero && !hasTipo && !hasSlug) {
+      return null
+    }
+
     const supabase = createStaticClient()
 
     let generoId = params.generoId
     if (!generoId && params.genero) {
-      const gLower = params.genero.toLowerCase()
+      const gLower = params.genero.toLowerCase().trim()
       if (gLower.includes('dama') || gLower.includes('mujer')) generoId = 1
       else if (gLower.includes('caballero') || gLower.includes('hombre')) generoId = 2
       else if (gLower.includes('unisex')) generoId = 3
+      else if (!isNaN(Number(gLower))) generoId = Number(gLower)
     }
 
     let tipoPrendaId = params.tipoPrendaId
     if (!tipoPrendaId && params.tipo) {
-      const tLower = params.tipo.toLowerCase()
+      const tLower = params.tipo.toLowerCase().trim()
       if (tLower.includes('chamarra')) tipoPrendaId = 5
       else if (tLower.includes('rompevientos')) tipoPrendaId = 11
       else if (tLower.includes('chaleco')) tipoPrendaId = 4
@@ -105,229 +147,213 @@ export async function fetchBannerCategoriaActivo(params: {
       else if (tLower.includes('sueter')) tipoPrendaId = 16
       else if (tLower.includes('sudadera')) tipoPrendaId = 15
       else if (tLower.includes('abrigo')) tipoPrendaId = 1
+      else if (!isNaN(Number(tLower))) tipoPrendaId = Number(tLower)
     }
 
-    // 1. Intentar buscar en categoria_banners
-    try {
-      let query = (supabase as any)
+    // 1. Intentar coincidencia exacta en categoria_banners
+    let exactQuery = (supabase as any)
+      .from('categoria_banners')
+      .select('*')
+      .eq('activo', true)
+
+    if (generoId && tipoPrendaId) {
+      exactQuery = exactQuery.eq('genero_id', generoId).eq('tipo_prenda_id', tipoPrendaId)
+    } else if (generoId) {
+      exactQuery = exactQuery.eq('genero_id', generoId)
+    } else if (tipoPrendaId) {
+      exactQuery = exactQuery.eq('tipo_prenda_id', tipoPrendaId)
+    } else if (params.slug) {
+      exactQuery = exactQuery.eq('slug_categoria', params.slug)
+    }
+
+    exactQuery = exactQuery.order('orden', { ascending: true }).limit(1)
+    let { data, error } = await exactQuery
+
+    // Si teníamos género y tipo y no hubo coincidencia exacta de ambos, buscar solo por género
+    if ((!data || data.length === 0) && generoId && tipoPrendaId) {
+      const { data: gData } = await (supabase as any)
         .from('categoria_banners')
         .select('*')
         .eq('activo', true)
-
-      if (generoId && tipoPrendaId) {
-        query = query.eq('genero_id', generoId).eq('tipo_prenda_id', tipoPrendaId)
-      } else if (generoId) {
-        query = query.eq('genero_id', generoId)
-      } else if (tipoPrendaId) {
-        query = query.eq('tipo_prenda_id', tipoPrendaId)
-      } else if (params.slug) {
-        query = query.eq('slug_categoria', params.slug)
+        .eq('genero_id', generoId)
+        .order('orden', { ascending: true })
+        .limit(1)
+      if (gData && gData.length > 0) {
+        data = gData
       }
+    }
 
-      query = query.order('orden', { ascending: true }).limit(1)
+    if (!error && data && data.length > 0) {
+      const row = data[0]
+      let prodSku: string | null = null
+      let prodSlug: string | null = null
+      let finalImgUrl = row.imagen_url
 
-      const { data, error } = await query
+      if (row.producto_id) {
+        const { data: prod } = await (supabase.from('productos') as any)
+          .select('sku_base, nombre, productos_web!left(slug)')
+          .eq('id', row.producto_id)
+          .maybeSingle()
 
-      if (!error && data && data.length > 0) {
-        const row = data[0]
+        if (prod) {
+          prodSku = prod.sku_base
+          const pw = Array.isArray(prod.productos_web) ? prod.productos_web[0] : prod.productos_web
+          prodSlug = pw?.slug ?? null
+        }
 
-        let prodSku: string | null = null
-        let prodSlug: string | null = null
-        let finalImgUrl = row.imagen_url
-
-        if (row.producto_id) {
-          const { data: prod } = await (supabase.from('productos') as any)
-            .select('sku_base, nombre, productos_web!left(slug)')
-            .eq('id', row.producto_id)
+        if (!finalImgUrl) {
+          const { data: img } = await supabase
+            .from('producto_imagenes')
+            .select('url')
+            .eq('producto_id', row.producto_id)
+            .order('es_principal', { ascending: false })
+            .limit(1)
             .maybeSingle()
 
-          if (prod) {
-            prodSku = prod.sku_base
-            const pw = Array.isArray(prod.productos_web) ? prod.productos_web[0] : prod.productos_web
-            prodSlug = pw?.slug ?? null
-          }
-
-          if (!finalImgUrl) {
-            const { data: img } = await supabase
-              .from('producto_imagenes')
-              .select('url')
-              .eq('producto_id', row.producto_id)
-              .order('es_principal', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-
-            if (img?.url) {
-              finalImgUrl = img.url
-            }
-          }
-        }
-
-        if (finalImgUrl) {
-          return {
-            id: row.id,
-            nombre: row.nombre,
-            genero_id: row.genero_id,
-            tipo_prenda_id: row.tipo_prenda_id,
-            producto_id: row.producto_id,
-            producto_web_id: row.producto_web_id,
-            slug_categoria: row.slug_categoria,
-            imagen_url: finalImgUrl,
-            titulo_banner: row.titulo_banner || row.nombre,
-            subtitulo_banner: row.subtitulo_banner,
-            link_destino: row.link_destino || (prodSlug ? `/shop/${prodSlug}` : null),
-            activo: row.activo ?? true,
-            orden: row.orden ?? 0,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            producto_sku: prodSku,
-            producto_slug: prodSlug,
+          if (img?.url) {
+            finalImgUrl = img.url
           }
         }
       }
-    } catch (bErr) {
-      console.warn('Nota en fetchBannerCategoriaActivo (categoria_banners):', bErr)
-    }
 
-    // 2. BUSCAR EL PRODUCTO DESTACADO ASIGNADO MÁS RECIENTE EN productos_web
-    if (generoId) {
-      try {
-        const { data: pwDestacado } = await (supabase.from('productos_web') as any)
-          .select(`
-            id,
-            producto_id,
-            slug,
-            destacado,
-            updated_at,
-            productos!inner (
-              id,
-              sku_base,
-              nombre,
-              genero_id,
-              tipo_prenda_id,
-              activo
-            )
-          `)
-          .eq('destacado', true)
-          .eq('productos.genero_id', generoId)
-          .eq('productos.activo', true)
-          .order('updated_at', { ascending: false })
-          .limit(5)
-
-        if (pwDestacado && pwDestacado.length > 0) {
-          for (const item of pwDestacado) {
-            const prod = item.productos
-            const { data: img } = await supabase
-              .from('producto_imagenes')
-              .select('url')
-              .eq('producto_id', item.producto_id)
-              .order('es_principal', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-
-            if (img?.url) {
-              const gNombre = generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
-              const defaultLink = item.slug ? `/shop/${item.slug}` : (generoId === 1 ? '/shop?genero=dama' : '/shop?genero=caballero')
-
-              return {
-                id: item.id,
-                nombre: gNombre,
-                genero_id: generoId,
-                tipo_prenda_id: prod.tipo_prenda_id,
-                producto_id: item.producto_id,
-                producto_web_id: item.id,
-                slug_categoria: null,
-                imagen_url: img.url,
-                titulo_banner: gNombre,
-                subtitulo_banner: prod.nombre,
-                link_destino: defaultLink,
-                activo: true,
-                orden: 1,
-                created_at: item.updated_at,
-                updated_at: item.updated_at,
-                producto_sku: prod.sku_base,
-                producto_slug: item.slug,
-              }
-            }
-          }
-        }
-      } catch (pErr) {
-        console.warn('Nota en fetchBannerCategoriaActivo (productos_web):', pErr)
-      }
-
-      // 3. Fallback secundario: si no hay destacado guardado, tomar el producto más reciente con foto
-      let pQuery = (supabase.from('productos') as any)
-        .select(
-          `
-          id,
-          sku_base,
-          nombre,
-          genero_id,
-          tipo_prenda_id,
-          created_at,
-          productos_web!left(slug)
-          `
-        )
-        .eq('activo', true)
-        .eq('genero_id', generoId)
-        .order('id', { ascending: false })
-        .limit(10)
-
-      if (tipoPrendaId) {
-        pQuery = pQuery.eq('tipo_prenda_id', tipoPrendaId)
-      }
-
-      const { data: prods } = await pQuery
-
-      if (prods && prods.length > 0) {
-        const prodIds = prods.map((p: any) => p.id)
-
-        const { data: imgs } = await supabase
-          .from('producto_imagenes')
-          .select('producto_id, url, es_principal')
-          .in('producto_id', prodIds)
-
-        const imgMap = (imgs || []).reduce((acc: Record<number, string>, img: any) => {
-          if (!acc[img.producto_id] || img.es_principal) {
-            acc[img.producto_id] = img.url
-          }
-          return acc
-        }, {})
-
-        for (const p of prods) {
-          const imgUrl = imgMap[p.id]
-          if (imgUrl) {
-            const pw = Array.isArray(p.productos_web) ? p.productos_web[0] : p.productos_web
-            const gNombre = generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
-            const defaultLink = pw?.slug ? `/shop/${pw.slug}` : (generoId === 1 ? '/shop?genero=dama' : '/shop?genero=caballero')
-
-            return {
-              id: p.id,
-              nombre: gNombre,
-              genero_id: generoId,
-              tipo_prenda_id: p.tipo_prenda_id,
-              producto_id: p.id,
-              producto_web_id: pw?.id ?? null,
-              slug_categoria: null,
-              imagen_url: imgUrl,
-              titulo_banner: gNombre,
-              subtitulo_banner: p.nombre,
-              link_destino: defaultLink,
-              activo: true,
-              orden: 1,
-              created_at: p.created_at,
-              updated_at: p.created_at,
-              producto_sku: p.sku_base,
-              producto_slug: pw?.slug ?? null,
-            }
-          }
+      if (finalImgUrl) {
+        return {
+          id: row.id,
+          nombre: row.nombre,
+          genero_id: row.genero_id,
+          tipo_prenda_id: row.tipo_prenda_id,
+          producto_id: row.producto_id,
+          producto_web_id: row.producto_web_id,
+          slug_categoria: row.slug_categoria,
+          imagen_url: finalImgUrl,
+          titulo_banner: row.titulo_banner || row.nombre,
+          subtitulo_banner: row.subtitulo_banner,
+          link_destino: row.link_destino || (prodSlug ? `/shop/${prodSlug}` : null),
+          activo: row.activo ?? true,
+          orden: row.orden ?? 0,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          producto_sku: prodSku,
+          producto_slug: prodSlug,
         }
       }
     }
 
+    // Si no está configurado en categoria_banners, no mostrar banner
     return null
   } catch (err) {
     console.error('Error en fetchBannerCategoriaActivo:', err)
     return null
+  }
+}
+
+/**
+ * Obtiene la portada para las tarjetas de colección (3:4) de la página principal (Home)
+ * Totalmente independiente de los banners panorámicos de categoría
+ */
+export async function fetchPortadaColeccionHome(generoId: 1 | 2): Promise<{
+  titulo: string
+  imagen_url: string | null
+  producto_sku: string | null
+  producto_slug: string | null
+}> {
+  try {
+    const supabase = createStaticClient()
+    const nombreColeccion = generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
+
+    // 1. Buscar producto web destacado con foto para este género
+    const { data: pwDestacados } = await (supabase.from('productos_web') as any)
+      .select(`
+        id,
+        producto_id,
+        slug,
+        destacado,
+        updated_at,
+        productos!inner (
+          id,
+          sku_base,
+          nombre,
+          genero_id,
+          activo
+        )
+      `)
+      .eq('destacado', true)
+      .eq('productos.genero_id', generoId)
+      .eq('productos.activo', true)
+      .order('updated_at', { ascending: false })
+      .limit(5)
+
+    if (pwDestacados && pwDestacados.length > 0) {
+      for (const item of pwDestacados) {
+        const { data: img } = await supabase
+          .from('producto_imagenes')
+          .select('url')
+          .eq('producto_id', item.producto_id)
+          .order('es_principal', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (img?.url) {
+          return {
+            titulo: nombreColeccion,
+            imagen_url: img.url,
+            producto_sku: item.productos.sku_base,
+            producto_slug: item.slug,
+          }
+        }
+      }
+    }
+
+    // 2. Fallback: buscar el producto más reciente con fotografía para este género
+    const { data: prods } = await (supabase.from('productos') as any)
+      .select(`
+        id,
+        sku_base,
+        nombre,
+        genero_id,
+        productos_web!left(slug)
+      `)
+      .eq('activo', true)
+      .eq('genero_id', generoId)
+      .order('id', { ascending: false })
+      .limit(10)
+
+    if (prods && prods.length > 0) {
+      for (const p of prods) {
+        const { data: img } = await supabase
+          .from('producto_imagenes')
+          .select('url')
+          .eq('producto_id', p.id)
+          .order('es_principal', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (img?.url) {
+          const pw = Array.isArray(p.productos_web) ? p.productos_web[0] : p.productos_web
+          return {
+            titulo: nombreColeccion,
+            imagen_url: img.url,
+            producto_sku: p.sku_base,
+            producto_slug: pw?.slug ?? null,
+          }
+        }
+      }
+    }
+
+    return {
+      titulo: nombreColeccion,
+      imagen_url: null,
+      producto_sku: null,
+      producto_slug: null,
+    }
+  } catch (err) {
+    console.error('Error en fetchPortadaColeccionHome:', err)
+    return {
+      titulo: generoId === 1 ? 'Colección Dama' : 'Colección Caballero',
+      imagen_url: null,
+      producto_sku: null,
+      producto_slug: null,
+    }
   }
 }
 
@@ -421,6 +447,8 @@ export async function createBannerCategoriaAction(
 
     revalidatePath('/ecommerce/config')
     revalidatePath('/shop')
+    revalidatePath('/inicio')
+    revalidatePath('/')
     return { success: true }
   } catch (err: any) {
     console.error('Excepción createBannerCategoriaAction:', err)
@@ -429,7 +457,7 @@ export async function createBannerCategoriaAction(
 }
 
 /**
- * Server Action: Alternar estado activo o actualizar orden/datos del banner
+ * Server Action: Actualizar banner de categoría (datos, estado, o imagen)
  */
 export async function updateBannerCategoriaAction(
   formData: FormData
@@ -450,10 +478,16 @@ export async function updateBannerCategoriaAction(
     if (formData.has('titulo_banner')) updateData.titulo_banner = formData.get('titulo_banner') || null
     if (formData.has('subtitulo_banner')) updateData.subtitulo_banner = formData.get('subtitulo_banner') || null
     if (formData.has('link_destino')) updateData.link_destino = formData.get('link_destino') || null
-    if (formData.has('genero_id')) updateData.genero_id = formData.get('genero_id') ? Number(formData.get('genero_id')) : null
-    if (formData.has('tipo_prenda_id')) updateData.tipo_prenda_id = formData.get('tipo_prenda_id') ? Number(formData.get('tipo_prenda_id')) : null
+    if (formData.has('genero_id')) {
+      const gVal = formData.get('genero_id')
+      updateData.genero_id = gVal && gVal !== '' ? Number(gVal) : null
+    }
+    if (formData.has('tipo_prenda_id')) {
+      const tpVal = formData.get('tipo_prenda_id')
+      updateData.tipo_prenda_id = tpVal && tpVal !== '' ? Number(tpVal) : null
+    }
     if (formData.has('producto_id')) {
-      const pid = formData.get('producto_id') ? Number(formData.get('producto_id')) : null
+      const pid = formData.get('producto_id') && formData.get('producto_id') !== '' ? Number(formData.get('producto_id')) : null
       updateData.producto_id = pid
       if (pid) {
         const { data: pw } = await supabase
@@ -465,6 +499,33 @@ export async function updateBannerCategoriaAction(
       } else {
         updateData.producto_web_id = null
       }
+    }
+
+    // Si se subió un nuevo archivo de imagen
+    const file = formData.get('file') as File | null
+    if (file && file.size > 0) {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const fileName = `banners/categorias/banner_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('productos')
+        .upload(fileName, file, {
+          contentType: file.type || 'image/jpeg',
+          upsert: true,
+        })
+
+      if (uploadError) {
+        console.error('Error subiendo imagen de banner actualizada:', uploadError)
+        return { success: false, error: `Error subiendo archivo: ${uploadError.message}` }
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('productos')
+        .getPublicUrl(uploadData.path)
+
+      updateData.imagen_url = publicUrlData.publicUrl
+    } else if (formData.has('imagen_url') && formData.get('imagen_url')) {
+      updateData.imagen_url = formData.get('imagen_url')
     }
 
     const { error: updateError } = await (supabase as any)
@@ -479,6 +540,8 @@ export async function updateBannerCategoriaAction(
 
     revalidatePath('/ecommerce/config')
     revalidatePath('/shop')
+    revalidatePath('/inicio')
+    revalidatePath('/')
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al actualizar.' }
@@ -505,6 +568,8 @@ export async function deleteBannerCategoriaAction(
 
     revalidatePath('/ecommerce/config')
     revalidatePath('/shop')
+    revalidatePath('/inicio')
+    revalidatePath('/')
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al eliminar.' }
@@ -568,7 +633,6 @@ export async function fetchProductosCandidatosColeccionAction(params: {
       .eq('activo', true)   // activo en catálogo interno
       .eq('genero_id', params.generoId)
       .order('id', { ascending: false })
-      .limit(50)
 
     if (params.tipoPrendaId) {
       query = query.eq('tipo_prenda_id', params.tipoPrendaId)
@@ -579,74 +643,70 @@ export async function fetchProductosCandidatosColeccionAction(params: {
       query = query.or(`sku_base.ilike.${term},nombre.ilike.${term}`)
     }
 
-    const { data: rawData, error } = await query
+    const { data: prods, error } = await query.limit(50)
 
-    if (error || !rawData) {
+    if (error || !prods || prods.length === 0) {
       return []
     }
 
-    const productoIds = rawData.map((p: any) => p.id)
-    let imagenesMap: Record<number, string> = {}
+    const prodIds = prods.map((p: any) => p.id)
 
-    if (productoIds.length > 0) {
-      const { data: imagenes } = await supabase
-        .from('producto_imagenes')
-        .select('producto_id, url, es_principal')
-        .in('producto_id', productoIds)
+    // Obtener imágenes principales
+    const { data: imgs } = await supabase
+      .from('producto_imagenes')
+      .select('producto_id, url, es_principal')
+      .in('producto_id', prodIds)
+      .order('es_principal', { ascending: false })
 
-      imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
-        if (!acc[img.producto_id] || img.es_principal) {
-          acc[img.producto_id] = img.url
+    const imgMap = (imgs || []).reduce((acc: Record<number, string>, row: any) => {
+      if (!acc[row.producto_id] || row.es_principal) {
+        acc[row.producto_id] = row.url
+      }
+      return acc
+    }, {})
+
+    return prods
+      .filter((p: any) => Boolean(imgMap[p.id]))
+      .map((p: any) => {
+        const pw = Array.isArray(p.productos_web) ? p.productos_web[0] : p.productos_web
+        return {
+          id: p.id,
+          producto_id: p.id,
+          nombre: p.nombre,
+          sku_base: p.sku_base,
+          marca_nombre: p.cat_marcas?.nombre || null,
+          tipo_prenda_id: p.tipo_prenda_id,
+          tipo_prenda_nombre: p.cat_tipo_prenda?.nombre || null,
+          imagen_principal: imgMap[p.id] || null,
+          slug: pw?.slug || null,
+          esta_publicado: Boolean(pw && pw.activo),
         }
-        return acc
-      }, {})
-    }
-
-    const resultado: ProductoCandidatoColeccion[] = []
-
-    for (const item of rawData) {
-      const imgUrl = imagenesMap[item.id]
-      if (!imgUrl) continue // Solo productos con imagen real
-
-      const pw = Array.isArray(item.productos_web) ? item.productos_web[0] : item.productos_web
-
-      const estaPublicado = !!(pw && pw.activo !== false && pw.slug)
-      resultado.push({
-        id: item.id,
-        producto_id: item.id,
-        nombre: item.nombre,
-        sku_base: item.sku_base,
-        marca_nombre: item.cat_marcas?.nombre ?? null,
-        tipo_prenda_id: item.tipo_prenda_id,
-        tipo_prenda_nombre: item.cat_tipo_prenda?.nombre ?? null,
-        imagen_principal: imgUrl,
-        slug: pw?.slug ?? null,
-        esta_publicado: estaPublicado,
       })
-    }
-
-    return resultado
   } catch (err) {
     console.error('Error en fetchProductosCandidatosColeccionAction:', err)
     return []
   }
 }
 
+/**
+ * Server Action: Asigna una prenda destacada para la portada de Colección en la página principal (Home)
+ * No sobreescribe categoria_banners
+ */
 export async function asignarProductoDestacadoColeccionAction(params: {
-  generoId: number
+  generoId: number // 1: Dama, 2: Caballero
   productoId: number
   imagenUrl: string
   tituloBanner?: string
   linkDestino?: string
-  publicarProducto?: boolean // si true, activa el producto en productos_web
+  publicarProducto?: boolean
 }): Promise<{ success: boolean; error?: string; detalle?: string }> {
   try {
     const supabase = await createClient()
 
-    // 1. Obtener o publicar el producto en productos_web
+    // 1. Obtener o crear registro en productos_web
     const { data: pw } = await supabase
       .from('productos_web')
-      .select('id, slug, activo')
+      .select('id, activo, slug')
       .eq('producto_id', params.productoId)
       .maybeSingle()
 
@@ -674,62 +734,12 @@ export async function asignarProductoDestacadoColeccionAction(params: {
 
     const nombreColeccion = params.generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
 
-    const bannerData = {
-      nombre: nombreColeccion,
-      genero_id: params.generoId,
-      producto_id: params.productoId,
-      producto_web_id: pw?.id ?? null,
-      imagen_url: params.imagenUrl,
-      titulo_banner: params.tituloBanner || nombreColeccion,
-      link_destino: params.linkDestino || (params.generoId === 1 ? '/shop?genero=dama' : '/shop?genero=caballero'),
-      activo: true,
-      updated_at: new Date().toISOString(),
-    }
-
-    // 2. Upsert en categoria_banners — propagar errores al usuario
-    const { data: existentes } = await (supabase as any)
-      .from('categoria_banners')
-      .select('id')
-      .eq('genero_id', params.generoId)
-
-    if (existentes && existentes.length > 0) {
-      const { error: updateError } = await (supabase as any)
-        .from('categoria_banners')
-        .update(bannerData)
-        .eq('id', existentes[0].id)
-
-      if (updateError) {
-        console.error('Error al actualizar categoria_banners:', updateError.message)
-        return {
-          success: false,
-          error: `Error al guardar banner: ${updateError.message}`,
-          detalle: `UPDATE categoria_banners id=${existentes[0].id}`
-        }
-      }
-    } else {
-      const { error: insertError } = await (supabase as any)
-        .from('categoria_banners')
-        .insert({
-          ...bannerData,
-          orden: 1,
-        })
-
-      if (insertError) {
-        console.error('Error al insertar categoria_banners:', insertError.message)
-        return {
-          success: false,
-          error: `Error al crear banner: ${insertError.message}`,
-          detalle: 'INSERT categoria_banners'
-        }
-      }
-    }
-
     revalidatePath('/')
+    revalidatePath('/inicio')
     revalidatePath('/shop')
-    return { success: true, detalle: `Banner de ${nombreColeccion} guardado correctamente` }
+    return { success: true, detalle: `Portada de ${nombreColeccion} actualizada en la página de inicio` }
   } catch (err: any) {
     console.error('Error en asignarProductoDestacadoColeccionAction:', err)
     return { success: false, error: err?.message || 'Error al asignar producto a la colección' }
   }
 }
-

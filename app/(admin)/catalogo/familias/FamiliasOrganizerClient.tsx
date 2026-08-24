@@ -269,8 +269,8 @@ export function FamiliasOrganizerClient({
   }
 
   // --- Cargar productos de una familia bajo demanda ---
-  async function loadProductsForFamily(familyCode: string) {
-    if (loadedProducts[familyCode] || loadingProducts[familyCode]) return
+  async function loadProductsForFamily(familyCode: string, forceReload = false) {
+    if (!forceReload && (loadedProducts[familyCode] || loadingProducts[familyCode])) return
 
     setLoadingProducts(prev => ({ ...prev, [familyCode]: true }))
     try {
@@ -286,12 +286,13 @@ export function FamiliasOrganizerClient({
 
   // --- Efecto: Cargar F000-000C por defecto ---
   useEffect(() => {
-    loadProductsForFamily('F000-000C')
+    loadProductsForFamily('F000-000C', true)
   }, [])
 
   // --- Efecto: Sincronizar familias iniciales ---
   useEffect(() => {
     setFamilias(initialFamilias)
+    loadProductsForFamily('F000-000C', true)
   }, [initialFamilias])
 
   // --- Efecto: Ajustar layout para ocupar 100% de la pantalla (sin márgenes ni paddings) ---
@@ -713,7 +714,7 @@ export function FamiliasOrganizerClient({
         // Recargar familias y vaciar cache local
         setLoadedProducts({})
         setPinnedFamilies(['F000-000C'])
-        loadProductsForFamily('F000-000C')
+        await loadProductsForFamily('F000-000C', true)
       } catch (err: any) {
         console.error('Error al guardar cambios de familias:', err)
         toast.error(err.message || 'Ocurrió un error inesperado al guardar los cambios')
@@ -1366,6 +1367,7 @@ export function FamiliasOrganizerClient({
   // --- Variables calculadas dinámicamente ---
   const netCounts = getNetProductCounts()
   const autoRenames = getAutoSuffixRenames(netCounts)
+  const netSkusMap = getNetSkusForFamilies()
 
   const destProducts = getDestinationProducts()
   const totalDestCount = destProducts.original.length + destProducts.staged.length
@@ -1391,8 +1393,30 @@ export function FamiliasOrganizerClient({
     })
     .filter(Boolean) as ProductListItem[]
 
-  const activeFamiliesList = familias.filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
-  const filteredActiveFamiliesList = activeFamiliesList.filter(f => {
+  // 1. Obtener todas las familias con productos o creadas en la BD
+  const existingFamilies = familias.filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
+
+  // 2. Detectar familias de destino en stagedMoves que aún no estén en existingFamilies
+  const stagedTargets = Array.from(new Set(Object.values(stagedMoves)))
+    .filter(dest => dest && dest !== 'F000-000C' && dest !== 'null')
+
+  const combinedFamiliesList: FamiliaResumen[] = [...existingFamilies]
+  stagedTargets.forEach(targetName => {
+    if (!combinedFamiliesList.some(f => f.familia === targetName)) {
+      combinedFamiliesList.push({
+        familia: targetName,
+        total_productos: 0,
+        es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(targetName),
+        descripcion: 'Nueva familia en borrador',
+        skus: []
+      })
+    }
+  })
+
+  // 3. Ordenar alfabéticamente de forma natural
+  combinedFamiliesList.sort((a, b) => (a.familia || '').localeCompare(b.familia || '', 'es', { sensitivity: 'base' }))
+
+  const filteredActiveFamiliesList = combinedFamiliesList.filter(f => {
     const name = (f.familia || '').toLowerCase()
     const description = (f.descripcion || '').toLowerCase()
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
@@ -1401,6 +1425,7 @@ export function FamiliasOrganizerClient({
     return words.every(word => 
       name.includes(word) || 
       description.includes(word) ||
+      (netSkusMap[f.familia!] && netSkusMap[f.familia!].some(sku => sku.sku_base.toLowerCase().includes(word))) ||
       (f.skus && f.skus.some(sku => sku.sku_base.toLowerCase().includes(word)))
     )
   })
@@ -1452,8 +1477,6 @@ export function FamiliasOrganizerClient({
     setTrayDestFamily('')
     toast.success(`Se movieron ${selectedProducts.length} producto(s) a "${targetFamily}"`)
   }
-
-  const netSkusMap = getNetSkusForFamilies()
 
   return (
     <div
@@ -1517,16 +1540,17 @@ export function FamiliasOrganizerClient({
       <div className="flex-1 flex overflow-hidden bg-card text-foreground w-full h-full">
         
         {/* COLUMNA 1: SIDEBAR IZQUIERDO (Bandejas de Entrada y Control) */}
-        <aside className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full bg-card shrink-0 select-none">
+        {/* COLUMNA 1: SIDEBAR IZQUIERDO (Bandejas de Entrada y Control) */}
+        <aside className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full bg-card shrink-0 select-none overflow-hidden">
           {/* SECCIÓN 1: SIN ASIGNAR */}
           <div className={cn(
-            "flex flex-col min-h-0 border-b border-zinc-200 dark:border-zinc-800 transition-all duration-200",
+            "flex flex-col min-h-0 border-b border-zinc-200 dark:border-zinc-800 transition-all duration-200 overflow-hidden",
             isSinAsignarCollapsed ? "shrink-0" : "flex-1"
           )}>
             {/* Header toggle Sin Asignar */}
             <button
               onClick={() => setIsSinAsignarCollapsed(v => !v)}
-              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none"
+              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none shrink-0"
             >
               <div className="flex items-center gap-2">
                 {isSinAsignarCollapsed
@@ -1542,99 +1566,99 @@ export function FamiliasOrganizerClient({
             </button>
 
             {!isSinAsignarCollapsed && (
-            <>
-            {/* Buscador interno local */}
-            <div className="p-2 border-b border-zinc-200 dark:border-zinc-800">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Filtrar sin asignar..."
-                  className="pl-7 h-7 text-xs bg-muted/20"
-                  value={leftSearchQuery}
-                  onChange={(e) => setLeftSearchQuery(e.target.value)}
-                />
-              </div>
-            </div>
+              <>
+                {/* Buscador interno local */}
+                <div className="p-2 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Filtrar sin asignar..."
+                      className="pl-7 h-7 text-xs bg-muted/20"
+                      value={leftSearchQuery}
+                      onChange={(e) => setLeftSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-            {/* Listado de Productos Sin Asignar */}
-            <ScrollArea className="flex-1 p-2">
-              {loadingProducts['F000-000C'] ? (
-                <div className="flex items-center justify-center py-8 gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  Cargando...
-                </div>
-              ) : filteredUnassigned.length === 0 ? (
-                <div className="text-center py-8 text-xs text-muted-foreground italic">
-                  No hay productos sin asignar.
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {filteredUnassigned.map((p) => {
-                    const isSelected = !!selectedProductIds[p.id]
-                    return (
-                      <div
-                        key={p.id}
-                        draggable="true"
-                        onDragStart={(e) => handleDragStart(e, p.id, p.sku_base)}
-                        onDragEnd={handleDragEnd}
-                        className={cn(
-                          "flex items-center gap-2 p-2 rounded-lg border bg-card/50 hover:bg-accent/45 hover:border-primary/40 transition-all cursor-grab group relative",
-                          isSelected && "border-primary bg-primary/[0.02]"
-                        )}
-                      >
-                        <div 
-                          className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
-                          onClick={() => {
-                            setInspectedProduct(p)
-                            setIsRightPanelOpen(true)
-                          }}
-                        >
-                          <div onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              checked={isSelected}
-                              onCheckedChange={() => toggleSelectProduct(p.id)}
-                              className="h-3.5 w-3.5 shrink-0"
-                            />
-                          </div>
-                          <div 
-                            onClick={(e) => e.stopPropagation()}
-                            className="cursor-grab text-muted-foreground hover:text-foreground shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                {/* Listado de Productos Sin Asignar */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                  {loadingProducts['F000-000C'] ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      Cargando...
+                    </div>
+                  ) : filteredUnassigned.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-muted-foreground italic">
+                      No hay productos sin asignar.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {filteredUnassigned.map((p) => {
+                        const isSelected = !!selectedProductIds[p.id]
+                        return (
+                          <div
+                            key={p.id}
+                            draggable="true"
+                            onDragStart={(e) => handleDragStart(e, p.id, p.sku_base)}
+                            onDragEnd={handleDragEnd}
+                            className={cn(
+                              "flex items-center gap-2 p-2 rounded-lg border bg-card/50 hover:bg-accent/45 hover:border-primary/40 transition-all cursor-grab group relative",
+                              isSelected && "border-primary bg-primary/[0.02]"
+                            )}
                           >
-                            <GripVertical className="h-3.5 w-3.5" />
-                          </div>
-                          
-                          {p.imagen_principal ? (
-                            <img
-                              src={p.imagen_principal}
-                              alt={p.sku_base}
-                              className="h-8 w-8 object-cover rounded bg-muted border shrink-0"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
-                              NO IMG
-                            </div>
-                          )}
+                            <div 
+                              className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
+                              onClick={() => {
+                                setInspectedProduct(p)
+                                setIsRightPanelOpen(true)
+                              }}
+                            >
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleSelectProduct(p.id)}
+                                  className="h-3.5 w-3.5 shrink-0"
+                                />
+                              </div>
+                              <div 
+                                onClick={(e) => e.stopPropagation()}
+                                className="cursor-grab text-muted-foreground hover:text-foreground shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+                              >
+                                <GripVertical className="h-3.5 w-3.5" />
+                              </div>
+                              
+                              {p.imagen_principal ? (
+                                <img
+                                  src={p.imagen_principal}
+                                  alt={p.sku_base}
+                                  className="h-8 w-8 object-cover rounded bg-muted border shrink-0"
+                                />
+                              ) : (
+                                <div className="h-8 w-8 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
+                                  NO IMG
+                                </div>
+                              )}
 
-                          <div className="min-w-0 flex-1">
-                            <div className={cn(
-                              "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
-                              p.activo === false && "text-red-500 dark:text-red-400"
-                            )}>
-                              {p.sku_base}
-                              {p.activo === false && <span className="text-[8px] bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-red-200 dark:border-red-900">Inactivo</span>}
+                              <div className="min-w-0 flex-1">
+                                <div className={cn(
+                                  "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
+                                  p.activo === false && "text-red-500 dark:text-red-400"
+                                )}>
+                                  {p.sku_base}
+                                  {p.activo === false && <span className="text-[8px] bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-red-200 dark:border-red-900">Inactivo</span>}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground truncate leading-normal">
+                                  {p.descripcion ?? 'Sin descripción'}
+                                </p>
+                              </div>
                             </div>
-                            <p className="text-[11px] text-muted-foreground truncate leading-normal">
-                              {p.descripcion ?? 'Sin descripción'}
-                            </p>
                           </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-            </ScrollArea>
-            </>
+              </>
             )}
           </div>
 
@@ -1654,14 +1678,14 @@ export function FamiliasOrganizerClient({
               if (isBandejaCollapsed) setIsBandejaCollapsed(false)
             }}
             className={cn(
-              "flex flex-col min-h-0 bg-muted/5 border-t border-zinc-200 dark:border-zinc-800 transition-all duration-200",
-              isBandejaCollapsed ? "shrink-0" : isSinAsignarCollapsed ? "flex-1" : "h-[210px]"
+              "flex flex-col min-h-0 bg-muted/5 border-t border-zinc-200 dark:border-zinc-800 transition-all duration-200 overflow-hidden shrink-0",
+              isBandejaCollapsed ? "h-auto" : isSinAsignarCollapsed ? "flex-1" : "h-[220px]"
             )}
           >
             {/* Header con toggle */}
             <button
               onClick={() => setIsBandejaCollapsed(v => !v)}
-              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none"
+              className="w-full p-3 bg-muted/20 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:bg-muted/30 transition-colors select-none shrink-0"
             >
               <div className="flex items-center gap-2">
                 {isBandejaCollapsed
@@ -1685,10 +1709,10 @@ export function FamiliasOrganizerClient({
 
             {/* Contenido colapsable */}
             {!isBandejaCollapsed && (
-              <>
-                <ScrollArea className="flex-1 p-2">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-y-auto p-2">
                   {selectedProducts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full py-6 text-center text-xs text-muted-foreground border border-dashed border-muted-foreground/25 rounded bg-muted/10 mt-1">
+                    <div className="flex flex-col items-center justify-center h-full min-h-[100px] py-4 text-center text-xs text-muted-foreground border border-dashed border-muted-foreground/25 rounded bg-muted/10">
                       <Info className="h-4 w-4 mb-1 text-muted-foreground/40" />
                       <p className="italic">Arrastre productos aquí</p>
                       <p className="text-[10px]">o marque casillas arriba</p>
@@ -1724,10 +1748,10 @@ export function FamiliasOrganizerClient({
                       ))}
                     </div>
                   )}
-                </ScrollArea>
+                </div>
 
                 {selectedProducts.length > 0 && (
-                  <div className="p-2 border-t border-zinc-200 dark:border-zinc-800 bg-card space-y-2">
+                  <div className="p-2 border-t border-zinc-200 dark:border-zinc-800 bg-card space-y-2 shrink-0">
                     <div className="flex gap-1">
                       <select
                         className="flex-1 h-8 rounded border border-input bg-background dark:bg-zinc-900 px-2 py-0.5 text-xs outline-none focus:border-ring"
@@ -1754,7 +1778,7 @@ export function FamiliasOrganizerClient({
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         </aside>
@@ -1883,6 +1907,7 @@ export function FamiliasOrganizerClient({
 
                     {filteredActiveFamiliesList.map((f, idx) => {
                       const name = f.familia!
+                      const isNewDraftFamily = !initialFamilias.some(initF => initF.familia === name)
                       const renombradoLocal = stagedRenames[name] || autoRenames[name]
                       const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
                       const skus = netSkusMap[name] || []
@@ -1892,26 +1917,47 @@ export function FamiliasOrganizerClient({
                           <div
                             onDragOver={(e) => {
                               e.preventDefault()
-                              e.currentTarget.classList.add('border-primary', 'bg-primary/[0.03]')
+                              e.currentTarget.classList.add(isNewDraftFamily ? 'border-amber-500' : 'border-primary', isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.03]')
                               setDragTooltip(prev => prev ? { ...prev, text: `Mover a ${name}` } : null)
                             }}
                             onDragLeave={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10')
                             }}
-                            onDrop={(e) => handleDropOnFamily(e, name)}
-                            className="p-3 rounded-lg border bg-card space-y-1 border-zinc-200 dark:border-zinc-800 transition-all animate-in fade-in duration-200"
+                            onDrop={(e) => {
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10')
+                              handleDropOnFamily(e, name)
+                            }}
+                            className={cn(
+                              "p-3 rounded-lg border space-y-1 transition-all animate-in fade-in duration-200",
+                              isNewDraftFamily
+                                ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
+                                : "bg-card border-zinc-200 dark:border-zinc-800"
+                            )}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5">
-                                {displayName}
-                                {renombradoLocal && (
+                              <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5 flex-wrap">
+                                <span className={cn(isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold")}>
+                                  {displayName}
+                                </span>
+                                {isNewDraftFamily && (
+                                  <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-sans font-semibold">
+                                    Nueva Familia
+                                  </Badge>
+                                )}
+                                {renombradoLocal && !isNewDraftFamily && (
                                   <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-600 font-sans">
                                     {stagedRenames[name] ? 'Manual' : 'Sufijo'}
                                   </Badge>
                                 )}
                               </span>
-                              <Badge variant="secondary" className="font-mono text-[10px] py-0 px-2 shrink-0">
-                                {skus.length} de {f.total_productos}
+                              <Badge
+                                variant={isNewDraftFamily ? "outline" : "secondary"}
+                                className={cn(
+                                  "font-mono text-[10px] py-0 px-2 shrink-0",
+                                  isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                )}
+                              >
+                                {skus.length} {isNewDraftFamily ? 'en borrador' : `de ${f.total_productos}`}
                               </Badge>
                             </div>
                             {f.descripcion && (
@@ -1947,8 +1993,13 @@ export function FamiliasOrganizerClient({
                                 })}
                               </div>
                             ) : (
-                              <div className="text-center py-4 text-xs text-muted-foreground italic border border-dashed rounded border-zinc-200 dark:border-zinc-800/40 bg-muted/5">
-                                Arrastre productos aquí para asignarlos
+                              <div className={cn(
+                                "text-center py-4 text-xs italic border border-dashed rounded",
+                                isNewDraftFamily
+                                  ? "text-amber-700/80 dark:text-amber-300/80 border-amber-500/30 bg-amber-500/5"
+                                  : "text-muted-foreground border-zinc-200 dark:border-zinc-800/40 bg-muted/5"
+                              )}>
+                                Arrastre productos aquí para asignarlos {isNewDraftFamily ? 'a esta nueva familia' : ''}
                               </div>
                             )}
                           </div>
@@ -2013,6 +2064,7 @@ export function FamiliasOrganizerClient({
 
                     {filteredActiveFamiliesList.map((f, idx) => {
                       const name = f.familia!
+                      const isNewDraftFamily = !initialFamilias.some(initF => initF.familia === name)
                       const products = getVisibleProductsInFamily(name)
                       const visibleInGroup = products.filter(p => p.familia === name)
                       const isExpanded = !!expandedFamilies[name]
@@ -2027,13 +2079,21 @@ export function FamiliasOrganizerClient({
                           <div
                             onDragOver={(e) => {
                               e.preventDefault()
-                              e.currentTarget.classList.add('border-primary', 'bg-primary/[0.01]')
+                              e.currentTarget.classList.add(isNewDraftFamily ? 'border-amber-500' : 'border-primary', isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.01]')
                             }}
                             onDragLeave={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10')
                             }}
-                            onDrop={(e) => handleDropOnFamily(e, name)}
-                            className="bg-card border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 transition-all shadow-xs family-card flex flex-col"
+                            onDrop={(e) => {
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10')
+                              handleDropOnFamily(e, name)
+                            }}
+                            className={cn(
+                              "rounded-lg p-4 transition-all shadow-xs family-card flex flex-col border",
+                              isNewDraftFamily
+                                ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
+                                : "bg-card border-zinc-200 dark:border-zinc-800"
+                            )}
                           >
                             <div className="flex items-center justify-between mb-2 select-none">
                               <div
@@ -2048,17 +2108,30 @@ export function FamiliasOrganizerClient({
                                   )}
                                 </div>
                                 <h3 className="font-mono font-bold text-sm text-foreground flex items-center gap-2 truncate">
-                                  {displayName}
+                                  <span className={cn(isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold")}>
+                                    {displayName}
+                                  </span>
+                                  {isNewDraftFamily && (
+                                    <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-sans font-semibold shrink-0">
+                                      Nueva Familia
+                                    </Badge>
+                                  )}
                                 </h3>
                                 
-                                {renombradoLocal && (
+                                {renombradoLocal && !isNewDraftFamily && (
                                   <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-600 shrink-0 font-sans">
                                     {stagedRenames[name] ? 'Manual' : 'Sufijo'}
                                   </Badge>
                                 )}
                                 
-                                <Badge variant="secondary" className="font-mono text-[10px] py-0 px-2 shrink-0">
-                                  {visibleInGroup.length} de {f.total_productos}
+                                <Badge
+                                  variant={isNewDraftFamily ? "outline" : "secondary"}
+                                  className={cn(
+                                    "font-mono text-[10px] py-0 px-2 shrink-0",
+                                    isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                  )}
+                                >
+                                  {visibleInGroup.length} {isNewDraftFamily ? 'en borrador' : `de ${f.total_productos}`}
                                 </Badge>
                               </div>
 
@@ -2096,8 +2169,13 @@ export function FamiliasOrganizerClient({
                                     Cargando productos...
                                   </div>
                                 ) : visibleInGroup.length === 0 ? (
-                                  <div className="text-xs text-muted-foreground py-6 text-center border border-dashed rounded bg-muted/10 drop-target-area">
-                                    Arrastre productos aquí o use selección
+                                  <div className={cn(
+                                    "text-xs py-6 text-center border border-dashed rounded drop-target-area",
+                                    isNewDraftFamily
+                                      ? "text-amber-700/80 dark:text-amber-300/80 border-amber-500/30 bg-amber-500/5"
+                                      : "text-muted-foreground bg-muted/10"
+                                  )}>
+                                    Arrastre productos aquí para asignarlos {isNewDraftFamily ? 'a esta nueva familia' : ''}
                                   </div>
                                 ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
