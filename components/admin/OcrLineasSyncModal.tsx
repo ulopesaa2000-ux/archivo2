@@ -1,7 +1,7 @@
 // components/admin/OcrLineasSyncModal.tsx
 'use client'
 
-import { useState, useEffect, useTransition, useCallback } from 'react'
+import { useState, useEffect, useTransition, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
   Loader2, RefreshCw, CheckCircle2, AlertCircle, Plus, Trash2, Save, Search, Sparkles,
-  ZoomIn, ZoomOut, RotateCw, RotateCcw, ImageIcon, ArrowUpRight, Check
+  ZoomIn, ZoomOut, RotateCw, RotateCcw, ImageIcon, ArrowUpRight, Check, X
 } from 'lucide-react'
 import { sincronizarLineasOcrAction, actualizarPropuestaOcrLineasAction } from '@/modules/inventario/actions'
 import type {
@@ -79,6 +79,7 @@ export function OcrLineasSyncModal({
   const handleMouseUp = () => setIsDragging(false)
 
   // ── Buscador Rápido de Productos Fijo sobre Imagen ─────────
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<ProductoBusqueda[]>([])
   const [isSearching, setIsSearching] = useState(false)
@@ -381,16 +382,31 @@ export function OcrLineasSyncModal({
               </div>
               <div className="relative">
                 <Input
+                  ref={searchInputRef}
                   value={searchTerm}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   placeholder="Buscar por SKU o descripción en catálogo..."
-                  className="h-9 pr-8 text-xs font-mono font-bold rounded-xl border-muted shadow-sm bg-background"
+                  className="h-9 pl-8 pr-14 text-xs font-mono font-bold rounded-xl border-muted shadow-sm bg-background"
                 />
-                {isSearching ? (
-                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                  <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                )}
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSearchChange('')
+                        searchInputRef.current?.focus()
+                      }}
+                      className="h-5 w-5 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="Borrar texto de búsqueda"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {isSearching && (
+                    <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                  )}
+                </div>
               </div>
 
               {/* Lista desplegable flotante de resultados del catálogo */}
@@ -651,16 +667,29 @@ export function OcrLineasSyncModal({
                                 )}
                               </div>
                             ) : (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <Badge
                                   variant="destructive"
-                                  className="text-[9px] font-bold uppercase tracking-tight py-0.5"
+                                  className="text-[9px] font-bold uppercase tracking-tight py-0.5 shrink-0"
                                 >
                                   ⚠️ No Encontrado
                                 </Badge>
-                                <span className="text-[9px] text-muted-foreground hidden sm:inline">
-                                  Usa el buscador rápido
-                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIndex(idx)
+                                    handleSearchChange(line.estilo_raw || '')
+                                    searchInputRef.current?.focus()
+                                  }}
+                                  className="h-5 px-1.5 text-[9px] font-bold text-primary bg-primary/10 hover:bg-primary/20 border-primary/30 rounded flex items-center gap-1 transition-all shadow-2xs"
+                                  title={`Buscar "${line.estilo_raw}" en el catálogo`}
+                                >
+                                  <Search className="h-2.5 w-2.5 shrink-0" />
+                                  <span>Buscar en catálogo</span>
+                                </Button>
                               </div>
                             )}
                           </td>

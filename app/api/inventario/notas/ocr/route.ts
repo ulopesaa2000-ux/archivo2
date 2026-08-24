@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     const tipoHint = String(incomingForm.get('tipo_hint') || '')
     const origenHint = String(incomingForm.get('origen_hint') || incomingForm.get('origen') || '')
     const destinoHint = String(incomingForm.get('destino_hint') || incomingForm.get('destino') || '')
+    const fechaHint = String(incomingForm.get('fecha_hint') || incomingForm.get('fecha') || '')
     const priorizarIa = incomingForm.get('priorizar_ia')
 
     // 3. Optimizar imagen con Sharp preservando máxima nitidez para OCR
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
     n8nForm.append('foto', optimizedBlob, 'foto_nota.jpg')
     n8nForm.append('client_request_id', clientRequestId)
     n8nForm.append('usuario_id', String(user.id))
-    if (priorizarIa !== null && priorizarIa !== undefined) {
+    if (priorizarIa !== null && priorizarIa !== undefined && priorizarIa !== '') {
       n8nForm.append('priorizar_ia', String(priorizarIa))
     }
     if (tipoHint) {
@@ -81,6 +82,9 @@ export async function POST(request: NextRequest) {
     }
     if (destinoHint) {
       n8nForm.append('destino_hint', destinoHint)
+    }
+    if (fechaHint) {
+      n8nForm.append('fecha_hint', fechaHint)
     }
 
     // 5. Reenviar al webhook de n8n

@@ -109,6 +109,29 @@ export function FamiliasOrganizerClient({
   const [leftSearchQuery, setLeftSearchQuery] = useState('')
   const [isCreateIntermediateDialogOpen, setIsCreateIntermediateDialogOpen] = useState(false)
   const [activeDirTab, setActiveDirTab] = useState<'cards' | 'skus'>('skus')
+  const [highlightedFamily, setHighlightedFamily] = useState<string | null>(null)
+
+  // --- Ubicar familia en la lista general eliminando el filtro de búsqueda ---
+  const handleGoToFamilyInList = (familyName: string) => {
+    setSearchQuery('')
+    setHighlightedFamily(familyName)
+    
+    // Si estamos en vista tarjetas, expandirla y cargar sus productos
+    if (activeDirTab === 'cards') {
+      setExpandedFamilies(prev => ({ ...prev, [familyName]: true }))
+      loadProductsForFamily(familyName)
+    }
+
+    // Scroll suave hasta el elemento después de que el DOM pinte todas las familias
+    setTimeout(() => {
+      const el = activeDirTab === 'cards' 
+        ? document.getElementById(`family-item-card-${familyName}`)
+        : document.getElementById(`family-item-${familyName}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 120)
+  }
 
   // --- Estado ocultable de las secciones del sidebar ---
   const [isSinAsignarCollapsed, setIsSinAsignarCollapsed] = useState(false)
@@ -1792,11 +1815,35 @@ export function FamiliasOrganizerClient({
                 <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   placeholder="Buscar familias, productos o SKUs..."
-                  className="pl-8 h-8 w-72 text-xs"
+                  className="pl-8 pr-7 h-8 w-72 text-xs"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+                    title="Limpiar búsqueda"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
+
+              {highlightedFamily && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 animate-in fade-in duration-200 shrink-0">
+                  <span className="text-[11px]">Ubicando: <span className="font-mono font-bold text-blue-800 dark:text-blue-200">{highlightedFamily}</span></span>
+                  <button
+                    type="button"
+                    onClick={() => setHighlightedFamily(null)}
+                    className="p-0.5 hover:bg-blue-500/20 rounded text-blue-600 dark:text-blue-400 transition-colors ml-0.5"
+                    title="Quitar destacado de esta familia"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 bg-muted/40 px-2 py-1 rounded-md border text-xs">
                 <Checkbox
@@ -1908,38 +1955,62 @@ export function FamiliasOrganizerClient({
                     {filteredActiveFamiliesList.map((f, idx) => {
                       const name = f.familia!
                       const isNewDraftFamily = !initialFamilias.some(initF => initF.familia === name)
+                      const isHighlighted = highlightedFamily === name
                       const renombradoLocal = stagedRenames[name] || autoRenames[name]
                       const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
                       const skus = netSkusMap[name] || []
 
                       return (
-                        <div key={name} className="space-y-2">
+                        <div key={name} id={`family-item-${name}`} className="space-y-2">
                           <div
                             onDragOver={(e) => {
                               e.preventDefault()
-                              e.currentTarget.classList.add(isNewDraftFamily ? 'border-amber-500' : 'border-primary', isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.03]')
+                              e.currentTarget.classList.add(
+                                isHighlighted ? 'border-blue-500' : isNewDraftFamily ? 'border-amber-500' : 'border-primary',
+                                isHighlighted ? 'bg-blue-500/10' : isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.03]'
+                              )
                               setDragTooltip(prev => prev ? { ...prev, text: `Mover a ${name}` } : null)
                             }}
                             onDragLeave={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10', 'border-blue-500', 'bg-blue-500/10')
                             }}
                             onDrop={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.03]', 'border-amber-500', 'bg-amber-500/10', 'border-blue-500', 'bg-blue-500/10')
                               handleDropOnFamily(e, name)
                             }}
                             className={cn(
-                              "p-3 rounded-lg border space-y-1 transition-all animate-in fade-in duration-200",
-                              isNewDraftFamily
-                                ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
-                                : "bg-card border-zinc-200 dark:border-zinc-800"
+                              "p-3 rounded-lg border space-y-1 transition-all animate-in fade-in duration-300",
+                              isHighlighted
+                                ? "border-blue-500 bg-blue-500/[0.08] dark:bg-blue-500/[0.14] ring-2 ring-blue-500/40 shadow-lg shadow-blue-500/10"
+                                : isNewDraftFamily
+                                  ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
+                                  : "bg-card border-zinc-200 dark:border-zinc-800"
                             )}
                           >
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                               <span className="font-mono text-xs font-bold text-foreground flex items-center gap-1.5 flex-wrap">
-                                <span className={cn(isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold")}>
+                                <span className={cn(
+                                  isHighlighted
+                                    ? "text-blue-700 dark:text-blue-300 font-extrabold"
+                                    : isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold"
+                                )}>
                                   {displayName}
                                 </span>
-                                {isNewDraftFamily && (
+                                {isHighlighted && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/15 font-sans font-semibold flex items-center gap-1 cursor-pointer hover:bg-blue-500/25 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setHighlightedFamily(null)
+                                    }}
+                                    title="Clic para quitar el destacado"
+                                  >
+                                    <span>Ubicada en lista</span>
+                                    <X className="h-2.5 w-2.5 shrink-0" />
+                                  </Badge>
+                                )}
+                                {isNewDraftFamily && !isHighlighted && (
                                   <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-sans font-semibold">
                                     Nueva Familia
                                   </Badge>
@@ -1950,15 +2021,33 @@ export function FamiliasOrganizerClient({
                                   </Badge>
                                 )}
                               </span>
-                              <Badge
-                                variant={isNewDraftFamily ? "outline" : "secondary"}
-                                className={cn(
-                                  "font-mono text-[10px] py-0 px-2 shrink-0",
-                                  isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                              <div className="flex items-center gap-2 shrink-0">
+                                {searchQuery.trim() !== '' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleGoToFamilyInList(name)
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800/80 transition-all hover:scale-105 active:scale-95 shrink-0"
+                                    title="Quitar filtro de búsqueda y ver esta familia en la lista general"
+                                  >
+                                    <span>Ir a lista</span>
+                                    <ArrowRight className="h-3 w-3" />
+                                  </button>
                                 )}
-                              >
-                                {skus.length} {isNewDraftFamily ? 'en borrador' : `de ${f.total_productos}`}
-                              </Badge>
+                                <Badge
+                                  variant={isHighlighted || isNewDraftFamily ? "outline" : "secondary"}
+                                  className={cn(
+                                    "font-mono text-[10px] py-0 px-2 shrink-0",
+                                    isHighlighted
+                                      ? "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/10"
+                                      : isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                  )}
+                                >
+                                  {skus.length} {isNewDraftFamily ? 'en borrador' : `de ${f.total_productos}`}
+                                </Badge>
+                              </div>
                             </div>
                             {f.descripcion && (
                               <p className="text-xs text-muted-foreground italic">
@@ -1995,9 +2084,11 @@ export function FamiliasOrganizerClient({
                             ) : (
                               <div className={cn(
                                 "text-center py-4 text-xs italic border border-dashed rounded",
-                                isNewDraftFamily
-                                  ? "text-amber-700/80 dark:text-amber-300/80 border-amber-500/30 bg-amber-500/5"
-                                  : "text-muted-foreground border-zinc-200 dark:border-zinc-800/40 bg-muted/5"
+                                isHighlighted
+                                  ? "text-blue-700/80 dark:text-blue-300/80 border-blue-500/30 bg-blue-500/5"
+                                  : isNewDraftFamily
+                                    ? "text-amber-700/80 dark:text-amber-300/80 border-amber-500/30 bg-amber-500/5"
+                                    : "text-muted-foreground border-zinc-200 dark:border-zinc-800/40 bg-muted/5"
                               )}>
                                 Arrastre productos aquí para asignarlos {isNewDraftFamily ? 'a esta nueva familia' : ''}
                               </div>
@@ -2065,6 +2156,7 @@ export function FamiliasOrganizerClient({
                     {filteredActiveFamiliesList.map((f, idx) => {
                       const name = f.familia!
                       const isNewDraftFamily = !initialFamilias.some(initF => initF.familia === name)
+                      const isHighlighted = highlightedFamily === name
                       const products = getVisibleProductsInFamily(name)
                       const visibleInGroup = products.filter(p => p.familia === name)
                       const isExpanded = !!expandedFamilies[name]
@@ -2074,28 +2166,33 @@ export function FamiliasOrganizerClient({
                       const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
 
                       return (
-                        <div key={name} className="space-y-2">
+                        <div key={name} id={`family-item-card-${name}`} className="space-y-2">
                           {/* Tarjeta de la Familia */}
                           <div
                             onDragOver={(e) => {
                               e.preventDefault()
-                              e.currentTarget.classList.add(isNewDraftFamily ? 'border-amber-500' : 'border-primary', isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.01]')
+                              e.currentTarget.classList.add(
+                                isHighlighted ? 'border-blue-500' : isNewDraftFamily ? 'border-amber-500' : 'border-primary',
+                                isHighlighted ? 'bg-blue-500/10' : isNewDraftFamily ? 'bg-amber-500/10' : 'bg-primary/[0.01]'
+                              )
                             }}
                             onDragLeave={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10', 'border-blue-500', 'bg-blue-500/10')
                             }}
                             onDrop={(e) => {
-                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10')
+                              e.currentTarget.classList.remove('border-primary', 'bg-primary/[0.01]', 'border-amber-500', 'bg-amber-500/10', 'border-blue-500', 'bg-blue-500/10')
                               handleDropOnFamily(e, name)
                             }}
                             className={cn(
-                              "rounded-lg p-4 transition-all shadow-xs family-card flex flex-col border",
-                              isNewDraftFamily
-                                ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
-                                : "bg-card border-zinc-200 dark:border-zinc-800"
+                              "rounded-lg p-4 transition-all shadow-xs family-card flex flex-col border duration-300",
+                              isHighlighted
+                                ? "border-blue-500 bg-blue-500/[0.08] dark:bg-blue-500/[0.14] ring-2 ring-blue-500/40 shadow-lg shadow-blue-500/10"
+                                : isNewDraftFamily
+                                  ? "border-amber-500/50 bg-amber-500/[0.04] dark:bg-amber-500/[0.08] shadow-xs"
+                                  : "bg-card border-zinc-200 dark:border-zinc-800"
                             )}
                           >
-                            <div className="flex items-center justify-between mb-2 select-none">
+                            <div className="flex items-center justify-between mb-2 select-none gap-2">
                               <div
                                 className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
                                 onClick={() => handleToggleExpandFamily(name)}
@@ -2108,10 +2205,28 @@ export function FamiliasOrganizerClient({
                                   )}
                                 </div>
                                 <h3 className="font-mono font-bold text-sm text-foreground flex items-center gap-2 truncate">
-                                  <span className={cn(isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold")}>
+                                  <span className={cn(
+                                    isHighlighted
+                                      ? "text-blue-700 dark:text-blue-300 font-extrabold"
+                                      : isNewDraftFamily && "text-amber-800 dark:text-amber-300 font-extrabold"
+                                  )}>
                                     {displayName}
                                   </span>
-                                  {isNewDraftFamily && (
+                                  {isHighlighted && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[9px] border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/15 font-sans font-semibold shrink-0 flex items-center gap-1 cursor-pointer hover:bg-blue-500/25 transition-colors"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setHighlightedFamily(null)
+                                      }}
+                                      title="Clic para quitar el destacado"
+                                    >
+                                      <span>Ubicada en lista</span>
+                                      <X className="h-2.5 w-2.5 shrink-0" />
+                                    </Badge>
+                                  )}
+                                  {isNewDraftFamily && !isHighlighted && (
                                     <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-sans font-semibold shrink-0">
                                       Nueva Familia
                                     </Badge>
@@ -2125,10 +2240,12 @@ export function FamiliasOrganizerClient({
                                 )}
                                 
                                 <Badge
-                                  variant={isNewDraftFamily ? "outline" : "secondary"}
+                                  variant={isHighlighted || isNewDraftFamily ? "outline" : "secondary"}
                                   className={cn(
                                     "font-mono text-[10px] py-0 px-2 shrink-0",
-                                    isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                    isHighlighted
+                                      ? "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/10"
+                                      : isNewDraftFamily && "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10"
                                   )}
                                 >
                                   {visibleInGroup.length} {isNewDraftFamily ? 'en borrador' : `de ${f.total_productos}`}
@@ -2136,6 +2253,20 @@ export function FamiliasOrganizerClient({
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0">
+                                {searchQuery.trim() !== '' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleGoToFamilyInList(name)
+                                    }}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800/80 transition-all hover:scale-105 active:scale-95 shrink-0"
+                                    title="Quitar filtro de búsqueda y ver esta familia en la lista general"
+                                  >
+                                    <span>Ir a lista</span>
+                                    <ArrowRight className="h-3 w-3" />
+                                  </button>
+                                )}
                                 {puedeEditar && (
                                   <Button
                                     variant="ghost"
@@ -2394,7 +2525,7 @@ export function FamiliasOrganizerClient({
             )}
           </div>
 
-          <ScrollArea className="flex-1 p-3">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
             <div className="space-y-4">
               {/* Cambios de Renombrar */}
               {(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
@@ -2483,14 +2614,14 @@ export function FamiliasOrganizerClient({
                 )
               )}
             </div>
-          </ScrollArea>
+          </div>
 
           {hasPendingChanges && (
-            <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-muted/20 space-y-2 shrink-0">
+            <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-card space-y-2 shrink-0 sticky bottom-0 z-10 shadow-md">
               <Button
                 onClick={() => setIsConfirmModalOpen(true)}
                 disabled={isPending}
-                className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-semibold flex items-center justify-center gap-1.5 h-9 text-xs"
+                className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-semibold flex items-center justify-center gap-1.5 h-9 text-xs shadow-xs"
               >
                 <Save className="h-4 w-4" />
                 Confirmar Cambios
@@ -2589,91 +2720,93 @@ export function FamiliasOrganizerClient({
 
       {/* ── MODAL DE CONFIRMACIÓN DE CAMBIOS (Dialog) ──────────────────── */}
       <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
-        <DialogContent className="max-w-lg w-full">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl md:max-w-3xl w-full max-h-[88vh] flex flex-col p-6 overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Confirmar Reacomodo de Familias</DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground leading-normal">
+          <div className="flex-1 min-h-0 flex flex-col space-y-3 py-1 overflow-hidden">
+            <p className="text-xs text-muted-foreground leading-normal shrink-0">
               Se realizarán los siguientes cambios en la base de datos de Supabase. Por favor, revísalos con cuidado antes de confirmar:
             </p>
 
-            <ScrollArea className="max-h-[300px] border rounded-lg p-3 bg-muted/20">
-              <div className="space-y-4 text-xs">
-                {/* Mostrar renombrados */}
-                {(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
-                  <div className="space-y-1.5">
-                    <h4 className="font-bold text-xs text-primary uppercase tracking-wider">
-                      Renombrar Familias ({Object.keys(stagedRenames).length + Object.keys(autoRenames).length})
-                    </h4>
-                    <div className="space-y-1">
-                      {/* Explícitos */}
-                      {Object.entries(stagedRenames).map(([oldName, newName]) => (
-                        <div key={oldName} className="flex items-center gap-2 text-xs font-mono bg-card border p-2 rounded">
-                          <span className="text-muted-foreground line-through">{oldName}</span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="text-foreground font-semibold">{newName}</span>
-                          <Badge variant="outline" className="ml-auto text-[9px]">Manual</Badge>
-                        </div>
-                      ))}
-                      {/* Automáticos */}
-                      {Object.entries(autoRenames).map(([oldName, newName]) => (
-                        <div key={oldName} className="flex items-center gap-2 text-xs font-mono bg-card border p-2 rounded border-amber-500/20 bg-amber-500/[0.02]">
-                          <span className="text-muted-foreground line-through">{oldName}</span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="text-amber-700 dark:text-amber-300 font-semibold">{newName}</span>
-                          <Badge variant="outline" className="ml-auto text-[9px] border-amber-500/30 text-amber-600 font-sans">Auto Sufijo</Badge>
-                        </div>
-                      ))}
-                    </div>
+            <div className="flex-1 min-h-0 overflow-y-auto max-h-[55vh] border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-muted/10 space-y-4 text-xs pr-2">
+              {/* Mostrar renombrados */}
+              {(Object.keys(stagedRenames).length > 0 || Object.keys(autoRenames).length > 0) && (
+                <div className="space-y-2">
+                  <h4 className="font-bold text-xs text-primary uppercase tracking-wider">
+                    Renombrar Familias ({Object.keys(stagedRenames).length + Object.keys(autoRenames).length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {/* Explícitos */}
+                    {Object.entries(stagedRenames).map(([oldName, newName]) => (
+                      <div key={oldName} className="flex items-center justify-between gap-2 text-xs font-mono bg-card border border-zinc-200 dark:border-zinc-800 p-2.5 rounded-lg shadow-xs">
+                        <span className="text-muted-foreground line-through text-[11px] truncate">{oldName}</span>
+                        <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="text-foreground font-bold truncate">{newName}</span>
+                        <Badge variant="outline" className="ml-auto text-[9px] shrink-0">Manual</Badge>
+                      </div>
+                    ))}
+                    {/* Automáticos */}
+                    {Object.entries(autoRenames).map(([oldName, newName]) => (
+                      <div key={oldName} className="flex items-center justify-between gap-2 text-xs font-mono bg-amber-500/[0.03] border border-amber-500/25 p-2.5 rounded-lg shadow-xs">
+                        <span className="text-muted-foreground line-through text-[11px] truncate">{oldName}</span>
+                        <ArrowRight className="h-3 w-3 text-amber-500 shrink-0" />
+                        <span className="text-amber-700 dark:text-amber-300 font-bold truncate">{newName}</span>
+                        <Badge variant="outline" className="ml-auto text-[9px] border-amber-500/30 text-amber-600 font-sans shrink-0">Auto Sufijo</Badge>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Mostrar movimientos de productos */}
-                {Object.keys(stagedMoves).length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="font-bold text-xs text-primary uppercase tracking-wider">
-                      Reubicar Productos ({Object.keys(stagedMoves).length})
-                    </h4>
-                    <div className="space-y-1.5">
-                      {Object.entries(
-                        Object.entries(stagedMoves).reduce((acc, [prodIdStr, destFamily]) => {
-                          const finalDest = getFinalFamilyName(destFamily, autoRenames)
-                          if (!acc[finalDest]) acc[finalDest] = []
-                          const prodId = parseInt(prodIdStr, 10)
-                          let sku = `ID #${prodId}`
-                          for (const prods of Object.values(loadedProducts)) {
-                            const found = prods.find(p => p.id === prodId)
-                            if (found) {
-                              sku = found.sku_base
-                              break
-                            }
+              {/* Mostrar movimientos de productos */}
+              {Object.keys(stagedMoves).length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-bold text-xs text-primary uppercase tracking-wider">
+                    Reubicar Productos ({Object.keys(stagedMoves).length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {Object.entries(
+                      Object.entries(stagedMoves).reduce((acc, [prodIdStr, destFamily]) => {
+                        const finalDest = getFinalFamilyName(destFamily, autoRenames)
+                        if (!acc[finalDest]) acc[finalDest] = []
+                        const prodId = parseInt(prodIdStr, 10)
+                        let sku = `ID #${prodId}`
+                        for (const prods of Object.values(loadedProducts)) {
+                          const found = prods.find(p => p.id === prodId)
+                          if (found) {
+                            sku = found.sku_base
+                            break
                           }
-                          acc[finalDest].push(sku)
-                          return acc
-                        }, {} as Record<string, string[]>)
-                      ).map(([destFamily, skus]) => (
-                        <div key={destFamily} className="bg-card border p-2 rounded text-xs space-y-1">
-                          <div className="font-semibold text-foreground flex items-center gap-1.5 border-b pb-1 mb-1">
-                            <span>Destino:</span>
-                            <Badge variant="outline" className="font-mono bg-primary/5 text-primary text-[10px] px-1.5">
-                              {destFamily}
-                            </Badge>
-                          </div>
-                          <p className="text-muted-foreground font-mono text-[11px] leading-relaxed">
-                            {skus.join(', ')}
-                          </p>
+                        }
+                        acc[finalDest].push(sku)
+                        return acc
+                      }, {} as Record<string, string[]>)
+                    ).map(([destFamily, skus]) => (
+                      <div key={destFamily} className="bg-card border border-zinc-200 dark:border-zinc-800 p-3 rounded-lg text-xs space-y-1.5 shadow-xs flex flex-col">
+                        <div className="font-semibold text-foreground flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800/60 pb-1.5 mb-1">
+                          <span className="text-muted-foreground text-[11px]">Destino:</span>
+                          <Badge variant="outline" className="font-mono bg-primary/10 text-primary border-primary/20 text-[11px] font-bold px-2 py-0.5">
+                            {destFamily}
+                          </Badge>
                         </div>
-                      ))}
-                    </div>
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {skus.map(sku => (
+                            <Badge key={sku} variant="secondary" className="font-mono text-[10px] px-1.5 py-0.5 bg-muted text-foreground">
+                              {sku}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </div>
-            </ScrollArea>
+                </div>
+              )}
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t border-zinc-200 dark:border-zinc-800 shrink-0 mt-2 flex items-center justify-end">
             <Button
               variant="outline"
               onClick={() => setIsConfirmModalOpen(false)}
@@ -2684,7 +2817,7 @@ export function FamiliasOrganizerClient({
             <Button
               onClick={handleConfirmPersist}
               disabled={isPending}
-              className="bg-primary text-primary-foreground"
+              className="bg-primary text-primary-foreground font-semibold"
             >
               {isPending ? (
                 <>

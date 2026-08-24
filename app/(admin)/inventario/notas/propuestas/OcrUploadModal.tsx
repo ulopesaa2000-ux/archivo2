@@ -48,12 +48,18 @@ export function OcrUploadModal({
   defaultTipo = 'entrada',
   defaultTipoCodigo,
   tiposMovimiento,
+  bodegaOrigenNombre,
+  priorizarIa,
+  fechaNota,
 }: {
   trigger?: React.ReactNode
   redirectToNueva?: boolean
   defaultTipo?: string
   defaultTipoCodigo?: string
   tiposMovimiento?: { id: number; codigo: string; nombre: string }[]
+  bodegaOrigenNombre?: string
+  priorizarIa?: boolean
+  fechaNota?: string
 }) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
@@ -208,6 +214,15 @@ export function OcrUploadModal({
       formData.append('foto', file)
       formData.append('tipo_hint', tipo)
       formData.append('client_request_id', crypto.randomUUID())
+      if (priorizarIa !== undefined && priorizarIa !== null) {
+        formData.append('priorizar_ia', String(priorizarIa))
+      }
+      if (bodegaOrigenNombre) {
+        formData.append('origen_hint', bodegaOrigenNombre)
+      }
+      if (fechaNota) {
+        formData.append('fecha_hint', fechaNota)
+      }
 
       try {
         const response = await fetch('/api/inventario/notas/ocr', {

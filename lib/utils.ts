@@ -128,6 +128,25 @@ export function inputDateTimeToUTC(localDateTime: string): string {
   return new Date(fakeUTC.getTime() + offsetMs).toISOString()
 }
 
+export function dateInputToMexicoUTC(dateString: string | null | undefined): string {
+  if (!dateString) return nowUTC()
+  const trimmed = dateString.trim()
+  if (!trimmed) return nowUTC()
+
+  // Si ya viene con hora ISO o local ('T')
+  if (trimmed.includes('T')) {
+    // Si ya tiene Z o offset explícito, parsearlo
+    if (trimmed.endsWith('Z') || trimmed.match(/[+-]\d{2}:?\d{2}$/)) {
+      return new Date(trimmed).toISOString()
+    }
+    return inputDateTimeToUTC(trimmed)
+  }
+
+  // Si viene en formato simple de fecha 'YYYY-MM-DD'
+  // 06:00:00 AM en America/Mexico_City (UTC-6) corresponde a las 12:00:00 UTC
+  return `${trimmed}T12:00:00.000Z`
+}
+
 export function nowUTC(): string {
   return new Date().toISOString()
 }
