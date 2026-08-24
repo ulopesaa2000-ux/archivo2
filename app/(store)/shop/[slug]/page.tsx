@@ -291,7 +291,7 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
         <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
           <ol className="flex items-center space-x-2 text-[12px] text-store-ink3">
             <li>
-              <Link href="/" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
+              <Link href="/inicio" className="hover:text-store-ink transition-colors" aria-label="Ir al inicio">
                 Inicio
               </Link>
             </li>

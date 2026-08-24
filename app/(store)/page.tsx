@@ -3,7 +3,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
-import { fetchBannerCategoriaActivo } from '@/modules/ecommerce/banners'
+import { fetchPortadaColeccionHome } from '@/modules/ecommerce/banners'
 import { 
   ArrowRight, 
   Heart, 
@@ -47,7 +47,10 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
   subtitle: string
   subtitleSize: string
 }) {
-  const { productos: destacados } = await fetchProductosWebPublicos({ destacado: true, page: 1 })
+  const [{ productos: destacados }, config] = await Promise.all([
+    fetchProductosWebPublicos({ destacado: true, page: 1 }),
+    fetchConfigEcommerce(),
+  ])
   const top4 = destacados.slice(0, 4)
 
   return (
@@ -101,9 +104,11 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
             </div>
 
             <div className="p-3.5">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase block truncate">
-                {prod.sku_base}
-              </span>
+              {config?.mostrar_sku && prod.sku_base && (
+                <span className="text-[10px] font-mono text-muted-foreground uppercase block truncate">
+                  {prod.sku_base}
+                </span>
+              )}
               <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
                 {prod.nombre}
               </h4>
@@ -135,8 +140,8 @@ function DestacadosSkeleton() {
 }
 
 async function HomePageContent() {
-  const bannerDama = await fetchBannerCategoriaActivo({ generoId: 1 })
-  const bannerCaballero = await fetchBannerCategoriaActivo({ generoId: 2 })
+  const portadaDama = await fetchPortadaColeccionHome(1)
+  const portadaCaballero = await fetchPortadaColeccionHome(2)
   const rawConfig = await fetchConfigEcommerce()
   const storeConfig = parseStoreConfig(rawConfig?.mensaje_precio_variable)
 
@@ -182,14 +187,14 @@ async function HomePageContent() {
           </div>
         </div>
 
-        {/* Muestra de Cuadros en 3:4 con producto o banner asignado */}
+        {/* Muestra de Cuadros en 3:4 con producto o portada asignada */}
         <div className="grid grid-cols-2 gap-4 relative">
           {/* Tarjeta Colección Dama */}
           <div className="relative aspect-[3/4] bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden border border-border shadow-md group">
-            {bannerDama?.imagen_url ? (
+            {portadaDama?.imagen_url ? (
               <Image
-                src={bannerDama.imagen_url}
-                alt={bannerDama.titulo_banner || 'Portada Colección Dama'}
+                src={portadaDama.imagen_url}
+                alt={portadaDama.titulo || 'Portada Colección Dama'}
                 fill
                 className="object-cover object-top group-hover:scale-105 transition-transform duration-500"
                 sizes="(max-width: 768px) 50vw, 25vw"
@@ -207,17 +212,17 @@ async function HomePageContent() {
 
             <Link
               href="/shop?genero=dama"
-              className="absolute inset-x-0 bottom-0 h-28 flex flex-col justify-end text-center p-4 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-10 transition-all"
+              className="absolute inset-x-0 bottom-0 h-28 flex flex-col justify-end text-left p-4 pr-28 bg-gradient-to-t from-black/85 via-black/40 to-transparent z-10 transition-all group"
             >
-              <span className="text-white text-base font-bold drop-shadow-md">
-                {bannerDama?.titulo_banner || 'Colección Dama'}
+              <span className="text-white text-base md:text-lg font-bold drop-shadow-md group-hover:text-emerald-300 transition-colors truncate">
+                {portadaDama?.titulo || 'Colección Dama'}
               </span>
             </Link>
 
-            {bannerDama?.producto_sku && bannerDama?.producto_slug && (
+            {portadaDama?.producto_sku && portadaDama?.producto_slug && (
               <SkuPill
-                href={`/shop/${bannerDama.producto_slug}`}
-                sku={bannerDama.producto_sku}
+                href={`/shop/${portadaDama.producto_slug}`}
+                sku={portadaDama.producto_sku}
                 color="emerald"
               />
             )}
@@ -225,10 +230,10 @@ async function HomePageContent() {
 
           {/* Tarjeta Colección Caballero */}
           <div className="relative aspect-[3/4] bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden border border-border shadow-md group">
-            {bannerCaballero?.imagen_url ? (
+            {portadaCaballero?.imagen_url ? (
               <Image
-                src={bannerCaballero.imagen_url}
-                alt={bannerCaballero.titulo_banner || 'Portada Colección Caballero'}
+                src={portadaCaballero.imagen_url}
+                alt={portadaCaballero.titulo || 'Portada Colección Caballero'}
                 fill
                 className="object-cover object-top group-hover:scale-105 transition-transform duration-500"
                 sizes="(max-width: 768px) 50vw, 25vw"
@@ -246,17 +251,17 @@ async function HomePageContent() {
 
             <Link
               href="/shop?genero=caballero"
-              className="absolute inset-x-0 bottom-0 h-28 flex flex-col justify-end text-center p-4 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-10 transition-all"
+              className="absolute inset-x-0 bottom-0 h-28 flex flex-col justify-end text-left p-4 pr-28 bg-gradient-to-t from-black/85 via-black/40 to-transparent z-10 transition-all group"
             >
-              <span className="text-white text-base font-bold drop-shadow-md">
-                {bannerCaballero?.titulo_banner || 'Colección Caballero'}
+              <span className="text-white text-base md:text-lg font-bold drop-shadow-md group-hover:text-amber-300 transition-colors truncate">
+                {portadaCaballero?.titulo || 'Colección Caballero'}
               </span>
             </Link>
 
-            {bannerCaballero?.producto_sku && bannerCaballero?.producto_slug && (
+            {portadaCaballero?.producto_sku && portadaCaballero?.producto_slug && (
               <SkuPill
-                href={`/shop/${bannerCaballero.producto_slug}`}
-                sku={bannerCaballero.producto_sku}
+                href={`/shop/${portadaCaballero.producto_slug}`}
+                sku={portadaCaballero.producto_sku}
                 color="amber"
               />
             )}

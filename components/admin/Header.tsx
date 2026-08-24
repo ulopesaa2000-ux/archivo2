@@ -96,7 +96,7 @@ export function Header({
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/" className="flex items-center gap-2 cursor-pointer">
+                <Link href="/inicio" className="flex items-center gap-2 cursor-pointer">
                   <Store className="h-4 w-4" />
                   Ir a tienda
                 </Link>
@@ -115,7 +115,7 @@ export function Header({
 
           {/* ── Ir a tienda button (desktop) ── */}
           <Button variant="ghost" size="sm" asChild className="hidden lg:flex text-muted-foreground hover:text-foreground">
-            <Link href="/">
+            <Link href="/inicio">
               <Store className="h-4 w-4 mr-2" />
               Ir a tienda
             </Link>

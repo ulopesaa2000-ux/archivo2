@@ -13,7 +13,7 @@ export default function AuthLayout({
       {/* Barra superior con selector de tema y regreso a tienda */}
       <header className="absolute top-4 sm:top-6 left-4 sm:left-8 right-4 sm:right-8 flex items-center justify-between z-20">
         <Link
-          href="/"
+          href="/inicio"
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white/70 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md shadow-xs transition-all hover:scale-105 active:scale-95"
           title="Regresar a la tienda pública"
         >

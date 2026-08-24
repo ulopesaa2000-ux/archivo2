@@ -52,7 +52,7 @@ const formSchema = z.object({
   
   // Flujo de órdenes y Carrito
   tipo_orden_generada: z.enum(['cotizacion', 'orden_b2b', 'orden_venta']),
-  modo_vista_carrito: z.enum(['drawer', 'pagina', 'ambos']).optional(),
+  modo_vista_carrito: z.enum(['drawer', 'pagina', 'ambos']),
   requiere_aprobacion: z.boolean(),
   
   // Contacto
@@ -384,6 +384,32 @@ export function ConfigForm({ config }: ConfigFormProps) {
                       <SelectItem value="orden_venta">Orden de Venta</SelectItem>
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="modo_vista_carrito"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Modo de Vista del Carrito / Cotización</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="drawer">Menú Lateral (Drawer slide-over)</SelectItem>
+                      <SelectItem value="pagina">Página Completa (/cotizacion)</SelectItem>
+                      <SelectItem value="ambos">Ambos (Drawer con enlace a Página Completa)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Define si el carrito se despliega como panel lateral deslizante, como página dedicada o en modo híbrido.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

@@ -219,6 +219,20 @@ export function CartDrawer() {
               <ArrowRight className="h-4 w-4" />
             </Button>
 
+            {config?.modo_vista_carrito === 'ambos' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsOpen(false)
+                  router.push('/cotizacion')
+                }}
+                className="w-full text-xs font-semibold border-emerald-600/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+              >
+                Ver en página completa (/cotizacion)
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="sm"

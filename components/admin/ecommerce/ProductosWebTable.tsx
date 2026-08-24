@@ -221,7 +221,7 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
 
               <TableHead className="w-[70px]">Foto</TableHead>
               <TableHead className="w-[120px]">SKU</TableHead>
-              <TableHead>Producto & Marca</TableHead>
+              <TableHead>Descripción & Marca</TableHead>
               <TableHead>Categoría</TableHead>
               <TableHead className="w-[140px]">Precios Web (Clic para editar)</TableHead>
               <TableHead className="w-[130px]">Estado Web</TableHead>
@@ -252,7 +252,7 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                       <div className="relative aspect-[3/4] w-12 rounded-md overflow-hidden border border-border bg-muted/20">
                         <Image
                           src={producto.imagen_principal}
-                          alt={producto.nombre || producto.sku_base}
+                          alt={producto.descripcion || producto.nombre || producto.sku_base}
                           fill
                           className="object-contain p-0.5"
                           sizes="48px"
@@ -284,11 +284,11 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                     </div>
                   </TableCell>
 
-                  {/* Nombre y Marca */}
+                  {/* Descripción y Marca */}
                   <TableCell>
                     <div className="space-y-0.5">
-                      <p className="font-semibold text-xs text-foreground line-clamp-1">
-                        {producto.nombre}
+                      <p className="font-semibold text-xs text-foreground line-clamp-2" title={producto.descripcion || producto.nombre}>
+                        {producto.descripcion || producto.nombre}
                       </p>
                       <p className="text-[11px] text-muted-foreground font-medium">
                         {producto.marca_nombre || 'Sin Marca'}
@@ -548,7 +548,7 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-base">
                 <DollarSign className="h-5 w-5 text-emerald-600" />
-                Editar Precio: [{editingSingleProduct.sku_base}] {editingSingleProduct.nombre}
+                Editar Precio: [{editingSingleProduct.sku_base}] {editingSingleProduct.descripcion || editingSingleProduct.nombre}
               </DialogTitle>
             </DialogHeader>
 

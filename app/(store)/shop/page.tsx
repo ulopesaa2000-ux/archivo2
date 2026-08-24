@@ -62,7 +62,6 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     fetchProductosWebPublicos(filtros),
     fetchBannerCategoriaActivo({
       genero: filtros.genero,
-      generoId: filtros.genero ? undefined : undefined,
       tipoPrendaId: filtros.tipo_prenda_id,
       tipo: filtros.tipo,
     }),
@@ -129,7 +128,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
           <ol className="flex items-center space-x-2 text-[12px] text-muted-foreground">
             <li>
               <Link
-                href="/"
+                href="/inicio"
                 className="text-foreground hover:text-emerald-600 transition-colors"
                 aria-label="Ir al inicio"
               >

@@ -16,15 +16,67 @@ import type {
 
 // CONFIGURACION GLOBAL
 
-export async function actualizarConfigEcommerce(data: ConfigEcommerceUpdate) {
+export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpdate> & Record<string, any>) {
   const supabase = await createClient()
+
+  // Extraer únicamente las columnas válidas existentes en la base de datos (inv-tienda.config_ecommerce)
+  const {
+    modo_operacion,
+    mostrar_precios,
+    tipo_precio_visible,
+    tipo_venta,
+    minimo_unidades,
+    multiplo_cajas,
+    texto_boton_agregar,
+    texto_boton_finalizar,
+    titulo_seccion_carrito,
+    mensaje_precio_variable,
+    tipo_orden_generada,
+    modo_vista_carrito,
+    requiere_aprobacion,
+    permitir_checkout_invitado,
+    email_notificaciones,
+    mostrar_stock,
+    mostrar_sku,
+    mostrar_medidas_tabla,
+    mostrar_variantes_agotadas,
+    campos_contacto_requeridos,
+    notificar_whatsapp,
+    numero_whatsapp,
+    updated_by,
+  } = data as any
+
+  const updatePayload: Database['inv-tienda']['Tables']['config_ecommerce']['Update'] = {
+    updated_at: new Date().toISOString(),
+  }
+
+  if (modo_operacion !== undefined) updatePayload.modo_operacion = modo_operacion
+  if (modo_vista_carrito !== undefined) updatePayload.modo_vista_carrito = modo_vista_carrito
+  if (mostrar_precios !== undefined) updatePayload.mostrar_precios = mostrar_precios
+  if (tipo_precio_visible !== undefined) updatePayload.tipo_precio_visible = tipo_precio_visible
+  if (tipo_venta !== undefined) updatePayload.tipo_venta = tipo_venta
+  if (minimo_unidades !== undefined) updatePayload.minimo_unidades = minimo_unidades
+  if (multiplo_cajas !== undefined) updatePayload.multiplo_cajas = multiplo_cajas
+  if (texto_boton_agregar !== undefined) updatePayload.texto_boton_agregar = texto_boton_agregar
+  if (texto_boton_finalizar !== undefined) updatePayload.texto_boton_finalizar = texto_boton_finalizar
+  if (titulo_seccion_carrito !== undefined) updatePayload.titulo_seccion_carrito = titulo_seccion_carrito
+  if (mensaje_precio_variable !== undefined) updatePayload.mensaje_precio_variable = mensaje_precio_variable
+  if (tipo_orden_generada !== undefined) updatePayload.tipo_orden_generada = tipo_orden_generada
+  if (requiere_aprobacion !== undefined) updatePayload.requiere_aprobacion = requiere_aprobacion
+  if (permitir_checkout_invitado !== undefined) updatePayload.permitir_checkout_invitado = permitir_checkout_invitado
+  if (email_notificaciones !== undefined) updatePayload.email_notificaciones = email_notificaciones || null
+  if (mostrar_stock !== undefined) updatePayload.mostrar_stock = mostrar_stock
+  if (mostrar_sku !== undefined) updatePayload.mostrar_sku = mostrar_sku
+  if (mostrar_medidas_tabla !== undefined) updatePayload.mostrar_medidas_tabla = mostrar_medidas_tabla
+  if (mostrar_variantes_agotadas !== undefined) updatePayload.mostrar_variantes_agotadas = mostrar_variantes_agotadas
+  if (campos_contacto_requeridos !== undefined) updatePayload.campos_contacto_requeridos = campos_contacto_requeridos
+  if (notificar_whatsapp !== undefined) updatePayload.notificar_whatsapp = notificar_whatsapp
+  if (numero_whatsapp !== undefined) updatePayload.numero_whatsapp = numero_whatsapp
+  if (updated_by !== undefined) updatePayload.updated_by = updated_by
 
   const { error } = await supabase
     .from('config_ecommerce')
-    .update({
-      ...data,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', 1)
 
   if (error) {
@@ -33,6 +85,8 @@ export async function actualizarConfigEcommerce(data: ConfigEcommerceUpdate) {
 
   revalidateTag('ecommerce-config', 'max')
   revalidatePath('/(store)')
+  revalidatePath('/inicio')
+  revalidatePath('/shop')
   revalidatePath('/(admin)/ecommerce/config')
 
   return { success: true }

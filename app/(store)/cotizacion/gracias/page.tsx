@@ -47,7 +47,7 @@ export default async function GraciasPage({ searchParams }: GraciasPageProps) {
         </Button>
 
         <Button variant="outline" asChild>
-          <Link href="/">Volver al inicio</Link>
+          <Link href="/inicio">Volver al inicio</Link>
         </Button>
       </div>
     </div>

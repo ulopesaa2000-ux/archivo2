@@ -59,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 <span>Intentar de nuevo</span>
               </button>
               <Link
-                href="/"
+                href="/inicio"
                 className="flex items-center justify-center gap-2 bg-store-bg border border-store-border text-store-ink py-3 px-6 rounded-lg hover:bg-store-surface transition-colors"
               >
                 <Home className="w-5 h-5" />

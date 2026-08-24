@@ -147,7 +147,7 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {/* 1. Buscador */}
           <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs text-muted-foreground font-medium">Buscar por SKU o Nombre</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Buscar por SKU, Descripción o Marca</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
