@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from './permissions'
 import { fetchStockByBodegaAll, fetchStockMatrixAll } from './queries'
 import { fetchConfigInventario } from './config-queries'
+import { dateInputToMexicoUTC } from '@/lib/utils'
 import type {
   DraftNota,
   DraftProducto,
@@ -142,9 +143,7 @@ export async function guardarNotaAction(
     updateCabeceraPayload.costo_total = draft.costo_total
   }
   if (draft.fecha_nota) {
-    updateCabeceraPayload.fecha_nota = draft.fecha_nota.includes('T')
-      ? draft.fecha_nota
-      : `${draft.fecha_nota}T00:00:00.000Z`
+    updateCabeceraPayload.fecha_nota = dateInputToMexicoUTC(draft.fecha_nota)
   }
   if (Object.keys(updateCabeceraPayload).length > 0) {
     await supabase
@@ -383,9 +382,7 @@ export async function actualizarNotaAction(
     updateCabPayload.bodega_origen_id = draft.bodega_origen_id
   }
   if (draft.fecha_nota) {
-    updateCabPayload.fecha_nota = draft.fecha_nota.includes('T')
-      ? draft.fecha_nota
-      : `${draft.fecha_nota}T00:00:00.000Z`
+    updateCabPayload.fecha_nota = dateInputToMexicoUTC(draft.fecha_nota)
   }
 
   const { error: updateError } = await supabase
@@ -1219,62 +1216,72 @@ export async function sincronizarLineasOcrAction(
     cantidad_cajas: number
     piezas_por_caja?: number | null
     confianza?: number
+    descripcion_texto?: string
+    descripcion_raw?: string
   }>
 ): Promise<{ success: boolean; data?: NotaOcrLineaSincronizada[]; error?: string }> {
   const supabase = await createClient()
   const resultados: NotaOcrLineaSincronizada[] = []
 
+  const payload = lineas.map((item, idx) => ({
+    index: item.index ?? idx,
+    sku: item.estilo_raw,
+    estilo_raw: item.estilo_raw,
+    descripcion_texto: item.descripcion_texto || item.descripcion_raw || '',
+    descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
+  }))
+
+  const { data: candidates, error: rpcError } = await (supabase as any).rpc('fn_buscar_candidatos_sku_ocr', {
+    p_lineas: payload,
+  })
+
+  const candList: any[] = Array.isArray(candidates) ? candidates : []
+
   for (const item of lineas) {
     const rawText = item.estilo_raw?.trim() ?? ''
     const cajas = item.cantidad_cajas ?? 0
-    const confianza = item.confianza ?? 0.8
+    const itemIndex = item.index
 
     if (!rawText) {
       resultados.push({
-        index: item.index,
+        index: itemIndex,
         estilo_raw: '',
         cantidad_cajas: cajas,
-        confianza,
+        confianza: 0,
         encontrado: false,
       })
       continue
     }
 
-    // Coincidencia exacta o por palabras en productos (sku_base o descripcion)
-    const cleanTerm = rawText.replace(/[\s\/_-]+/g, '%')
+    // Filtrar candidatos para esta línea ordenados por score descendente
+    const cands = candList
+      .filter((c: any) => c.linea_index === itemIndex || c.sku_buscado === rawText)
+      .sort((a: any, b: any) => Number(b.score) - Number(a.score))
+    const topCand = cands.length > 0 ? cands[0] : null
 
-    const { data: prods } = await supabase
-      .from('productos')
-      .select('id, sku_base, nombre, descripcion, pz_en_caja')
-      .or(`sku_base.ilike.%${rawText}%,sku_base.ilike.%${cleanTerm}%,descripcion.ilike.%${rawText}%`)
-      .limit(1)
-
-    if (prods && prods.length > 0) {
-      const p = prods[0]
+    if (topCand && Number(topCand.score) >= 0.60) {
       resultados.push({
-        index: item.index,
+        index: itemIndex,
         estilo_raw: rawText,
         cantidad_cajas: cajas,
-        piezas_por_caja: item.piezas_por_caja ?? p.pz_en_caja,
-        confianza,
-        producto_id: p.id,
-        producto_sku: p.sku_base,
-        producto_nombre: p.descripcion ?? p.nombre ?? '',
-        producto_pz_en_caja: p.pz_en_caja,
+        piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
+        confianza: Math.min(0.99, Number(topCand.score)),
+        producto_id: topCand.producto_id,
+        producto_sku: topCand.sku_base,
+        producto_nombre: topCand.descripcion,
+        producto_pz_en_caja: topCand.pz_en_caja,
         encontrado: true,
       })
-      continue
+    } else {
+      resultados.push({
+        index: itemIndex,
+        estilo_raw: rawText,
+        cantidad_cajas: cajas,
+        piezas_por_caja: item.piezas_por_caja ?? null,
+        confianza: item.confianza ?? 0.5,
+        encontrado: false,
+      })
     }
-
-    // No se encontró ninguna coincidencia
-    resultados.push({
-      index: item.index,
-      estilo_raw: rawText,
-      cantidad_cajas: cajas,
-      piezas_por_caja: item.piezas_por_caja ?? null,
-      confianza,
-      encontrado: false,
-    })
   }
 
   return { success: true, data: resultados }

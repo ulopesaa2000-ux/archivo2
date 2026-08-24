@@ -1,15 +1,32 @@
 // scripts/update_n8n_ocr.js
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
 
-const apiKey = process.env.N8N_API_KEY || '';
+// Cargar variables desde .env.local si existen
+let envConfig = {};
+try {
+  const envPath = path.resolve(__dirname, '../.env.local');
+  if (fs.existsSync(envPath)) {
+    envConfig = dotenv.parse(fs.readFileSync(envPath));
+  }
+} catch (e) {}
+
+const apiKey = process.env.N8N_API_KEY || envConfig.N8N_API_KEY || '';
 const workflowId = process.env.N8N_WORKFLOW_ID || 'DtZOqR4-9_DnULEjWW78b';
 
-function api(method, path, body = null) {
+if (!apiKey) {
+  console.error('ERROR: N8N_API_KEY no encontrada en variables de entorno ni en .env.local');
+  process.exit(1);
+}
+
+function api(method, apiPath, body = null) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const req = https.request({
       hostname: 'n8n.sistemaindumentaria.com',
-      path: '/api/v1' + path,
+      path: '/api/v1' + apiPath,
       method: method,
       headers: {
         'X-N8N-API-KEY': apiKey,
@@ -36,7 +53,7 @@ function api(method, path, body = null) {
 }
 
 async function run() {
-  console.log('Obteniendo workflow de n8n...');
+  console.log('Obteniendo workflow de n8n (ID:', workflowId, ')...');
   const resGet = await api('GET', '/workflows/' + workflowId);
   if (resGet.status !== 200) {
     console.error('Error al obtener workflow:', resGet);
@@ -44,7 +61,51 @@ async function run() {
   }
   const wf = resGet.data;
 
-  // 1. SQL Robusto con COALESCE en fecha, folio, origen, destino y ON CONFLICT completo
+  // 1. Agregar o actualizar el nodo Postgres "Candidatos SKU1"
+  let skuNode = wf.nodes.find(n => n.name === 'Candidatos SKU1');
+  if (!skuNode) {
+    skuNode = {
+      parameters: {
+        operation: "executeQuery",
+        query: "SELECT * FROM \"inv-tienda\".fn_buscar_candidatos_sku_ocr($1::jsonb);",
+        options: {
+          queryReplacement: "={{ [ JSON.stringify($('Parsear JSON1').first()?.json?.lineas || $('Parsear JSON').first()?.json?.lineas || $('Parsear JSON3').first()?.json?.lineas || [] ) ] }}"
+        }
+      },
+      id: "candidatos-sku-1-ocr-node",
+      name: "Candidatos SKU1",
+      type: "n8n-nodes-base.postgres",
+      typeVersion: 2.6,
+      position: [ 2016, 1688 ],
+      credentials: {
+        postgres: {
+          id: "YgDwsBMSmHIX6EeX",
+          name: "Postgres account"
+        }
+      }
+    };
+    wf.nodes.push(skuNode);
+    console.log('✓ Nodo Postgres "Candidatos SKU1" creado.');
+  } else {
+    skuNode.parameters.query = "SELECT * FROM \"inv-tienda\".fn_buscar_candidatos_sku_ocr($1::jsonb);";
+    skuNode.parameters.options = {
+      queryReplacement: "={{ [ JSON.stringify($('Parsear JSON1').first()?.json?.lineas || $('Parsear JSON').first()?.json?.lineas || $('Parsear JSON3').first()?.json?.lineas || [] ) ] }}"
+    };
+    console.log('✓ Nodo Postgres "Candidatos SKU1" actualizado.');
+  }
+
+  // 2. Conectar Parsear JSON1 con Candidatos SKU1 y Candidatos SKU1 con Resolver bodegas1
+  wf.connections['Parsear JSON1'] = wf.connections['Parsear JSON1'] || { main: [[]] };
+  const pConns = wf.connections['Parsear JSON1'].main[0];
+  if (!pConns.some(c => c.node === 'Candidatos SKU1')) {
+    pConns.push({ node: 'Candidatos SKU1', type: 'main', index: 0 });
+  }
+
+  wf.connections['Candidatos SKU1'] = {
+    main: [[{ node: 'Resolver bodegas1', type: 'main', index: 0 }]]
+  };
+
+  // 3. SQL de Inserción robusto
   const sqlRobustInsert = `WITH src AS (SELECT $1::jsonb AS j)
 INSERT INTO "inv-tienda".nota_ocr_propuestas (
   client_request_id,
@@ -99,14 +160,175 @@ RETURNING id;`;
       ins.parameters.query = sqlRobustInsert;
       ins.parameters.options = ins.parameters.options || {};
       ins.parameters.options.queryReplacement = "={{ [ $json.payload_json ] }}";
-      console.log(`✓ Nodo Postgres ${ins.name} actualizado con mapeo de fecha_detectada y ON CONFLICT completo.`);
+      console.log(`✓ Nodo Postgres ${ins.name} actualizado.`);
     }
   }
 
-  // 2. Actualizar Resolver bodegas con fecha y fecha_detectada explícitas
+  // 4. Actualizar Construir prompt + body para propagar todos los metadatos
+  const promptNodes = wf.nodes.filter(n => n.name.includes('Construir prompt'));
+  for (const pr of promptNodes) {
+    if (pr.parameters && pr.parameters.jsCode) {
+      pr.parameters.jsCode = pr.parameters.jsCode.replace(
+        /return \[\{\s*json: \{[\s\S]*?\}\s*\}\];/,
+        `return [{
+  json: {
+    usuario_id: meta.usuario_id || 1,
+    priorizar_ia: meta.priorizar_ia,
+    openrouter_body: openrouterBody,
+    client_request_id: meta.client_request_id,
+    comprobante_url: meta.comprobante_url,
+    storage_path: meta.storage_path,
+    tipo_hint: meta.tipo_hint,
+    origen_hint: meta.origen_hint,
+    destino_hint: meta.destino_hint,
+    fecha_hint: meta.fecha_hint
+  }
+}];`
+      );
+    }
+  }
+
+  // 5. Actualizar Parsear JSON
+  const parsearNodes = wf.nodes.filter(n => n.name.startsWith('Parsear JSON'));
+  for (const pNode of parsearNodes) {
+    pNode.parameters.jsCode = `const item = $input.first()?.json || {};
+let data = item.data || item;
+
+if (typeof data === 'string') {
+  try {
+    let clean = data.replace(/^[\\s\\S]*?\\{/, '{').replace(/\\}[\\s\\S]*?$/, '}');
+    data = JSON.parse(clean);
+  } catch(e) {
+    try {
+      const match = data.match(/\\{[\\s\\S]*\\}/);
+      if (match) data = JSON.parse(match[0]);
+    } catch(e2) {}
+  }
+}
+
+let meta = {};
+try { meta = $('Construir prompt + body').first()?.json || {}; } catch(e) {}
+if (!meta.usuario_id) {
+  try { meta = $('Construir prompt + body1').first()?.json || {}; } catch(e) {}
+}
+if (!meta.usuario_id) {
+  try { meta = $('Construir prompt + body2').first()?.json || {}; } catch(e) {}
+}
+if (!meta.usuario_id) {
+  try { meta = $('Preparar upload').first()?.json || {}; } catch(e) {}
+}
+
+function normalizarSku(raw) {
+  if (!raw) return '';
+  let s = String(raw).trim().toUpperCase();
+  s = s.replace(/[\\s\\.\\,\\-]+$/g, '');
+  s = s.replace(/\\s+/g, '');
+  return s;
+}
+
+function normalizarFecha(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})$/);
+  if (m) {
+    const dd = m[1].padStart(2, '0');
+    const mm = m[2].padStart(2, '0');
+    const yyyy = m[3];
+    return \`\${yyyy}-\${mm}-\${dd}\`;
+  }
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return \`\${yyyy}-\${mm}-\${dd}\`;
+    }
+  } catch(e) {}
+  return s;
+}
+
+const rawLines = Array.isArray(data.lineas) ? data.lineas : [];
+const processedLines = rawLines.map((l, idx) => {
+  const rawCandidate = (l.sku || l.estilo_raw || l.descripcion_raw || '').trim();
+  const skuLimpio = normalizarSku(rawCandidate);
+  const textoDescripcion = (l.descripcion_raw && l.descripcion_raw !== rawCandidate) 
+    ? l.descripcion_raw 
+    : (l.descripcion_texto || skuLimpio || rawCandidate);
+  let qty = l.cantidad_cajas;
+  if (qty == null || isNaN(qty) || Number(qty) <= 0) { qty = 1; }
+  
+  return {
+    index: idx,
+    estilo_raw: skuLimpio || rawCandidate,
+    sku: skuLimpio || rawCandidate,
+    descripcion_raw: skuLimpio || rawCandidate,
+    descripcion_texto: textoDescripcion,
+    cantidad_cajas: Number(qty),
+    piezas_por_caja: l.piezas_por_caja ? Number(l.piezas_por_caja) : null,
+    confianza: l.confianza || 0.95,
+    prefijo: l.prefijo || null,
+    proveedor_sugerido: l.proveedor_sugerido || null,
+    familia_sku: l.familia_sku || null
+  };
+});
+
+const tipoRaw = String(data.tipo_movimiento || 'ENT').toUpperCase().trim();
+let tipoDetectado = 'ENT';
+if (tipoRaw.includes('SAL') || tipoRaw.includes('VENTA') || tipoRaw.includes('DESPACHO')) {
+  tipoDetectado = 'SAL';
+} else if (tipoRaw.includes('TRF') || tipoRaw.includes('TRA') || tipoRaw.includes('TRASPASO') || tipoRaw.includes('TRANSF') || tipoRaw.includes('ENVIO')) {
+  tipoDetectado = 'TRF';
+} else if (tipoRaw.includes('DEV')) {
+  tipoDetectado = 'DEV';
+} else if (tipoRaw.includes('AJU')) {
+  tipoDetectado = 'AJU';
+} else {
+  tipoDetectado = 'ENT';
+}
+
+const fechaFormateada = normalizarFecha(data.fecha);
+
+const payload = {
+  client_request_id: meta.client_request_id || null,
+  comprobante_url: meta.comprobante_url || null,
+  folio: data.folio || null,
+  fecha: fechaFormateada,
+  tipo_movimiento: tipoDetectado,
+  bodega_receptora_interna: data.bodega_receptora_interna || null,
+  entidad_externa_procedencia: data.entidad_externa_procedencia || null,
+  origen: data.origen || null,
+  destino: data.destino || null,
+  nota_referencia: data.nota_referencia || data.entidad_externa_procedencia || null,
+  observaciones: data.observaciones || null,
+  lineas: processedLines,
+  confianza_global: data.confianza_global || 0.95,
+  json_crudo: data
+};
+
+return [{
+  json: Object.assign({}, payload, {
+    payload_json: JSON.stringify(payload),
+    lineas_json: JSON.stringify(processedLines)
+  })
+}];`;
+    console.log(`✓ Nodo ${pNode.name} actualizado.`);
+  }
+
+  // 6. Actualizar Resolver bodegas y SKUs con gestión de Priorizar IA vs Usuario
   const resolverNodes = wf.nodes.filter(n => n.name.startsWith('Resolver bodegas'));
   for (const resolver of resolverNodes) {
-    resolver.parameters.jsCode = `const cands = $input.all().map(x => x.json);
+    resolver.parameters.jsCode = `// Candidatos Bodegas de Postgres
+let candsBodegas = [];
+try { candsBodegas = $('Candidatos bodega1').all().map(x => x.json); } catch(e) {}
+if (!candsBodegas.length) {
+  try { candsBodegas = $('Candidatos bodega').all().map(x => x.json); } catch(e) {}
+}
+
+// Candidatos SKUs de Postgres (resultado de fn_buscar_candidatos_sku_ocr)
+let candsSkus = [];
+try { candsSkus = $('Candidatos SKU1').all().map(x => x.json); } catch(e) {}
 
 let ocr = {};
 try { ocr = $('Parsear JSON1').first()?.json || {}; } catch(e) {}
@@ -131,13 +353,11 @@ if (!meta.usuario_id) {
 if (!meta.usuario_id) {
   try { meta = $('Preparar upload').first()?.json || {}; } catch(e) {}
 }
-if (!meta.usuario_id) {
-  try { meta = $('Preparar').first()?.json || {}; } catch(e) {}
-}
 
 const usuarioId = Number(meta.usuario_id || 1);
-const priorizarIa = meta.priorizar_ia === true || meta.priorizar_ia === 'true';
+const priorizarIa = meta.priorizar_ia !== false && meta.priorizar_ia !== 'false';
 
+// ── 1. Catálogo Fijo de Bodegas con Normalización ──
 const BODEGAS = [
   { id: 1, codigo: "SUC001", nombre: "CHICONCUAC" },
   { id: 2, codigo: "SUC002", nombre: "VACAS" },
@@ -180,82 +400,202 @@ function buscarBodega(texto) {
     const hit = BODEGAS.find(b => b.id === bId);
     if (hit) return hit;
   }
-  const hit = BODEGAS.find(b => 
+  return BODEGAS.find(b => 
     b.nombre === limpio || 
     b.codigo === limpio || 
     limpio.includes(b.nombre) || 
     b.nombre.includes(limpio)
-  );
-  return hit || null;
-}
-
-function top(campo) {
-  return cands.filter(r => r.campo === campo).sort((a, b) => b.score - a.score || a.id - b.id);
+  ) || null;
 }
 
 function resolverBodegaId(campo, rawTexto, hintTexto) {
   if (!priorizarIa && hintTexto) {
-    const b = buscarBodega(hintTexto);
-    if (b) return b.id;
+    const bHint = buscarBodega(hintTexto);
+    if (bHint) return bHint.id;
   }
   const directo = buscarBodega(rawTexto);
   if (directo) return directo.id;
-  const c = top(campo);
-  if (c.length > 0 && c[0].score >= 0.25) {
+  
+  const c = candsBodegas.filter(r => r.campo === campo).sort((a, b) => b.score - a.score || a.id - b.id);
+  if (c.length > 0 && c[0].score >= 0.35) {
     return c[0].id;
   }
   if (hintTexto) {
-    const b = buscarBodega(hintTexto);
-    if (b) return b.id;
+    const bHint = buscarBodega(hintTexto);
+    if (bHint) return bHint.id;
   }
-  if (c.length > 0) return c[0].id;
   return null;
 }
 
-const tipo = (ocr.tipo_movimiento || meta.tipo_hint || 'ENT').toUpperCase();
-
-let textoOrigenParaBD = ocr.origen;
-let textoDestinoParaBD = ocr.destino;
-let referenciaFinal = ocr.nota_referencia || '';
-
-if (tipo === 'DEV' || tipo === 'ENT') {
-  textoOrigenParaBD = ocr.bodega_receptora_interna || ocr.destino || ocr.origen;
-  textoDestinoParaBD = null;
-  referenciaFinal = ocr.entidad_externa_procedencia || (ocr.origen !== textoOrigenParaBD ? ocr.origen : ocr.nota_referencia) || '';
-} else if (tipo === 'SAL') {
-  textoOrigenParaBD = ocr.bodega_origen_sugerida || ocr.origen;
-  textoDestinoParaBD = null;
-  referenciaFinal = ocr.entidad_destino_externa || ocr.destino || ocr.nota_referencia || '';
+// ── Determinar Tipo de Movimiento según Prioridad (IA vs Usuario) ──
+const tipoDetectado = (ocr.tipo_movimiento || 'ENT').toUpperCase();
+let tipo = tipoDetectado;
+if (!priorizarIa && meta.tipo_hint) {
+  const hintUpper = String(meta.tipo_hint).toUpperCase().trim();
+  if (hintUpper.includes('SAL')) tipo = 'SAL';
+  else if (hintUpper.includes('TRF') || hintUpper.includes('TRA')) tipo = 'TRF';
+  else if (hintUpper.includes('DEV')) tipo = 'DEV';
+  else if (hintUpper.includes('AJU')) tipo = 'AJU';
+  else tipo = 'ENT';
 }
 
-const bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, meta.origen_hint);
-const bodega_destino_id = textoDestinoParaBD ? resolverBodegaId('destino', textoDestinoParaBD, meta.destino_hint) : null;
+let observacionesArr = [];
+if (ocr.observaciones) observacionesArr.push(ocr.observaciones);
+
+let bodega_origen_id = null;
+let bodega_destino_id = null;
+let textoOrigenParaBD = ocr.origen;
+let textoDestinoParaBD = ocr.destino;
+
+if (tipo === 'SAL') {
+  textoOrigenParaBD = ocr.origen || ocr.bodega_origen_sugerida;
+  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, meta.origen_hint);
+  if (ocr.destino) {
+    observacionesArr.push('Destino/Cliente: ' + ocr.destino);
+  }
+  textoDestinoParaBD = null;
+  bodega_destino_id = null;
+} else if (tipo === 'ENT' || tipo === 'DEV') {
+  textoOrigenParaBD = ocr.bodega_receptora_interna || ocr.origen || ocr.destino;
+  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, meta.origen_hint);
+  if (ocr.entidad_externa_procedencia || (ocr.origen && ocr.origen !== textoOrigenParaBD)) {
+    observacionesArr.push('Procedencia: ' + (ocr.entidad_externa_procedencia || ocr.origen));
+  }
+  textoDestinoParaBD = null;
+  bodega_destino_id = null;
+} else if (tipo === 'TRF') {
+  bodega_origen_id = resolverBodegaId('origen', ocr.origen, meta.origen_hint);
+  bodega_destino_id = resolverBodegaId('destino', ocr.destino, meta.destino_hint);
+  if (!bodega_destino_id && ocr.destino) {
+    observacionesArr.push('Destino especificado (no es bodega interna): ' + ocr.destino);
+  }
+} else {
+  bodega_origen_id = resolverBodegaId('origen', ocr.origen, meta.origen_hint);
+  bodega_destino_id = ocr.destino ? resolverBodegaId('destino', ocr.destino, meta.destino_hint) : null;
+}
 
 const bObjOrigen = bodega_origen_id ? BODEGAS.find(b => b.id === bodega_origen_id) : null;
 const nombreOrigenParaBD = bObjOrigen ? bObjOrigen.nombre : normalizarTextoBodega(textoOrigenParaBD);
 
-const fechaLimpia = ocr.fecha || null;
+const bObjDestino = bodega_destino_id ? BODEGAS.find(b => b.id === bodega_destino_id) : null;
+const nombreDestinoParaBD = bObjDestino ? bObjDestino.nombre : null;
+
+// ── 2. Algoritmo de Resolución Inteligente de SKUs (Desglose + Cruce con Descripción + Ponderación) ──
+const lineasResueltas = (ocr.lineas || []).map((l, idx) => {
+  const rawSku = (l.sku || l.estilo_raw || '').toUpperCase().replace(/[\\s\\.\\,\\-]+/g, '');
+  const desc = (l.descripcion_texto || l.descripcion_raw || '').toLowerCase();
+  
+  // Extraer componentes
+  const match = rawSku.match(/^([A-Z0-9]+?)(\\d{2})[\\/\\-]?(\\d{1,3})([A-Z0-9]*)$/);
+  const prefijo = match ? match[1] : '';
+  const anio = match ? match[2] : '';
+  const consecutivo = match ? match[3] : '';
+  const sufijo = match ? match[4] : '';
+  
+  // Pistas de descripción
+  const esCaballero = desc.includes('cab') || desc.includes('hombre') || desc.includes('cale');
+  const esDama = desc.includes('dama') || desc.includes('dema') || desc.includes('mujer');
+  const esRompeviento = desc.includes('rompe') || desc.includes('wind');
+  const esPantsLicra = desc.includes('pants') || desc.includes('licra') || desc.includes('lucra');
+  const esBorrega = desc.includes('borreg');
+  
+  // Filtrar candidatos que devolvió Postgres para este índice o SKU
+  const candidatosDeEstaLinea = candsSkus.filter(c => c.linea_index === idx || c.sku_buscado === l.sku);
+  
+  let mejorCandidato = null;
+  let maxScore = -1;
+
+  for (const cand of candidatosDeEstaLinea) {
+    let score = 0;
+    const candSku = (cand.sku_base || '').toUpperCase().replace(/[\\s\\.\\,\\-]+/g, '');
+    const candDesc = (cand.descripcion || '').toLowerCase();
+    
+    // A. Match Exacto Total
+    if (candSku === rawSku || (cand.sku_completo && cand.sku_completo.toUpperCase().replace(/[\\s\\.\\,\\-]+/g, '') === rawSku)) {
+      score += 100;
+    }
+    
+    // B. Mismo Consecutivo de Modelo (ej: '12' o '05')
+    if (consecutivo && (candSku.includes('/' + consecutivo) || candSku.includes(consecutivo))) {
+      score += 35;
+    }
+    
+    // C. Mismo Prefijo de Marca (ej: 'FK', 'TY', 'BO')
+    if (prefijo && candSku.startsWith(prefijo)) {
+      score += 25;
+    }
+    
+    // D. Mismo Año (ej: '26') o año contiguo ('25' vs '26')
+    if (anio && candSku.includes(anio)) {
+      score += 15;
+    } else if (anio && (candSku.includes('25') || candSku.includes('26'))) {
+      score += 8;
+    }
+    
+    // E. Concordancia de Género (Descripción vs SKU)
+    if (esCaballero && (candSku.includes('H') || candSku.includes('C'))) {
+      score += 20;
+    } else if (esDama && (candSku.includes('M') || candSku.includes('D'))) {
+      score += 20;
+    }
+    
+    // F. Concordancia de Prenda / Tela
+    if (esRompeviento && candSku.includes('W')) score += 10;
+    if (esPantsLicra && (candSku.includes('LYC') || candSku.includes('ST'))) score += 15;
+    if (esBorrega && (candDesc.includes('borreg') || candSku.includes('HC') || candSku.includes('MC'))) score += 15;
+
+    // Bonus por score base de Postgres
+    score += (Number(cand.score || 0) * 10);
+
+    if (score > maxScore) {
+      maxScore = score;
+      mejorCandidato = { cand, score };
+    }
+  }
+
+  // Si supera umbral de 60 puntos, asignamos el producto_id y sku resuelto
+  if (mejorCandidato && mejorCandidato.score >= 55) {
+    return Object.assign({}, l, {
+      sku: mejorCandidato.cand.sku_base,
+      producto_id: mejorCandidato.cand.producto_id,
+      variante_id: mejorCandidato.cand.variante_id || null,
+      piezas_por_caja: l.piezas_por_caja || mejorCandidato.cand.pz_en_caja || null,
+      confianza: Math.min(0.99, Number((mejorCandidato.score / 120).toFixed(2))),
+      metodo_match: mejorCandidato.cand.metodo
+    });
+  }
+
+  return l;
+});
+
+const fechaLimpia = (!priorizarIa && meta.fecha_hint) ? meta.fecha_hint : (ocr.fecha || null);
 const folioLimpio = ocr.folio || null;
+const observacionesFinal = observacionesArr.filter(Boolean).join(' | ');
 
 const payloadPropuesta = {
   client_request_id: meta.client_request_id || ocr.client_request_id || null,
   comprobante_url: meta.comprobante_url || ocr.comprobante_url || null,
   folio: folioLimpio,
-  folio_detectado: folioLimpio,
+  folio_detectado: ocr.folio || null,
   fecha: fechaLimpia,
-  fecha_detectada: fechaLimpia,
+  fecha_detectada: ocr.fecha || null,
   tipo_movimiento: tipo,
-  tipo_movimiento_detectado: tipo,
+  tipo_movimiento_detectado: tipoDetectado,
   origen: nombreOrigenParaBD || null,
-  origen_detectado: nombreOrigenParaBD || null,
-  destino: textoDestinoParaBD || null,
-  destino_detectado: textoDestinoParaBD || null,
+  origen_detectado: ocr.origen || null,
+  destino: nombreDestinoParaBD || null,
+  destino_detectado: ocr.destino || null,
   bodega_origen_id: bodega_origen_id ? String(bodega_origen_id) : null,
   bodega_destino_id: bodega_destino_id ? String(bodega_destino_id) : null,
-  lineas: ocr.lineas || [],
-  json_crudo: ocr.json_crudo || ocr,
+  lineas: lineasResueltas,
+  json_crudo: Object.assign({}, ocr.json_crudo || ocr, {
+    observaciones: observacionesFinal || null,
+    priorizar_ia: priorizarIa,
+    meta_enviada: meta
+  }),
   confianza_global: ocr.confianza_global != null ? String(ocr.confianza_global) : null,
-  nota_referencia: referenciaFinal || null,
+  nota_referencia: ocr.nota_referencia || folioLimpio || null,
+  observaciones: observacionesFinal || null,
   usuario_id: usuarioId
 };
 
@@ -269,19 +609,22 @@ return [{
       folio: folioLimpio,
       fecha: fechaLimpia,
       origen: nombreOrigenParaBD || null,
-      destino: textoDestinoParaBD || null,
+      destino: nombreDestinoParaBD || null,
       bodega_origen_id: bodega_origen_id,
       bodega_destino_id: bodega_destino_id,
       tipo_movimiento: tipo,
-      nota_referencia: referenciaFinal || null,
-      confianza_global: ocr.confianza_global || null
+      priorizar_ia: priorizarIa,
+      nota_referencia: ocr.nota_referencia || folioLimpio || null,
+      observaciones: observacionesFinal || null,
+      confianza_global: ocr.confianza_global || null,
+      total_lineas: lineasResueltas.length
     }
   }
 }];`;
-    console.log(`✓ Nodo ${resolver.name} actualizado con fecha_detectada y folio_detectado.`);
+    console.log(`✓ Nodo ${resolver.name} actualizado con soporte de Priorizar IA vs Usuario.`);
   }
 
-  // 3. Guardar en n8n
+  // 7. Guardar en n8n
   const putPayload = {
     name: wf.name,
     nodes: wf.nodes,

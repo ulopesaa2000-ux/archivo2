@@ -388,13 +388,30 @@ export function NoteDraftBuilder({
     setIsChangingBodega(false)
   }
 
-  // ── Detección y Comparación de Origen y Tipo OCR ─────────
-  const [dismissedTipoMismatch, setDismissedTipoMismatch] = useState<boolean>(false)
-  const [dismissedOriginMismatch, setDismissedOriginMismatch] = useState<boolean>(false)
+  // ── Normalizador de Bodegas y Comparación Unificada OCR ───
+  function normalizarTextoBodega(raw: string): string {
+    if (!raw) return ''
+    let s = String(raw).toUpperCase().trim()
+    s = s.replace(/COSINA/g, 'COCINA')
+    s = s.replace(/RIKA|RI Y KA|RI&KA/g, 'RI&KA')
+    s = s.replace(/PANTACO|PANTACO 1/g, 'PANTACO')
+    s = s.replace(/DURASNO/g, 'DURAZNO')
+    s = s.replace(/SANDUNGA/g, 'ZANDUNGA')
+    s = s.replace(/CHICONKUAC/g, 'CHICONCUAC')
+    return s
+  }
+
+  const [dismissedHeaderMismatch, setDismissedHeaderMismatch] = useState<boolean>(false)
 
   const detectedOrigenRaw = (
     ocrProposal?.origen_detectado ||
     (initialData?.cabecera as any)?.origen_detectado ||
+    ''
+  ).trim()
+
+  const detectedDestinoRaw = (
+    ocrProposal?.destino_detectado ||
+    (initialData?.cabecera as any)?.destino_detectado ||
     ''
   ).trim()
 
@@ -404,35 +421,80 @@ export function NoteDraftBuilder({
     ''
   ).trim().toUpperCase()
 
+  const detectedFechaRaw = (
+    ocrProposal?.fecha_detectada ||
+    (initialData?.cabecera as any)?.fecha_detectada ||
+    (ocrProposal?.json_crudo as any)?.fecha ||
+    ''
+  )
+
+  const detectedFolioRaw = (
+    ocrProposal?.folio_detectado ||
+    (initialData?.cabecera as any)?.folio_detectado ||
+    (ocrProposal?.json_crudo as any)?.folio ||
+    ''
+  )
+
   const detectedBodega = detectedOrigenRaw
     ? (
-        (ocrProposal?.bodega_origen_id && catalogos.bodegas.find(b => b.id === ocrProposal.bodega_origen_id)) ||
+        (ocrProposal?.bodega_origen_id && catalogos.bodegas.find((b) => b.id === Number(ocrProposal.bodega_origen_id))) ||
         catalogos.bodegas.find((b) => {
-          const raw = detectedOrigenRaw.toLowerCase()
-          const bName = b.nombre.toLowerCase().trim()
-          const bCode = b.codigo.toLowerCase().trim()
-          return bName === raw || bCode === raw || raw.includes(bName) || bName.includes(raw)
+          const rawNorm = normalizarTextoBodega(detectedOrigenRaw)
+          const bName = b.nombre.toUpperCase().trim()
+          const bCode = b.codigo.toUpperCase().trim()
+          return bName === rawNorm || bCode === rawNorm || rawNorm.includes(bName) || bName.includes(rawNorm)
+        })
+      )
+    : null
+
+  const detectedDestinoBodega = detectedDestinoRaw
+    ? (
+        (ocrProposal?.bodega_destino_id && catalogos.bodegas.find((b) => b.id === Number(ocrProposal.bodega_destino_id))) ||
+        catalogos.bodegas.find((b) => {
+          const rawNorm = normalizarTextoBodega(detectedDestinoRaw)
+          const bName = b.nombre.toUpperCase().trim()
+          const bCode = b.codigo.toUpperCase().trim()
+          return bName === rawNorm || bCode === rawNorm || rawNorm.includes(bName) || bName.includes(rawNorm)
         })
       )
     : null
 
   const detectedTipoObj = detectedTipoRaw
     ? (
-        (ocrProposal?.tipo_movimiento_id && catalogos.tiposMovimiento.find(t => t.id === ocrProposal.tipo_movimiento_id)) ||
-        catalogos.tiposMovimiento.find(t => t.codigo === detectedTipoRaw || t.nombre.toUpperCase() === detectedTipoRaw)
+        (ocrProposal?.tipo_movimiento_id && catalogos.tiposMovimiento.find((t) => t.id === Number(ocrProposal.tipo_movimiento_id))) ||
+        catalogos.tiposMovimiento.find((t) => t.codigo === detectedTipoRaw || t.nombre.toUpperCase() === detectedTipoRaw)
       )
     : null
 
-  const isOcrNote = Boolean(ocrProposalId || (ocrProposal && ocrProposal.origen_detectado) || detectedOrigenRaw || detectedTipoRaw)
-  const currentBodegaObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
-
-  const hasOcrOriginMismatch = !dismissedOriginMismatch && isOcrNote && Boolean(detectedOrigenRaw) && (
-    detectedBodega
-      ? draft.bodega_origen_id !== detectedBodega.id
-      : !currentBodegaObj || !currentBodegaObj.nombre.toLowerCase().includes(detectedOrigenRaw.toLowerCase())
+  const isOcrNote = Boolean(
+    ocrProposalId || 
+    (ocrProposal && ocrProposal.origen_detectado) || 
+    detectedOrigenRaw || 
+    detectedTipoRaw ||
+    detectedFechaRaw ||
+    detectedFolioRaw
   )
 
-  const hasOcrTipoMismatch = !dismissedTipoMismatch && isOcrNote && Boolean(detectedTipoObj) && draft.tipo_movimiento_id !== detectedTipoObj?.id
+  const currentBodegaObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
+  const currentDestinoObj = catalogos.bodegas.find((b) => b.id === draft.bodega_destino_id)
+
+  const hasTipoMismatch = isOcrNote && Boolean(detectedTipoObj) && draft.tipo_movimiento_id !== detectedTipoObj?.id
+
+  const hasOriginMismatch = isOcrNote && Boolean(detectedOrigenRaw) && (
+    detectedBodega
+      ? draft.bodega_origen_id !== detectedBodega.id
+      : !currentBodegaObj || !normalizarTextoBodega(currentBodegaObj.nombre).includes(normalizarTextoBodega(detectedOrigenRaw))
+  )
+
+  const hasDestinoMismatch = isOcrNote && Boolean(detectedDestinoBodega) && draft.bodega_destino_id !== detectedDestinoBodega?.id
+
+  const hasFechaMismatch = isOcrNote && Boolean(detectedFechaRaw) && draft.fecha_nota !== formatForDateInput(detectedFechaRaw)
+
+  const hasFolioMismatch = isOcrNote && Boolean(detectedFolioRaw) && draft.nota_referencia !== detectedFolioRaw
+
+  const hasAnyHeaderMismatch = !dismissedHeaderMismatch && isOcrNote && (
+    hasTipoMismatch || hasOriginMismatch || hasDestinoMismatch || hasFechaMismatch || hasFolioMismatch
+  )
 
   // Pre-selección de bodega de origen priorizando la bodega activa del encabezado
   useEffect(() => {
@@ -1110,39 +1172,38 @@ export function NoteDraftBuilder({
               </div>
             </div>
 
-            {/* Banner de Discrepancia OCR en Tipo de Movimiento */}
-            {hasOcrTipoMismatch && detectedTipoObj && (
-              <div className="rounded-2xl border border-sky-400/50 bg-sky-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-black text-xs uppercase tracking-wider text-sky-900 dark:text-sky-200">
-                        Discrepancia en Tipo de Movimiento Detectado
-                      </span>
-                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-sky-500/20 text-sky-800 dark:text-sky-300 border-sky-500/30">
-                        OCR / Escáner
-                      </Badge>
+            {/* ── Banner Comparador Unificado de Encabezado (Mandado vs Detectado en Nota) ── */}
+            {hasAnyHeaderMismatch && (
+              <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-background to-muted/30 p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                      <Sparkles className="h-5 w-5" />
                     </div>
-                    <p className="text-xs text-sky-950 dark:text-sky-100 font-medium leading-relaxed">
-                      Tienes seleccionado <strong>"{tipoSeleccionado?.nombre || 'Sin tipo'}"</strong>, pero el documento físico tiene marcada la casilla de <strong className="underline underline-offset-2 font-mono uppercase">"{detectedTipoObj.nombre} ({detectedTipoObj.codigo})"</strong>.
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-xs uppercase tracking-wider text-foreground">
+                          Comparación de Encabezado: Seleccionado vs Detectado en Nota Física
+                        </span>
+                        <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30">
+                          OCR / Escáner
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Se detectaron diferencias entre los valores seleccionados y los escritos en el documento físico. Puedes aplicar los datos individuales o sincronizar todos.
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between gap-3 pt-2 border-t border-sky-500/20 flex-wrap">
-                  <span className="text-[11px] text-sky-900 dark:text-sky-200 font-medium">
-                    ¿Deseas aplicar el tipo de movimiento detectado en el documento?
-                  </span>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => setDismissedTipoMismatch(true)}
+                      onClick={() => setDismissedHeaderMismatch(true)}
                       className="h-8 rounded-xl text-xs font-semibold"
                     >
-                      Mantener {tipoSeleccionado?.nombre}
+                      Mantener Selección
                     </Button>
                     <Button
                       type="button"
@@ -1150,95 +1211,177 @@ export function NoteDraftBuilder({
                       onClick={() => {
                         setDraft((prev) => ({
                           ...prev,
-                          tipo_movimiento_id: detectedTipoObj.id,
-                          bodega_destino_id: null,
+                          tipo_movimiento_id: detectedTipoObj ? detectedTipoObj.id : prev.tipo_movimiento_id,
+                          bodega_origen_id: (detectedBodega && allowedBodegas.some(b => b.id === detectedBodega.id)) ? detectedBodega.id : prev.bodega_origen_id,
+                          bodega_destino_id: detectedDestinoBodega ? detectedDestinoBodega.id : (detectedTipoObj && !detectedTipoObj.requiere_destino ? null : prev.bodega_destino_id),
+                          fecha_nota: detectedFechaRaw ? formatForDateInput(detectedFechaRaw) : prev.fecha_nota,
+                          nota_referencia: detectedFolioRaw ? detectedFolioRaw : prev.nota_referencia,
                         }))
-                        setDismissedTipoMismatch(true)
-                        toast.success(`Tipo de movimiento actualizado a "${detectedTipoObj.nombre}".`)
+                        setDismissedHeaderMismatch(true)
+                        toast.success('¡Se aplicaron todos los datos detectados en la nota física!')
                       }}
-                      className="h-8 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-md shadow-sky-600/20 border-0 shrink-0"
+                      className="h-8 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-orange-500/20 border-0"
                     >
                       <Sparkles className="h-3.5 w-3.5 text-white" />
-                      <span>Cambiar a {detectedTipoObj.nombre}</span>
+                      <span>Aplicar Todo lo Detectado</span>
                     </Button>
                   </div>
                 </div>
-              </div>
-            )}
 
-            {/* Banner de Discrepancia OCR en Origen */}
-            {hasOcrOriginMismatch && (
-              <div className="rounded-2xl border border-amber-400/50 bg-amber-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-black text-xs uppercase tracking-wider text-amber-800 dark:text-amber-300">
-                        Discrepancia en Origen Detectado por OCR
-                      </span>
-                      <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30">
-                        IA / Escáner
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-amber-900 dark:text-amber-100 font-medium leading-relaxed">
-                      El origen seleccionado (<strong>{currentBodegaObj?.nombre || 'Sin bodega'}</strong>) difiere del detectado en el documento físico: <strong className="underline underline-offset-2 font-mono">"{detectedOrigenRaw}"</strong>
-                      {detectedBodega ? ` (${detectedBodega.nombre})` : ''}.
-                    </p>
-                  </div>
-                </div>
-
-                {detectedBodega ? (
-                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-amber-500/20 flex-wrap">
-                    <span className="text-[11px] text-amber-800 dark:text-amber-200 font-medium">
-                      ¿Deseas corregir el origen con la bodega sugerida por el OCR?
-                    </span>
-                    <div className="flex items-center gap-2">
+                {/* Tabla Comparativa de Campos */}
+                <div className="border rounded-xl bg-background/80 overflow-hidden divide-y text-xs">
+                  {/* Fila: Tipo de Movimiento */}
+                  {hasTipoMismatch && detectedTipoObj && (
+                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-[140px]">
+                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Tipo Movimiento</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground font-mono">Seleccionado: <strong>{tipoSeleccionado?.nombre || 'Sin tipo'}</strong></span>
+                        <span className="text-muted-foreground">➔</span>
+                        <Badge className="bg-sky-500/15 text-sky-800 dark:text-sky-300 border-sky-500/30 font-bold text-[11px]">
+                          Papel: {detectedTipoObj.nombre} ({detectedTipoObj.codigo})
+                        </Badge>
+                      </div>
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
-                        onClick={() => setDismissedOriginMismatch(true)}
-                        className="h-8 rounded-xl text-xs font-semibold"
+                        variant="secondary"
+                        onClick={() => {
+                          setDraft((prev) => ({
+                            ...prev,
+                            tipo_movimiento_id: detectedTipoObj.id,
+                            bodega_destino_id: detectedTipoObj.requiere_destino ? prev.bodega_destino_id : null,
+                          }))
+                          toast.success(`Tipo actualizado a "${detectedTipoObj.nombre}".`)
+                        }}
+                        className="h-7 text-xs font-bold gap-1 text-sky-700 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg"
                       >
-                        Mantener {currentBodegaObj?.nombre || 'actual'}
+                        <Sparkles className="h-3 w-3" />
+                        <span>Aplicar Tipo</span>
                       </Button>
-                      {allowedBodegas.some(b => b.id === detectedBodega.id) ? (
+                    </div>
+                  )}
+
+                  {/* Fila: Bodega Origen */}
+                  {hasOriginMismatch && (
+                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-[140px]">
+                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Bodega Origen</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground font-mono">Seleccionada: <strong>{currentBodegaObj?.nombre || 'Sin bodega'}</strong></span>
+                        <span className="text-muted-foreground">➔</span>
+                        <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30 font-bold text-[11px]">
+                          Papel: "{detectedOrigenRaw}" {detectedBodega ? `(${detectedBodega.nombre})` : ''}
+                        </Badge>
+                      </div>
+                      {detectedBodega && allowedBodegas.some(b => b.id === detectedBodega.id) ? (
                         <Button
                           type="button"
                           size="sm"
+                          variant="secondary"
                           onClick={() => {
                             handleRequestBodegaOrigenChange(detectedBodega.id)
-                            setDismissedOriginMismatch(true)
                           }}
-                          disabled={todoBloqueado || soloEditaDestino || isChangingBodega}
-                          className="h-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-amber-500/20 border-0 shrink-0"
+                          className="h-7 text-xs font-bold gap-1 text-amber-700 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg"
                         >
-                          <Sparkles className="h-3.5 w-3.5 text-white" />
-                          <span>Cambiar a {detectedBodega.nombre}</span>
+                          <Sparkles className="h-3 w-3" />
+                          <span>Aplicar Origen</span>
                         </Button>
                       ) : (
-                        <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                          Bodega ({detectedBodega.nombre}) no asignada a tu usuario
-                        </span>
+                        <span className="text-[10px] text-muted-foreground italic">No asignada o no identificada</span>
                       )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-amber-500/20 flex-wrap">
-                    <p className="text-[11px] text-amber-800 dark:text-amber-200 italic">
-                      No se encontró coincidencia automática de bodega para el texto "{detectedOrigenRaw}". Puedes seleccionar la bodega correcta manualmente en el desplegable.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setDismissedOriginMismatch(true)}
-                      className="h-7 rounded-lg text-xs"
-                    >
-                      Descartar
-                    </Button>
-                  </div>
-                )}
+                  )}
+
+                  {/* Fila: Bodega Destino */}
+                  {hasDestinoMismatch && detectedDestinoBodega && (
+                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-[140px]">
+                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Bodega Destino</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground font-mono">Seleccionada: <strong>{currentDestinoObj?.nombre || 'Sin destino'}</strong></span>
+                        <span className="text-muted-foreground">➔</span>
+                        <Badge className="bg-purple-500/15 text-purple-800 dark:text-purple-300 border-purple-500/30 font-bold text-[11px]">
+                          Papel: "{detectedDestinoRaw}" ({detectedDestinoBodega.nombre})
+                        </Badge>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setDraft((prev) => ({ ...prev, bodega_destino_id: detectedDestinoBodega.id }))
+                          toast.success(`Destino actualizado a "${detectedDestinoBodega.nombre}".`)
+                        }}
+                        className="h-7 text-xs font-bold gap-1 text-purple-700 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span>Aplicar Destino</span>
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Fila: Fecha */}
+                  {hasFechaMismatch && (
+                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-[140px]">
+                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Fecha del Movimiento</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground font-mono">En Borrador: <strong>{draft.fecha_nota}</strong></span>
+                        <span className="text-muted-foreground">➔</span>
+                        <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30 font-bold text-[11px]">
+                          Papel: {formatForDateInput(detectedFechaRaw)}
+                        </Badge>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setDraft((prev) => ({ ...prev, fecha_nota: formatForDateInput(detectedFechaRaw) }))
+                          toast.success(`Fecha actualizada a ${formatForDateInput(detectedFechaRaw)}.`)
+                        }}
+                        className="h-7 text-xs font-bold gap-1 text-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span>Aplicar Fecha</span>
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Fila: Folio / Referencia */}
+                  {hasFolioMismatch && (
+                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-[140px]">
+                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Folio / Referencia</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground font-mono">En Borrador: <strong>{draft.nota_referencia || '(Vacío)'}</strong></span>
+                        <span className="text-muted-foreground">➔</span>
+                        <Badge className="bg-blue-500/15 text-blue-800 dark:text-blue-300 border-blue-500/30 font-bold text-[11px]">
+                          Papel: {detectedFolioRaw}
+                        </Badge>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setDraft((prev) => ({ ...prev, nota_referencia: detectedFolioRaw }))
+                          toast.success(`Folio actualizado a "${detectedFolioRaw}".`)
+                        }}
+                        className="h-7 text-xs font-bold gap-1 text-blue-700 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span>Aplicar Folio</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1460,7 +1603,14 @@ export function NoteDraftBuilder({
                   {mode === 'create' && (
                     <div className="space-y-2 flex flex-col justify-center">
                       <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Escanear Nota Física con IA</Label>
-                      <OcrUploadModal redirectToNueva />
+                      <OcrUploadModal 
+                        redirectToNueva 
+                        bodegaOrigenNombre={currentBodegaObj?.nombre}
+                        priorizarIa={config?.ocr_priorizar_tipo_detectado !== false}
+                        fechaNota={draft.fecha_nota}
+                        defaultTipoCodigo={tipoSeleccionado?.codigo}
+                        tiposMovimiento={catalogos.tiposMovimiento}
+                      />
                     </div>
                   )}
                 </div>
