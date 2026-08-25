@@ -85,6 +85,7 @@ export type NotaDetalleResuelto = {
   variante_sku: string | null
   talla_codigo: string | null
   color_nombre: string | null
+  codigo_original?: string | null
 }
 
 // ── Historial de estados resuelto ───────────────────────────
@@ -167,6 +168,21 @@ export type CatalogosInventario = {
   ciudades?: string[]
 }
 
+// ── Sustituto Inteligente por Familia y Similitud ───────────
+export type ProductoSustitutoAmpliado = {
+  id: number
+  sku_base: string
+  nombre: string | null
+  descripcion: string | null
+  familia: string | null
+  marca_id: number | null
+  marca_nombre: string | null
+  pz_en_caja: number | null
+  cajas_disponibles: number
+  piezas_disponibles: number
+  similitud_tipo: 'misma_raiz' | 'misma_familia' | 'misma_marca' | 'descripcion_similar'
+}
+
 // ── Draft local (para crear/editar nota) ────────────────────
 export type DraftProducto = {
   tempId: string              // ID temporal para key en React
@@ -181,6 +197,7 @@ export type DraftProducto = {
   caja_nombre_pack: string | null
   stock_origen_cajas: number | null
   stock_origen_piezas: number | null
+  codigo_original?: string | null
 }
 
 export type DraftNota = {

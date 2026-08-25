@@ -128,7 +128,14 @@ async function ImprimirNotaContenido({ params }: { params: Promise<{ id: string 
                   const totalEst = (d.cajas * (d.producto_pz_en_caja ?? 0)) + d.piezas_sueltas
                   return (
                     <tr key={d.id} className="border-b">
-                      <td className="px-4 py-2 font-mono">{d.producto_sku}</td>
+                      <td className="px-4 py-2 font-mono">
+                        <div>{d.producto_sku}</div>
+                        {d.codigo_original && d.codigo_original !== d.producto_sku && (
+                          <span className="text-[9px] text-gray-500 block font-sans">
+                            Físico: <strong>{d.codigo_original}</strong>
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-2">
                         <p className="font-semibold">{d.producto_nombre ?? '—'}</p>
                         {d.color_nombre && (

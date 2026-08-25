@@ -95,7 +95,12 @@ export function NotaProductos({
               return (
                 <tr key={d.id} className="border-t hover:bg-muted/40 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-xs font-bold text-primary">
-                    {d.producto_sku ?? d.variante_sku ?? '—'}
+                    <div>{d.producto_sku ?? d.variante_sku ?? '—'}</div>
+                    {d.codigo_original && d.codigo_original !== (d.producto_sku ?? d.variante_sku) && (
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted/60 border px-1.5 py-0.2 rounded inline-block mt-0.5">
+                        🏷️ Físico: <strong className="text-foreground">{d.codigo_original}</strong>
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-xs font-medium">
                     {d.producto_nombre ?? '—'}

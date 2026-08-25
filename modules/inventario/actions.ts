@@ -154,13 +154,16 @@ export async function guardarNotaAction(
 
   // ── 2. Agregar productos ────────────────────────────────
   for (const prod of draft.productos) {
+    if (prod.cajas === 0 && (prod.piezas_sueltas ?? 0) === 0) continue
+
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
       p_nota_id: notaId,
       p_cajas: prod.cajas,
       p_variante_id: undefined,
       p_producto_id: prod.producto_id,
-      p_piezas_sueltas: prod.piezas_sueltas,
+      p_piezas_sueltas: prod.piezas_sueltas || 0,
       p_caja_id: prod.caja_id || undefined,
+      p_codigo_original: prod.codigo_original || undefined,
     })
 
     if (prodError) {
@@ -285,73 +288,33 @@ export async function actualizarNotaAction(
   // ── Validar permisos de bodega si es nivel 3+ ───────────
   if (user.rol && user.rol.nivel_acceso >= 3) {
     const esCreador = nota.usuario_id === user.id
-    const esEncargado = user.rol?.nombre === 'Encargado de Bodega'
     const esTransferencia = nota.bodega_destino_id !== null
 
-    if (!esCreador) {
-      if (esEncargado && esTransferencia) {
-        // En notas ajenas de transferencia, el Encargado sólo puede editar la bodega destino.
-        // Validar que no se modifiquen otros campos de la cabecera.
-        if (
-          draft.nota_referencia !== (nota.nota_referencia || '') ||
-          draft.observaciones !== (nota.observaciones || '')
-        ) {
-          return { success: false, error: 'Como Encargado, en notas ajenas solo puedes modificar la bodega de destino.' }
-        }
+    const origenAValidar = draft.bodega_origen_id || (nota as any).bodega_origen_id
+    const { data: permOrigen } = await supabase
+      .from('usuario_bodegas')
+      .select('puede_crear_notas, puede_confirmar_notas, puede_consultar')
+      .eq('usuario_id', user.id)
+      .eq('bodega_id', origenAValidar)
+      .single()
 
-        // Comprobar que los productos/cantidades del draft coincidan exactamente con los detalles originales
-        const { data: detallesOriginales } = await supabase
-          .from('nota_detalle_productos')
-          .select('producto_id, variante_id, cajas, piezas_sueltas, caja_id')
-          .eq('nota_id', notaId)
+    const tienePermisoOrigen = permOrigen?.puede_crear_notas || permOrigen?.puede_confirmar_notas
 
-        const originalKeyMap = new Map(
-          detallesOriginales?.map(d => [
-            `${d.producto_id}-${d.caja_id}`,
-            { cajas: d.cajas, piezas_sueltas: d.piezas_sueltas }
-          ]) || []
-        )
+    if (!esCreador && !tienePermisoOrigen) {
+      if (esTransferencia && draft.bodega_destino_id) {
+        // En transferencias, validar si tiene acceso al destino
+        const { data: permDest } = await supabase
+          .from('usuario_bodegas')
+          .select('puede_crear_notas, puede_consultar')
+          .eq('usuario_id', user.id)
+          .eq('bodega_id', draft.bodega_destino_id)
+          .single()
 
-        if (draft.productos.length !== (detallesOriginales?.length ?? 0)) {
-          return { success: false, error: 'Como Encargado, en notas ajenas no puedes alterar los productos de la nota.' }
-        }
-
-        for (const p of draft.productos) {
-          const key = `${p.producto_id}-${p.caja_id}`
-          const orig = originalKeyMap.get(key)
-          if (!orig || orig.cajas !== p.cajas || orig.piezas_sueltas !== p.piezas_sueltas) {
-            return { success: false, error: 'Como Encargado, en notas ajenas no puedes alterar las cantidades de productos.' }
-          }
-        }
-
-        // Validar que el Encargado tenga acceso a la nueva bodega de destino (draft.bodega_destino_id)
-        if (draft.bodega_destino_id) {
-          const { data: permDest } = await supabase
-            .from('usuario_bodegas')
-            .select('puede_crear_notas, puede_consultar')
-            .eq('usuario_id', user.id)
-            .eq('bodega_id', draft.bodega_destino_id)
-            .single()
-
-          if (!permDest) {
-            return { success: false, error: 'No tienes permisos asignados sobre la bodega de destino seleccionada.' }
-          }
+        if (!permDest) {
+          return { success: false, error: 'No tienes permisos asignados sobre la bodega de origen ni de destino seleccionada.' }
         }
       } else {
-        return { success: false, error: 'Solo puedes editar notas creadas por ti mismo.' }
-      }
-    } else {
-      // Si es el creador, validar que tenga permisos para crear/editar notas en la bodega de origen seleccionada
-      const origenAValidar = draft.bodega_origen_id || (nota as any).bodega_origen_id
-      const { data: perm } = await supabase
-        .from('usuario_bodegas')
-        .select('puede_crear_notas')
-        .eq('usuario_id', user.id)
-        .eq('bodega_id', origenAValidar)
-        .single()
-
-      if (!perm || !perm.puede_crear_notas) {
-        return { success: false, error: 'No tienes permiso para registrar o editar notas en la bodega de origen seleccionada.' }
+        return { success: false, error: 'No tienes permiso para editar notas en esta bodega.' }
       }
     }
   }
@@ -365,7 +328,7 @@ export async function actualizarNotaAction(
   }
 
   if (draft.productos.length === 0) {
-    return { success: false, error: 'Agrega al menos un producto.' }
+    return { success: false, error: 'Agrega al menos un producto a la nota.' }
   }
 
   // ── 1. Actualizar cabecera ──────────────────────────────
@@ -401,22 +364,25 @@ export async function actualizarNotaAction(
     .eq('nota_id', notaId)
 
   if (deleteError) {
-    return { success: false, error: `Error al limpiar detalles: ${deleteError.message}` }
+    return { success: false, error: `Error al limpiar detalles anteriores: ${deleteError.message}` }
   }
 
   // ── 3. Re-insertar desde draft ──────────────────────────
   for (const prod of draft.productos) {
+    if (prod.cajas === 0 && (prod.piezas_sueltas ?? 0) === 0) continue
+
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
       p_nota_id: notaId,
       p_cajas: prod.cajas,
       p_variante_id: undefined,
       p_producto_id: prod.producto_id,
-      p_piezas_sueltas: prod.piezas_sueltas,
+      p_piezas_sueltas: prod.piezas_sueltas || 0,
       p_caja_id: prod.caja_id || undefined,
+      p_codigo_original: prod.codigo_original || undefined,
     })
 
     if (prodError) {
-      return { success: false, error: `Error al agregar ${prod.producto_sku}: ${prodError.message}` }
+      return { success: false, error: `Error al guardar producto ${prod.producto_sku}: ${prodError.message}` }
     }
   }
 
@@ -448,6 +414,7 @@ export async function actualizarNotaAction(
   revalidatePath('/inventario/notas')
   revalidatePath('/inventario/notas/propuestas')
   revalidatePath(`/inventario/notas/${notaId}`)
+  revalidatePath('/inventario/stock')
   revalidatePath('/inventario/stock')
 
   return { success: true, nota_id: notaId }

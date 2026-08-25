@@ -102,6 +102,7 @@ async function crearNotaSubconjunto(
       p_variante_id: undefined,
       p_piezas_sueltas: 0,
       p_caja_id: undefined,
+      p_codigo_original: fila.sku || undefined,
     })
 
     if (prodError) {
