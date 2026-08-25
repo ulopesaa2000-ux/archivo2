@@ -33,10 +33,11 @@ import {
   ADMIN_ROUTES, ESTADO_NOTA_COLORS,
   TIPO_MOVIMIENTO_COLORS,
 } from '@/lib/constants'
-import type { NotaListItem } from '@/modules/inventario/types'
+import type { NotaListItem, NavegacionNota } from '@/modules/inventario/types'
 import { cn } from '@/lib/utils'
 import { subirComprobanteNotaAction, eliminarComprobanteNotaAction } from '@/modules/inventario/actions'
 import Image from 'next/image'
+import { NotaNavigation } from './NotaNavigation'
 
 const ICONS_MAP: Record<string, any> = {
   ENT: ArrowDownLeft,
@@ -48,10 +49,12 @@ const ICONS_MAP: Record<string, any> = {
 
 export function NotaCabecera({ 
   nota,
-  showComprobante = true
+  showComprobante = true,
+  navegacion,
 }: { 
   nota: NotaListItem
-  showComprobante?: boolean 
+  showComprobante?: boolean
+  navegacion?: NavegacionNota | null
 }) {
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(nota.comprobante_url)
   const [isPending, startTransition] = useTransition()
@@ -115,12 +118,14 @@ export function NotaCabecera({
           </span>
         </div>
 
-        {/* Acciones de Impresión Directa Membretada */}
-        <div className="flex items-center gap-2">
+        {/* Acciones: Navegador de Notas y Botón de Impresión */}
+        <div className="flex flex-wrap items-center gap-3">
+          {navegacion && <NotaNavigation navegacion={navegacion} />}
+
           <Link href={`/print/inventario/notas/${nota.id}`} target="_blank" className="w-full sm:w-auto">
-            <Button variant="default" className="w-full sm:w-auto rounded-xl font-bold uppercase tracking-wider h-11 border shadow-md group bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button variant="default" className="w-full sm:w-auto rounded-xl font-bold uppercase tracking-wider h-10 border shadow-sm group bg-primary hover:bg-primary/90 text-primary-foreground">
               <Printer className="mr-2 h-4 w-4 group-hover:scale-110 transition-transform" />
-              Imprimir Comprobante Directo
+              Imprimir Comprobante
             </Button>
           </Link>
         </div>
