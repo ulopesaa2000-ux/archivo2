@@ -312,3 +312,23 @@ export type ProductoSustitutoFamilia = {
   marca_nombre: string | null
   es_misma_familia: boolean
 }
+
+// ── Navegación Secuencial de Notas de Inventario ────────────
+export type NavegacionNotaItem = {
+  id: number
+  numero_nota: string
+  estado_codigo: 'PEND' | 'CONF' | 'CANC' | 'PROC' | string
+  estado_nombre: string
+  estado_color?: string | null
+}
+
+export type NavegacionNota = {
+  posicion: number
+  total: number
+  anterior: NavegacionNotaItem | null
+  siguiente: NavegacionNotaItem | null
+  actual: NavegacionNotaItem
+  bodega_filtro_id: number | null
+  bodega_filtro_nombre: string | null
+}
+

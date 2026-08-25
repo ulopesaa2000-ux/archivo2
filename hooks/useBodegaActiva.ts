@@ -68,15 +68,5 @@ function setCookie(id: number) {
   document.cookie = `${COOKIE_NAME}=${id}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
 }
 
-/**
- * Helper para leer la bodega activa desde Server Components.
- */
-export function getBodegaActivaFromCookies(
-  cookieStore: { get: (name: string) => { value: string } | undefined }
-): number | null {
-  const cookie = cookieStore.get(COOKIE_NAME)
-  if (!cookie?.value) return null
+export { getBodegaActivaServer as getBodegaActivaFromCookies } from '@/lib/utils'
 
-  const parsed = parseInt(cookie.value, 10)
-  return Number.isNaN(parsed) ? null : parsed
-}

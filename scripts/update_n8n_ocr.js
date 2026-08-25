@@ -192,18 +192,53 @@ RETURNING id;`;
   const parsearNodes = wf.nodes.filter(n => n.name.startsWith('Parsear JSON'));
   for (const pNode of parsearNodes) {
     pNode.parameters.jsCode = `const item = $input.first()?.json || {};
-let data = item.data || item;
 
-if (typeof data === 'string') {
-  try {
-    let clean = data.replace(/^[\\s\\S]*?\\{/, '{').replace(/\\}[\\s\\S]*?$/, '}');
-    data = JSON.parse(clean);
-  } catch(e) {
-    try {
-      const match = data.match(/\\{[\\s\\S]*\\}/);
-      if (match) data = JSON.parse(match[0]);
-    } catch(e2) {}
+// 1. Extraer el contenido textual según el proveedor / formato
+let rawContent = item;
+if (item.choices && item.choices[0]) {
+  const msg = item.choices[0].message;
+  if (msg && typeof msg.content === 'string') {
+    rawContent = msg.content;
+  } else if (typeof item.choices[0].text === 'string') {
+    rawContent = item.choices[0].text;
   }
+} else if (item.candidates && item.candidates[0]?.content?.parts?.[0]?.text) {
+  rawContent = item.candidates[0].content.parts[0].text;
+} else if (Array.isArray(item.content) && item.content[0]?.text) {
+  rawContent = item.content[0].text;
+} else if (item.message && typeof item.message.content === 'string') {
+  rawContent = item.message.content;
+} else if (typeof item.response === 'string') {
+  rawContent = item.response;
+} else if (typeof item.data === 'string') {
+  rawContent = item.data;
+} else if (typeof item.data === 'object' && item.data !== null) {
+  rawContent = item.data;
+}
+
+// 2. Parsear el JSON limpiando posibles bloques markdown
+let data = {};
+if (typeof rawContent === 'object' && rawContent !== null && Array.isArray(rawContent.lineas)) {
+  data = rawContent;
+} else if (typeof rawContent === 'string') {
+  let str = rawContent.replace(/\`\`\`(?:json)?\\s*([\\s\\S]*?)\\s*\`\`\`/gi, '$1').trim();
+  try {
+    const firstBrace = str.indexOf('{');
+    const lastBrace = str.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      data = JSON.parse(str.substring(firstBrace, lastBrace + 1));
+    } else {
+      data = JSON.parse(str);
+    }
+  } catch (e1) {
+    try {
+      data = JSON.parse(str);
+    } catch (e2) {
+      data = {};
+    }
+  }
+} else if (typeof rawContent === 'object' && rawContent !== null) {
+  data = rawContent;
 }
 
 let meta = {};
@@ -304,7 +339,7 @@ const payload = {
   observaciones: data.observaciones || null,
   lineas: processedLines,
   confianza_global: data.confianza_global || 0.95,
-  json_crudo: data
+  json_crudo: Object.assign({}, data, { _raw_llm_response: item })
 };
 
 return [{

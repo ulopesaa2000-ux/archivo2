@@ -169,6 +169,17 @@ export function formatCurrency(
   }).format(amount)
 }
 
+// ── Cookies / Bodega Activa Server ──────────────────────────
+export function getBodegaActivaServer(
+  cookieStore: { get: (name: string) => { value: string } | undefined }
+): number | null {
+  const cookie = cookieStore.get('bodega_activa_id')
+  if (!cookie?.value) return null
+
+  const parsed = parseInt(cookie.value, 10)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
 // ═══════════════════════════════════════════════════════════════
 // TEXTO
 // ═══════════════════════════════════════════════════════════════
