@@ -46,6 +46,8 @@ export type FilaPreview = {
   status: 'ok' | 'error' | 'warning'
   message: string
   manualMatch?: boolean
+  score?: number
+  metodo?: string
 }
 
 type Props = {
@@ -120,6 +122,8 @@ export function ImportStepPreview({
               producto_nombre: null,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
+              score: undefined,
+              metodo: undefined,
               status: 'error',
               message: 'SKU no encontrado en BD',
             }
@@ -132,6 +136,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'error',
               message: 'Cajas no es un número válido',
             }
@@ -144,6 +150,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'warning',
               message: 'Cajas = 0, se omitirá',
             }
@@ -156,6 +164,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: null,
               bodega_nombre: null,
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'error',
               message: isTodasBodegas ? 'Bodega no especificada' : 'Bodega no encontrada',
             }
@@ -167,6 +177,8 @@ export function ImportStepPreview({
             producto_nombre: producto.nombre,
             bodega_id: bodegaMatch.id,
             bodega_nombre: bodegaMatch.nombre,
+            score: producto.score,
+            metodo: producto.metodo,
             status: 'ok',
             message: cajasNum > 0 ? `+${cajasNum} cajas` : `${cajasNum} cajas`,
           }
@@ -227,6 +239,8 @@ export function ImportStepPreview({
               producto_nombre: null,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
+              score: undefined,
+              metodo: undefined,
               status: 'error' as const,
               message: 'SKU no encontrado en BD',
             }
@@ -239,6 +253,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'error' as const,
               message: 'Cajas no es un número válido',
             }
@@ -251,6 +267,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'warning' as const,
               message: 'Cajas = 0, se omitirá',
             }
@@ -266,6 +284,8 @@ export function ImportStepPreview({
               producto_nombre: producto.nombre,
               bodega_id: null,
               bodega_nombre: null,
+              score: producto.score,
+              metodo: producto.metodo,
               status: 'error' as const,
               message: 'Bodega no encontrada',
             }
@@ -277,6 +297,8 @@ export function ImportStepPreview({
             producto_nombre: producto.nombre,
             bodega_id: finalBodegaId,
             bodega_nombre: finalBodegaNombre,
+            score: producto.score,
+            metodo: producto.metodo,
             status: 'ok' as const,
             message: cajasNum > 0 ? `+${cajasNum} cajas` : `${cajasNum} cajas`,
           }
@@ -727,11 +749,26 @@ export function ImportStepPreview({
                   {/* SKU Resuelto en BD / Buscador Rápido */}
                   <td className="px-3 py-2">
                     {f.producto_id !== null ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold shrink-0">
                           ✓ {f.sku}
                         </Badge>
-                        <span className="text-[11px] text-muted-foreground truncate max-w-[220px]" title={f.producto_nombre || ''}>
+                        {f.metodo && (
+                          <Badge variant="outline" className="text-[9px] font-semibold uppercase tracking-wider py-0 px-1.5 border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/5">
+                            {f.metodo === 'EXACTO'
+                              ? 'Exacto'
+                              : f.metodo === 'PREFIJO_SEGUNDA_PARTE'
+                              ? 'Prefijo+Parte'
+                              : f.metodo === 'SEGUNDA_PARTE'
+                              ? 'Segunda Parte'
+                              : f.metodo === 'SIMILARITY_SKU'
+                              ? 'Similitud SKU'
+                              : f.metodo === 'EXACTO_VARIANTE'
+                              ? 'Variante'
+                              : f.metodo}
+                          </Badge>
+                        )}
+                        <span className="text-[11px] text-muted-foreground truncate max-w-[200px]" title={f.producto_nombre || ''}>
                           {f.producto_nombre}
                         </span>
                       </div>
@@ -754,17 +791,20 @@ export function ImportStepPreview({
                     )}
                   </td>
 
-                  {/* Confianza / Estado */}
+                  {/* Confianza / Estado (Calculado por SP PostgreSQL) */}
                   <td className="px-3 py-2 text-center">
                     <Badge
                       variant="outline"
                       className={`font-mono text-[10px] font-bold ${
-                        f.status === 'ok'
+                        f.status === 'ok' && (f.score ?? 0.9) >= 0.9
                           ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10'
+                          : f.status === 'ok' && (f.score ?? 0) >= 0.6
+                          ? 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10'
                           : 'border-muted text-muted-foreground'
                       }`}
+                      title={f.metodo ? `Método SP: ${f.metodo}` : undefined}
                     >
-                      {f.status === 'ok' ? '90%' : '—'}
+                      {f.score ? `${Math.round(f.score * 100)}%` : f.status === 'ok' ? '90%' : '—'}
                     </Badge>
                   </td>
 

@@ -5226,6 +5226,7 @@ export type Database = {
         Args: {
           p_caja_id?: number
           p_cajas: number
+          p_codigo_original?: string
           p_nota_id: number
           p_piezas_sueltas?: number
           p_producto_id?: number

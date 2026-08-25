@@ -6,24 +6,19 @@ import type { BodegaRow } from '@/lib/types/tables'
 
 export type ProductoMatch = {
   producto_id: number
+  variante_id?: number | null
   sku_base: string
+  sku_completo?: string | null
   nombre: string | null
+  pz_en_caja?: number | null
+  score?: number
+  metodo?: string
 }
 
 export type BodegaMatch = {
   id: number
   nombre: string
   codigo: string
-}
-
-function extractAndToken(s: string): string | null {
-  const match = s.toUpperCase().match(/AND\d+/i)
-  return match ? match[0].trim().toUpperCase() : null
-}
-
-function extract3VtToken(s: string): string | null {
-  const match = s.toUpperCase().match(/3VT\d+/i)
-  return match ? match[0].trim().toUpperCase() : null
 }
 
 export async function buscarProductosPorSkuBatch(
@@ -34,95 +29,44 @@ export async function buscarProductosPorSkuBatch(
 
   if (skus.length === 0) return map
 
-  // Consultar todos los productos activos de la BD para resolución inteligente (son ~800 productos)
-  const { data: allProducts, error } = await supabase
-    .from('productos')
-    .select('id, sku_base, nombre')
-    .eq('activo', true)
+  const validSkus = Array.from(new Set(skus.map((s) => s.trim()).filter(Boolean)))
+  if (validSkus.length === 0) return map
 
-  if (error || !allProducts) return map
+  // Procesar en chunks de 100 para optimizar llamadas RPC en PostgreSQL
+  const chunkSize = 100
+  for (let i = 0; i < validSkus.length; i += chunkSize) {
+    const chunk = validSkus.slice(i, i + chunkSize)
+    const payload = chunk.map((s, idx) => ({
+      index: idx,
+      sku: s,
+      estilo_raw: s,
+    }))
 
-  const exactMap = new Map<string, ProductoMatch>()
-  const andMap = new Map<string, ProductoMatch>()
-  const vtMap = new Map<string, ProductoMatch>()
-  const tokenMap = new Map<string, ProductoMatch>()
+    const { data: candidates, error } = await (supabase as any).rpc('fn_buscar_candidatos_sku_ocr', {
+      p_lineas: payload,
+    })
 
-  for (const p of allProducts) {
-    const item: ProductoMatch = {
-      producto_id: p.id,
-      sku_base: p.sku_base,
-      nombre: p.nombre,
-    }
+    if (!error && Array.isArray(candidates)) {
+      for (const item of chunk) {
+        const cands = candidates
+          .filter((c: any) => c.sku_buscado === item)
+          .sort((a: any, b: any) => Number(b.score) - Number(a.score))
 
-    const skuUpper = p.sku_base.trim().toUpperCase()
-    exactMap.set(skuUpper, item)
-
-    const andToken = extractAndToken(p.sku_base)
-    if (andToken) andMap.set(andToken, item)
-
-    const vtToken = extract3VtToken(p.sku_base)
-    if (vtToken) vtMap.set(vtToken, item)
-
-    // Token por primera palabra
-    const firstWord = skuUpper.split(/\s+/)[0]
-    if (firstWord) tokenMap.set(firstWord, item)
-  }
-
-  for (const rawSku of skus) {
-    const rawUpper = rawSku.trim().toUpperCase()
-    if (!rawUpper) continue
-
-    // 1. Coincidencia exacta
-    if (exactMap.has(rawUpper)) {
-      map.set(rawSku, exactMap.get(rawUpper)!)
-      continue
-    }
-
-    // 2. Coincidencia antes del primer espacio
-    const beforeSpace = rawUpper.split(/\s+/)[0]
-    if (beforeSpace && exactMap.has(beforeSpace)) {
-      map.set(rawSku, exactMap.get(beforeSpace)!)
-      continue
-    }
-
-    // 3. Coincidencia por token AND#####
-    const andTok = extractAndToken(rawSku)
-    if (andTok && andMap.has(andTok)) {
-      map.set(rawSku, andMap.get(andTok)!)
-      continue
-    }
-
-    // 4. Coincidencia por token 3VT#####
-    const vtTok = extract3VtToken(rawSku)
-    if (vtTok && vtMap.has(vtTok)) {
-      map.set(rawSku, vtMap.get(vtTok)!)
-      continue
-    }
-
-    // 5. Coincidencia por partes divididas por '/' o '-'
-    const slashParts = rawUpper.split(/[\/\s-]+/).map((s) => s.trim()).filter(Boolean)
-    let found = false
-    for (const part of slashParts) {
-      if (exactMap.has(part)) {
-        map.set(rawSku, exactMap.get(part)!)
-        found = true
-        break
-      }
-      const partAnd = extractAndToken(part)
-      if (partAnd && andMap.has(partAnd)) {
-        map.set(rawSku, andMap.get(partAnd)!)
-        found = true
-        break
-      }
-      const partVt = extract3VtToken(part)
-      if (partVt && vtMap.has(partVt)) {
-        map.set(rawSku, vtMap.get(partVt)!)
-        found = true
-        break
+        const top = cands.length > 0 ? cands[0] : null
+        if (top && Number(top.score) >= 0.40) {
+          map.set(item, {
+            producto_id: top.producto_id,
+            variante_id: top.variante_id || null,
+            sku_base: top.sku_base,
+            sku_completo: top.sku_completo || null,
+            nombre: top.descripcion || null,
+            pz_en_caja: top.pz_en_caja || null,
+            score: Number(top.score),
+            metodo: top.metodo,
+          })
+        }
       }
     }
-
-    if (found) continue
   }
 
   return map

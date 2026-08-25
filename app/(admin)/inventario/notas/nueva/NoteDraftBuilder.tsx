@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
+import { ConciliadorAmpliadoStockModal } from '@/components/admin/ConciliadorAmpliadoStockModal'
 import Link from 'next/link'
 import {
   ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
@@ -38,7 +39,7 @@ import { guardarNotaAction, actualizarNotaAction, subirComprobanteNotaAction } f
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
   ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta,
-  ProductoSustitutoFamilia
+  ProductoSustitutoFamilia, ProductoSustitutoAmpliado
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import { cn, todayMX, formatForDateInput } from '@/lib/utils'
@@ -106,7 +107,9 @@ export function NoteDraftBuilder({
         ...prev,
         productos: newProducts,
       }))
-      setSuccess(`Se sincronizaron ${newProducts.length} productos del OCR en la nota.`)
+      const msg = `Se sincronizaron ${newProducts.length} productos del OCR en la nota.`
+      setSuccess(msg)
+      toast.success(msg)
     }
   }
 
@@ -742,14 +745,21 @@ export function NoteDraftBuilder({
   }
 
   // ── Agregar producto al draft ───────────────────────────
+  const esAjuste = tipoSeleccionado?.codigo === 'AJU'
+
   const handleAddProduct = () => {
     if (!selectedProduct) return
 
     const cajasNum = parseFloat(addCajas) || 0
     const piezasNum = parseInt(addPiezas) || 0
 
-    if (cajasNum <= 0 && piezasNum <= 0) {
+    if (cajasNum === 0 && piezasNum === 0) {
       setError('Ingresa al menos una caja o pieza.')
+      return
+    }
+
+    if (!esAjuste && (cajasNum < 0 || piezasNum < 0)) {
+      setError('Solo las notas de tipo Ajuste admiten cantidades negativas.')
       return
     }
 
@@ -901,6 +911,49 @@ export function NoteDraftBuilder({
     setSustitutoTargetProduct(null)
   }
 
+  // ── Modal Conciliador de Stock Ampliado (Paso 2) ───────────
+  const [showConciliadorModal, setShowConciliadorModal] = useState(false)
+
+  const handleReasignarProducto = (
+    tempId: string,
+    nuevoSustituto: ProductoSustitutoAmpliado | ProductoBusqueda,
+    codigoOriginalFisico: string
+  ) => {
+    setDraft((prev) => {
+      const updatedProds = prev.productos.map((p) => {
+        if (p.tempId !== tempId) return p
+        const pzEnCaja = ('pz_en_caja' in nuevoSustituto ? nuevoSustituto.pz_en_caja : null) ?? p.producto_pz_en_caja
+        const stockCajas = ('cajas_disponibles' in nuevoSustituto ? nuevoSustituto.cajas_disponibles : null) ?? p.stock_origen_cajas
+        const stockPiezas = ('piezas_disponibles' in nuevoSustituto ? nuevoSustituto.piezas_disponibles : null) ?? p.stock_origen_piezas
+
+        return {
+          ...p,
+          producto_id: nuevoSustituto.id,
+          producto_sku: nuevoSustituto.sku_base,
+          producto_nombre: nuevoSustituto.descripcion || nuevoSustituto.nombre || '',
+          producto_pz_en_caja: pzEnCaja,
+          stock_origen_cajas: stockCajas,
+          stock_origen_piezas: stockPiezas,
+          codigo_original: codigoOriginalFisico,
+        }
+      })
+
+      // Registrar en observaciones
+      const logEntry = `[Reasignación: Se descontará stock de '${nuevoSustituto.sku_base}' correspondiente al modelo físico '${codigoOriginalFisico}']`
+      const newObs = prev.observaciones
+        ? `${prev.observaciones.trim()}\n${logEntry}`
+        : logEntry
+
+      return {
+        ...prev,
+        productos: updatedProds,
+        observaciones: newObs,
+      }
+    })
+
+    toast.success(`Salida reasignada a '${nuevoSustituto.sku_base}' (Físico: ${codigoOriginalFisico})`)
+  }
+
   // ── Evaluación de Stock Negativo según Configuración ─────────
   const esMovimientoSalidaOTraslado =
     tipoSeleccionado?.codigo === 'SAL' ||
@@ -909,8 +962,16 @@ export function NoteDraftBuilder({
 
   const permitirStockNegativo = config?.permitir_stock_negativo === true
 
-  const productosConDeficit = (esMovimientoSalidaOTraslado && draft.bodega_origen_id)
-    ? draft.productos.filter((p) => p.cajas > (p.stock_origen_cajas ?? 0))
+  const productosConDeficit = draft.bodega_origen_id
+    ? draft.productos.filter((p) => {
+        if (esMovimientoSalidaOTraslado) {
+          return p.cajas > (p.stock_origen_cajas ?? 0)
+        }
+        if (esAjuste && p.cajas < 0) {
+          return Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0)
+        }
+        return false
+      })
     : []
   const hayDeficitStock = productosConDeficit.length > 0
 
@@ -987,8 +1048,22 @@ export function NoteDraftBuilder({
     setDraft((prev) => ({
       ...prev,
       productos: prev.productos.map((p) =>
-        p.tempId === tempId ? { ...p, cajas: Math.max(0, newCajas) } : p
+        p.tempId === tempId
+          ? { ...p, cajas: esAjuste ? newCajas : Math.max(0, newCajas) }
+          : p
       ),
+    }))
+  }
+
+  // ── Alternar signo (+/-) de cajas en la tabla (Modo Ajuste) ─────
+  const handleToggleSignProductCajas = (tempId: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      productos: prev.productos.map((p) => {
+        if (p.tempId !== tempId) return p
+        const currentCajas = p.cajas === 0 ? 1 : p.cajas
+        return { ...p, cajas: -currentCajas }
+      }),
     }))
   }
 
@@ -1063,7 +1138,9 @@ export function NoteDraftBuilder({
       }
 
       if (!result.success) {
-        setError(result.error ?? 'Error desconocido.')
+        const errorMsg = result.error ?? 'Error desconocido al guardar la nota.'
+        setError(errorMsg)
+        toast.error(errorMsg)
         return
       }
 
@@ -1075,39 +1152,50 @@ export function NoteDraftBuilder({
         formData.append('file', comprobanteFile)
         const uploadResult = await subirComprobanteNotaAction(destId, formData)
         if (!uploadResult.success) {
-          setError(`Nota guardada, pero falló la subida del comprobante: ${uploadResult.error}`)
+          const warnMsg = `Nota guardada, pero falló la subida del comprobante: ${uploadResult.error}`
+          setError(warnMsg)
+          toast.warning(warnMsg)
           return
         }
       }
 
-      setSuccess(
-        confirmar
-          ? 'Nota confirmada exitosamente.'
-          : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
-      )
+      const successMsg = confirmar
+        ? 'Nota confirmada exitosamente.'
+        : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
 
-      // Navegar al detalle después de guardar
+      setSuccess(successMsg)
+      toast.success(successMsg)
+
+      // Navegar al detalle después de guardar o refrescar si ya estamos en él
       if (destId) {
-        setTimeout(() => {
-          router.push(ADMIN_ROUTES.inventario.notaDetalle(destId))
-          router.refresh()
-        }, 800)
+        router.refresh()
+        if (mode === 'create') {
+          setTimeout(() => {
+            router.push(ADMIN_ROUTES.inventario.notaDetalle(destId))
+          }, 300)
+        }
       }
     })
   }
 
   // ── Total estimado de cajas ─────────────────────────────
   const totalCajas = draft.productos.reduce((sum, p) => sum + p.cajas, 0)
+  const totalPositivas = draft.productos.filter((p) => p.cajas > 0).reduce((sum, p) => sum + p.cajas, 0)
+  const totalNegativas = draft.productos.filter((p) => p.cajas < 0).reduce((sum, p) => sum + p.cajas, 0)
 
   // ── Verificaciones de Stock Negativo en Formulario ────────
   const cajasNum = parseFloat(addCajas) || 0
   const isNegativeStockRisk = selectedProduct && 
-    (tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && 
-    cajasNum > (selectedProductStock?.cajas ?? 0)
+    (
+      ((tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && cajasNum > (selectedProductStock?.cajas ?? 0)) ||
+      (esAjuste && cajasNum < 0 && Math.abs(cajasNum) > (selectedProductStock?.cajas ?? 0))
+    )
 
   const isEntrada = tipoSeleccionado?.codigo === 'ENT' || tipoSeleccionado?.codigo === 'DEV' || tipoSeleccionado?.afecta_inventario === 1
   const simulatedStock = selectedProductStock ? (
     isEntrada
+      ? selectedProductStock.cajas + cajasNum
+      : esAjuste
       ? selectedProductStock.cajas + cajasNum
       : selectedProductStock.cajas - cajasNum
   ) : 0
@@ -1646,6 +1734,27 @@ export function NoteDraftBuilder({
                 )}
               </Button>
             )}
+
+            {/* Botón Paso 2: Conciliador de Stock por Familias (Visible solo en Salidas y Transferencias) */}
+            {esMovimientoSalidaOTraslado && draft.productos.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-bold gap-1.5 rounded-xl border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary shadow-xs"
+                onClick={() => setShowConciliadorModal(true)}
+                title="Abrir conciliador ampliado de stock para cotejar códigos y reasignar por familias"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                <span>⚡ Conciliador de Stock (Paso 2)</span>
+                {productosConDeficit.length > 0 && (
+                  <Badge variant="destructive" className="ml-0.5 h-4 px-1 text-[10px] font-black">
+                    {productosConDeficit.length}
+                  </Badge>
+                )}
+              </Button>
+            )}
+
             <Button
               type="button"
               variant="ghost"
@@ -1735,28 +1844,62 @@ export function NoteDraftBuilder({
               {/* Flex Row with highlight on Cajas and reduced Loose Pieces */}
               <div className="flex flex-col sm:flex-row gap-3 items-end">
                 {/* Cajas (Highlighted / Wider) */}
-                <div className="flex-[2.5] min-w-[140px] space-y-1 w-full">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                    <span>Cajas *</span>
+                <div className="flex-[2.5] min-w-[160px] space-y-1 w-full">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <span>Cajas *</span>
+                      {esAjuste && (
+                        <span className="text-[10px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                          Híbrido (+ / -)
+                        </span>
+                      )}
+                    </Label>
                     {selectedProductStock !== null && (
                       <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded animate-pulse">
                         Stock: {selectedProductStock.cajas} cajas
                       </span>
                     )}
-                  </Label>
-                  <Input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={addCajas}
-                    onChange={(e) => setAddCajas(e.target.value)}
-                    className={cn(
-                      "h-11 rounded-xl font-bold font-mono text-center text-xl border-2 ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      isNegativeStockRisk 
-                        ? "border-orange-500 focus-visible:ring-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20" 
-                        : "border-primary/40 focus:border-primary"
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {esAjuste && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const current = parseFloat(addCajas) || 0
+                          const toggled = current === 0 ? -1 : -current
+                          setAddCajas(String(toggled))
+                        }}
+                        className={cn(
+                          "h-11 px-2.5 rounded-xl font-mono font-black text-xs border-2 shrink-0 transition-all",
+                          (parseFloat(addCajas) || 0) < 0
+                            ? "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/40 hover:bg-red-500/25"
+                            : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25"
+                        )}
+                        title={(parseFloat(addCajas) || 0) < 0 ? "Cambiar a positivo (+ Sumar stock)" : "Cambiar a negativo (- Restar stock)"}
+                      >
+                        {(parseFloat(addCajas) || 0) < 0 ? "- Restar" : "+ Sumar"}
+                      </Button>
                     )}
-                  />
+                    <Input
+                      type="number"
+                      step="1"
+                      min={esAjuste ? undefined : "0"}
+                      value={addCajas}
+                      onChange={(e) => setAddCajas(e.target.value)}
+                      className={cn(
+                        "h-11 rounded-xl font-bold font-mono text-center text-xl border-2 ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        isNegativeStockRisk 
+                          ? "border-orange-500 focus-visible:ring-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20" 
+                          : esAjuste && (parseFloat(addCajas) || 0) < 0
+                          ? "border-red-500/60 text-red-600 bg-red-50/40 dark:bg-red-950/20"
+                          : esAjuste && (parseFloat(addCajas) || 0) > 0
+                          ? "border-emerald-500/60 text-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20"
+                          : "border-primary/40 focus:border-primary"
+                      )}
+                    />
+                  </div>
                 </div>
 
                 {/* Piezas Sueltas (Reduced / Smaller) */}
@@ -1849,11 +1992,24 @@ export function NoteDraftBuilder({
                   </p>
                   <p className="opacity-90">
                     {!permitirStockNegativo
-                      ? 'La política del sistema prohíbe inventario negativo. Usa el botón ✨ en cada fila para seleccionar un sustituto de la misma familia con stock.'
-                      : 'La política permite stock negativo. Puedes continuar guardando o usar el botón ✨ para seleccionar un sustituto de la misma familia.'}
+                      ? 'La política del sistema prohíbe inventario negativo. Usa el Conciliador de Stock (Paso 2) para reasignar automáticamente a modelos de la misma familia.'
+                      : 'La política permite stock negativo. Puedes continuar guardando o conciliar salidas vs existencias reales por familias.'}
                   </p>
                 </div>
               </div>
+
+              {esMovimientoSalidaOTraslado && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowConciliadorModal(true)}
+                  className="h-8 text-xs font-bold gap-1.5 bg-background hover:bg-muted border shadow-xs rounded-xl shrink-0"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  ⚡ Abrir Conciliador de Stock (Paso 2)
+                </Button>
+              )}
             </div>
           )}
 
@@ -1867,7 +2023,7 @@ export function NoteDraftBuilder({
                     <th className="px-4 py-3 text-left">SKU</th>
                     <th className="px-4 py-3 text-left">Producto</th>
                     {showExtraCols && <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>}
-                    <th className="px-4 py-3 text-center min-w-[130px]">Cajas</th>
+                    <th className="px-4 py-3 text-center min-w-[140px]">Cajas</th>
                     {showExtraCols && <th className="px-4 py-3 text-center">Piezas</th>}
                     <th className="px-4 py-3 text-right">Total est.</th>
                     <th className="px-4 py-3 w-[50px]"></th>
@@ -1876,9 +2032,10 @@ export function NoteDraftBuilder({
                 <tbody>
                   {draft.productos.map((p, index) => {
                     const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
-                    const isRowNegative = (tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF' || tipoSeleccionado?.afecta_inventario === -1) && 
-                      draft.bodega_origen_id !== null &&
-                      p.cajas > (p.stock_origen_cajas ?? 0)
+                    const isRowNegative = draft.bodega_origen_id !== null && (
+                      (esMovimientoSalidaOTraslado && p.cajas > (p.stock_origen_cajas ?? 0)) ||
+                      (esAjuste && p.cajas < 0 && Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0))
+                    )
 
                     return (
                       <tr 
@@ -1931,7 +2088,7 @@ export function NoteDraftBuilder({
                           </div>
                         </td>
 
-                        {/* SKU con Sustituidor Rápido y Asistente por Familia */}
+                        {/* SKU con Sustituidor Rápido, Asistente por Familia y Código Original */}
                         <td className="px-4 py-3 font-mono text-xs font-semibold">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={cn(isRowNegative && (!permitirStockNegativo ? "text-destructive font-black" : "text-amber-700 dark:text-amber-300 font-black"))}>
@@ -1972,6 +2129,15 @@ export function NoteDraftBuilder({
                               </div>
                             )}
                           </div>
+
+                          {/* Badge de Código Original si fue reasignado */}
+                          {p.codigo_original && p.codigo_original !== p.producto_sku && (
+                            <div className="mt-1 flex items-center gap-1">
+                              <span className="text-[10px] font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
+                                🏷️ Físico: <strong>{p.codigo_original}</strong>
+                              </span>
+                            </div>
+                          )}
                         </td>
 
                         <td className="px-4 py-3 text-xs truncate max-w-[200px]">
@@ -1997,29 +2163,64 @@ export function NoteDraftBuilder({
                           </td>
                         )}
 
-                        {/* Columna de Cajas con Flechitas +/- */}
+                        {/* Columna de Cajas con Botón +/- y Flechitas */}
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
+                            {esAjuste && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleSignProductCajas(p.tempId)}
+                                disabled={todoBloqueado || soloEditaDestino}
+                                className={cn(
+                                  "h-7 px-1.5 text-[11px] font-black rounded-lg border transition-all shrink-0 font-mono",
+                                  p.cajas >= 0
+                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
+                                    : "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30 hover:bg-red-500/25"
+                                )}
+                                title={p.cajas >= 0 ? "Cambiar a Salida (-) / Restar stock" : "Cambiar a Entrada (+) / Sumar stock"}
+                              >
+                                {p.cajas >= 0 ? "+Ent" : "-Sal"}
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               variant="outline"
                               size="icon"
                               className="h-7 w-7 rounded-lg border hover:bg-muted shrink-0"
                               onClick={() => handleUpdateProductCajas(p.tempId, p.cajas - 1)}
-                              disabled={todoBloqueado || soloEditaDestino || p.cajas <= 0}
+                              disabled={todoBloqueado || soloEditaDestino || (!esAjuste && p.cajas <= 0)}
                               title="Restar 1 caja"
                             >
                               <Minus className="h-3 w-3" />
                             </Button>
                             <Input
                               type="number"
-                              min="0"
-                              value={p.cajas}
+                              min={esAjuste ? undefined : "0"}
+                              value={p.cajas === 0 ? '' : p.cajas}
+                              placeholder="0"
                               onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0
-                                handleUpdateProductCajas(p.tempId, val)
+                                const raw = e.target.value
+                                if (raw === '' || raw === '-') {
+                                  handleUpdateProductCajas(p.tempId, 0)
+                                } else {
+                                  const val = parseFloat(raw)
+                                  if (!isNaN(val)) {
+                                    handleUpdateProductCajas(p.tempId, val)
+                                  }
+                                }
                               }}
-                              className="h-7 w-14 text-center font-mono font-bold text-xs px-1 rounded-lg border tabular-nums"
+                              className={cn(
+                                "h-7 w-16 text-center font-mono font-bold text-xs px-1 rounded-lg border tabular-nums",
+                                esAjuste && (
+                                  p.cajas < 0
+                                    ? "text-red-600 font-black bg-red-50/50 dark:bg-red-950/20 border-red-300 dark:border-red-800"
+                                    : p.cajas > 0
+                                    ? "text-emerald-600 font-black bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800"
+                                    : ""
+                                )
+                              )}
                               disabled={todoBloqueado || soloEditaDestino}
                             />
                             <Button
@@ -2038,7 +2239,28 @@ export function NoteDraftBuilder({
 
                         {/* Columna Ocultable de Piezas */}
                         {showExtraCols && (
-                          <td className="px-4 py-3 text-center font-mono tabular-nums">{p.piezas_sueltas}</td>
+                          <td className="px-4 py-3 text-center">
+                            <Input
+                              type="number"
+                              min="0"
+                              value={p.piezas_sueltas === 0 ? '' : p.piezas_sueltas}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const raw = e.target.value
+                                const val = parseInt(raw, 10)
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  productos: prev.productos.map((item) =>
+                                    item.tempId === p.tempId
+                                      ? { ...item, piezas_sueltas: isNaN(val) ? 0 : Math.max(0, val) }
+                                      : item
+                                  ),
+                                }))
+                              }}
+                              className="h-7 w-14 text-center font-mono text-xs px-1 rounded-lg border tabular-nums mx-auto"
+                              disabled={todoBloqueado || soloEditaDestino}
+                            />
+                          </td>
                         )}
 
                         <td className="px-4 py-3 text-right font-mono font-bold text-base tabular-nums">
@@ -2064,8 +2286,24 @@ export function NoteDraftBuilder({
                     <td colSpan={3} className="px-4 py-3 text-xs font-black uppercase tracking-wider text-muted-foreground">
                       {draft.productos.length} producto{draft.productos.length !== 1 ? 's' : ''}
                     </td>
-                    <td className="px-4 py-3 text-center font-black font-mono text-lg tabular-nums">
-                      {totalCajas}
+                    <td className="px-4 py-3 text-center font-black font-mono text-base tabular-nums">
+                      {esAjuste ? (
+                        <div className="flex flex-col items-center">
+                          <span className={cn(
+                            "text-lg",
+                            totalCajas > 0 ? "text-emerald-600" : totalCajas < 0 ? "text-red-600" : "text-foreground"
+                          )}>
+                            {totalCajas > 0 ? `+${totalCajas}` : totalCajas}
+                          </span>
+                          {(totalPositivas > 0 || totalNegativas < 0) && (
+                            <span className="text-[10px] font-bold text-muted-foreground">
+                              (+{totalPositivas} / {totalNegativas})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-lg">{totalCajas}</span>
+                      )}
                     </td>
                     <td colSpan={showExtraCols ? 3 : 2}></td>
                   </tr>
@@ -2428,6 +2666,17 @@ export function NoteDraftBuilder({
         bodegaOrigenId={draft.bodega_origen_id}
         bodegaNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
         onSelectSustituto={handleSelectSustituto}
+      />
+
+      {/* ── Modal Paso 2: Conciliador de Stock Ampliado por Familia ── */}
+      <ConciliadorAmpliadoStockModal
+        open={showConciliadorModal}
+        onOpenChange={setShowConciliadorModal}
+        productos={draft.productos}
+        bodegaOrigenId={draft.bodega_origen_id}
+        bodegaOrigenNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
+        permitirStockNegativo={permitirStockNegativo}
+        onReasignarProducto={handleReasignarProducto}
       />
 
       {/* ── Diálogo de Advertencia Rápida para Stock Negativo ─ */}

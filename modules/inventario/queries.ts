@@ -306,7 +306,7 @@ async function fetchNotaDetalles(
   const { data, error } = await supabase
     .from('nota_detalle_productos')
     .select(`
-      id, nota_id, producto_id, variante_id, cajas, piezas_sueltas, caja_id,
+      id, nota_id, producto_id, variante_id, cajas, piezas_sueltas, caja_id, codigo_original,
       producto:productos!nota_detalle_productos_producto_id_fkey (
         sku_base, nombre, descripcion, pz_en_caja
       ),
@@ -351,6 +351,7 @@ async function fetchNotaDetalles(
       variante_sku: variante?.sku_completo ?? null,
       talla_codigo: talla?.codigo ?? null,
       color_nombre: color?.nombre ?? null,
+      codigo_original: d.codigo_original ?? null,
     }
   })
 }
