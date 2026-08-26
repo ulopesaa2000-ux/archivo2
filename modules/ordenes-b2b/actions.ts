@@ -654,18 +654,17 @@ export async function eliminarOrdenB2BAction(
   const access = await requireCommercialOrderAccess(supabase, id)
   if ('success' in access) return access
 
-  // Eliminar detalles y cajas vinculadas para evitar errores de integridad referencial
-  await supabase.from('ordenes_b2b_detalles').delete().eq('orden_id', id)
-  await supabase.from('orden_cajas').delete().eq('orden_id', id)
-
+  // Borrado lógico (soft delete): marcar activo = false sin destruir historial de detalles o cajas
   const { error } = await supabase
     .from('ordenes_b2b')
-    .delete()
+    .update({ activo: false })
     .eq('id', id)
 
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/ordenes-b2b')
+  revalidatePath(`/ordenes-b2b/${id}`)
+  revalidatePath('/contenedores')
   return { success: true }
 }
 

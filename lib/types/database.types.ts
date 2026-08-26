@@ -2216,6 +2216,7 @@ export type Database = {
       }
       ordenes_b2b: {
         Row: {
+          activo: boolean
           cbm_orden: number | null
           cliente_b2b_id: number | null
           contenedor_id: number | null
@@ -2233,6 +2234,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          activo?: boolean
           cbm_orden?: number | null
           cliente_b2b_id?: number | null
           contenedor_id?: number | null
@@ -2250,6 +2252,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          activo?: boolean
           cbm_orden?: number | null
           cliente_b2b_id?: number | null
           contenedor_id?: number | null

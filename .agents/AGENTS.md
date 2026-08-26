@@ -147,20 +147,18 @@ Seguir la estructura funcional propuesta por el usuario:
 - `lib/supabase`, `lib/types`, `lib/constants.ts`, `lib/utils.ts`
 - `hooks` con hooks de sesión, bodega y carrito
 
-## Sección 7: fases del proyecto
+## Sección 7: bloques funcionales del proyecto
 
-1. Fase 0: bootstrapping, estructura, clientes, tipos, optimización base
-2. Fase 1: autenticación y login
-3. Fase 2: shell admin persistente, sidebar, header, selector de bodega
-4. Fase 3: módulo catálogo
-5. Fase 4: módulo inventario
-6. Fase 5: órdenes B2B, cajas, contenedores
-7. Fase 6: ecommerce admin
-8. Fase 7: tienda online pública
-9. Fase 8: usuarios, roles y configuración
-10. Fase 9: dashboard real, pulido y deploy
+El sistema se estructura en **3 Grandes Bloques Funcionales** gobernados por una **Capa Base Transversal**:
 
-ESTAS FASES ESTAN EN agents/rules/face0y1.md y agents/rules/fase2y3.md las primeras fases en proceso de implementacion y las ultimas en proceso de definicion de la fase 3 de del proyecto.
+0. **Capa Transversal (Base, Auth & RBAC)**: Supabase Auth, `usuarios`, `roles`, `personas`, `usuario_permisos`, `usuario_bodegas`, shell admin persistente y selector de bodegas físicas/virtuales ([00_base_auth_rbac.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/00_base_auth_rbac.md)).
+1. **Bloque 1 (Catálogo y Cadena de Suministro)**: Catálogo de ropa, variantes, atributos, cajas con matriz talla×color, órdenes B2B, contenedores de importación, flujos OCR n8n y galería de imágenes ([01_catalogo_b2b.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/01_catalogo_b2b.md)).
+2. **Bloque 2 (Inventario, Movimientos y Bodegas)**: Stock a nivel producto, notas de inventario CONF (trigger `fn_procesar_nota_inventario`), despachos, transferencias, bodegas físicas y virtuales, matriz de stock y pronósticos ([02_inventario.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/02_inventario.md)).
+3. **Bloque 3 (Ecommerce y Tienda Pública)**: Catálogo web `productos_web`, precios de venta público/oferta, slugs amigables, pedidos de venta, carrito de compra, checkout y SEO dinámico ([03_ecommerce_tienda.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/03_ecommerce_tienda.md)).
+4. **Sistema de Diseño Unificado (Admin & Storefront)**: Tokens, componentes atómicos, modales de alta densidad, tablas, botones, badges de estado y notificaciones Sonner ([04_design_system.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/04_design_system.md)).
+
+La documentación general de arquitectura y bloques se encuentra en [FASES.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/FASES.md).
+
 ## Sección 8: instrucciones de trabajo
 
 1. Tener siempre presente la Sección 3 antes de generar código.
