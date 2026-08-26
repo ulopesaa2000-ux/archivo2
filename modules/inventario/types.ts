@@ -102,12 +102,26 @@ export type HistorialEstadoResuelto = {
 }
 
 // ── Stock en listado ────────────────────────────────────────
+export type NotaImpactoStockItem = {
+  nota_id: number
+  numero_nota: string
+  tipo_codigo: string
+  tipo_nombre: string
+  cajas: number
+  delta: number
+  observaciones?: string | null
+  fecha_nota?: string | null
+  destino_nombre?: string | null
+}
+
 export type FiltrosStock = {
   q?: string
   marca_id?: number
   con_stock_cero?: boolean
   page?: number
   limit?: number
+  modo?: 'fisico' | 'pronostico'
+  solo_afectados?: boolean
 }
 
 export type StockListItem = {
@@ -127,6 +141,13 @@ export type StockListItem = {
   marca_nombre: string | null
   caja_codigo: string | null
   caja_nombre_pack: string | null
+  // Campos para Modo Pronóstico
+  entradas_pendientes?: number
+  salidas_pendientes?: number
+  delta_cajas?: number
+  cajas_pronosticadas?: number
+  notas_pendientes_afectando?: NotaImpactoStockItem[]
+  tiene_movimiento_pendiente?: boolean
 }
 
 export type StockDetalleCaja = {
@@ -147,6 +168,20 @@ export type FiltrosStockMatrix = {
   bodegas?: number[]
   page?: number
   limit?: number
+  modo?: 'fisico' | 'pronostico'
+  solo_afectados?: boolean
+}
+
+export type StockMatrixBodegaCell = {
+  cajas: number
+  piezas_sueltas: number
+  total: number
+  entradas?: number
+  salidas?: number
+  delta?: number
+  pronosticado?: number
+  tiene_movimiento?: boolean
+  notas?: NotaImpactoStockItem[]
 }
 
 export type StockMatrixItem = {
@@ -157,7 +192,10 @@ export type StockMatrixItem = {
   producto_familia: string | null
   pz_en_caja: number | null
   total_general: number
-  stock_por_bodega: Record<number, { cajas: number; piezas_sueltas: number; total: number }>
+  stock_por_bodega: Record<number, StockMatrixBodegaCell>
+  tiene_movimiento_pendiente?: boolean
+  total_delta?: number
+  total_pronosticado?: number
 }
 
 // ── Catálogos para formularios ──────────────────────────────

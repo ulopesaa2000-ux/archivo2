@@ -1,4 +1,4 @@
-// scripts/test_complete_ocr_flow.js
+// scripts\n8n\tests\test_complete_ocr_flow.js
 const fs = require('fs');
 
 const rawFromUser = {

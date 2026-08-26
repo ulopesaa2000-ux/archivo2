@@ -1,3 +1,4 @@
+// scripts\system\clean.js
 const fs = require('fs');
 let t = fs.readFileSync('lib/types/database.types.ts', 'utf8');
 if (t.startsWith('"')) {

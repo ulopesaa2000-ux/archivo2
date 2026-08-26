@@ -1,4 +1,4 @@
-// scripts/test_nav_notas.js
+// scripts\supabase\tests\test_nav_notas.js
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
 const fs = require('fs');

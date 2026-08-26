@@ -1,4 +1,4 @@
-// scripts/test_full_ocr_simulation.js
+// scripts\n8n\tests\test_full_ocr_simulation.js
 const fs = require('fs');
 
 // Datos exactos que devolvió OpenRouter reportados por el usuario

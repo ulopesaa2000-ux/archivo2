@@ -173,6 +173,11 @@ ESTAS FASES ESTAN EN agents/rules/face0y1.md y agents/rules/fase2y3.md las prime
 8. No generar código que modifique la estructura de la base de datos.
 9. Cada listado debe tener `loading.tsx`.
 10. Cada vista de detalle debe usar `<Suspense>` para streaming.
+11. **Organización de Scripts y Pruebas**: Cualquier script, prueba, diagnóstico o consulta nueva debe seguir estrictamente la estructura modular documentada en `scripts/README.md` y `scratch/README.md`:
+    - Dividir por plataforma: `n8n/`, `supabase/`, `system/`.
+    - Dividir por propósito: `diagnostics/`, `queries/`, `tests/`, `updates/`.
+    - Respaldos, volcados JSON o datos sensibles van obligatoriamente en `scripts/backups/` o `scratch/backups/` (ambos en `.gitignore`).
+    - Todo script debe llevar su path completo como comentario en la primera línea.
 
 ## Nota operativa para futuras iteraciones
 

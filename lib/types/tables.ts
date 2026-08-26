@@ -33,9 +33,13 @@ export type MarcaRow = Tables['cat_marcas']['Row']
 export type TallaRow = Tables['cat_tallas']['Row']
 export type ColorRow = Tables['cat_colores']['Row']
 export type TelaRow = Tables['cat_telas']['Row']
-export type GeneroRow = Tables['cat_generos']['Row']
+export type GeneroRow = Tables['cat_generos']['Row'] & {
+  prefijo: string | null
+}
 export type EdadRow = Tables['cat_edades']['Row']
-export type TipoPrendaRow = Tables['cat_tipo_prenda']['Row']
+export type TipoPrendaRow = Tables['cat_tipo_prenda']['Row'] & {
+  prefijo: string | null
+}
 export type TipoTagRow = Tables['tipo_tag']['Row']
 export type RefTagRow = Tables['ref_tag']['Row']
 export type PuntoMedidaRow = Tables['puntos_medida']['Row']
@@ -108,7 +112,9 @@ export type RolRow = Tables['roles']['Row']
 export type RolPermisoRow = Tables['rol_permisos']['Row']
 export type UsuarioPermisoRow = Tables['usuario_permisos']['Row']
 export type UsuarioBodegaRow = Tables['usuario_bodegas']['Row']
-export type PersonaRow = Tables['personas']['Row']
+export type PersonaRow = Tables['personas']['Row'] & {
+  prefijo: string | null
+}
 export type PersonaAsignadaComercial = {
   id: number
   nombre_completo: string

@@ -134,10 +134,16 @@ La base de datos PostgreSQL en Supabase ya existe y está poblada con datos real
 9. Cada listado debe tener `loading.tsx`.
 10. Cada vista de detalle debe usar `<Suspense>` para streaming.
 11. Antes de realizar cambios grandes, crear un punto de restauración con git (commit) para mantener versiones y poder regresar en caso de errores.
+12. **Organización de Scripts y Pruebas**: Cualquier script, prueba, diagnóstico o consulta nueva debe seguir estrictamente la estructura modular documentada en [scripts/README.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/scripts/README.md) y [scratch/README.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/scratch/README.md):
+    - Dividir por plataforma: `n8n/`, `supabase/`, `system/`.
+    - Dividir por propósito: `diagnostics/`, `queries/`, `tests/`, `updates/`.
+    - Respaldos, volcados JSON o datos sensibles van obligatoriamente en `scripts/backups/` o `scratch/backups/` (ambos en `.gitignore`).
+    - Todo script debe llevar su path completo como comentario en la primera línea.
 
 ## Notas Adicionales
 - Las skills personalizadas deben colocarse en `.claude/skills/nombre-de-la-skill/SKILL.md`
 - Los archivos existentes en `.agents/skills/` son skills del sistema y no deben ser modificados para skills personalizadas
+- Para crear utilidades, diagnósticos o pruebas temporales, guiarse siempre por las convenciones de [scripts/README.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/scripts/README.md) y [scratch/README.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/scratch/README.md).
 - Este archivo CLAUDE.md sirve como contexto general para futuras iteraciones del proyecto
 
 

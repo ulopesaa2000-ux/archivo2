@@ -41,6 +41,9 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
   const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
+  const modo = searchParams.get('modo') === 'pronostico' ? 'pronostico' : 'fisico'
+  const isPronostico = modo === 'pronostico'
+
   const toggleGroup = (familia: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev)
@@ -54,56 +57,96 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
   const groupedItems = useMemo(() => {
     if (agruparPor !== 'familia') return null
 
-    const groups: Record<string, { familia: string; total_general: number; stock_por_bodega: Record<number, number>; items: StockMatrixItem[] }> = {}
-    
-    items.forEach(item => {
+    const groups: Record<
+      string,
+      {
+        familia: string
+        total_general: number
+        total_real: number
+        total_delta: number
+        total_pronosticado: number
+        stock_por_bodega: Record<number, { cajas: number; delta: number; pronosticado: number; tiene_movimiento: boolean }>
+        items: StockMatrixItem[]
+      }
+    > = {}
+
+    items.forEach((item) => {
       const familiaKey = item.producto_familia || 'Sin Familia'
       if (!groups[familiaKey]) {
         groups[familiaKey] = {
           familia: familiaKey,
           total_general: 0,
+          total_real: 0,
+          total_delta: 0,
+          total_pronosticado: 0,
           stock_por_bodega: {},
-          items: []
+          items: [],
         }
       }
-      
+
+      // Sumar únicamente las cajas de las bodegas actualmente visibles/seleccionadas
+      const itemVisibleTotal = bodegasColumnas.reduce(
+        (sum, b) => sum + (item.stock_por_bodega[b.id]?.total ?? 0),
+        0
+      )
+      const itemVisibleReal = bodegasColumnas.reduce(
+        (sum, b) => sum + (item.stock_por_bodega[b.id]?.cajas ?? 0),
+        0
+      )
+      const itemVisibleDelta = bodegasColumnas.reduce(
+        (sum, b) => sum + (item.stock_por_bodega[b.id]?.delta ?? 0),
+        0
+      )
+
       groups[familiaKey].items.push(item)
-      groups[familiaKey].total_general += item.total_general
-      
-      bodegasColumnas.forEach(b => {
+      groups[familiaKey].total_general += itemVisibleTotal
+      groups[familiaKey].total_real += itemVisibleReal
+      groups[familiaKey].total_delta += itemVisibleDelta
+      groups[familiaKey].total_pronosticado += (itemVisibleReal + itemVisibleDelta)
+
+      bodegasColumnas.forEach((b) => {
         if (!groups[familiaKey].stock_por_bodega[b.id]) {
-          groups[familiaKey].stock_por_bodega[b.id] = 0
+          groups[familiaKey].stock_por_bodega[b.id] = { cajas: 0, delta: 0, pronosticado: 0, tiene_movimiento: false }
         }
-        groups[familiaKey].stock_por_bodega[b.id] += (item.stock_por_bodega[b.id]?.total ?? 0)
+        const cell = item.stock_por_bodega[b.id]
+        groups[familiaKey].stock_por_bodega[b.id].cajas += (cell?.cajas ?? 0)
+        groups[familiaKey].stock_por_bodega[b.id].delta += (cell?.delta ?? 0)
+        groups[familiaKey].stock_por_bodega[b.id].pronosticado += (cell?.pronosticado ?? cell?.total ?? 0)
+        if (cell?.tiene_movimiento || (cell?.delta ?? 0) !== 0) {
+          groups[familiaKey].stock_por_bodega[b.id].tiene_movimiento = true
+        }
       })
     })
-    
+
     // Sort groups by name alphabetically
     return Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
   }, [items, agruparPor, bodegasColumnas])
 
-  // Cálculos de totales
+  // Cálculos de totales dinámicos basados en las bodegas visibles
   const { totalsPerBodega, grandTotal } = useMemo(() => {
     const totals: Record<number, number> = {}
-    let grand = 0
-    
-    items.forEach(item => {
-      grand += item.total_general
-      bodegasColumnas.forEach(b => {
+
+    items.forEach((item) => {
+      bodegasColumnas.forEach((b) => {
         if (!totals[b.id]) totals[b.id] = 0
-        totals[b.id] += (item.stock_por_bodega[b.id]?.total ?? 0)
+        totals[b.id] += item.stock_por_bodega[b.id]?.total ?? 0
       })
     })
-    
+
+    const grand = Object.values(totals).reduce((a, b) => a + b, 0)
+
     return { totalsPerBodega: totals, grandTotal: grand }
   }, [items, bodegasColumnas])
 
   const grandTotalReal = useMemo(() => {
     if (totalesCajasRealesPorBodega && Object.keys(totalesCajasRealesPorBodega).length > 0) {
-      return Object.values(totalesCajasRealesPorBodega).reduce((a, b) => a + b, 0)
+      return bodegasColumnas.reduce(
+        (sum, b) => sum + (totalesCajasRealesPorBodega[b.id] ?? 0),
+        0
+      )
     }
     return grandTotal
-  }, [totalesCajasRealesPorBodega, grandTotal])
+  }, [totalesCajasRealesPorBodega, bodegasColumnas, grandTotal])
 
   const expandAll = () => {
     if (!groupedItems) return
@@ -142,8 +185,9 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       const ciudades = ciudadesRaw ? ciudadesRaw.split(',').filter(Boolean) : undefined
       const bodegasRaw = searchParams.get('bodegas')
       const bodegas = bodegasRaw ? bodegasRaw.split(',').map(Number).filter(n => !isNaN(n)) : undefined
+      const solo_afectados = searchParams.get('solo_afectados') === 'true'
 
-      const res = await exportStockMatrixAction({ q, con_stock_cero, ciudades, bodegas }, bodegasColumnas)
+      const res = await exportStockMatrixAction({ q, con_stock_cero, ciudades, bodegas, modo, solo_afectados }, bodegasColumnas)
       if (!res.success || !res.data || res.data.length === 0) {
         toast.error(res.error || 'No se encontraron datos para exportar.')
         setIsExporting(false)
@@ -626,12 +670,12 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                 const isExpanded = expandedGroups.has(group.familia)
                 const isEven = groupIdx % 2 === 0
                 const rowBgClass = isEven ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'bg-background'
-                
+
                 return (
                   <React.Fragment key={`group-${group.familia}`}>
                     {/* Fila Agrupadora (Familia) */}
-                    <tr 
-                      className={`border-b hover:bg-blue-100/50 dark:hover:bg-blue-900/20 font-medium cursor-pointer transition-colors ${rowBgClass}`} 
+                    <tr
+                      className={`border-b hover:bg-blue-100/50 dark:hover:bg-blue-900/20 font-medium cursor-pointer transition-colors ${rowBgClass}`}
                       onClick={() => toggleGroup(group.familia)}
                     >
                       <td className={`px-4 py-3 sticky left-0 backdrop-blur z-20 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] ${isEven ? 'bg-blue-50/90 dark:bg-blue-900/40' : 'bg-muted/90 dark:bg-muted/40'}`}>
@@ -641,82 +685,220 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                         </div>
                       </td>
                       <td colSpan={2} className={`px-4 py-3 sticky left-[140px] z-20 backdrop-blur shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-muted-foreground italic text-xs truncate whitespace-nowrap overflow-hidden max-w-[400px] ${isEven ? 'bg-blue-50/90 dark:bg-blue-900/40' : 'bg-muted/90 dark:bg-muted/40'}`} title={familyDescriptions[group.familia]}>
-                        {familyDescriptions[group.familia]}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">{familyDescriptions[group.familia]}</span>
+                          {isPronostico && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border shadow-2xs shrink-0 ${
+                                group.total_pronosticado < 0
+                                  ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 animate-pulse'
+                                  : group.total_delta < 0
+                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                              }`}
+                              title={`Ecuación de Familia ${group.familia} en bodegas seleccionadas:\nReal (${group.total_real}) + Trámite (${group.total_delta >= 0 ? '+' : ''}${group.total_delta}) = Total (${group.total_pronosticado} cjs)`}
+                            >
+                              <span>📦 {group.total_real}</span>
+                              <span>{group.total_delta >= 0 ? `+${group.total_delta}` : group.total_delta}</span>
+                              <span>=</span>
+                              <span className="font-extrabold">{group.total_pronosticado} cjs</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-center tabular-nums font-bold border-l border-r bg-primary/5">
+                      <td className={`px-4 py-3 text-center tabular-nums font-bold border-l border-r ${
+                        isPronostico
+                          ? group.total_general < 0
+                            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                            : group.total_delta < 0
+                            ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                            : 'bg-primary/5 text-primary'
+                          : 'bg-primary/5 text-primary'
+                      }`}>
                         {group.total_general}
                       </td>
-                      {bodegasColumnas.map(b => {
-                        const val = group.stock_por_bodega[b.id] ?? 0
+                      {bodegasColumnas.map((b) => {
+                        const cell = group.stock_por_bodega[b.id]
+                        const val = isPronostico ? (cell?.pronosticado ?? 0) : (cell?.cajas ?? 0)
+                        const delta = cell?.delta ?? 0
+                        const tieneMov = isPronostico && (cell?.tiene_movimiento || delta !== 0)
+
                         return (
-                          <td key={`group-b-${b.id}`} className="px-4 py-3 text-center tabular-nums border-l border-muted/50 text-muted-foreground">
-                            {val > 0 ? val : '—'}
+                          <td key={`group-b-${b.id}`} className="px-3 py-3 text-center tabular-nums border-l border-muted/50">
+                            {isPronostico && tieneMov ? (
+                              <span
+                                className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-bold ${
+                                  val < 0
+                                    ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40'
+                                    : delta < 0
+                                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                                }`}
+                                title={`Familia ${group.familia} @ Bodega ${b.nombre}\nFísico: ${cell?.cajas || 0} | Trámite: ${delta >= 0 ? '+' : ''}${delta} | Total: ${val} cjs`}
+                              >
+                                {val}
+                              </span>
+                            ) : val > 0 ? (
+                              <span className="text-muted-foreground font-semibold">{val}</span>
+                            ) : (
+                              <span className="text-muted-foreground/30">—</span>
+                            )}
                           </td>
                         )
                       })}
                     </tr>
-                    
+
                     {/* Filas Hijos (Productos) */}
-                    {isExpanded && group.items.map((item) => (
-                      <tr key={item.producto_id} className={`border-b last:border-0 hover:bg-primary/5 ${isEven ? 'bg-blue-50/20 dark:bg-blue-900/5' : 'bg-background'}`}>
-                        <td className={`px-4 py-2 sticky left-0 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground italic w-[140px] min-w-[140px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
-                          {group.familia}
-                        </td>
-                        <td className={`px-4 py-2 sticky left-[140px] backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] font-mono text-xs border-l w-[160px] min-w-[160px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
-                          {item.producto_sku}
-                        </td>
-                        <td className="px-4 py-2 text-xs border-l truncate max-w-[300px] min-w-[250px]" title={item.producto_descripcion || item.producto_nombre || ''}>
-                          {item.producto_nombre || item.producto_descripcion}
-                        </td>
-                        <td className="px-4 py-2 text-center text-sm tabular-nums bg-muted/5 border-l border-r font-medium">
-                          {item.total_general}
-                        </td>
-                        {bodegasColumnas.map(b => {
-                          const val = item.stock_por_bodega[b.id]?.total ?? 0
-                          return (
-                            <td key={`child-${item.producto_id}-${b.id}`} className="px-4 py-2 text-sm text-center tabular-nums border-l border-muted/30">
-                              {val > 0 ? (
-                                <span className="text-primary">{val}</span>
-                              ) : (
-                                <span className="text-muted-foreground/30">—</span>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
+                    {isExpanded && group.items.map((item) => {
+                      const itemVisibleTotal = bodegasColumnas.reduce(
+                        (sum, b) => sum + (item.stock_por_bodega[b.id]?.total ?? 0),
+                        0
+                      )
+                      const itemVisibleDelta = bodegasColumnas.reduce(
+                        (sum, b) => sum + (item.stock_por_bodega[b.id]?.delta ?? 0),
+                        0
+                      )
+
+                      return (
+                        <tr key={item.producto_id} className={`border-b last:border-0 hover:bg-primary/5 ${isEven ? 'bg-blue-50/20 dark:bg-blue-900/5' : 'bg-background'}`}>
+                          <td className={`px-4 py-2 sticky left-0 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground italic w-[140px] min-w-[140px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
+                            {group.familia}
+                          </td>
+                          <td className={`px-4 py-2 sticky left-[140px] backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] font-mono text-xs border-l w-[160px] min-w-[160px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
+                            {item.producto_sku}
+                          </td>
+                          <td className="px-4 py-2 text-xs border-l truncate max-w-[300px] min-w-[250px]" title={item.producto_descripcion || item.producto_nombre || ''}>
+                            {item.producto_nombre || item.producto_descripcion}
+                          </td>
+                          <td className={`px-4 py-2 text-center text-sm tabular-nums border-l border-r font-bold ${
+                            isPronostico
+                              ? itemVisibleTotal < 0
+                                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                : itemVisibleDelta < 0
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                : 'bg-muted/5 font-semibold'
+                              : 'bg-muted/5 font-medium'
+                          }`}>
+                            {itemVisibleTotal}
+                          </td>
+                          {bodegasColumnas.map((b) => {
+                            const cell = item.stock_por_bodega[b.id]
+                            const val = cell?.total ?? 0
+                            const cajasReales = cell?.cajas ?? 0
+                            const delta = cell?.delta ?? 0
+                            const tieneMov = isPronostico && (cell?.tiene_movimiento || delta !== 0)
+                            const pronosticado = cell?.pronosticado ?? val
+                            const notas = cell?.notas || []
+
+                            return (
+                              <td
+                                key={`child-${item.producto_id}-${b.id}`}
+                                className="px-3 py-2 text-sm text-center tabular-nums border-l border-muted/30"
+                              >
+                                {isPronostico && tieneMov ? (
+                                  <div className="inline-flex items-center justify-center">
+                                    <span
+                                      className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-bold shadow-2xs ${
+                                        pronosticado < 0
+                                          ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40 animate-pulse font-black'
+                                          : delta < 0
+                                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                          : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                                      }`}
+                                      title={`Bodega ${b.nombre}\nFísico: ${cajasReales} cjs | Trámite: ${delta >= 0 ? '+' : ''}${delta} cjs | Pronóstico: ${pronosticado} cjs\nNotas: ${notas.map(n => `${n.numero_nota} (${n.delta >= 0 ? '+' : ''}${n.delta})`).join(', ') || 'N/A'}`}
+                                    >
+                                      {pronosticado}
+                                    </span>
+                                  </div>
+                                ) : val > 0 ? (
+                                  <span className={isPronostico ? 'text-foreground font-medium' : 'text-primary'}>
+                                    {val}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground/30">—</span>
+                                )}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )
+                    })}
                   </React.Fragment>
                 )
               })
             ) : (
-              items.map((item) => (
-                <tr key={item.producto_id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 sticky left-0 bg-background/95 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground">
-                    {item.producto_familia || '—'}
-                  </td>
-                  <td className="px-4 py-3 font-mono font-medium text-sm border-l">
-                    {item.producto_sku}
-                  </td>
-                  <td className="px-4 py-3 text-xs border-l truncate max-w-[300px]" title={item.producto_descripcion || item.producto_nombre || ''}>
-                    {item.producto_nombre || item.producto_descripcion}
-                  </td>
-                  <td className="px-4 py-3 text-center tabular-nums font-semibold bg-muted/10 border-l border-r">
-                    {item.total_general}
-                  </td>
-                  {bodegasColumnas.map(b => {
-                    const val = item.stock_por_bodega[b.id]?.total ?? 0
-                    return (
-                      <td key={b.id} className="px-4 py-3 text-center tabular-nums border-l border-muted/50">
-                        {val > 0 ? (
-                          <span className="font-medium text-primary">{val}</span>
-                        ) : (
-                          <span className="text-muted-foreground/30">—</span>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))
+              items.map((item) => {
+                const itemVisibleTotal = bodegasColumnas.reduce(
+                  (sum, b) => sum + (item.stock_por_bodega[b.id]?.total ?? 0),
+                  0
+                )
+                const itemVisibleDelta = bodegasColumnas.reduce(
+                  (sum, b) => sum + (item.stock_por_bodega[b.id]?.delta ?? 0),
+                  0
+                )
+
+                return (
+                  <tr key={item.producto_id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 sticky left-0 bg-background/95 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground">
+                      {item.producto_familia || '—'}
+                    </td>
+                    <td className="px-4 py-3 font-mono font-medium text-sm border-l">
+                      {item.producto_sku}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-xs border-l truncate max-w-[300px]"
+                      title={item.producto_descripcion || item.producto_nombre || ''}
+                    >
+                      {item.producto_nombre || item.producto_descripcion}
+                    </td>
+                    <td className={`px-4 py-3 text-center tabular-nums font-bold border-l border-r ${
+                      isPronostico
+                        ? itemVisibleTotal < 0
+                          ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                          : itemVisibleDelta < 0
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                          : 'bg-muted/10 font-semibold'
+                        : 'bg-muted/10 font-semibold'
+                    }`}>
+                      {itemVisibleTotal}
+                    </td>
+                    {bodegasColumnas.map((b) => {
+                      const cell = item.stock_por_bodega[b.id]
+                      const val = cell?.total ?? 0
+                      const cajasReales = cell?.cajas ?? 0
+                      const delta = cell?.delta ?? 0
+                      const tieneMov = isPronostico && (cell?.tiene_movimiento || delta !== 0)
+                      const pronosticado = cell?.pronosticado ?? val
+                      const notas = cell?.notas || []
+
+                      return (
+                        <td key={b.id} className="px-3 py-3 text-center tabular-nums border-l border-muted/50">
+                          {isPronostico && tieneMov ? (
+                            <span
+                              className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-bold ${
+                                pronosticado < 0
+                                  ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40 animate-pulse font-black'
+                                  : delta < 0
+                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                              }`}
+                              title={`Bodega ${b.nombre}\nFísico: ${cajasReales} cjs | Trámite: ${delta >= 0 ? '+' : ''}${delta} cjs | Pronóstico: ${pronosticado} cjs\nNotas: ${notas.map(n => `${n.numero_nota} (${n.delta >= 0 ? '+' : ''}${n.delta})`).join(', ') || 'N/A'}`}
+                            >
+                              {pronosticado}
+                            </span>
+                          ) : val > 0 ? (
+                            <span className={isPronostico ? 'text-foreground font-medium' : 'text-primary font-medium'}>
+                              {val}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/30">—</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })
             )}
           </tbody>
           <tfoot className="bg-muted/50 font-bold border-t-2 border-primary/20">

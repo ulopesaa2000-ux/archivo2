@@ -33,6 +33,8 @@ type StockPageSearchParams = {
   ciudades?: string | string[]
   bodegas?: string | string[]
   agrupar_por?: string
+  modo?: string
+  solo_afectados?: string
 }
 
 function parseArray(val: string | string[] | undefined): string[] {
@@ -72,7 +74,7 @@ async function StockMatrixData({
   }
 
   const stockMatrixPromise = isNone
-    ? Promise.resolve({ items: [] as StockMatrixItem[], total: 0 })
+    ? Promise.resolve({ items: [] as StockMatrixItem[], total: 0, totalNotasPendientes: 0 })
     : fetchStockMatrix(filtros, bodegas)
 
   const totalesCajasPromise = isNone || bodegasColumnas.length === 0
@@ -86,7 +88,11 @@ async function StockMatrixData({
 
   const items = isNone ? [] : res.items
   const total = isNone ? 0 : res.total
-  const grandTotalCajas = Object.values(totalesCajasRealesPorBodega).reduce((a, b) => a + b, 0)
+  const grandTotalCajas: number = Object.values(totalesCajasRealesPorBodega).reduce(
+    (a: number, b: number) => a + b,
+    0
+  )
+  const totalNotasPendientes = res.totalNotasPendientes ?? 0
 
   return (
     <div className="space-y-4">
@@ -98,7 +104,11 @@ async function StockMatrixData({
         totalCajas={grandTotalCajas}
         showImport={showImport}
       />
-      <StockMatrixFilters bodegas={bodegas} defaultAgrupacion={defaultAgrupacionConfig} />
+      <StockMatrixFilters
+        bodegas={bodegas}
+        defaultAgrupacion={defaultAgrupacionConfig}
+        totalNotasPendientes={totalNotasPendientes}
+      />
       <StockMatrixTable
         items={items}
         bodegasColumnas={bodegasColumnas}
@@ -130,8 +140,12 @@ async function StockNormalData({
   limiteNotasPendientes?: number
   showImport?: boolean
 }) {
-  const { items, total, totalCajas } = await fetchStockByBodega(bodegaActivaId, filtros)
+  const { items, total, totalCajas, totalCajasPronosticadas, totalNotasPendientes } = await fetchStockByBodega(
+    bodegaActivaId,
+    filtros
+  )
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
+  const isPronostico = filtros.modo === 'pronostico'
 
   return (
     <div className="space-y-4">
@@ -139,15 +153,29 @@ async function StockNormalData({
         <NotasPendientesPanel bodegaId={bodegaActivaId} limit={limiteNotasPendientes} />
       </Suspense>
       <StockPageHeader
-        title="Stock por Bodega"
-        subtitle={`${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`}
+        title={isPronostico ? 'Stock Pronosticado por Bodega' : 'Stock por Bodega'}
+        subtitle={
+          isPronostico
+            ? `${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — Proyección con notas pendientes (${total} producto${total !== 1 ? 's' : ''})`
+            : `${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`
+        }
         bodegas={bodegas}
         bodegaActivaId={bodegaActivaId}
         totalCajas={totalCajas}
+        totalCajasPronosticadas={totalCajasPronosticadas}
+        isPronostico={isPronostico}
         showImport={showImport}
       />
-      <StockFilters defaultAgrupacion={defaultAgrupacionConfig} />
-      <StockTable items={items} bodegaId={bodegaActivaId} agruparPor={agruparPor} bodegaNombre={bodegaActiva?.nombre} />
+      <StockFilters
+        defaultAgrupacion={defaultAgrupacionConfig}
+        totalNotasPendientes={totalNotasPendientes}
+      />
+      <StockTable
+        items={items}
+        bodegaId={bodegaActivaId}
+        agruparPor={agruparPor}
+        bodegaNombre={bodegaActiva?.nombre}
+      />
       <Pagination total={total} pageSize={pageSize} />
     </div>
   )
@@ -238,7 +266,7 @@ async function StockPageContent({
 
   // Verificar la bodega activa guardada (0 = "Todas las bodegas por default")
   if (bodegaActivaId !== null && bodegaActivaId !== 0) {
-    const isAllowed = !isRestrictedUser || userBodegas.some(b => b.id === bodegaActivaId)
+    const isAllowed = !isRestrictedUser || userBodegas.some((b) => b.id === bodegaActivaId)
     if (!isAllowed) {
       bodegaActivaId = 0
     }
@@ -273,8 +301,10 @@ async function StockPageContent({
       con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
       page: sp.page ? parseInt(sp.page) : 1,
       limit: pageSize,
-      ciudades: rawCiudades.filter(v => v !== 'none'),
-      bodegas: rawBodegas.filter(v => v !== 'none').map(v => parseInt(v, 10)),
+      ciudades: rawCiudades.filter((v) => v !== 'none'),
+      bodegas: rawBodegas.filter((v) => v !== 'none').map((v) => parseInt(v, 10)),
+      modo: sp.modo === 'pronostico' ? 'pronostico' : 'fisico',
+      solo_afectados: sp.solo_afectados === 'true',
     }
 
     return (
@@ -298,6 +328,8 @@ async function StockPageContent({
     con_stock_cero: sp.con_stock_cero ? sp.con_stock_cero === 'true' : config.mostrar_stock_cero_default,
     page: sp.page ? parseInt(sp.page) : 1,
     limit: pageSize,
+    modo: sp.modo === 'pronostico' ? 'pronostico' : 'fisico',
+    solo_afectados: sp.solo_afectados === 'true',
   }
 
   return (

@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Upload, Package } from 'lucide-react'
+import { Upload, Package, TrendingUp } from 'lucide-react'
 import { ImportarAjusteDialog } from './ImportarAjusteDialog'
 import type { BodegaRow } from '@/lib/types/tables'
 
@@ -14,9 +14,20 @@ type Props = {
   bodegaActivaId: number | null
   showImport?: boolean
   totalCajas?: number
+  totalCajasPronosticadas?: number
+  isPronostico?: boolean
 }
 
-export function StockPageHeader({ title, subtitle, bodegas, bodegaActivaId, showImport = true, totalCajas }: Props) {
+export function StockPageHeader({
+  title,
+  subtitle,
+  bodegas,
+  bodegaActivaId,
+  showImport = true,
+  totalCajas,
+  totalCajasPronosticadas,
+  isPronostico = false,
+}: Props) {
   const [importOpen, setImportOpen] = useState(false)
 
   return (
@@ -24,14 +35,28 @@ export function StockPageHeader({ title, subtitle, bodegas, bodegaActivaId, show
       <div>
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {typeof totalCajas === 'number' && (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-black bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-sm">
-              <Package className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-              {totalCajas.toLocaleString('es-MX')} {totalCajas === 1 ? 'caja' : 'cajas'}
-            </span>
+          {isPronostico && typeof totalCajasPronosticadas === 'number' ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-semibold bg-muted text-muted-foreground border shadow-sm">
+                <Package className="h-4 w-4 shrink-0" />
+                {totalCajas?.toLocaleString('es-MX')} físicas
+              </span>
+              <span className="text-muted-foreground text-xs font-bold">→</span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-black bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40 shadow-sm">
+                <TrendingUp className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                {totalCajasPronosticadas.toLocaleString('es-MX')} pronosticadas
+              </span>
+            </div>
+          ) : (
+            typeof totalCajas === 'number' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-black bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-sm">
+                <Package className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                {totalCajas.toLocaleString('es-MX')} {totalCajas === 1 ? 'caja' : 'cajas'}
+              </span>
+            )
           )}
         </div>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
+        <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
       {showImport && (
         <>
@@ -55,3 +80,4 @@ export function StockPageHeader({ title, subtitle, bodegas, bodegaActivaId, show
     </div>
   )
 }
+
