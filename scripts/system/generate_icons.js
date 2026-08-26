@@ -1,4 +1,4 @@
-// scripts/generate_icons.js
+// scripts\system\generate_icons.js
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');

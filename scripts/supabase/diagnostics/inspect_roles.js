@@ -1,3 +1,4 @@
+// scripts\supabase\diagnostics\inspect_roles.js
 const http = require('http');
 
 function mcpQuery(sql, id) {

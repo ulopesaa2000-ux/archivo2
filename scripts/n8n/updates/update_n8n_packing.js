@@ -1,4 +1,4 @@
-// scripts/update_n8n_packing.js
+// scripts\n8n\updates\update_n8n_packing.js
 const https = require('https');
 const fs = require('fs');
 const path = require('path');

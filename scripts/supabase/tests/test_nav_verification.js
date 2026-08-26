@@ -1,4 +1,4 @@
-// scripts/test_nav_verification.js
+// scripts\supabase\tests\test_nav_verification.js
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
 const fs = require('fs');

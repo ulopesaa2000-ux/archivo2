@@ -1,3 +1,4 @@
+// scripts\supabase\queries\query.js
 const http = require('http');
 
 function mcpQuery(sql, id) {

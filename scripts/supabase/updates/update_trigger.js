@@ -1,3 +1,4 @@
+// scripts\supabase\updates\update_trigger.js
 const http = require('http');
 
 const sql = `CREATE OR REPLACE FUNCTION "inv-tienda".fn_procesar_nota_inventario()

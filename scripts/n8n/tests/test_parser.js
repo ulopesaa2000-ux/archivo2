@@ -1,4 +1,4 @@
-// scripts/test_parser.js
+// scripts\n8n\tests\test_parser.js
 const sample = {
   id: 'gen-1787685833-4FNqVRDbxuKUHaJUFxfn',
   model: 'google/gemini-2.5-flash-lite',

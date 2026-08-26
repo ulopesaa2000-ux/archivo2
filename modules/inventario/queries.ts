@@ -26,6 +26,8 @@ import type {
   ProductoSustitutoFamilia,
   NavegacionNota,
   NavegacionNotaItem,
+  NotaImpactoStockItem,
+  StockMatrixBodegaCell,
 } from './types'
 import type {
   BodegaRow,
@@ -443,13 +445,297 @@ function formatQueryError(error: any): string {
   return String(error)
 }
 
+// ── Helper para calcular impacto de notas pendientes por bodega ──
+export async function fetchNotasPendientesImpactoPorBodega(bodegaId: number): Promise<{
+  mapImpacto: Map<number, {
+    producto_id: number
+    entradas: number
+    salidas: number
+    delta: number
+    notas: NotaImpactoStockItem[]
+  }>
+  productosEnNotasMap: Map<number, {
+    producto_id: number
+    sku_base: string
+    descripcion: string | null
+    familia: string | null
+    pz_en_caja: number | null
+    marca_nombre: string | null
+  }>
+  totalNotasPendientes: number
+}> {
+  const supabase = await createClient()
+
+  const { data: notasPendientes, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, estado_id, tipo_movimiento_id, bodega_origen_id, bodega_destino_id, observaciones, nota_referencia,
+      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey(codigo, nombre, afecta_inventario),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey(nombre),
+      detalles:nota_detalle_productos(
+        id, producto_id, cajas, piezas_sueltas,
+        producto:productos!nota_detalle_productos_producto_id_fkey(id, sku_base, descripcion, familia, pz_en_caja, marca:cat_marcas(nombre))
+      )
+    `)
+    .eq('activo', true)
+    .in('estado_id', [1, 4]) // PEND, PROC
+    .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
+
+  const mapImpacto = new Map<number, {
+    producto_id: number
+    entradas: number
+    salidas: number
+    delta: number
+    notas: NotaImpactoStockItem[]
+  }>()
+
+  const productosEnNotasMap = new Map<number, {
+    producto_id: number
+    sku_base: string
+    descripcion: string | null
+    familia: string | null
+    pz_en_caja: number | null
+    marca_nombre: string | null
+  }>()
+
+  if (error || !notasPendientes) {
+    return { mapImpacto, productosEnNotasMap, totalNotasPendientes: 0 }
+  }
+
+  for (const n of notasPendientes as any[]) {
+    const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
+    const afecta = tipo?.afecta_inventario ?? 0
+    const tipoCod = String(tipo?.codigo || '').toUpperCase()
+    const bDestino = Array.isArray(n.bodega_destino) ? n.bodega_destino[0] : n.bodega_destino
+
+    for (const d of (n.detalles || [])) {
+      if (!d.producto_id) continue
+      const pId = Number(d.producto_id)
+      const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+      const marca = prod?.marca ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca) : null
+      const cajas = Number(d.cajas || 0)
+
+      if (!productosEnNotasMap.has(pId) && prod) {
+        productosEnNotasMap.set(pId, {
+          producto_id: pId,
+          sku_base: prod.sku_base,
+          descripcion: prod.descripcion,
+          familia: prod.familia,
+          pz_en_caja: prod.pz_en_caja,
+          marca_nombre: marca?.nombre || null
+        })
+      }
+
+      if (!mapImpacto.has(pId)) {
+        mapImpacto.set(pId, {
+          producto_id: pId,
+          entradas: 0,
+          salidas: 0,
+          delta: 0,
+          notas: []
+        })
+      }
+
+      const info = mapImpacto.get(pId)!
+      let delta = 0
+
+      if (n.bodega_origen_id === bodegaId) {
+        if (afecta > 0) {
+          info.entradas += cajas
+          delta = +cajas
+        } else if (afecta < 0 || tipoCod === 'SAL') {
+          info.salidas += cajas
+          delta = -cajas
+        } else if (tipoCod === 'TRF') {
+          info.salidas += cajas
+          delta = -cajas
+        }
+      } else if (n.bodega_destino_id === bodegaId) {
+        if (tipoCod === 'TRF' || afecta > 0) {
+          info.entradas += cajas
+          delta = +cajas
+        }
+      }
+
+      info.delta = info.entradas - info.salidas
+      info.notas.push({
+        nota_id: n.id,
+        numero_nota: n.numero_nota,
+        tipo_codigo: tipoCod,
+        tipo_nombre: tipo?.nombre || tipoCod,
+        cajas,
+        delta,
+        observaciones: n.observaciones,
+        fecha_nota: n.fecha_nota,
+        destino_nombre: bDestino?.nombre || null
+      })
+    }
+  }
+
+  return { mapImpacto, productosEnNotasMap, totalNotasPendientes: notasPendientes.length }
+}
+
 export async function fetchStockByBodega(
   bodegaId: number,
   filtros?: FiltrosStock
-): Promise<{ items: StockListItem[]; total: number; totalCajas: number }> {
+): Promise<{
+  items: StockListItem[]
+  total: number
+  totalCajas: number
+  totalCajasPronosticadas?: number
+  totalNotasPendientes?: number
+}> {
   const supabase = await createClient()
+  const isPronostico = filtros?.modo === 'pronostico'
+  const isSoloAfectados = isPronostico && filtros?.solo_afectados === true
   const limit = filtros?.limit ?? PAGE_SIZE
   const page = filtros?.page ?? 1
+
+  // Si estamos en modo pronóstico, calculamos el impacto de notas pendientes
+  const { mapImpacto, productosEnNotasMap, totalNotasPendientes } = isPronostico
+    ? await fetchNotasPendientesImpactoPorBodega(bodegaId)
+    : { mapImpacto: new Map(), productosEnNotasMap: new Map(), totalNotasPendientes: 0 }
+
+  // En modo pronóstico con solo_afectados o cuando necesitamos cruzar datos completos:
+  if (isPronostico) {
+    let query = supabase
+      .from('inventario_stock')
+      .select(`
+        id, bodega_id, producto_id, cajas, piezas_sueltas,
+        ubicacion_pasillo, updated_at, caja_id,
+        producto:productos!inner (
+          id, sku_base, nombre, descripcion, familia, pz_en_caja,
+          marca:cat_marcas!productos_marca_id_fkey ( nombre )
+        ),
+        caja:cajas_producto!inventario_stock_caja_id_fkey (
+          codigo_caja, nombre_pack
+        )
+      `)
+      .eq('bodega_id', bodegaId)
+      .is('caja_id', null)
+
+    if (!filtros?.con_stock_cero && !isSoloAfectados) {
+      query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
+    }
+
+    const { data: stockData, error } = await query
+
+    if (error) {
+      console.error('Error fetchStockByBodega (pronostico):', formatQueryError(error))
+      return { items: [], total: 0, totalCajas: 0, totalCajasPronosticadas: 0, totalNotasPendientes: 0 }
+    }
+
+    const stockMap = new Map<number, StockListItem>()
+    let totalCajasFisicas = 0
+
+    ;(stockData ?? []).forEach((s: any) => {
+      const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
+      const marca = prod?.marca ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca) : null
+      const caja = Array.isArray(s.caja) ? s.caja[0] : s.caja
+
+      totalCajasFisicas += Number(s.cajas || 0)
+
+      stockMap.set(s.producto_id, {
+        id: s.id,
+        bodega_id: s.bodega_id,
+        producto_id: s.producto_id,
+        cajas: s.cajas,
+        piezas_sueltas: s.piezas_sueltas,
+        ubicacion_pasillo: s.ubicacion_pasillo,
+        updated_at: s.updated_at,
+        caja_id: s.caja_id,
+        producto_sku: prod?.sku_base ?? '',
+        producto_nombre: prod?.nombre ?? null,
+        producto_descripcion: prod?.descripcion ?? null,
+        producto_familia: prod?.familia ?? null,
+        producto_pz_en_caja: prod?.pz_en_caja ?? null,
+        marca_nombre: marca?.nombre ?? null,
+        caja_codigo: caja?.codigo_caja ?? null,
+        caja_nombre_pack: caja?.nombre_pack ?? null,
+      })
+    })
+
+    // Inyectar productos que aparecen en notas pendientes pero tienen 0 stock en inventario_stock
+    for (const [pId, pInfo] of productosEnNotasMap.entries()) {
+      if (!stockMap.has(pId)) {
+        stockMap.set(pId, {
+          id: -pId,
+          bodega_id: bodegaId,
+          producto_id: pId,
+          cajas: 0,
+          piezas_sueltas: 0,
+          ubicacion_pasillo: null,
+          updated_at: null,
+          caja_id: null,
+          producto_sku: pInfo.sku_base || '',
+          producto_nombre: pInfo.descripcion || null,
+          producto_descripcion: pInfo.descripcion || null,
+          producto_familia: pInfo.familia || null,
+          producto_pz_en_caja: pInfo.pz_en_caja || null,
+          marca_nombre: pInfo.marca_nombre || null,
+          caja_codigo: null,
+          caja_nombre_pack: null,
+        })
+      }
+    }
+
+    // Enriquecer con cálculo de pronóstico
+    let enrichedItems: StockListItem[] = Array.from(stockMap.values()).map((item) => {
+      const impacto = mapImpacto.get(item.producto_id)
+      const entradas = impacto?.entradas || 0
+      const salidas = impacto?.salidas || 0
+      const delta = impacto?.delta || 0
+      const pronosticado = item.cajas + delta
+      const notas = impacto?.notas || []
+      const tieneMovimiento = delta !== 0 || notas.length > 0
+
+      return {
+        ...item,
+        entradas_pendientes: entradas,
+        salidas_pendientes: salidas,
+        delta_cajas: delta,
+        cajas_pronosticadas: pronosticado,
+        notas_pendientes_afectando: notas,
+        tiene_movimiento_pendiente: tieneMovimiento,
+      }
+    })
+
+    // Filtro por solo_afectados
+    if (isSoloAfectados) {
+      enrichedItems = enrichedItems.filter((i) => i.tiene_movimiento_pendiente)
+    }
+
+    // Filtro por búsqueda de texto
+    if (filtros?.q && filtros.q.trim()) {
+      const term = filtros.q.toLowerCase().trim()
+      enrichedItems = enrichedItems.filter(
+        (i) =>
+          (i.producto_sku || '').toLowerCase().includes(term) ||
+          (i.producto_descripcion || '').toLowerCase().includes(term) ||
+          (i.producto_familia || '').toLowerCase().includes(term)
+      )
+    }
+
+    // Ordenamiento: En solo_afectados o pronóstico, ordenar por SKU/ID
+    enrichedItems.sort((a, b) => a.producto_sku.localeCompare(b.producto_sku))
+
+    const totalCount = enrichedItems.length
+    const totalCajasPronosticadas = enrichedItems.reduce((sum, item) => sum + (item.cajas_pronosticadas ?? item.cajas), 0)
+
+    // Paginación en memoria para mantener los cálculos y agrupaciones sincronizados
+    const from = (page - 1) * limit
+    const paginatedItems = enrichedItems.slice(from, from + limit)
+
+    return {
+      items: paginatedItems,
+      total: totalCount,
+      totalCajas: totalCajasFisicas,
+      totalCajasPronosticadas,
+      totalNotasPendientes,
+    }
+  }
+
+  // ── MODO FÍSICO ESTÁNDAR (Optimizado SQL directo) ──
   const from = (page - 1) * limit
   const to = from + limit - 1
 
@@ -467,22 +753,19 @@ export async function fetchStockByBodega(
       )
     `, { count: 'exact' })
     .eq('bodega_id', bodegaId)
-    .is('caja_id', null) // Solo registros generales
+    .is('caja_id', null)
 
-  // sumQuery sólo necesita el campo cajas si no hay búsqueda por texto
   let sumQuery: any = supabase
     .from('inventario_stock')
     .select('cajas')
     .eq('bodega_id', bodegaId)
     .is('caja_id', null)
 
-  // ── Filtro: stock en cero ───────────────────────────────
   if (!filtros?.con_stock_cero) {
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
     sumQuery = sumQuery.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
-  // ── Filtro: búsqueda por SKU, nombre, descripción o familia en base de datos ──
   if (filtros?.q && filtros.q.trim()) {
     const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
     if (cleanQ) {
@@ -490,7 +773,6 @@ export async function fetchStockByBodega(
       query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
         foreignTable: 'producto',
       })
-      // Recrear sumQuery con el join para la búsqueda por texto
       sumQuery = supabase
         .from('inventario_stock')
         .select('cajas, producto:productos!inner(sku_base, nombre, descripcion, familia)')
@@ -507,10 +789,7 @@ export async function fetchStockByBodega(
     }
   }
 
-  // ── Orden y paginación ──────────────────────────────────
-  query = query
-    .order('producto_id')
-    .range(from, to)
+  query = query.order('producto_id').range(from, to)
 
   const [{ data, count, error }, sumRes] = await Promise.all([
     query,
@@ -552,7 +831,7 @@ export async function fetchStockByBodega(
     }
   })
 
-  return { items, total: count ?? 0, totalCajas }
+  return { items, total: count ?? 0, totalCajas, totalNotasPendientes: 0 }
 }
 
 export async function fetchStockByBodegaAll(
@@ -560,6 +839,11 @@ export async function fetchStockByBodegaAll(
   filtros?: FiltrosStock
 ): Promise<StockListItem[]> {
   const supabase = await createClient()
+  const isPronostico = filtros?.modo === 'pronostico'
+
+  const { mapImpacto, productosEnNotasMap } = isPronostico
+    ? await fetchNotasPendientesImpactoPorBodega(bodegaId)
+    : { mapImpacto: new Map(), productosEnNotasMap: new Map() }
 
   let query = supabase
     .from('inventario_stock')
@@ -577,7 +861,7 @@ export async function fetchStockByBodegaAll(
     .eq('bodega_id', bodegaId)
     .is('caja_id', null)
 
-  if (!filtros?.con_stock_cero) {
+  if (!filtros?.con_stock_cero && !filtros?.solo_afectados) {
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
@@ -600,14 +884,16 @@ export async function fetchStockByBodegaAll(
     return []
   }
 
-  return data.map((s: any) => {
+  const stockMap = new Map<number, StockListItem>()
+
+  data.forEach((s: any) => {
     const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
     const marca = prod?.marca
       ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca)
       : null
     const caja = Array.isArray(s.caja) ? s.caja[0] : s.caja
 
-    return {
+    stockMap.set(s.producto_id, {
       id: s.id,
       bodega_id: s.bodega_id,
       producto_id: s.producto_id,
@@ -624,9 +910,63 @@ export async function fetchStockByBodegaAll(
       marca_nombre: marca?.nombre ?? null,
       caja_codigo: caja?.codigo_caja ?? null,
       caja_nombre_pack: caja?.nombre_pack ?? null,
+    })
+  })
+
+  if (isPronostico) {
+    for (const [pId, pInfo] of productosEnNotasMap.entries()) {
+      if (!stockMap.has(pId)) {
+        stockMap.set(pId, {
+          id: -pId,
+          bodega_id: bodegaId,
+          producto_id: pId,
+          cajas: 0,
+          piezas_sueltas: 0,
+          ubicacion_pasillo: null,
+          updated_at: null,
+          caja_id: null,
+          producto_sku: pInfo.sku_base || '',
+          producto_nombre: pInfo.descripcion || null,
+          producto_descripcion: pInfo.descripcion || null,
+          producto_familia: pInfo.familia || null,
+          producto_pz_en_caja: pInfo.pz_en_caja || null,
+          marca_nombre: pInfo.marca_nombre || null,
+          caja_codigo: null,
+          caja_nombre_pack: null,
+        })
+      }
+    }
+  }
+
+  let items = Array.from(stockMap.values()).map((item) => {
+    if (!isPronostico) return item
+
+    const impacto = mapImpacto.get(item.producto_id)
+    const entradas = impacto?.entradas || 0
+    const salidas = impacto?.salidas || 0
+    const delta = impacto?.delta || 0
+    const pronosticado = item.cajas + delta
+    const notas = impacto?.notas || []
+    const tieneMovimiento = delta !== 0 || notas.length > 0
+
+    return {
+      ...item,
+      entradas_pendientes: entradas,
+      salidas_pendientes: salidas,
+      delta_cajas: delta,
+      cajas_pronosticadas: pronosticado,
+      notas_pendientes_afectando: notas,
+      tiene_movimiento_pendiente: tieneMovimiento,
     }
   })
+
+  if (filtros?.solo_afectados) {
+    items = items.filter((i) => i.tiene_movimiento_pendiente)
+  }
+
+  return items
 }
+
 
 export async function fetchStockDetallePorCaja(
   bodegaId: number,
@@ -662,15 +1002,177 @@ export async function fetchStockDetallePorCaja(
   })
 }
 
+// ── Helper para calcular impacto de notas pendientes en múltiples bodegas ──
+export async function fetchNotasPendientesImpactoMultiBodega(bodegasIds: number[]): Promise<{
+  mapImpacto: Map<string, {
+    producto_id: number
+    bodega_id: number
+    entradas: number
+    salidas: number
+    delta: number
+    notas: NotaImpactoStockItem[]
+  }>
+  productosEnNotasMap: Map<number, {
+    producto_id: number
+    sku_base: string
+    descripcion: string | null
+    familia: string | null
+    pz_en_caja: number | null
+  }>
+  totalNotasPendientes: number
+}> {
+  if (bodegasIds.length === 0) {
+    return { mapImpacto: new Map(), productosEnNotasMap: new Map(), totalNotasPendientes: 0 }
+  }
+
+  const supabase = await createClient()
+  const idsStr = bodegasIds.join(',')
+
+  const { data: notasPendientes, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, estado_id, tipo_movimiento_id, bodega_origen_id, bodega_destino_id, observaciones,
+      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey(codigo, nombre, afecta_inventario),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey(nombre),
+      detalles:nota_detalle_productos(
+        id, producto_id, cajas, piezas_sueltas,
+        producto:productos!nota_detalle_productos_producto_id_fkey(id, sku_base, descripcion, familia, pz_en_caja)
+      )
+    `)
+    .eq('activo', true)
+    .in('estado_id', [1, 4]) // PEND, PROC
+    .or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+
+  const mapImpacto = new Map<string, {
+    producto_id: number
+    bodega_id: number
+    entradas: number
+    salidas: number
+    delta: number
+    notas: NotaImpactoStockItem[]
+  }>()
+
+  const productosEnNotasMap = new Map<number, {
+    producto_id: number
+    sku_base: string
+    descripcion: string | null
+    familia: string | null
+    pz_en_caja: number | null
+  }>()
+
+  if (error || !notasPendientes) {
+    return { mapImpacto, productosEnNotasMap, totalNotasPendientes: 0 }
+  }
+
+  for (const n of notasPendientes as any[]) {
+    const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
+    const afecta = tipo?.afecta_inventario ?? 0
+    const tipoCod = String(tipo?.codigo || '').toUpperCase()
+    const bDestino = Array.isArray(n.bodega_destino) ? n.bodega_destino[0] : n.bodega_destino
+
+    for (const d of (n.detalles || [])) {
+      if (!d.producto_id) continue
+      const pId = Number(d.producto_id)
+      const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+      const cajas = Number(d.cajas || 0)
+
+      if (!productosEnNotasMap.has(pId) && prod) {
+        productosEnNotasMap.set(pId, {
+          producto_id: pId,
+          sku_base: prod.sku_base,
+          descripcion: prod.descripcion,
+          familia: prod.familia,
+          pz_en_caja: prod.pz_en_caja,
+        })
+      }
+
+      // Impacto en bodega origen
+      if (n.bodega_origen_id && bodegasIds.includes(n.bodega_origen_id)) {
+        const key = `${pId}_${n.bodega_origen_id}`
+        if (!mapImpacto.has(key)) {
+          mapImpacto.set(key, {
+            producto_id: pId,
+            bodega_id: n.bodega_origen_id,
+            entradas: 0,
+            salidas: 0,
+            delta: 0,
+            notas: [],
+          })
+        }
+        const info = mapImpacto.get(key)!
+        let delta = 0
+
+        if (afecta > 0) {
+          info.entradas += cajas
+          delta = +cajas
+        } else if (afecta < 0 || tipoCod === 'SAL' || tipoCod === 'TRF') {
+          info.salidas += cajas
+          delta = -cajas
+        }
+
+        info.delta = info.entradas - info.salidas
+        info.notas.push({
+          nota_id: n.id,
+          numero_nota: n.numero_nota,
+          tipo_codigo: tipoCod,
+          tipo_nombre: tipo?.nombre || tipoCod,
+          cajas,
+          delta,
+          observaciones: n.observaciones,
+          fecha_nota: n.fecha_nota,
+          destino_nombre: bDestino?.nombre || null,
+        })
+      }
+
+      // Impacto en bodega destino (para traspasos entrantes)
+      if (n.bodega_destino_id && bodegasIds.includes(n.bodega_destino_id)) {
+        const key = `${pId}_${n.bodega_destino_id}`
+        if (!mapImpacto.has(key)) {
+          mapImpacto.set(key, {
+            producto_id: pId,
+            bodega_id: n.bodega_destino_id,
+            entradas: 0,
+            salidas: 0,
+            delta: 0,
+            notas: [],
+          })
+        }
+        const info = mapImpacto.get(key)!
+        let delta = 0
+
+        if (tipoCod === 'TRF' || afecta > 0) {
+          info.entradas += cajas
+          delta = +cajas
+        }
+
+        info.delta = info.entradas - info.salidas
+        info.notas.push({
+          nota_id: n.id,
+          numero_nota: n.numero_nota,
+          tipo_codigo: tipoCod,
+          tipo_nombre: tipo?.nombre || tipoCod,
+          cajas,
+          delta,
+          observaciones: n.observaciones,
+          fecha_nota: n.fecha_nota,
+          destino_nombre: bDestino?.nombre || null,
+        })
+      }
+    }
+  }
+
+  return { mapImpacto, productosEnNotasMap, totalNotasPendientes: notasPendientes.length }
+}
+
 export async function fetchStockMatrix(
   filtros: FiltrosStockMatrix,
   bodegasDisponibles: BodegaRow[]
-): Promise<{ items: StockMatrixItem[]; total: number }> {
+): Promise<{ items: StockMatrixItem[]; total: number; totalNotasPendientes?: number }> {
   const supabase = await createClient()
+  const isPronostico = filtros.modo === 'pronostico'
+  const isSoloAfectados = isPronostico && filtros.solo_afectados === true
   const limit = filtros.limit ?? PAGE_SIZE
   const page = filtros.page ?? 1
-  const from = (page - 1) * limit
-  const to = from + limit - 1
 
   let bodegasAGestionar = bodegasDisponibles
   if (filtros.ciudades && filtros.ciudades.length > 0) {
@@ -681,7 +1183,11 @@ export async function fetchStockMatrix(
   }
   const bodegasIds = bodegasAGestionar.map((b) => b.id)
 
-  if (bodegasIds.length === 0) return { items: [], total: 0 }
+  if (bodegasIds.length === 0) return { items: [], total: 0, totalNotasPendientes: 0 }
+
+  const { mapImpacto, productosEnNotasMap, totalNotasPendientes } = isPronostico
+    ? await fetchNotasPendientesImpactoMultiBodega(bodegasIds)
+    : { mapImpacto: new Map(), productosEnNotasMap: new Map(), totalNotasPendientes: 0 }
 
   let query = supabase
     .from('productos')
@@ -693,7 +1199,7 @@ export async function fetchStockMatrix(
   query = query.in('inventario_stock.bodega_id', bodegasIds)
   query = query.is('inventario_stock.caja_id', null)
 
-  if (!filtros.con_stock_cero) {
+  if (!filtros.con_stock_cero && !isSoloAfectados) {
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
   }
 
@@ -705,20 +1211,63 @@ export async function fetchStockMatrix(
     }
   }
 
-  query = query.order('id').range(from, to)
+  // Si no es pronóstico ni solo_afectados, usamos paginación directa de Supabase
+  if (!isPronostico) {
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    query = query.order('id').range(from, to)
 
-  const { data, count, error } = await query
+    const { data, count, error } = await query
 
-  if (error || !data) {
-    console.error('Error fetchStockMatrix:', error?.message || error)
-    return { items: [], total: 0 }
+    if (error || !data) {
+      console.error('Error fetchStockMatrix:', error?.message || error)
+      return { items: [], total: 0, totalNotasPendientes: 0 }
+    }
+
+    const items = data.map((prod: any) => {
+      const stockEntries = Array.isArray(prod.inventario_stock) ? prod.inventario_stock : [prod.inventario_stock]
+      const dict: Record<number, StockMatrixBodegaCell> = {}
+      let totalGeneral = 0
+
+      bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
+
+      stockEntries.forEach((s: any) => {
+        if (!dict[s.bodega_id]) dict[s.bodega_id] = { cajas: 0, piezas_sueltas: 0, total: 0 }
+        dict[s.bodega_id].cajas += s.cajas
+        dict[s.bodega_id].piezas_sueltas += s.piezas_sueltas
+        const localTotal = s.cajas
+        dict[s.bodega_id].total += localTotal
+        totalGeneral += localTotal
+      })
+
+      return {
+        producto_id: prod.id,
+        producto_sku: prod.sku_base,
+        producto_nombre: prod.nombre,
+        producto_descripcion: prod.descripcion,
+        producto_familia: prod.familia,
+        pz_en_caja: prod.pz_en_caja,
+        stock_por_bodega: dict,
+        total_general: totalGeneral,
+      }
+    })
+
+    return { items: items as StockMatrixItem[], total: count ?? 0, totalNotasPendientes: 0 }
   }
 
-  const items = data.map((prod: any) => {
-    const pzCaja = prod.pz_en_caja ?? 0
+  // ── MODO PRONÓSTICO MULTI-BODEGA ──
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchStockMatrix (pronostico):', error?.message || error)
+    return { items: [], total: 0, totalNotasPendientes: 0 }
+  }
+
+  const itemsMap = new Map<number, StockMatrixItem>()
+
+  data.forEach((prod: any) => {
     const stockEntries = Array.isArray(prod.inventario_stock) ? prod.inventario_stock : [prod.inventario_stock]
-    const dict: Record<number, { cajas: number; piezas_sueltas: number; total: number }> = {}
-    let totalGeneral = 0
+    const dict: Record<number, StockMatrixBodegaCell> = {}
 
     bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
 
@@ -726,12 +1275,9 @@ export async function fetchStockMatrix(
       if (!dict[s.bodega_id]) dict[s.bodega_id] = { cajas: 0, piezas_sueltas: 0, total: 0 }
       dict[s.bodega_id].cajas += s.cajas
       dict[s.bodega_id].piezas_sueltas += s.piezas_sueltas
-      const localTotal = s.cajas // Solo contabilizar cajas enteras en la vista general
-      dict[s.bodega_id].total += localTotal
-      totalGeneral += localTotal
     })
 
-    return {
+    itemsMap.set(prod.id, {
       producto_id: prod.id,
       producto_sku: prod.sku_base,
       producto_nombre: prod.nombre,
@@ -739,11 +1285,229 @@ export async function fetchStockMatrix(
       producto_familia: prod.familia,
       pz_en_caja: prod.pz_en_caja,
       stock_por_bodega: dict,
-      total_general: totalGeneral,
-    }
+      total_general: 0,
+    })
   })
 
-  return { items: items as StockMatrixItem[], total: count ?? 0 }
+  // Inyectar productos que aparecen en notas pendientes pero tienen 0 stock en inventario_stock
+  for (const [pId, pInfo] of productosEnNotasMap.entries()) {
+    if (!itemsMap.has(pId)) {
+      const dict: Record<number, StockMatrixBodegaCell> = {}
+      bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
+
+      itemsMap.set(pId, {
+        producto_id: pId,
+        producto_sku: pInfo.sku_base,
+        producto_nombre: pInfo.descripcion,
+        producto_descripcion: pInfo.descripcion,
+        producto_familia: pInfo.familia,
+        pz_en_caja: pInfo.pz_en_caja,
+        stock_por_bodega: dict,
+        total_general: 0,
+      })
+    }
+  }
+
+  // Enriquecer celda por celda con los cálculos de notas pendientes
+  let enrichedItems: StockMatrixItem[] = Array.from(itemsMap.values()).map((item) => {
+    let tieneMovimiento = false
+    let totalDelta = 0
+    let totalPronosticado = 0
+
+    bodegasIds.forEach((bId) => {
+      const key = `${item.producto_id}_${bId}`
+      const imp = mapImpacto.get(key)
+      const cell = item.stock_por_bodega[bId]
+      const cajasReales = cell?.cajas || 0
+      const delta = imp?.delta || 0
+      const pronosticado = cajasReales + delta
+
+      if (delta !== 0 || (imp?.notas?.length || 0) > 0) {
+        tieneMovimiento = true
+      }
+
+      totalDelta += delta
+      totalPronosticado += pronosticado
+
+      item.stock_por_bodega[bId] = {
+        cajas: cajasReales,
+        piezas_sueltas: cell?.piezas_sueltas || 0,
+        total: pronosticado,
+        entradas: imp?.entradas || 0,
+        salidas: imp?.salidas || 0,
+        delta: delta,
+        pronosticado: pronosticado,
+        tiene_movimiento: delta !== 0 || (imp?.notas?.length || 0) > 0,
+        notas: imp?.notas || [],
+      }
+    })
+
+    item.tiene_movimiento_pendiente = tieneMovimiento
+    item.total_delta = totalDelta
+    item.total_pronosticado = totalPronosticado
+    item.total_general = totalPronosticado
+
+    return item
+  })
+
+  if (isSoloAfectados) {
+    enrichedItems = enrichedItems.filter((i) => i.tiene_movimiento_pendiente)
+  }
+
+  enrichedItems.sort((a, b) => a.producto_sku.localeCompare(b.producto_sku))
+
+  const totalCount = enrichedItems.length
+  const from = (page - 1) * limit
+  const paginatedItems = enrichedItems.slice(from, from + limit)
+
+  return { items: paginatedItems, total: totalCount, totalNotasPendientes }
+}
+
+export async function fetchStockMatrixAll(
+  filtros: FiltrosStockMatrix,
+  bodegasDisponibles: BodegaRow[]
+): Promise<StockMatrixItem[]> {
+  const supabase = await createClient()
+  const isPronostico = filtros.modo === 'pronostico'
+
+  let bodegasAGestionar = bodegasDisponibles
+  if (filtros.ciudades && filtros.ciudades.length > 0) {
+    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.ciudades!.includes(b.ciudad || 'sin_asignar'))
+  }
+  if (filtros.bodegas && filtros.bodegas.length > 0) {
+    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.bodegas!.includes(b.id))
+  }
+  const bodegasIds = bodegasAGestionar.map((b) => b.id)
+
+  if (bodegasIds.length === 0) return []
+
+  const { mapImpacto, productosEnNotasMap } = isPronostico
+    ? await fetchNotasPendientesImpactoMultiBodega(bodegasIds)
+    : { mapImpacto: new Map(), productosEnNotasMap: new Map() }
+
+  let query = supabase
+    .from('productos')
+    .select(`
+      id, sku_base, nombre, descripcion, familia, pz_en_caja,
+      inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
+    `)
+
+  query = query.in('inventario_stock.bodega_id', bodegasIds)
+  query = query.is('inventario_stock.caja_id', null)
+
+  if (!filtros.con_stock_cero && !filtros.solo_afectados) {
+    query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
+  }
+
+  if (filtros.q && filtros.q.trim()) {
+    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
+    if (cleanQ) {
+      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`)
+    }
+  }
+
+  query = query.order('id')
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error fetchStockMatrixAll:', error?.message || error)
+    return []
+  }
+
+  const itemsMap = new Map<number, StockMatrixItem>()
+
+  data.forEach((prod: any) => {
+    const stockEntries = Array.isArray(prod.inventario_stock) ? prod.inventario_stock : [prod.inventario_stock]
+    const dict: Record<number, StockMatrixBodegaCell> = {}
+
+    bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
+
+    stockEntries.forEach((s: any) => {
+      if (!dict[s.bodega_id]) dict[s.bodega_id] = { cajas: 0, piezas_sueltas: 0, total: 0 }
+      dict[s.bodega_id].cajas += s.cajas
+      dict[s.bodega_id].piezas_sueltas += s.piezas_sueltas
+    })
+
+    itemsMap.set(prod.id, {
+      producto_id: prod.id,
+      producto_sku: prod.sku_base,
+      producto_nombre: prod.nombre,
+      producto_descripcion: prod.descripcion,
+      producto_familia: prod.familia,
+      pz_en_caja: prod.pz_en_caja,
+      stock_por_bodega: dict,
+      total_general: 0,
+    })
+  })
+
+  if (isPronostico) {
+    for (const [pId, pInfo] of productosEnNotasMap.entries()) {
+      if (!itemsMap.has(pId)) {
+        const dict: Record<number, StockMatrixBodegaCell> = {}
+        bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
+
+        itemsMap.set(pId, {
+          producto_id: pId,
+          producto_sku: pInfo.sku_base,
+          producto_nombre: pInfo.descripcion,
+          producto_descripcion: pInfo.descripcion,
+          producto_familia: pInfo.familia,
+          pz_en_caja: pInfo.pz_en_caja,
+          stock_por_bodega: dict,
+          total_general: 0,
+        })
+      }
+    }
+  }
+
+  let items = Array.from(itemsMap.values()).map((item) => {
+    let tieneMovimiento = false
+    let totalDelta = 0
+    let totalPronosticado = 0
+
+    bodegasIds.forEach((bId) => {
+      const key = `${item.producto_id}_${bId}`
+      const imp = mapImpacto.get(key)
+      const cell = item.stock_por_bodega[bId]
+      const cajasReales = cell?.cajas || 0
+      const delta = imp?.delta || 0
+      const pronosticado = cajasReales + delta
+
+      if (delta !== 0 || (imp?.notas?.length || 0) > 0) {
+        tieneMovimiento = true
+      }
+
+      totalDelta += delta
+      totalPronosticado += pronosticado
+
+      item.stock_por_bodega[bId] = {
+        cajas: cajasReales,
+        piezas_sueltas: cell?.piezas_sueltas || 0,
+        total: isPronostico ? pronosticado : cajasReales,
+        entradas: imp?.entradas || 0,
+        salidas: imp?.salidas || 0,
+        delta: delta,
+        pronosticado: pronosticado,
+        tiene_movimiento: delta !== 0 || (imp?.notas?.length || 0) > 0,
+        notas: imp?.notas || [],
+      }
+    })
+
+    item.tiene_movimiento_pendiente = tieneMovimiento
+    item.total_delta = totalDelta
+    item.total_pronosticado = totalPronosticado
+    item.total_general = isPronostico ? totalPronosticado : totalPronosticado - totalDelta
+
+    return item
+  })
+
+  if (filtros.solo_afectados) {
+    items = items.filter((i) => i.tiene_movimiento_pendiente)
+  }
+
+  return items
 }
 
 /**
@@ -778,82 +1542,6 @@ export async function fetchTotalesCajasPorBodegas(
   return totals
 }
 
-export async function fetchStockMatrixAll(
-  filtros: FiltrosStockMatrix,
-  bodegasDisponibles: BodegaRow[]
-): Promise<StockMatrixItem[]> {
-  const supabase = await createClient()
-
-  let bodegasAGestionar = bodegasDisponibles
-  if (filtros.ciudades && filtros.ciudades.length > 0) {
-    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.ciudades!.includes(b.ciudad || 'sin_asignar'))
-  }
-  if (filtros.bodegas && filtros.bodegas.length > 0) {
-    bodegasAGestionar = bodegasAGestionar.filter((b) => filtros.bodegas!.includes(b.id))
-  }
-  const bodegasIds = bodegasAGestionar.map((b) => b.id)
-
-  if (bodegasIds.length === 0) return []
-
-  let query = supabase
-    .from('productos')
-    .select(`
-      id, sku_base, nombre, descripcion, familia, pz_en_caja,
-      inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
-    `)
-
-  query = query.in('inventario_stock.bodega_id', bodegasIds)
-  query = query.is('inventario_stock.caja_id', null)
-
-  if (!filtros.con_stock_cero) {
-    query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
-  }
-
-  if (filtros.q && filtros.q.trim()) {
-    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
-    if (cleanQ) {
-      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
-      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`)
-    }
-  }
-
-  query = query.order('id')
-
-  const { data, error } = await query
-
-  if (error || !data) {
-    console.error('Error fetchStockMatrixAll:', error?.message || error)
-    return []
-  }
-
-  return data.map((prod: any) => {
-    const stockEntries = Array.isArray(prod.inventario_stock) ? prod.inventario_stock : [prod.inventario_stock]
-    const dict: Record<number, { cajas: number; piezas_sueltas: number; total: number }> = {}
-    let totalGeneral = 0
-
-    bodegasIds.forEach((id) => (dict[id] = { cajas: 0, piezas_sueltas: 0, total: 0 }))
-
-    stockEntries.forEach((s: any) => {
-      if (!dict[s.bodega_id]) dict[s.bodega_id] = { cajas: 0, piezas_sueltas: 0, total: 0 }
-      dict[s.bodega_id].cajas += s.cajas
-      dict[s.bodega_id].piezas_sueltas += s.piezas_sueltas
-      const localTotal = s.cajas
-      dict[s.bodega_id].total += localTotal
-      totalGeneral += localTotal
-    })
-
-    return {
-      producto_id: prod.id,
-      producto_sku: prod.sku_base,
-      producto_nombre: prod.nombre,
-      producto_descripcion: prod.descripcion,
-      producto_familia: prod.familia,
-      pz_en_caja: prod.pz_en_caja,
-      stock_por_bodega: dict,
-      total_general: totalGeneral,
-    }
-  })
-}
 
 // ════════════════════════════════════════════════════════════
 // CATÁLOGOS
