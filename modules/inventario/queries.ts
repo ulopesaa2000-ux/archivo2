@@ -107,7 +107,7 @@ export async function fetchNotas(
       .select('id')
       .eq('ciudad', filtros.ciudad)
       .eq('activa', true)
-    
+
     if (bodegasCiudad && bodegasCiudad.length > 0) {
       const idsStr = bodegasCiudad.map(b => b.id).join(',')
       query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
@@ -179,7 +179,7 @@ export async function fetchNotas(
   }
 
   const userIds = Array.from(new Set((data ?? []).map(d => d.usuario_id).filter(Boolean)))
-  const { data: usersData } = userIds.length > 0 
+  const { data: usersData } = userIds.length > 0
     ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
     : { data: [] }
   const usersMap = new Map(usersData?.map(u => [u.id, u]) || [])
@@ -264,7 +264,7 @@ export async function fetchNotaById(
   const estado = Array.isArray(nr.estado) ? nr.estado[0] : nr.estado
   const origen = Array.isArray(nr.bodega_origen) ? nr.bodega_origen[0] : nr.bodega_origen
   const destino = Array.isArray(nr.bodega_destino) ? nr.bodega_destino[0] : nr.bodega_destino
-  
+
   const { data: userData } = await supabase.from('usuarios').select('nombre_completo').eq('id', nr.usuario_id).single()
   const usuario = userData
 
@@ -381,7 +381,7 @@ async function fetchNotaHistorial(
   if (error || !data) return []
 
   const userIds = Array.from(new Set((data ?? []).map((d: any) => d.usuario_id).filter(Boolean)))
-  const { data: usersData } = userIds.length > 0 
+  const { data: usersData } = userIds.length > 0
     ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
     : { data: [] }
   const usersMap = new Map(usersData?.map((u: any) => [u.id, u]) || [])
@@ -628,32 +628,32 @@ export async function fetchStockByBodega(
     const stockMap = new Map<number, StockListItem>()
     let totalCajasFisicas = 0
 
-    ;(stockData ?? []).forEach((s: any) => {
-      const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
-      const marca = prod?.marca ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca) : null
-      const caja = Array.isArray(s.caja) ? s.caja[0] : s.caja
+      ; (stockData ?? []).forEach((s: any) => {
+        const prod = Array.isArray(s.producto) ? s.producto[0] : s.producto
+        const marca = prod?.marca ? (Array.isArray(prod.marca) ? prod.marca[0] : prod.marca) : null
+        const caja = Array.isArray(s.caja) ? s.caja[0] : s.caja
 
-      totalCajasFisicas += Number(s.cajas || 0)
+        totalCajasFisicas += Number(s.cajas || 0)
 
-      stockMap.set(s.producto_id, {
-        id: s.id,
-        bodega_id: s.bodega_id,
-        producto_id: s.producto_id,
-        cajas: s.cajas,
-        piezas_sueltas: s.piezas_sueltas,
-        ubicacion_pasillo: s.ubicacion_pasillo,
-        updated_at: s.updated_at,
-        caja_id: s.caja_id,
-        producto_sku: prod?.sku_base ?? '',
-        producto_nombre: prod?.nombre ?? null,
-        producto_descripcion: prod?.descripcion ?? null,
-        producto_familia: prod?.familia ?? null,
-        producto_pz_en_caja: prod?.pz_en_caja ?? null,
-        marca_nombre: marca?.nombre ?? null,
-        caja_codigo: caja?.codigo_caja ?? null,
-        caja_nombre_pack: caja?.nombre_pack ?? null,
+        stockMap.set(s.producto_id, {
+          id: s.id,
+          bodega_id: s.bodega_id,
+          producto_id: s.producto_id,
+          cajas: s.cajas,
+          piezas_sueltas: s.piezas_sueltas,
+          ubicacion_pasillo: s.ubicacion_pasillo,
+          updated_at: s.updated_at,
+          caja_id: s.caja_id,
+          producto_sku: prod?.sku_base ?? '',
+          producto_nombre: prod?.nombre ?? null,
+          producto_descripcion: prod?.descripcion ?? null,
+          producto_familia: prod?.familia ?? null,
+          producto_pz_en_caja: prod?.pz_en_caja ?? null,
+          marca_nombre: marca?.nombre ?? null,
+          caja_codigo: caja?.codigo_caja ?? null,
+          caja_nombre_pack: caja?.nombre_pack ?? null,
+        })
       })
-    })
 
     // Inyectar productos que aparecen en notas pendientes pero tienen 0 stock en inventario_stock
     for (const [pId, pInfo] of productosEnNotasMap.entries()) {
@@ -1822,7 +1822,7 @@ export async function fetchUsuariosBodega(
   if (error || !data) return []
 
   const userIds = Array.from(new Set((data ?? []).map((d: any) => d.usuario_id).filter(Boolean)))
-  const { data: usersData } = userIds.length > 0 
+  const { data: usersData } = userIds.length > 0
     ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
     : { data: [] }
   const usersMap = new Map(usersData?.map((u: any) => [u.id, u]) || [])
@@ -2008,7 +2008,7 @@ export async function fetchNotasParaReporte(
       .select('id')
       .eq('ciudad', filtros.ciudad)
       .eq('activa', true)
-    
+
     if (bodegasCiudad && bodegasCiudad.length > 0) {
       const idsStr = bodegasCiudad.map(b => b.id).join(',')
       query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
@@ -2045,7 +2045,7 @@ export async function fetchNotasParaReporte(
   }
 
   const userIds = Array.from(new Set((data ?? []).map(d => d.usuario_id).filter(Boolean)))
-  const { data: usersData } = userIds.length > 0 
+  const { data: usersData } = userIds.length > 0
     ? await supabase.from('usuarios').select('id, nombre_completo').in('id', userIds)
     : { data: [] }
   const usersMap = new Map(usersData?.map(u => [u.id, u]) || [])
@@ -2188,12 +2188,12 @@ export async function fetchOcrPropuestas(
   const notaIds = Array.from(new Set(rawData.map(d => d.nota_id).filter(Boolean)))
   const { data: notasData } = notaIds.length > 0
     ? await supabase
-        .from('notas_inventario')
-        .select(`
+      .from('notas_inventario')
+      .select(`
           id, numero_nota,
           estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
         `)
-        .in('id', notaIds)
+      .in('id', notaIds)
     : { data: [] }
   const notasMap = new Map(notasData?.map((n: any) => {
     const estCod = Array.isArray(n.estado) ? n.estado[0]?.codigo : n.estado?.codigo
@@ -2481,3 +2481,62 @@ export async function fetchNavegacionNota(
 }
 
 
+
+
+
+// ════════════════════════════════════════════════════════════
+// KPI GLOBALES PARA NOTAS DE INVENTARIO
+// Independiente del filtro de pestaña/tab — totales de empresa o bodega.
+// ════════════════════════════════════════════════════════════
+
+interface NotaKPI {
+  id: number
+  tipo_movimiento: { codigo: string } | { codigo: string }[] | null
+  estado: { codigo: string } | { codigo: string }[] | null
+  total_cajas: number | null
+}
+
+export async function getNotasKPIsGlobales(
+  bodegaId?: string | null
+): Promise<{ pendientes: number; enProceso: number; cajasIngresadas: number; cajasEgresadas: number }> {
+  const supabase = await createClient()
+
+  let query = supabase
+    .from('notas_inventario')
+    .select(`
+      id,
+      total_cajas,
+      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey(codigo),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey(codigo)
+    `)
+    .eq('activo', true)
+
+  if (bodegaId && bodegaId !== 'todas') {
+    query = query.or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('Error getNotasKPIsGlobales:', error)
+    return { pendientes: 0, enProceso: 0, cajasIngresadas: 0, cajasEgresadas: 0 }
+  }
+
+  const notas = data as unknown as NotaKPI[]
+
+  const getCodEstado = (n: NotaKPI): string | undefined => {
+    const e = n.estado
+    return Array.isArray(e) ? (e[0] as { codigo: string })?.codigo : (e as { codigo: string } | null)?.codigo
+  }
+  const getCodTipo = (n: NotaKPI): string | undefined => {
+    const t = n.tipo_movimiento
+    return Array.isArray(t) ? (t[0] as { codigo: string })?.codigo : (t as { codigo: string } | null)?.codigo
+  }
+
+  const pendientes      = notas.filter(n => { const c = getCodEstado(n); return c === 'PEND' || c === 'BORR' }).length
+  const enProceso       = notas.filter(n => { const c = getCodEstado(n); return c === 'PROC' || c === 'PROCESO' }).length
+  const cajasIngresadas = notas.filter(n => getCodTipo(n) === 'ENT' && getCodEstado(n) === 'CONF').reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
+  const cajasEgresadas  = notas.filter(n => getCodTipo(n) === 'SAL' && getCodEstado(n) === 'CONF').reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
+
+  return { pendientes, enProceso, cajasIngresadas, cajasEgresadas }
+}

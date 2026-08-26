@@ -1,7 +1,7 @@
 // app/(admin)/inventario/notas/page.tsx
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
-import { fetchNotas, fetchCatalogosInventario } from '@/modules/inventario/queries'
+import { fetchNotas, fetchCatalogosInventario, getNotasKPIsGlobales } from '@/modules/inventario/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { NotasFilters } from './NotasFilters'
@@ -64,10 +64,10 @@ export default async function NotasPage({
   const sp = await searchParams
 
   const bodegaOrigenIdParam = sp.bodega_origen_id ? parseInt(sp.bodega_origen_id) : undefined
-  const bodegaOrigenIdFiltro = bodegaOrigenIdParam !== undefined 
+  const bodegaOrigenIdFiltro = bodegaOrigenIdParam !== undefined
     ? (bodegaOrigenIdParam === 0 ? undefined : bodegaOrigenIdParam)
     : (bodegaActivaId && bodegaActivaId !== 0 ? bodegaActivaId : undefined)
-  
+
   const filtros: FiltrosNotas = {
     q: sp.q,
     tipo_movimiento_id: sp.tipo_movimiento_id
@@ -101,10 +101,11 @@ export default async function NotasPage({
   }
 
   // Cargar configuración de inventario para evaluar permisos y reglas
-  const [config, tableConfig, catalogos] = await Promise.all([
+  const [config, tableConfig, catalogos, kpisGlobales] = await Promise.all([
     fetchConfigInventario(),
     fetchUserTableConfig('/inventario/notas'),
     fetchCatalogosInventario(),
+    getNotasKPIsGlobales(bodegaActivaId && bodegaActivaId !== 0 ? String(bodegaActivaId) : null),
   ])
 
   const rolKey = user.rol?.id ? String(user.rol.id) : ''
@@ -208,7 +209,7 @@ export default async function NotasPage({
         {/* Barra de Acciones Desktop */}
         <div className="hidden md:flex items-center justify-end gap-2.5">
           <ReporteNotasButton bodegas={catalogosFiltrados.bodegas} filtrosActuales={filtros} />
-          
+
           <OcrSerialScannerModal
             tiposMovimiento={tiposMovimientoVisibles}
             defaultTipoCodigo={defaultCodigo}
@@ -283,7 +284,7 @@ export default async function NotasPage({
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Pendientes</p>
               <p className="text-xl font-black font-mono leading-none mt-1">
-                {notas.filter(n => n.estado_codigo === 'PEND').length}
+                {kpisGlobales.pendientes}
               </p>
             </div>
           </CardContent>
@@ -297,7 +298,7 @@ export default async function NotasPage({
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">En Proceso</p>
               <p className="text-xl font-black font-mono leading-none mt-1">
-                {notas.filter(n => n.estado_codigo === 'PROC').length}
+                {kpisGlobales.enProceso}
               </p>
             </div>
           </CardContent>
@@ -311,7 +312,7 @@ export default async function NotasPage({
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Ingresadas</p>
               <p className="text-xl font-black font-mono leading-none mt-1">
-                {notas.filter(n => n.estado_codigo === 'CONF' && n.tipo_codigo === 'ENT').reduce((acc, curr) => acc + (curr.total_cajas || 0), 0)}
+                {kpisGlobales.cajasIngresadas.toLocaleString('es-MX')}
               </p>
             </div>
           </CardContent>
@@ -325,7 +326,7 @@ export default async function NotasPage({
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Egresadas</p>
               <p className="text-xl font-black font-mono leading-none mt-1">
-                {notas.filter(n => n.estado_codigo === 'CONF' && n.tipo_codigo === 'SAL').reduce((acc, curr) => acc + (curr.total_cajas || 0), 0)}
+                {kpisGlobales.cajasEgresadas.toLocaleString('es-MX')}
               </p>
             </div>
           </CardContent>

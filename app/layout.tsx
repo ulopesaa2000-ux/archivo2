@@ -51,7 +51,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ErrorBoundary>
             {children}
             <Toaster
-              position="bottom-right"
+              position="top-right"
+              offset={68}
               toastOptions={{
                 duration: 4000,
                 className: 'font-sans',
