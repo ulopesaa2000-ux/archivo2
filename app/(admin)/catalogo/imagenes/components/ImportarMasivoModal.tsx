@@ -1,7 +1,7 @@
 // app/(admin)/catalogo/imagenes/components/ImportarMasivoModal.tsx
 'use client'
 
-import { useState, useRef, useTransition, useEffect } from 'react'
+import { useState, useRef, useTransition } from 'react'
 import Image from 'next/image'
 import Papa from 'papaparse'
 import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download } from 'lucide-react'
@@ -11,11 +11,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
 import { importarImagenesDesdeExcelAction, uploadSingleImagenConSkuAction } from '@/modules/catalogo/imagenes/actions'
+import { buscarProductosPorSkuBatch } from '@/modules/inventario/import-queries'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
 import { BuscadorSku } from './BuscadorSku'
 
 interface Props {
@@ -26,6 +25,10 @@ interface Props {
 
 const MAX_FILES = 40
 const MAX_SIZE_BYTES = 5 * 1024 * 1024
+const CHUNK_SIZE = 12
+const PARALLEL_CHUNKS = 2
+const PARALLEL_UPLOADS = 3
+const MIN_SCORE = 0.60
 
 interface FilePreview {
   file: File
@@ -39,145 +42,6 @@ interface FilePreview {
   status: 'pending' | 'detected' | 'not_found' | 'assigned'
 }
 
-// ─── SKU Matching ─────────────────────────────────────────────────────────────
-type SkuRecord = { id: number; sku_base: string; nombre: string }
-
-/** Normaliza para comparar: minúsculas, _ y - → /, sin espacios */
-function normalizeSku(s: string): string {
-  return s.toLowerCase().replace(/[-_]/g, '/').replace(/\s+/g, '')
-}
-
-/**
- * Busca el mejor match de SKU para un nombre de archivo.
- *
- * Estrategias (en orden de prioridad):
- * 1. Coincidencia exacta normalizada (JA25_17HC -> JA25/17HC)
- * 2. Si hay _ o - en el nombre del archivo:
- *    2a. Filtrar SKUs donde la parte DESPUES del / coincida (optimización de lista)
- *    2b. De SKUs filtrados, buscar la mejor coincidencia con la parte ANTES del /
- *    2c. Reconstruir PARTE1/PARTE2 y buscar exacto (compatibilidad)
- *    2d. Filtrar por prefijo de parte1 y refinar con parte2 (fallback)
- * 3. Prefijo simple del nombre completo (último recurso)
- */
-function findBestSkuMatch(filename: string, allSkus: SkuRecord[]): SkuRecord | null {
-  const nameRaw = filename.replace(/\.[^.]+$/, '').trim()
-  const nameNorm = normalizeSku(nameRaw)
-
-  // 1. Exacto
-  const exact = allSkus.find(s => normalizeSku(s.sku_base) === nameNorm)
-  if (exact) return exact
-
-  // Detectar separador _ o - en el nombre del archivo
-  const sep = nameRaw.match(/^([A-Z0-9]+)[_\-]([A-Z0-9].*)$/i)
-  if (sep) {
-    const part1 = sep[1].toUpperCase()  // ej: JA25
-    const part2 = sep[2].toUpperCase()  // ej: 17HC
-
-    // 2a. OPTIMIZACIÓN: Filtrar SKUs donde la parte DESPUES del / coincida con part2
-    // Esto acorta drásticamente la lista para paso 2b
-    let filteredBySuffix = allSkus.filter(s => {
-      const slashParts = s.sku_base.split('/')
-      if (slashParts.length < 2) return false
-      // La parte final del SKU después del último /
-      const skuAfterSlash = slashParts[slashParts.length - 1].toUpperCase().trim()
-      const searchPart2 = part2.trim()
-      return skuAfterSlash === searchPart2 ||
-             skuAfterSlash.startsWith(searchPart2) ||
-             searchPart2.startsWith(skuAfterSlash)
-    })
-
-    // 2b. De la lista filtrada, usar fuzzy match en la parte ANTES del /
-    if (filteredBySuffix.length > 0) {
-      // Primero buscar exacto en la parte anterior del /
-      const exactPrefix = filteredBySuffix.find(s => {
-        const skuParts = s.sku_base.split('/')
-        return skuParts[0].toUpperCase().trim() === part1
-      })
-      if (exactPrefix) return exactPrefix
-
-      // Luego buscar fuzzy (similar, empieza con...)
-      // Usar fuzzy matching heurístico para mejorar coincidencias
-      const prefixSearched = sanitized(part1)
-      for (const s of filteredBySuffix) {
-        if (fuzzyMatchPrefix(prefixSearched, sanitized(s.sku_base.split('/')[0] ?? ''))) {
-          return s
-        }
-      }
-
-      // Si solo es uno, retornarlo (confianza alta por coincidencia de sufijo)
-      if (filteredBySuffix.length === 1) return filteredBySuffix[0]
-
-      // Si son varios, retornar el primero con mayor longitud de coincidencia
-      if (filteredBySuffix.length > 1) return filteredBySuffix[0]
-    }
-
-    // 2c. Reconstruir con / y buscar (estrategia anterior para compatibilidad)
-    const withSlash = allSkus.find(s => normalizeSku(s.sku_base) === normalizeSku(`${part1}/${part2}`))
-    if (withSlash) return withSlash
-
-    // 2d. Prefijo parte1, afinar con parte2 (fallback tradicional)
-    const byPrefix = allSkus.filter(s => normalizeSku(s.sku_base).startsWith(normalizeSku(part1)))
-    if (byPrefix.length === 1) return byPrefix[0]
-    if (byPrefix.length > 1) {
-      const refined = byPrefix.filter(s => {
-        const afterSlash = normalizeSku(s.sku_base.split('/')[1] ?? '')
-        return afterSlash.includes(normalizeSku(part2))
-      })
-      if (refined.length >= 1) return refined[0]
-      return byPrefix[0]
-    }
-  }
-
-  // 3. Prefijo simple (mínimo 4 chars)
-  if (nameRaw.length >= 4) {
-    const prefix6 = normalizeSku(nameRaw.slice(0, 6))
-    const bySimplePrefix = allSkus.filter(s => normalizeSku(s.sku_base).startsWith(prefix6))
-    if (bySimplePrefix.length === 1) return bySimplePrefix[0]
-  }
-
-  return null
-}
-
-/** Remueve tildes y caracteres diacríticos + to upper */
-function sanitized(texto: string): string {
-  const treated = texto
-    .toUpperCase()
-    .replace(/[ÁÉÍÓÚÀÈÌÒÙÄËÏÖÜÂÊÎÔÛ]/g, c => {
-      return { 'Á':'A','É':'E','Í':'I','Ó':'O','Ú':'U','À':'A','È':'E','Ì':'I','Ò':'O','Ù':'U','Ä':'A','Ë':'E','Ï':'I','Ö':'O','Ü':'U','Â':'A','Ê':'E','Î':'I','Ô':'O','Û':'U' }[c] ?? c
-    })
-  return treated
-}
-
-/** Heurística de fuzzy matching para prefijos: levenshtein básico o similaridad */
-function fuzzyMatchPrefix(search: string, target: string): boolean {
-  if (search === target) return true
-  if (target.startsWith(search)) return true
-  if (search.startsWith(target)) return true
-  // Levenshtein tolerancia: si difieren por menos de 30% de sus longitudes
-  const dist = levenshteinDistance(search, target)
-  const maxLen = Math.max(search.length, target.length)
-  if (maxLen === 0) return true
-  return dist / maxLen < 0.3
-}
-
-/** Calcula la distancia de Levenshtein entre dos cadenas */
-function levenshteinDistance(a: string, b: string): number {
-  const m = a.length, n = b.length
-  if (m === 0) return n
-  if (n === 0) return m
-  const dp = Array.from({ length: m + 1 }, (_, i) => Array(n + 1).fill(0))
-  for (let i = 0; i <= m; i++) dp[i][0] = i
-  for (let j = 0; j <= n; j++) dp[0][j] = j
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
-    }
-  }
-  return dp[m][n]
-}
-
 export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
@@ -186,8 +50,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; name: string } | null>(null)
-  // Cache de todos los SKUs: se carga UNA sola vez (1 query) al entrar al paso 2
-  const allSkusRef = useRef<SkuRecord[]>([])
+  const [detectionProgress, setDetectionProgress] = useState<{ current: number; total: number } | null>(null)
 
   // ── Estado para modo Excel/CSV ──────────────────────────────────────
   const [csvText, setCsvText] = useState('')
@@ -204,34 +67,64 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     status: 'pending' | 'found' | 'not_found'
   }[]>([])
 
-  const loadAllSkus = async (): Promise<SkuRecord[]> => {
-    if (allSkusRef.current.length > 0) return allSkusRef.current
-    const supabase = createClient()
-    const { data } = await (supabase.from('productos') as any)
-      .select('id, sku_base, nombre')
-      .eq('activo', true)
-      .order('sku_base')
-    allSkusRef.current = data ?? []
-    return allSkusRef.current
-  }
-
+  /**
+   * Detecta SKUs usando el RPC fn_buscar_candidatos_sku_ocr del módulo de inventario.
+   * Procesa en chunks paralelos para no saturar.
+   */
   const runDetectionForFiles = async (currentFiles: FilePreview[]) => {
     setDetecting(true)
+    setDetectionProgress({ current: 0, total: currentFiles.length })
     try {
-      const skus = await loadAllSkus()
-      const updated = currentFiles.map(f => {
-        const match = findBestSkuMatch(f.file.name, skus)
-        if (match) {
-          return { ...f, sku: match.sku_base, productoId: match.id, productoNombre: match.nombre, alt_text: `Imagen de ${match.nombre}`, status: 'detected' as const, es_principal: true }
+      // Extraer nombres de archivo sin extensión como candidatos de SKU
+      const filenames = currentFiles.map(f => f.file.name.replace(/\.[^.]+$/, '').trim())
+
+      // Dividir en chunks y procesar en paralelo limitado
+      const chunks: string[][] = []
+      for (let i = 0; i < filenames.length; i += CHUNK_SIZE) {
+        chunks.push(filenames.slice(i, i + CHUNK_SIZE))
+      }
+
+      const allMatches = new Map<string, { producto_id: number; sku_base: string; nombre: string | null }>()
+
+      for (let i = 0; i < chunks.length; i += PARALLEL_CHUNKS) {
+        const batch = chunks.slice(i, i + PARALLEL_CHUNKS)
+        const results = await Promise.all(
+          batch.map(chunk => buscarProductosPorSkuBatch(chunk))
+        )
+        for (const map of results) {
+          for (const [key, value] of map) {
+            allMatches.set(key, value)
+          }
         }
-        const cleaned = f.file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, '/').toUpperCase()
-        return { ...f, sku: cleaned, status: 'not_found' as const, es_principal: false }
+        setDetectionProgress({
+          current: Math.min((i + PARALLEL_CHUNKS) * CHUNK_SIZE, filenames.length),
+          total: filenames.length,
+        })
+      }
+
+      // Mapear resultados de vuelta a los archivos
+      const updated = currentFiles.map((f, idx) => {
+        const filename = filenames[idx]
+        const match = allMatches.get(filename)
+        if (match && match.sku_base) {
+          return {
+            ...f,
+            sku: match.sku_base,
+            productoId: match.producto_id,
+            productoNombre: match.nombre ?? undefined,
+            alt_text: `Imagen de ${match.nombre ?? match.sku_base}`,
+            status: 'detected' as const,
+            es_principal: true,
+          }
+        }
+        return { ...f, sku: filename.replace(/[-_]/g, '/').toUpperCase(), status: 'not_found' as const, es_principal: false }
       })
       setFiles(updated)
     } catch (e) {
-      console.error(e)
+      console.error('Error detectando SKUs:', e)
     } finally {
       setDetecting(false)
+      setDetectionProgress(null)
     }
   }
 
@@ -243,14 +136,14 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
       updated[index].productoId = undefined
       updated[index].productoNombre = undefined
     } else {
-      // Usar cache local — sin nueva query a BD
-      const skus = await loadAllSkus()
-      const match = skus.find(s => normalizeSku(s.sku_base) === normalizeSku(newSku))
-      if (match) {
+      // Buscar via RPC para validar el SKU
+      const matches = await buscarProductosPorSkuBatch([newSku])
+      const match = matches.get(newSku)
+      if (match && match.sku_base) {
         updated[index].status = 'assigned'
-        updated[index].productoId = match.id
-        updated[index].productoNombre = match.nombre
-        updated[index].alt_text = `Imagen de ${match.nombre}`
+        updated[index].productoId = match.producto_id
+        updated[index].productoNombre = match.nombre ?? undefined
+        updated[index].alt_text = `Imagen de ${match.nombre ?? match.sku_base}`
       } else {
         updated[index].status = 'not_found'
         updated[index].productoId = undefined
@@ -314,21 +207,17 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   }
 
   const resolveCsvSkus = async () => {
-    const supabase = createClient()
     const skus = csvRows.map(r => r.sku.toUpperCase()).filter(Boolean)
     if (skus.length === 0) return
-    const { data } = await (supabase.from('productos') as any)
-      .select('id, sku_base, nombre')
-      .in('sku_base', skus)
-    const map = new Map((data ?? []).map((p: any) => [p.sku_base.toUpperCase(), p]))
+    const matches = await buscarProductosPorSkuBatch(skus)
     const updated = csvRows.map(r => {
-      const match = map.get(r.sku.toUpperCase()) as { id: number; sku_base: string; nombre: string } | undefined
+      const match = matches.get(r.sku.toUpperCase())
       return {
         ...r,
-        productoId: match?.id,
-        productoNombre: match?.nombre,
+        productoId: match?.producto_id,
+        productoNombre: match?.nombre ?? undefined,
         status: match ? 'found' as const : 'not_found' as const,
-        alt_text: match ? `Imagen de ${match.nombre}` : '',
+        alt_text: match?.nombre ? `Imagen de ${match.nombre}` : '',
       }
     })
     setCsvRows(updated)
@@ -389,30 +278,30 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
       let successCount = 0
       let failCount = 0
 
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]
-        setUploadProgress({ current: i + 1, total: files.length, name: f.file.name })
-
-        try {
-          const formData = new FormData()
-          formData.append('file', f.file)
-          formData.append('producto_id', String(f.productoId))
-          formData.append('sku_base', f.sku)
-          formData.append('alt_text', f.alt_text)
-          formData.append('uso_imagen', f.uso)
-          formData.append('es_principal', String(f.es_principal))
-
-          const res = await uploadSingleImagenConSkuAction(formData)
-          if (res.success) {
-            successCount++
-          } else {
-            failCount++
-            console.error(`Error uploading ${f.file.name}:`, res.error)
-          }
-        } catch (err) {
-          failCount++
-          console.error(`Exception uploading ${f.file.name}:`, err)
+      // Subir en paralelo limitado (PARALLEL_UPLOADS a la vez)
+      for (let i = 0; i < files.length; i += PARALLEL_UPLOADS) {
+        const batch = files.slice(i, i + PARALLEL_UPLOADS)
+        const results = await Promise.allSettled(
+          batch.map(async (f) => {
+            const formData = new FormData()
+            formData.append('file', f.file)
+            formData.append('producto_id', String(f.productoId))
+            formData.append('sku_base', f.sku)
+            formData.append('alt_text', f.alt_text)
+            formData.append('uso_imagen', f.uso)
+            formData.append('es_principal', String(f.es_principal))
+            return uploadSingleImagenConSkuAction(formData)
+          })
+        )
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.success) successCount++
+          else failCount++
         }
+        setUploadProgress({
+          current: Math.min(i + PARALLEL_UPLOADS, files.length),
+          total: files.length,
+          name: batch.map(f => f.file.name).join(', '),
+        })
       }
 
       setUploadProgress(null)
@@ -597,7 +486,12 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
             <div className="h-full flex flex-col">
               {/* Sub-header stats */}
               <div className="flex items-center gap-4 px-5 py-2 border-b bg-muted/20 shrink-0 text-xs flex-wrap">
-                {detecting && <span className="flex items-center gap-1 text-blue-600"><Loader2 className="h-3 w-3 animate-spin" />Detectando SKUs...</span>}
+                {detecting && (
+                  <span className="flex items-center gap-1 text-blue-600">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Detectando SKUs...{detectionProgress ? ` ${detectionProgress.current}/${detectionProgress.total}` : ''}
+                  </span>
+                )}
                 <span className="flex items-center gap-1 text-green-600"><Check className="h-3 w-3" />{detected} detectadas</span>
                 <span className="flex items-center gap-1 text-red-500"><AlertCircle className="h-3 w-3" />{pending} sin SKU</span>
                 <div className="ml-auto">
