@@ -29,6 +29,7 @@ export type FiltrosCajas = {
 // ── Orden en listado ────────────────────────────────────────
 export type OrdenB2BListItem = {
   id: number
+  activo?: boolean
   proveedor_id?: number | null
   cliente_b2b_id?: number | null
   folio_proveedor: string | null

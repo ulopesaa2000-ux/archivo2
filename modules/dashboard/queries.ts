@@ -311,6 +311,7 @@ export async function fetchComercialDashboardData({
       .from('ordenes_b2b')
       .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id')
       .eq('cliente_b2b_id', persona.id)
+      .eq('activo', true)
       .neq('estado', 'Cancelada')
       .order('fecha_orden', { ascending: false })
 
@@ -338,6 +339,7 @@ export async function fetchComercialDashboardData({
       .from('ordenes_b2b')
       .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id')
       .eq('proveedor_id', persona.id)
+      .eq('activo', true)
       .neq('estado', 'Cancelada')
       .order('fecha_orden', { ascending: false })
 
@@ -362,7 +364,7 @@ export async function fetchComercialDashboardData({
   } else {
     // Global Admin
     const [ordsRes, contsRes, cajasRes] = await Promise.all([
-      supabase.from('ordenes_b2b').select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id').neq('estado', 'Cancelada').order('created_at', { ascending: false }),
+      supabase.from('ordenes_b2b').select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id').eq('activo', true).neq('estado', 'Cancelada').order('created_at', { ascending: false }),
       supabase.from('v_contenedor_resumen').select('*').neq('estado', 'cerrado').neq('estado', 'cancelado'),
       supabase.from('cajas_producto').select('id', { count: 'exact' }),
     ])

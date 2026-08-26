@@ -208,6 +208,8 @@ export async function fetchOrdenesB2B(
     return { items: [], total: 0 }
   }
 
+  query = query.eq('activo', true)
+
   if (filtros.q) {
     query = query.ilike('folio_proveedor', `%${filtros.q}%`)
   }

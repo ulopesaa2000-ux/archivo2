@@ -40,6 +40,7 @@ export async function fetchContenedores(
 
     const { data: ordenes } = await supabase.from('ordenes_b2b')
       .select('contenedor_id')
+      .eq('activo', true)
       .or(orderFilter)
       .not('contenedor_id', 'is', null)
 
@@ -103,6 +104,7 @@ export async function fetchContenedorById(
     const { data: ordenes } = await supabase.from('ordenes_b2b')
       .select('id')
       .eq('contenedor_id', id)
+      .eq('activo', true)
       .or(orderFilter)
       .limit(1)
 
@@ -151,6 +153,7 @@ export async function fetchOrdenesDeContenedor(
       contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (codigo_contenedor)
     `)
     .eq('contenedor_id', contenedorId)
+    .eq('activo', true)
     .order('id')
 
   if (!scope.is_super_admin) {
@@ -212,6 +215,7 @@ export async function fetchContenedorPacking(
     const { data: allowedOrders } = await supabase.from('ordenes_b2b')
       .select('id')
       .eq('contenedor_id', contenedorId)
+      .eq('activo', true)
       .or(orderFilter)
 
     const allowedIds = (allowedOrders ?? []).map((o: any) => o.id)
@@ -252,6 +256,7 @@ export async function fetchOrdenesDisponibles(
       total_cajas, total_piezas, fecha_orden, contenedor_id,
       proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
     `)
+    .eq('activo', true)
     .or(`contenedor_id.is.null,contenedor_id.eq.${contenedorId}`)
     .neq('estado', 'Cancelada')
     .order('fecha_orden', { ascending: false })
@@ -303,6 +308,7 @@ export async function fetchCajasDeContenedor(
     .from('ordenes_b2b')
     .select('id, folio_proveedor')
     .eq('contenedor_id', contenedorId)
+    .eq('activo', true)
 
   if (!scope.is_super_admin) {
     const orderFilter = buildCommercialOrderFilter(scope)

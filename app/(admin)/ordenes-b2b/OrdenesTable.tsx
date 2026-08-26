@@ -14,6 +14,8 @@ import { ADMIN_ROUTES, ESTADO_ORDEN_B2B_COLORS } from '@/lib/constants'
 import type { OrdenB2BListItem, CatalogosB2B } from '@/modules/ordenes-b2b/types'
 import { OrdenFormDialog } from './OrdenFormDialog'
 import { eliminarOrdenB2BAction } from '@/modules/ordenes-b2b/actions'
+import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
+import { toast } from 'sonner'
 
 type Props = {
   items: OrdenB2BListItem[]
@@ -37,6 +39,7 @@ function OrdenesTableInner({
   const ctx = useDataTableContext()
   const { expandedIds } = useDataTableExpand()
   const [editingOrden, setEditingOrden] = useState<OrdenB2BListItem | null>(null)
+  const [ordenAEliminar, setOrdenAEliminar] = useState<OrdenB2BListItem | null>(null)
   const [isPending, startTransition] = useTransition()
 
   // Las features ahora vienen del provider (cargado desde BD o defaults)
@@ -129,46 +132,41 @@ function OrdenesTableInner({
           {/* Ver detalle */}
           <Link
             href={ADMIN_ROUTES.ordenesB2B.detalle(row.id)}
-            className={cn('h-7 w-7 p-0')}
+            className={cn('h-7 w-7 p-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors')}
             title="Ver detalle"
           >
             <Eye className="h-3.5 w-3.5" />
           </Link>
 
           {/* Editar */}
-          <button
-            title="Editar"
-            className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors", !canEdit && "hidden")}
-            onClick={(e) => {
-              e.stopPropagation()
-              setEditingOrden(row)
-            }}
-            disabled={isPending || !canEdit}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {canEdit && (
+            <button
+              title="Editar"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditingOrden(row)
+              }}
+              disabled={isPending}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
 
-          {/* Eliminar */}
-          <button
-            title="Eliminar"
-            className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors hover:text-destructive", !canDelete && "hidden")}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (confirm(`¿Estás seguro de eliminar la orden #${row.id}?`)) {
-                startTransition(async () => {
-                  const result = await eliminarOrdenB2BAction(row.id)
-                  if (result.success) {
-                    router.refresh()
-                  } else {
-                    alert(result.error ?? 'Error al eliminar la orden.')
-                  }
-                })
-              }
-            }}
-            disabled={isPending || !canDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {/* Eliminar (Soft Delete) */}
+          {canDelete && (
+            <button
+              title="Desactivar orden (Eliminar)"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                setOrdenAEliminar(row)
+              }}
+              disabled={isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -231,6 +229,29 @@ function OrdenesTableInner({
           open={!!editingOrden}
           onOpenChange={(open) => {
             if (!open) setEditingOrden(null)
+          }}
+        />
+      )}
+
+      {ordenAEliminar && (
+        <ConfirmDeleteModal
+          isOpen={Boolean(ordenAEliminar)}
+          onOpenChange={(open) => {
+            if (!open) setOrdenAEliminar(null)
+          }}
+          title="¿Desactivar orden B2B?"
+          elementName={`Orden #${ordenAEliminar.id} ${ordenAEliminar.folio_proveedor ? `(Folio: ${ordenAEliminar.folio_proveedor})` : ''} ${ordenAEliminar.proveedor_nombre ? `• ${ordenAEliminar.proveedor_nombre}` : ''}`}
+          description="Esta orden de compra B2B se marcará como inactiva y ya no aparecerá en el listado ni en los contenedores. Los detalles de productos y cajas asociadas se conservarán de manera segura en el historial."
+          onConfirm={async () => {
+            if (!ordenAEliminar) return
+            const id = ordenAEliminar.id
+            const res = await eliminarOrdenB2BAction(id)
+            if (res.success) {
+              toast.success(`Orden #${id} desactivada correctamente.`)
+              router.refresh()
+            } else {
+              toast.error(res.error ?? 'No se pudo desactivar la orden.')
+            }
           }}
         />
       )}

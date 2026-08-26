@@ -1,134 +1,59 @@
-# Fases del Proyecto inv-tienda
+# Arquitectura Funcional y Reglas por Bloques (`inv-tienda`)
 
-Este documento resume las fases descritas en los archivos de reglas y proporciona un contexto general para el desarrollo del proyecto.
-
-## Resumen de Fases
-
-### Fase 0 - Bootstrapping y Estructura Base ✅
-**Duración**: 2 días
-**Estado**: Completado
-
-- Next.js 14+ con App Router
-- TypeScript strict
-- Tailwind CSS y shadcn/ui
-- Configuración de Supabase (3 clientes)
-- Tipos de base de datos generados
-- Utilidades y componentes base
-
-### Fase 1 - Autenticación y Login ✅
-**Duración**: 1 día
-**Estado**: Completado
-
-- Login funcional con Supabase Auth
-- Protección de rutas
-- Detección de sesión expirada
-- Components optimizados
-- Middleware refinado
-
-### Fase 2 - Shell Admin Persistente ✅
-**Duración**: 2 días
-**Estado**: Completado
-
-- Layout persistente (solo se renderiza 1 vez)
-- Sidebar con menú condicional
-- Header con selector de bodega
-- DataTable genérico reusable
-- Optimización de rendimiento
-
-### Fase 3 - Módulo Catálogo de Productos ✅
-**Duración**: [Pendiente definir]
-**Estado**: Completado
-
-- Listado con filtros que nunca se recargan
-- Streaming progresivo por tabs
-- 10 tabs con información detallada
-- Optimización de cache y revalidación
-
-### Fase 4 - Módulo Inventario 🔄
-**Duración**: [Pendiente definir]
-**Estado**: En progreso
-
-- Notas de inventario
-- Gestión de stock
-- Bodegas y movimientos
-- Reportes de inventario
-
-### Fase 5 - Órdenes B2B 🔄
-**Duración**: [Pendiente definir]
-**Estado**: Pendiente
-
-- Gestión de órdenes B2B
-- Cajas y contenedores
-- Importaciones
-- Flujo de aprobación
-
-### Fase 6 - Ecommerce Admin 🔄
-**Duración**: [Pendiente definir]
-**Estado**: Pendiente
-
-- Catálogo web
-- Órdenes de venta
-- Gestión de productos para ecommerce
-
-### Fase 7 - Tienda Online Pública 🔄
-**Duración**: [Pendiente definir]
-**Estado**: En desarrollo (mejoras recientes)
-
-- Catálogo público
-- Carrito de compras
-- Checkout
-- SEO optimizado
-
-### Fase 8 - Usuarios, Roles y Configuración 🔄
-**Duración**: [Pendiente definir]
-**Estado**: Pendiente
-
-- Gestión de usuarios
-- Sistema de roles
-- Permisos detallados
-- Configuración del sistema
-
-### Fase 9 - Dashboard Real, Pulido y Deploy 🔄
-**Duración**: [Pendiente definir]
-**Estado**: Pendiente
-
-- Dashboard con métricas
-- Optimización final
-- Despliegue
-- Monitoreo
-
-## Áreas de Mejora Recientes
-
-### SEO y Performance (Fase 7 - Avance)
-- ✅ Meta tags dinámicos
-- ✅ Schema markup
-- ✅ Sitemap y robots.txt
-- ✅ Optimización de imágenes
-- ✅ Dynamic imports
-- ✅ Seguridad headers
-- ✅ Mobile-first design
-
-### Estructura Organizativa
-- Tests organizados por tipo (e2e, unit, integration)
-- Documentación centralizada
-- Scripts en carpeta dedicada
-- Errores documentados para referencia
-
-## Próximos Pasos
-
-1. **Continuar con Fase 4** - Módulo de inventario
-2. **Implementar Fase 5** - Órdenes B2B
-3. **Mejorar Fase 7** - Añadir carrito y checkout
-4. **Preparar Fase 9** - Dashboard y métricas
-
-## Notas Importantes
-
-- Todas las fases deben seguir las reglas inquebrantables definidas en `AGENTS.md`
-- La base de datos no debe ser modificada (ya existe y está poblada)
-- Usar Server Components por defecto
-- Las mutaciones deben ser Server Actions
-- El timezone de México debe manejarse correctamente
+Este documento define la estructura arquitectónica del sistema `inv-tienda`, organizado en **3 Grandes Bloques Funcionales** gobernados por una **Capa Base Transversal de Autenticación y RBAC**.
 
 ---
 
-*Última actualización: 13 de abril de 2026*
+## 🏛️ Estructura de Reglas Maestras
+
+```
+.agents/rules/
+├── 00_base_auth_rbac.md     # 🔐 Base, Auth, Usuarios, Roles, Personas y Seguridad
+├── 01_catalogo_b2b.md       # 🏷️ BLOQUE 1: Catálogo, Cajas, Órdenes B2B, Contenedores e Imágenes
+├── 02_inventario.md         # 📦 BLOQUE 2: Inventario, Notas de Movimiento, Stock y Bodegas
+└── 03_ecommerce_tienda.md   # 🛍️ BLOQUE 3: Ecommerce, Precios, SEO, Tienda Online y Checkout
+```
+
+---
+
+## 🔐 Capa Transversal: Base, Auth & RBAC
+- **Documento:** [00_base_auth_rbac.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/00_base_auth_rbac.md)
+- **Alcance:**
+  - Supabase Auth vinculado a `inv-tienda.usuarios`, `inv-tienda.roles` y `inv-tienda.personas`.
+  - Matriz de permisos (`usuario_permisos`) y asignación de bodegas autorizadas (`usuario_bodegas`).
+  - Shell Admin persistente (`app/(admin)/layout.tsx`) y selector de bodega activa (físicas y virtuales).
+  - Timezone estricto `America/Mexico_City` para renderizado y UTC en base de datos.
+
+---
+
+## 🏷️ Bloque 1: Catálogo de Productos y Cadena de Suministro
+- **Documento:** [01_catalogo_b2b.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/01_catalogo_b2b.md)
+- **Alcance:**
+  - Productos de ropa, variantes (`variantes_producto`) y atributos técnicos (marcas, géneros, telas, acabados).
+  - Estructura de cajas de empaque y matriz interactiva talla × color (`cajas`, `caja_detalles`).
+  - Órdenes comerciales B2B, contenedores de importación marítima y packing lists asistidos por OCR/n8n.
+  - Gestión y optimización de imágenes en Supabase Storage (`product_images`).
+
+---
+
+## 📦 Bloque 2: Inventario, Movimientos y Bodegas
+- **Documento:** [02_inventario.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/02_inventario.md)
+- **Alcance:**
+  - **Regla inquebrantable:** El stock no se edita directamente; todo cambio se procesa mediante `notas_inventario` al pasar a estado `CONF` (disparando `fn_procesar_nota_inventario`).
+  - Unidad de stock trackeada a nivel `inventario_stock.producto_id`.
+  - Operación en bodegas físicas y bodegas virtuales (`bodegas.es_virtual`).
+  - Matriz de existencias, cálculo de pronósticos y despachos.
+
+---
+
+## 🛍️ Bloque 3: Ecommerce y Tienda Pública
+- **Documento:** [03_ecommerce_tienda.md](file:///c:/Users/uriel/Downloads/enero%2026/archivo2/.agents/rules/03_ecommerce_tienda.md)
+- **Alcance:**
+  - Separación de costo promedio vs. precios de venta al público en `productos_web` (`precio_publico`, `precio_oferta`).
+  - Slugs amigables para URLs `/tienda/[slug]`.
+  - Optimización SEO completa, OpenGraph con imagen principal real y datos estructurados Schema.org.
+  - Carrito de compras, órdenes de venta y checkout.
+
+---
+
+> **Nota histórica:** Los documentos originales de las fases iniciales de desarrollo se encuentran respaldados en `docs/architecture/backups/`.
