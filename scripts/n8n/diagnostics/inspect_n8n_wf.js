@@ -4,7 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const envPath = path.resolve(__dirname, '../.env.local');
+const envPath = fs.existsSync(path.resolve(__dirname, '../../../.env.local'))
+  ? path.resolve(__dirname, '../../../.env.local')
+  : path.resolve(__dirname, '../../.env.local');
 const envConfig = dotenv.parse(fs.readFileSync(envPath));
 const apiKey = envConfig.N8N_API_KEY;
 const workflowId = envConfig.N8N_WORKFLOW_ID || 'DtZOqR4-9_DnULEjWW78b';
