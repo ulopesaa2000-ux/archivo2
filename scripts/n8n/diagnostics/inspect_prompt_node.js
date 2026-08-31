@@ -1,13 +1,10 @@
-// scripts\n8n\diagnostics\inspect_n8n_wf.js
+// scripts/n8n/diagnostics/inspect_prompt_node.js
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const envPath = fs.existsSync(path.resolve(__dirname, '../../../.env.local'))
-  ? path.resolve(__dirname, '../../../.env.local')
-  : path.resolve(__dirname, '../../.env.local');
-const envConfig = dotenv.parse(fs.readFileSync(envPath));
+const envConfig = dotenv.parse(fs.readFileSync(path.resolve(__dirname, '../../../.env.local')));
 const apiKey = envConfig.N8N_API_KEY;
 const workflowId = envConfig.N8N_WORKFLOW_ID || 'DtZOqR4-9_DnULEjWW78b';
 
@@ -45,18 +42,10 @@ function api(method, apiPath, body = null) {
 async function run() {
   const res = await api('GET', '/workflows/' + workflowId);
   const wf = res.data;
-  console.log('Workflow Name:', wf.name);
-  console.log('\n--- NODOS DEL WORKFLOW ---');
-  wf.nodes.forEach(n => {
-    console.log(`- [${n.name}] (Type: ${n.type})`);
-  });
-
-  console.log('\n--- CONEXIONES ---');
-  console.log(JSON.stringify(wf.connections, null, 2));
-
-  // Buscar nodo "Promover a nota (auto)"
-  const promoverNode = wf.nodes.find(n => n.name.toLowerCase().includes('promover'));
-  console.log('\n--- NODO PROMOVER ---:', promoverNode);
+  
+  const pNode = wf.nodes.find(n => n.name === 'Construir prompt + body');
+  console.log('=== NODO Construir prompt + body ===');
+  console.log(pNode.parameters.jsCode);
 }
 
-run();
+run().catch(console.error);

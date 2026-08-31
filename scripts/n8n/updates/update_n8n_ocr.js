@@ -7,7 +7,9 @@ const dotenv = require('dotenv');
 // Cargar variables desde .env.local si existen
 let envConfig = {};
 try {
-  const envPath = path.resolve(__dirname, '../.env.local');
+  const envPath = fs.existsSync(path.resolve(__dirname, '../../../.env.local'))
+    ? path.resolve(__dirname, '../../../.env.local')
+    : path.resolve(__dirname, '../../.env.local');
   if (fs.existsSync(envPath)) {
     envConfig = dotenv.parse(fs.readFileSync(envPath));
   }
@@ -128,7 +130,14 @@ La estructura general sigue este orden de lectura habitual (NO es una ley rígid
 
 7. REGLAS DE ENCABEZADO Y FECHA:
    - En México el formato es DD/MM/AAAA o DD/MM/AA (ej: 20/08/26 es 20 de Agosto de 2026 -> "2026-08-20").
-   - tipo_movimiento: Si la nota dice "ORDEN DE MOVIMIENTOS", revisa las casillas marcadas (ENTRADA -> "ENT", SALIDA -> "SAL", TRASPASO -> "TRF", DEVOLUCION -> "DEV").\`;
+   - tipo_movimiento: Si la nota dice "ORDEN DE MOVIMIENTOS", revisa las casillas marcadas (ENTRADA -> "ENT", SALIDA -> "SAL", TRASPASO -> "TRF", DEVOLUCION -> "DEV").
+
+8. REGLA ESTRICTA PARA HOJAS EN MÚLTIPLES COLUMNAS (HOJAS DE LIBRETA / CONTEOS / AJUSTES):
+   - Si la hoja manuscrita está dividida en dos o más columnas de texto escritas en paralelo (por ejemplo: Columna 1 a la izquierda con sus cantidades, y Columna 2 a la derecha con sus cantidades):
+   - CADA COLUMNA REPRESENTA PRODUCTOS TOTALMENTE INDEPENDIENTES.
+   - NUNCA tomes el texto o código de la columna derecha como la "descripción" de la columna izquierda.
+   - Extrae secuencialmente TODOS los renglones de la Columna Izquierda y luego TODOS los de la Columna Derecha (o renglón por renglón) como elementos SEPARADOS en el arreglo "lineas".
+   - Si la hoja no tiene encabezado impreso "ORDEN DE MOVIMIENTOS", asume tipo_movimiento: "ENT".\`;
 
 const imageUrl = meta.comprobante_url || meta.image_url || $('Subir imagen al bucket1').first()?.json?.publicUrl || $('Subir imagen al bucket').first()?.json?.publicUrl;
 
@@ -148,12 +157,14 @@ const body = {
     }
   ],
   temperature: 0.1,
-  max_tokens: 3000
+  max_tokens: 8192
 };
 
 return [{
   json: {
     prompt_body: body,
+    openrouter_body: body,
+    body: body,
     client_request_id: meta.client_request_id || null,
     comprobante_url: imageUrl,
     usuario_id: meta.usuario_id || 1,
@@ -192,7 +203,7 @@ if (item.choices && item.choices[0]) {
   rawContent = item.data;
 }
 
-// 2. Parsear el JSON limpiando posibles bloques markdown
+// 2. Parsear el JSON limpiando posibles bloques markdown con auto-reparación si viene truncado
 let data = {};
 if (typeof rawContent === 'object' && rawContent !== null && Array.isArray(rawContent.lineas)) {
   data = rawContent;
@@ -207,10 +218,37 @@ if (typeof rawContent === 'object' && rawContent !== null && Array.isArray(rawCo
       data = JSON.parse(str);
     }
   } catch (e1) {
+    // Si falla el parseo por truncamiento (MAX_TOKENS), intentar reparar cerrando el arreglo 'lineas'
     try {
-      data = JSON.parse(str);
+      let repaired = str;
+      const lastObjClose = repaired.lastIndexOf('}');
+      if (lastObjClose !== -1) {
+        repaired = repaired.substring(0, lastObjClose + 1) + '\\n  ],\\n  "observaciones": "⚠️ JSON reparado automáticamente tras truncamiento",\\n  "confianza_global": 0.8\\n}';
+        const firstBrace = repaired.indexOf('{');
+        const lastBrace = repaired.lastIndexOf('}');
+        data = JSON.parse(repaired.substring(firstBrace, lastBrace + 1));
+      }
     } catch (e2) {
-      data = {};
+      // Si aún falla, extraer objetos de líneas individuales con Regex
+      try {
+        const lineMatches = str.match(/\\{\\s*"index"[\\s\\S]*?\\}/g) || [];
+        const recoveredLines = [];
+        for (const lm of lineMatches) {
+          try { recoveredLines.push(JSON.parse(lm)); } catch(e3) {}
+        }
+        if (recoveredLines.length > 0) {
+          data = {
+            tipo_movimiento: "ENT",
+            lineas: recoveredLines,
+            observaciones: "⚠️ Líneas recuperadas mediante extractor de emergencia",
+            confianza_global: 0.75
+          };
+        } else {
+          data = {};
+        }
+      } catch (e4) {
+        data = {};
+      }
     }
   }
 } else if (typeof rawContent === 'object' && rawContent !== null) {
@@ -386,28 +424,44 @@ if (!meta.usuario_id) {
 const usuarioId = Number(meta.usuario_id || 1);
 const priorizarIa = meta.priorizar_ia !== false && meta.priorizar_ia !== 'false';
 
-// ── 1. Catálogo Fijo de Bodegas con Normalización ──
+// ── 1. Catálogo Enriquecido de Bodegas con Relación Matriz/Ciudad ──
 const BODEGAS = [
-  { id: 1, codigo: "SUC001", nombre: "CHICONCUAC" },
-  { id: 2, codigo: "SUC002", nombre: "VACAS" },
-  { id: 3, codigo: "SUC003", nombre: "TOLUCA ANGEL" },
-  { id: 4, codigo: "SUC004", nombre: "TOLUCA BORDADO" },
-  { id: 5, codigo: "SUC005", nombre: "DURAZNO" },
-  { id: 6, codigo: "SUC006", nombre: "SAN DIEGO 1" },
-  { id: 7, codigo: "SUC007", nombre: "TORTILLA" },
-  { id: 8, codigo: "SUC008", nombre: "SAN DIEGO 2" },
-  { id: 9, codigo: "SUC009", nombre: "ANDRADE" },
-  { id: 10, codigo: "SUC010", nombre: "COCINA" },
-  { id: 11, codigo: "SUC011", nombre: "PALOMAS" },
-  { id: 12, codigo: "SUC012", nombre: "ZANDUNGA 1" },
-  { id: 13, codigo: "SUC013", nombre: "ZANDUNGA 2" },
-  { id: 14, codigo: "SUC014", nombre: "ZANDUNGA 3" },
-  { id: 15, codigo: "SUC015", nombre: "TULANCINGO" },
-  { id: 16, codigo: "SUC016", nombre: "RI&KA" },
-  { id: 17, codigo: "SUC017", nombre: "PANTACO" },
-  { id: 18, codigo: "SUC0018", nombre: "GBG" },
-  { id: 19, codigo: "SUC019", nombre: "SOR JUANA" }
+  { id: 1,  codigo: "SUC001", nombre: "CHICONCUAC",     ciudad: "CHINCONCUAC",   es_matriz: true },
+  { id: 2,  codigo: "SUC002", nombre: "VACAS",          ciudad: "CHINCONCUAC",   es_matriz: false },
+  { id: 3,  codigo: "SUC003", nombre: "TOLUCA ANGEL",   ciudad: "TOLUCA",        es_matriz: false },
+  { id: 4,  codigo: "SUC004", nombre: "TOLUCA BORDADO", ciudad: "TOLUCA",        es_matriz: true },
+  { id: 5,  codigo: "SUC005", nombre: "DURAZNO",        ciudad: "SAN MARTIN",    es_matriz: false },
+  { id: 6,  codigo: "SUC006", nombre: "SAN DIEGO 1",    ciudad: "SAN MARTIN",    es_matriz: false },
+  { id: 7,  codigo: "SUC007", nombre: "TORTILLA",       ciudad: "SAN MARTIN",    es_matriz: false },
+  { id: 8,  codigo: "SUC008", nombre: "SAN DIEGO 2",    ciudad: "SAN MARTIN",    es_matriz: false },
+  { id: 9,  codigo: "SUC009", nombre: "ANDRADE",        ciudad: "SAN MARTIN",    es_matriz: false },
+  { id: 10, codigo: "SUC010", nombre: "COCINA",         ciudad: "SAN MARTIN",    es_matriz: true },
+  { id: 11, codigo: "SUC011", nombre: "PALOMAS",        ciudad: "NEZAHUALCOYOTL",es_matriz: false },
+  { id: 12, codigo: "SUC012", nombre: "ZANDUNGA 1",     ciudad: "NEZAHUALCOYOTL",es_matriz: true },
+  { id: 13, codigo: "SUC013", nombre: "ZANDUNGA 2",     ciudad: "NEZAHUALCOYOTL",es_matriz: false },
+  { id: 14, codigo: "SUC014", nombre: "ZANDUNGA 3",     ciudad: "NEZAHUALCOYOTL",es_matriz: false },
+  { id: 15, codigo: "SUC015", nombre: "TULANCINGO",     ciudad: "TULANCINGO",    es_matriz: true },
+  { id: 16, codigo: "SUC016", nombre: "RI&KA",         ciudad: null,            es_matriz: false },
+  { id: 17, codigo: "SUC017", nombre: "PANTACO",        ciudad: null,            es_matriz: false },
+  { id: 18, codigo: "SUC0018",nombre: "GBG",            ciudad: null,            es_matriz: false },
+  { id: 19, codigo: "SUC019", nombre: "SOR JUANA",      ciudad: "NEZAHUALCOYOTL",es_matriz: false },
+  { id: 20, codigo: "SUC000", nombre: "BODEGA AUX",     ciudad: "MEXICO",        es_matriz: true }
 ];
+
+const MATRICES_CIUDAD = {
+  'TOLUCA': 4,              // TOLUCA BORDADO
+  'SAN MARTIN': 10,         // COCINA
+  'TEXMELUCAN': 10,         // COCINA
+  'SAN MARTIN TEXMELUCAN': 10,
+  'NEZAHUALCOYOTL': 12,     // ZANDUNGA 1
+  'NEZA': 12,               // ZANDUNGA 1
+  'CHICONCUAC': 1,          // CHICONCUAC
+  'CHINCONCUAC': 1,
+  'TULANCINGO': 15,         // TULANCINGO
+  'MEXICO': 20,             // BODEGA AUX
+  'CDMX': 20,
+  'GENERAL': 20
+};
 
 function normalizarTextoBodega(raw) {
   if (!raw) return '';
@@ -417,6 +471,7 @@ function normalizarTextoBodega(raw) {
   s = s.replace(/PANTACO|PANTACO 1/g, 'PANTACO');
   s = s.replace(/DURASNO/g, 'DURAZNO');
   s = s.replace(/SANDUNGA/g, 'ZANDUNGA');
+  s = s.replace(/BORDADOS/g, 'BORDADO');
   s = s.replace(/CHICONKUAC/g, 'CHICONCUAC');
   return s;
 }
@@ -424,14 +479,56 @@ function normalizarTextoBodega(raw) {
 function buscarBodega(texto) {
   if (!texto) return null;
   const limpio = normalizarTextoBodega(texto);
+
+  // Si ya es un ID directo numérico
   if (/^\\d+$/.test(limpio)) {
     const bId = Number(limpio);
     const hit = BODEGAS.find(b => b.id === bId);
     if (hit) return hit;
   }
+
+  // Nivel 1: Match Exacto por Nombre o Código
+  const exacto = BODEGAS.find(b => b.nombre === limpio || b.codigo === limpio);
+  if (exacto) return exacto;
+
+  // Nivel 2: Token Matching (Palabras desordenadas, ej: "BORDADO TOLUCA" <-> "TOLUCA BORDADO")
+  const tokensInput = limpio.split(/[\\s\\-\\/]+/).filter(Boolean);
+  for (const b of BODEGAS) {
+    const tokensB = b.nombre.split(/[\\s\\-\\/]+/).filter(Boolean);
+    if (tokensInput.length === tokensB.length && tokensB.every(t => tokensInput.includes(t))) {
+      return b;
+    }
+  }
+
+  // Nivel 3: Desambiguación de Nombres Parciales con Defaults a Matriz / Sucursal 1
+  // Zandunga / Sandunga (default Zandunga 1 a menos que especifique 2 o 3)
+  if (limpio.includes('ZANDUNGA') || limpio.includes('SANDUNGA')) {
+    if (limpio.includes('2')) return BODEGAS.find(b => b.id === 13);
+    if (limpio.includes('3')) return BODEGAS.find(b => b.id === 14);
+    return BODEGAS.find(b => b.id === 12); // Default ZANDUNGA 1
+  }
+
+  // San Diego (default San Diego 1 a menos que especifique 2)
+  if (limpio.includes('SAN DIEGO')) {
+    if (limpio.includes('2')) return BODEGAS.find(b => b.id === 8);
+    return BODEGAS.find(b => b.id === 6); // Default SAN DIEGO 1
+  }
+
+  // Toluca (default Toluca Bordado a menos que especifique Angel)
+  if (limpio.includes('TOLUCA') || limpio.includes('BORDADO')) {
+    if (limpio.includes('ANGEL')) return BODEGAS.find(b => b.id === 3);
+    return BODEGAS.find(b => b.id === 4); // Default TOLUCA BORDADO (Matriz)
+  }
+
+  // Nivel 4: Resolución por Ciudad / Bodega Matriz (Padre)
+  for (const [ciudadKey, matrizId] of Object.entries(MATRICES_CIUDAD)) {
+    if (limpio === ciudadKey || limpio.startsWith(ciudadKey) || ciudadKey.startsWith(limpio)) {
+      return BODEGAS.find(b => b.id === matrizId) || null;
+    }
+  }
+
+  // Nivel 5: Contención simple de subcadena
   return BODEGAS.find(b => 
-    b.nombre === limpio || 
-    b.codigo === limpio || 
     limpio.includes(b.nombre) || 
     b.nombre.includes(limpio)
   ) || null;
@@ -457,15 +554,20 @@ function resolverBodegaId(campo, rawTexto, hintTexto) {
 }
 
 // ── Determinar Tipo de Movimiento ──
-const tipoDetectado = (ocr.tipo_movimiento || 'ENT').toUpperCase();
-let tipo = tipoDetectado;
+const tipoDetectado = (ocr.tipo_movimiento || '').toUpperCase() || null;
+let tipo = tipoDetectado || 'ENT';
 if (!priorizarIa && meta.tipo_hint) {
   const hintUpper = String(meta.tipo_hint).toUpperCase().trim();
   if (hintUpper.includes('SAL')) tipo = 'SAL';
   else if (hintUpper.includes('TRF') || hintUpper.includes('TRA')) tipo = 'TRF';
   else if (hintUpper.includes('DEV')) tipo = 'DEV';
   else if (hintUpper.includes('AJU')) tipo = 'AJU';
-  else tipo = 'ENT';
+  else if (hintUpper.includes('ENT')) tipo = 'ENT';
+}
+
+// Default a Entrada (ENT) si no se pudo determinar
+if (!tipo || tipo === 'NULL') {
+  tipo = 'ENT';
 }
 
 let observacionesArr = [];
@@ -476,31 +578,42 @@ let bodega_destino_id = null;
 let textoOrigenParaBD = ocr.origen;
 let textoDestinoParaBD = ocr.destino;
 
+// Si viene hint explícito de bodega origen desde el webhook
+const hintOrigenValido = (meta.origen_hint && meta.origen_hint !== 'auto' && meta.origen_hint !== 'null') ? meta.origen_hint : null;
+const hintDestinoValido = (meta.destino_hint && meta.destino_hint !== 'auto' && meta.destino_hint !== 'null') ? meta.destino_hint : null;
+
 if (tipo === 'SAL') {
   textoOrigenParaBD = ocr.origen || ocr.bodega_origen_sugerida;
-  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, meta.origen_hint);
+  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, hintOrigenValido);
   if (ocr.destino) {
     observacionesArr.push('Destino/Cliente: ' + ocr.destino);
   }
   textoDestinoParaBD = null;
   bodega_destino_id = null;
-} else if (tipo === 'ENT' || tipo === 'DEV') {
+} else if (tipo === 'ENT' || tipo === 'DEV' || tipo === 'AJU') {
   textoOrigenParaBD = ocr.bodega_receptora_interna || ocr.origen || ocr.destino;
-  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, meta.origen_hint);
+  bodega_origen_id = resolverBodegaId('origen', textoOrigenParaBD, hintOrigenValido);
   if (ocr.entidad_externa_procedencia || (ocr.origen && ocr.origen !== textoOrigenParaBD)) {
     observacionesArr.push('Procedencia: ' + (ocr.entidad_externa_procedencia || ocr.origen));
   }
   textoDestinoParaBD = null;
   bodega_destino_id = null;
 } else if (tipo === 'TRF') {
-  bodega_origen_id = resolverBodegaId('origen', ocr.origen, meta.origen_hint);
-  bodega_destino_id = resolverBodegaId('destino', ocr.destino, meta.destino_hint);
+  bodega_origen_id = resolverBodegaId('origen', ocr.origen, hintOrigenValido);
+  bodega_destino_id = resolverBodegaId('destino', ocr.destino, hintDestinoValido);
   if (!bodega_destino_id && ocr.destino) {
     observacionesArr.push('Destino especificado (no es bodega interna): ' + ocr.destino);
   }
 } else {
-  bodega_origen_id = resolverBodegaId('origen', ocr.origen, meta.origen_hint);
-  bodega_destino_id = ocr.destino ? resolverBodegaId('destino', ocr.destino, meta.destino_hint) : null;
+  bodega_origen_id = resolverBodegaId('origen', ocr.origen, hintOrigenValido);
+  bodega_destino_id = ocr.destino ? resolverBodegaId('destino', ocr.destino, hintDestinoValido) : null;
+}
+
+// ── Fallback Seguro: Si no se detectó origen ni por OCR ni por Webhook ──
+if (!bodega_origen_id) {
+  bodega_origen_id = 20; // BODEGA AUX (ID 20)
+  textoOrigenParaBD = 'BODEGA AUX';
+  observacionesArr.push('⚠️ Asignada temporalmente a BODEGA AUX (ID 20) por falta de encabezado manuscrito.');
 }
 
 const bObjOrigen = bodega_origen_id ? BODEGAS.find(b => b.id === bodega_origen_id) : null;
@@ -662,6 +775,7 @@ DECLARE
   v_omitidas TEXT[] := ARRAY[]::TEXT[];
   v_obs TEXT;
   v_count_ins INT := 0;
+  v_req_dest BOOLEAN := FALSE;
 BEGIN
   -- 1. Obtener datos de la propuesta
   SELECT * INTO v_prop 
@@ -682,6 +796,16 @@ BEGIN
   -- Validar requerimientos mínimos (bodega origen y tipo de movimiento)
   IF v_prop.bodega_origen_id IS NULL OR v_prop.tipo_movimiento_id IS NULL THEN
     RAISE NOTICE 'Propuesta incompleta (falta origen o tipo movimiento)';
+    RETURN;
+  END IF;
+
+  -- Validar si el tipo de movimiento requiere destino (ej. Transferencia TRF)
+  SELECT COALESCE(requiere_destino, false) INTO v_req_dest
+  FROM "inv-tienda".cat_tipos_movimiento
+  WHERE id = v_prop.tipo_movimiento_id;
+
+  IF v_req_dest AND v_prop.bodega_destino_id IS NULL THEN
+    RAISE NOTICE 'Propuesta requiere bodega destino pendiente de asignar: %', v_propuesta_id;
     RETURN;
   END IF;
 
@@ -862,12 +986,29 @@ async function run() {
     console.log(`✓ Nodo "Candidatos SKU1" actualizado con búsqueda de variantes múltiples.`);
   }
 
+  // 3b. Actualizar "Candidatos bodega1" con expresión correcta
+  const candBodegaNode = wf.nodes.find(n => n.name === 'Candidatos bodega1');
+  if (candBodegaNode) {
+    candBodegaNode.parameters = candBodegaNode.parameters || {};
+    candBodegaNode.parameters.options = candBodegaNode.parameters.options || {};
+    candBodegaNode.parameters.options.queryReplacement = "={{ [ $('Parsear JSON1').first()?.json?.bodega_receptora_interna || $('Parsear JSON1').first()?.json?.origen || '', $('Parsear JSON1').first()?.json?.destino || '' ] }}";
+    console.log(`✓ Nodo "Candidatos bodega1" actualizado con queryReplacement evaluable.`);
+  }
+
+  // 3c. Actualizar "OpenRouter Vision"
+  const openRouterNode = wf.nodes.find(n => n.name === 'OpenRouter Vision');
+  if (openRouterNode) {
+    openRouterNode.parameters = openRouterNode.parameters || {};
+    openRouterNode.parameters.jsonBody = '={{ JSON.stringify($json.prompt_body || $json.openrouter_body || $json.body) }}';
+    console.log(`✓ Nodo "OpenRouter Vision" actualizado con fallback resiliente en jsonBody.`);
+  }
+
   // 4. Actualizar nodos "Resolver bodegas"
   const resolverNodes = wf.nodes.filter(n => n.name.startsWith('Resolver bodegas'));
   for (const resolver of resolverNodes) {
     resolver.parameters = resolver.parameters || {};
     resolver.parameters.jsCode = JS_CODE_RESOLVER_HIERARCHICAL;
-    console.log(`✓ Nodo "${resolver.name}" actualizado con Ranking Jerárquico (Proveedor > Género > Marca > Año).`);
+    console.log(`✓ Nodo "${resolver.name}" actualizado con Ranking Jerárquico y defaults de bodega.`);
   }
 
   // 5. Actualizar nodos "Promover a nota (auto)"
@@ -879,7 +1020,7 @@ async function run() {
       prom.parameters.query = SQL_PROMOVER_SEGURO_2_PASOS;
       prom.parameters.options = prom.parameters.options || {};
       prom.parameters.options.queryReplacement = "={{ [ $json.id, $('Resolver bodegas1').first()?.json?.usuario_id || $('Resolver bodegas').first()?.json?.usuario_id || 1 ] }}";
-      console.log(`✓ Nodo "${prom.name}" actualizado con inserción en 2 fases y 12:00 UTC.`);
+      console.log(`✓ Nodo "${prom.name}" actualizado con validación de requiere_destino e inserción en 2 fases.`);
     }
   }
 

@@ -1,13 +1,10 @@
-// scripts\n8n\diagnostics\inspect_n8n_wf.js
+// scripts/n8n/diagnostics/inspect_main_branch.js
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const envPath = fs.existsSync(path.resolve(__dirname, '../../../.env.local'))
-  ? path.resolve(__dirname, '../../../.env.local')
-  : path.resolve(__dirname, '../../.env.local');
-const envConfig = dotenv.parse(fs.readFileSync(envPath));
+const envConfig = dotenv.parse(fs.readFileSync(path.resolve(__dirname, '../../../.env.local')));
 const apiKey = envConfig.N8N_API_KEY;
 const workflowId = envConfig.N8N_WORKFLOW_ID || 'DtZOqR4-9_DnULEjWW78b';
 
@@ -45,18 +42,28 @@ function api(method, apiPath, body = null) {
 async function run() {
   const res = await api('GET', '/workflows/' + workflowId);
   const wf = res.data;
-  console.log('Workflow Name:', wf.name);
-  console.log('\n--- NODOS DEL WORKFLOW ---');
-  wf.nodes.forEach(n => {
-    console.log(`- [${n.name}] (Type: ${n.type})`);
-  });
+  
+  const nodesToCheck = [
+    'Construir prompt + body',
+    'OpenRouter Vision',
+    'Parsear JSON1',
+    'Candidatos SKU1',
+    'Candidatos bodega1',
+    'Resolver bodegas1',
+    'Insertar propuesta1',
+    'Promover a nota (auto)2'
+  ];
 
-  console.log('\n--- CONEXIONES ---');
-  console.log(JSON.stringify(wf.connections, null, 2));
-
-  // Buscar nodo "Promover a nota (auto)"
-  const promoverNode = wf.nodes.find(n => n.name.toLowerCase().includes('promover'));
-  console.log('\n--- NODO PROMOVER ---:', promoverNode);
+  for (const name of nodesToCheck) {
+    const node = wf.nodes.find(n => n.name === name);
+    console.log(`\n=================== [${name}] ===================`);
+    if (!node) {
+      console.log('NO ENCONTRADO');
+    } else {
+      console.log('Tipo:', node.type);
+      console.log('Parámetros:', JSON.stringify(node.parameters, null, 2));
+    }
+  }
 }
 
-run();
+run().catch(console.error);
