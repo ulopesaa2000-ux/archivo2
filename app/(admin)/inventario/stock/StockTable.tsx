@@ -93,7 +93,11 @@ export function StockTable({
       }
     })
 
-    return Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
+    const sortedGroups = Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
+    sortedGroups.forEach((g) => {
+      g.items.sort((a, b) => (a.producto_sku || '').localeCompare(b.producto_sku || ''))
+    })
+    return sortedGroups
   }, [items, agruparPor])
 
   // Totales generales
@@ -178,6 +182,13 @@ export function StockTable({
       }
 
       const allItems = res.data
+      allItems.sort((a, b) => {
+        const famA = a.producto_familia || 'SIN FAMILIA'
+        const famB = b.producto_familia || 'SIN FAMILIA'
+        const famCmp = famA.localeCompare(famB)
+        if (famCmp !== 0) return famCmp
+        return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+      })
       const workbook = new ExcelJS.Workbook()
 
       const dataSheet = workbook.addWorksheet(isPronostico ? 'Stock Pronosticado' : 'Datos Stock')

@@ -716,8 +716,14 @@ export async function fetchStockByBodega(
       )
     }
 
-    // Ordenamiento: En solo_afectados o pronóstico, ordenar por SKU/ID
-    enrichedItems.sort((a, b) => a.producto_sku.localeCompare(b.producto_sku))
+    // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+    enrichedItems.sort((a, b) => {
+      const famA = a.producto_familia || 'Sin Familia'
+      const famB = b.producto_familia || 'Sin Familia'
+      const famCmp = famA.localeCompare(famB)
+      if (famCmp !== 0) return famCmp
+      return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+    })
 
     const totalCount = enrichedItems.length
     const totalCajasPronosticadas = enrichedItems.reduce((sum, item) => sum + (item.cajas_pronosticadas ?? item.cajas), 0)
@@ -963,6 +969,15 @@ export async function fetchStockByBodegaAll(
   if (filtros?.solo_afectados) {
     items = items.filter((i) => i.tiene_movimiento_pendiente)
   }
+
+  // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+  items.sort((a, b) => {
+    const famA = a.producto_familia || 'Sin Familia'
+    const famB = b.producto_familia || 'Sin Familia'
+    const famCmp = famA.localeCompare(famB)
+    if (famCmp !== 0) return famCmp
+    return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+  })
 
   return items
 }
@@ -1354,7 +1369,14 @@ export async function fetchStockMatrix(
     enrichedItems = enrichedItems.filter((i) => i.tiene_movimiento_pendiente)
   }
 
-  enrichedItems.sort((a, b) => a.producto_sku.localeCompare(b.producto_sku))
+  // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+  enrichedItems.sort((a, b) => {
+    const famA = a.producto_familia || 'Sin Familia'
+    const famB = b.producto_familia || 'Sin Familia'
+    const famCmp = famA.localeCompare(famB)
+    if (famCmp !== 0) return famCmp
+    return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+  })
 
   const totalCount = enrichedItems.length
   const from = (page - 1) * limit
@@ -1506,6 +1528,15 @@ export async function fetchStockMatrixAll(
   if (filtros.solo_afectados) {
     items = items.filter((i) => i.tiene_movimiento_pendiente)
   }
+
+  // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+  items.sort((a, b) => {
+    const famA = a.producto_familia || 'Sin Familia'
+    const famB = b.producto_familia || 'Sin Familia'
+    const famCmp = famA.localeCompare(famB)
+    if (famCmp !== 0) return famCmp
+    return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+  })
 
   return items
 }
