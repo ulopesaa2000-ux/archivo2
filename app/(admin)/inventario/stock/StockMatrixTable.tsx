@@ -248,6 +248,13 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         expGrandTotalPiezas += itemTotalPiezas
       })
 
+      // Filtrar únicamente las bodegas que tienen al menos 1 caja o existencia > 0
+      const bodegasConStock = bodegasColumnas.filter(
+        b => (expTotalsCajasPerBodega[b.id] || 0) > 0 || (expTotalsPiezasPerBodega[b.id] || 0) > 0
+      )
+      // Si por alguna razón ninguna tiene stock, mantener bodegasColumnas
+      const bodegasActivas = bodegasConStock.length > 0 ? bodegasConStock : bodegasColumnas
+
       // --- HOJA 1: DATOS (Machine Readable) ---
       const dataSheet = workbook.addWorksheet('Datos Stock')
 
@@ -256,7 +263,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         { header: 'DESCRIPCIÓN GENERAL', key: 'desc_gral', width: 45 },
         { header: 'SKU (ESTILO)', key: 'sku', width: 20 },
         { header: 'PZ X CAJA', key: 'pz_caja', width: 12 },
-        ...bodegasColumnas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 14 })),
+        ...bodegasActivas.map(b => ({ header: b.nombre.toUpperCase(), key: `b_${b.id}`, width: 14 })),
         { header: 'TOTAL CAJAS', key: 'total_cajas', width: 15 },
         { header: 'TOTAL PIEZAS', key: 'total_piezas', width: 15 }
       ]
@@ -287,7 +294,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           pz_caja: pzCaja,
         }
 
-        bodegasColumnas.forEach(b => {
+        bodegasActivas.forEach(b => {
           const cajas = item.stock_por_bodega[b.id]?.cajas ?? item.stock_por_bodega[b.id]?.total ?? 0
           const piezasSueltas = item.stock_por_bodega[b.id]?.piezas_sueltas ?? 0
           const totalPiezas = (cajas * pzCaja) + piezasSueltas
@@ -319,7 +326,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         total_cajas: expGrandTotalCajas,
         total_piezas: ''
       }
-      bodegasColumnas.forEach(b => {
+      bodegasActivas.forEach(b => {
         dataRowCajasValues[`b_${b.id}`] = expTotalsCajasPerBodega[b.id] ?? 0
       })
       const dataRowCajas = dataSheet.addRow(dataRowCajasValues)
@@ -336,7 +343,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         total_cajas: 'TOTAL',
         total_piezas: ''
       }
-      bodegasColumnas.forEach(b => {
+      bodegasActivas.forEach(b => {
         dataRowBodegasValues[`b_${b.id}`] = b.nombre.toUpperCase()
       })
       const dataRowBodegas = dataSheet.addRow(dataRowBodegasValues)
@@ -346,7 +353,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       dataRowBodegas.getCell('sku').alignment = { horizontal: 'right', vertical: 'middle' }
       dataRowBodegas.getCell('total_cajas').font = { bold: true, color: { argb: 'FFDC2626' } }
       dataRowBodegas.getCell('total_cajas').alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom' }
-      bodegasColumnas.forEach(b => {
+      bodegasActivas.forEach(b => {
         const cell = dataRowBodegas.getCell(`b_${b.id}`)
         cell.alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom' }
       })
@@ -394,7 +401,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       const c2 = printSheet.getCell(headerRowIdx, 2); c2.value = 'ESTILO'; Object.assign(c2, mainHeaderStyle);
       const c3 = printSheet.getCell(headerRowIdx, 3); c3.value = 'DESCRIPCION'; Object.assign(c3, mainHeaderStyle);
       
-      bodegasColumnas.forEach((b, idx) => {
+      bodegasActivas.forEach((b, idx) => {
         const cell = printSheet.getCell(headerRowIdx, startBodegaCol + idx)
         cell.value = b.nombre.toUpperCase()
         cell.alignment = { textRotation: 90, vertical: 'bottom', horizontal: 'center', wrapText: false }
@@ -403,7 +410,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         cell.border = { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
       })
       
-      const globalCol = startBodegaCol + bodegasColumnas.length
+      const globalCol = startBodegaCol + bodegasActivas.length
       const globalHeader = printSheet.getCell(headerRowIdx, globalCol)
       globalHeader.value = 'GLOBAL'
       globalHeader.alignment = { textRotation: 90, vertical: 'bottom', horizontal: 'center' }
@@ -443,7 +450,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           estiloCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
           estiloCell.font = { size: 11, bold: true }
           
-          bodegasColumnas.forEach((b, bIdx) => {
+          bodegasActivas.forEach((b, bIdx) => {
             const val = item.stock_por_bodega[b.id]?.cajas ?? item.stock_por_bodega[b.id]?.total ?? 0
             const cell = printSheet.getCell(currentRowIdx, startBodegaCol + bIdx)
             cell.value = val // Mantener como número para cálculos en Excel
@@ -512,7 +519,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       printSheet.getCell(rowCajasIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
       printSheet.getCell(rowCajasIdx, 3).border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
-      bodegasColumnas.forEach((b, idx) => {
+      bodegasActivas.forEach((b, idx) => {
         const cell = printSheet.getCell(rowCajasIdx, startBodegaCol + idx)
         cell.value = expTotalsCajasPerBodega[b.id] ?? 0
         cell.font = { bold: true, size: 11, color: { argb: 'FF0F172A' } }
@@ -538,7 +545,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       printSheet.getCell(rowBodegasIdx, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
       printSheet.getCell(rowBodegasIdx, 3).border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
-      bodegasColumnas.forEach((b, idx) => {
+      bodegasActivas.forEach((b, idx) => {
         const cell = printSheet.getCell(rowBodegasIdx, startBodegaCol + idx)
         cell.value = b.nombre.toUpperCase()
         cell.font = { bold: true, size: 9, color: { argb: 'FF0F172A' } }
@@ -558,7 +565,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       printSheet.getColumn(1).width = 16
       printSheet.getColumn(2).width = 18
       printSheet.getColumn(3).width = 48
-      bodegasColumnas.forEach((_, idx) => {
+      bodegasActivas.forEach((_, idx) => {
         printSheet.getColumn(startBodegaCol + idx).width = 6.8 // Proporción cuadrada 1:1 con altura 34pt
       })
       printSheet.getColumn(globalCol).width = 11 // Espacio suficiente para número total sin comprimir bodegas
