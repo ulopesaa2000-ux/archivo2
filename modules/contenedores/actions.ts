@@ -177,6 +177,12 @@ export async function crearContenedorAction(
   const codigo = (formData.get('codigo_contenedor') as string)?.trim()
   if (!codigo) return { success: false, error: 'Código de contenedor obligatorio.' }
 
+  const importador = (formData.get('importador') as string)?.trim() || null
+  const pagador = (formData.get('pagador') as string)?.trim() || null
+  const existingDocs = formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {}
+  if (importador) existingDocs.importador = importador
+  if (pagador) existingDocs.pagador = pagador
+
   const { data, error } = await supabase
     .from('contenedores')
     .insert({
@@ -197,7 +203,7 @@ export async function crearContenedorAction(
       costo_desaduanamiento: parseFloat(formData.get('costo_desaduanamiento') as string) || null,
       comentarios: (formData.get('comentarios') as string)?.trim() || null,
       pago_flete_detalles: (formData.get('pago_flete_detalles') as string)?.trim() || null,
-      documentos_checklist: formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {},
+      documentos_checklist: existingDocs,
     })
     .select('id')
     .single()
@@ -223,6 +229,23 @@ export async function actualizarContenedorAction(
   const id = parseInt(formData.get('contenedor_id') as string)
   if (!id) return { success: false, error: 'ID requerido.' }
 
+  // Obtener checklist actual para no sobreescribir otros metadatos
+  const { data: currentCont } = await supabase
+    .from('contenedores')
+    .select('documentos_checklist')
+    .eq('id', id)
+    .single()
+
+  const currentDocs = (currentCont?.documentos_checklist as Record<string, any>) || {}
+  const formDocs = formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {}
+  const mergedDocs = { ...currentDocs, ...formDocs }
+
+  const importador = (formData.get('importador') as string)?.trim()
+  if (importador !== undefined) mergedDocs.importador = importador || null
+
+  const pagador = (formData.get('pagador') as string)?.trim()
+  if (pagador !== undefined) mergedDocs.pagador = pagador || null
+
   const { error } = await supabase
     .from('contenedores')
     .update({
@@ -242,7 +265,7 @@ export async function actualizarContenedorAction(
       costo_desaduanamiento: parseFloat(formData.get('costo_desaduanamiento') as string) || null,
       comentarios: (formData.get('comentarios') as string)?.trim() || null,
       pago_flete_detalles: (formData.get('pago_flete_detalles') as string)?.trim() || null,
-      documentos_checklist: formData.get('documentos_checklist') ? JSON.parse(formData.get('documentos_checklist') as string) : {},
+      documentos_checklist: mergedDocs,
     })
     .eq('id', id)
 
@@ -250,6 +273,86 @@ export async function actualizarContenedorAction(
 
   revalidatePath('/contenedores')
   revalidatePath(`/contenedores/${id}`)
+  return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// GUARDAR RESUMEN EDITADO (Formato HAMU1553617)
+// ════════════════════════════════════════════════════════════
+
+export async function guardarResumenContenedorAction(
+  payload: import('./types').ResumenEdicionPayload
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // 1. Obtener documentos_checklist actuales
+  const { data: currentCont } = await supabase
+    .from('contenedores')
+    .select('documentos_checklist')
+    .eq('id', payload.contenedorId)
+    .single()
+
+  const currentDocs = (currentCont?.documentos_checklist as Record<string, any>) || {}
+  const updatedDocs = {
+    ...currentDocs,
+    importador: payload.importador ?? currentDocs.importador ?? null,
+    pagador: payload.pagador ?? currentDocs.pagador ?? null,
+    costo_isf: payload.costoIsf !== undefined ? payload.costoIsf : currentDocs.costo_isf,
+    balance: payload.balance !== undefined ? payload.balance : currentDocs.balance,
+    demoras: payload.demoras !== undefined ? payload.demoras : currentDocs.demoras,
+    almacenajes: payload.almacenajes !== undefined ? payload.almacenajes : currentDocs.almacenajes,
+    fecha_llegada_almacen: payload.fechaLlegadaAlmacen !== undefined ? payload.fechaLlegadaAlmacen : currentDocs.fecha_llegada_almacen,
+  }
+
+  // 2. Actualizar contenedor
+  const { error: contErr } = await supabase
+    .from('contenedores')
+    .update({
+      numero_contenedor: payload.numeroContenedor || null,
+      fecha_etd: payload.fechaSalidaBl || null,
+      naviera: payload.naviera || null,
+      buque: payload.buque || null,
+      puerto_origen: payload.puertoOrigen || null,
+      puerto_destino: payload.puertoDestino || null,
+      costo_desaduanamiento: payload.costoDesaduanamiento ?? null,
+      costo_flete_maritimo: payload.costoFleteMaritimo ?? null,
+      documentos_checklist: updatedDocs,
+    })
+    .eq('id', payload.contenedorId)
+
+  if (contErr) return { success: false, error: contErr.message }
+
+  // 3. Actualizar productos (composición) y ordenes_b2b_detalles (precios / totales)
+  for (const item of payload.items) {
+    if (item.productoId && item.composicion !== undefined) {
+      await supabase
+        .from('productos')
+        .update({ composicion: item.composicion.trim() || null })
+        .eq('id', item.productoId)
+    }
+
+    if (item.ordenDetalleId) {
+      const piezasTotales = item.totalCajas * item.piezasPorCaja
+      const importeTotal = Number((piezasTotales * item.precioUsd).toFixed(2))
+
+      await supabase
+        .from('ordenes_b2b_detalles')
+        .update({
+          precio_unitario: item.precioUsd,
+          importe_total: importeTotal,
+          cbm_detalle: item.cbm || null,
+          cajas_pedidas: item.totalCajas,
+          piezas_pedidas: piezasTotales,
+        })
+        .eq('id', item.ordenDetalleId)
+    }
+  }
+
+  revalidatePath(`/contenedores/${payload.contenedorId}`)
+  revalidatePath('/contenedores')
   return { success: true }
 }
 

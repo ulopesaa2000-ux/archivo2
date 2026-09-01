@@ -2,10 +2,11 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import sharp from 'sharp'
 import type { Database } from '@/lib/types/database.types'
+import type { UsoImagen } from '@/lib/types/tables'
 import {
   type ActionResult,
   toCleanText,
@@ -22,9 +23,43 @@ const USO_A_FOLDER: Record<string, string> = {
   etiqueta_logistica:  'etiqueta',
   color_variacion:     'variantes/color',
   tallas_variacion:    'variantes/talla',
+  oculta:              'oculta',
+  oculto:              'oculta',
 }
 
 const BUCKET = 'product_images'
+
+/**
+ * Revalida todas las rutas y tags afectados por cambios en imágenes de productos.
+ */
+async function revalidateImagenesProducto(productoId: number, supabaseClient?: any) {
+  try {
+    revalidatePath(`/catalogo/${productoId}`)
+    revalidatePath('/catalogo')
+    revalidatePath('/catalogo/imagenes')
+    revalidatePath('/ecommerce')
+    revalidatePath('/ecommerce/productos')
+    revalidatePath('/shop')
+    revalidatePath('/inicio')
+    revalidatePath('/')
+    revalidateTag('catalogo-filtros', 'max')
+    revalidateTag(`producto-imagenes-${productoId}`, 'max')
+
+    if (supabaseClient) {
+      const { data: webData } = await supabaseClient
+        .from('productos_web')
+        .select('slug')
+        .eq('producto_id', productoId)
+        .maybeSingle()
+
+      if (webData?.slug) {
+        revalidatePath(`/shop/${webData.slug}`)
+      }
+    }
+  } catch (err) {
+    console.warn('[revalidateImagenesProducto] Warning revalidating paths:', err)
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Upload (Storage + producto_imagenes)
@@ -53,7 +88,7 @@ export async function uploadImagenAction(
   const usoImagen    = toCleanText(formData, 'uso_imagen') ?? 'principal_ecommerce'
   const altText      = toCleanText(formData, 'alt_text')
   const orden        = toInteger(formData, 'orden') ?? 0
-  const esPrincipal  = formData.get('es_principal') === 'true'
+  let esPrincipal    = formData.get('es_principal') === 'true'
   const origenImagen = toCleanText(formData, 'origen_imagen') ?? 'local'
 
   let publicUrl: string
@@ -119,6 +154,19 @@ export async function uploadImagenAction(
     publicUrl = urlData.publicUrl
   }
 
+  // ── Si no se especificó como principal, verificar si el producto ya tiene alguna imagen principal ──
+  if (!esPrincipal) {
+    const { count: principalCount } = await supabase
+      .from('producto_imagenes')
+      .select('id', { count: 'exact', head: true })
+      .eq('producto_id', productoId)
+      .eq('es_principal', true)
+
+    if (!principalCount || principalCount === 0) {
+      esPrincipal = true
+    }
+  }
+
   // ── Si es principal, quitar la anterior ───────────────────
   if (esPrincipal) {
     await supabase
@@ -145,7 +193,7 @@ export async function uploadImagenAction(
     return { success: false, error: `Error al registrar en BD: ${dbError.message}` }
   }
 
-  revalidatePath(`/catalogo/${productoId}`)
+  await revalidateImagenesProducto(productoId, supabase)
   return { success: true }
 }
 
@@ -189,7 +237,7 @@ export async function updateImagenAction(
 
   if (error) return { success: false, error: error.message }
 
-  revalidatePath(`/catalogo/${productoId}`)
+  await revalidateImagenesProducto(productoId, supabase)
   return { success: true }
 }
 
@@ -209,7 +257,7 @@ export async function setPrincipalImagenAction(
 
   const supabase = await createClient()
 
-  // 1. Quitar principal de todas
+  // 1. Quitar principal de todas las imágenes de este producto
   const { error: clearError } = await supabase
     .from('producto_imagenes')
     .update({ es_principal: false })
@@ -225,7 +273,7 @@ export async function setPrincipalImagenAction(
 
   if (setError) return { success: false, error: setError.message }
 
-  revalidatePath(`/catalogo/${productoId}`)
+  await revalidateImagenesProducto(productoId, supabase)
   return { success: true }
 }
 
@@ -236,6 +284,7 @@ export async function setPrincipalImagenAction(
 /**
  * Elimina la imagen del Storage Y de la tabla producto_imagenes.
  * Operación atómica: primero Storage, luego BD.
+ * Si la imagen eliminada era principal, promueve automáticamente la siguiente imagen restante.
  */
 export async function deleteImagenAction(
   imagenId: number,
@@ -246,16 +295,18 @@ export async function deleteImagenAction(
 
   const supabase = await createClient()
 
-  // 1. Obtener la URL de la imagen
+  // 1. Obtener la URL de la imagen y saber si era principal
   const { data: imgData, error: fetchError } = await supabase
     .from('producto_imagenes')
-    .select('url, origen_imagen')
+    .select('url, origen_imagen, es_principal')
     .eq('id', imagenId)
     .single()
 
   if (fetchError || !imgData) {
     return { success: false, error: 'No se encontró la imagen.' }
   }
+
+  const eraPrincipal = imgData.es_principal === true
 
   // 2. Si es imagen local, eliminarla del Storage
   if (imgData.origen_imagen === 'local' && imgData.url) {
@@ -282,6 +333,92 @@ export async function deleteImagenAction(
 
   if (dbError) return { success: false, error: dbError.message }
 
-  revalidatePath(`/catalogo/${productoId}`)
+  // 4. Si la imagen eliminada era la principal, promover la primera imagen restante a principal
+  if (eraPrincipal) {
+    const { data: restantes } = await supabase
+      .from('producto_imagenes')
+      .select('id')
+      .eq('producto_id', productoId)
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+
+    if (restantes && restantes.length > 0) {
+      await supabase
+        .from('producto_imagenes')
+        .update({ es_principal: true })
+        .eq('id', restantes[0].id)
+    }
+  }
+
+  await revalidateImagenesProducto(productoId, supabase)
+  return { success: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cambiar uso de imagen rápidamente (ej. Ocultar, Ficha técnica, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cambia el tipo de imagen directamente.
+ * Si se cambia a 'oculta' y la imagen era principal, promueve la siguiente imagen activa no oculta.
+ */
+export async function cambiarUsoImagenAction(
+  imagenId: number,
+  productoId: number,
+  nuevoUso: UsoImagen
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  // 1. Obtener imagen actual
+  const { data: img, error: fetchErr } = await supabase
+    .from('producto_imagenes')
+    .select('es_principal')
+    .eq('id', imagenId)
+    .single()
+
+  if (fetchErr || !img) {
+    return { success: false, error: 'Imagen no encontrada' }
+  }
+
+  const esOculta = nuevoUso === 'oculta' || nuevoUso === 'oculto'
+  const eraPrincipal = img.es_principal === true
+
+  // 2. Si se cambia a oculta y era principal, quitar principal
+  const updatePayload: any = { uso_imagen: nuevoUso }
+  if (esOculta && eraPrincipal) {
+    updatePayload.es_principal = false
+  }
+
+  const { error: updateErr } = await supabase
+    .from('producto_imagenes')
+    .update(updatePayload)
+    .eq('id', imagenId)
+
+  if (updateErr) return { success: false, error: updateErr.message }
+
+  // 3. Si era principal y se ocultó, promover la siguiente imagen no oculta
+  if (esOculta && eraPrincipal) {
+    const { data: restantes } = await supabase
+      .from('producto_imagenes')
+      .select('id')
+      .eq('producto_id', productoId)
+      .not('uso_imagen', 'in', '("oculta","oculto")')
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+
+    if (restantes && restantes.length > 0) {
+      await supabase
+        .from('producto_imagenes')
+        .update({ es_principal: true })
+        .eq('id', restantes[0].id)
+    }
+  }
+
+  await revalidateImagenesProducto(productoId, supabase)
   return { success: true }
 }

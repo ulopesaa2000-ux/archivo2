@@ -7,6 +7,7 @@ import type {
   FiltrosContenedores, ContenedorResumen,
   ContenedorPackingItem, OrdenEnContenedor, ContenedorSortBy,
   OrdenDisponible, CajaEnContenedor, ContenedorReporteItem,
+  ResumenContenedorData, ResumenItemData,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
 import { getCommercialScope } from '@/lib/dal'
@@ -585,3 +586,336 @@ export async function fetchContenedoresDetalleAnual(
     }
   })
 }
+
+// ════════════════════════════════════════════════════════════
+// REPORTE RESUMEN DE CONTENEDOR (Formato HAMU1553617)
+// ════════════════════════════════════════════════════════════
+
+export async function fetchContenedorReporteResumen(
+  contenedorId: number
+): Promise<ResumenContenedorData | null> {
+  const supabase = await createClient()
+
+  // 1. Contenedor
+  const { data: cont, error: contErr } = await supabase
+    .from('contenedores')
+    .select('*')
+    .eq('id', contenedorId)
+    .single()
+
+  if (contErr || !cont) return null
+
+  const docs = (cont.documentos_checklist as Record<string, any>) || {}
+
+  // 2. Órdenes del contenedor
+  const { data: ordenes, error: ordErr } = await supabase
+    .from('ordenes_b2b')
+    .select('id, folio_proveedor, estado, cbm_orden, moneda, tipo_cambio')
+    .eq('contenedor_id', contenedorId)
+    .eq('activo', true)
+    .order('id')
+
+  const ordenIds = (ordenes || []).map((o: any) => o.id)
+  if (ordenIds.length === 0) {
+    return {
+      contenedorId: cont.id,
+      codigoContenedor: cont.codigo_contenedor,
+      numeroContenedor: cont.numero_contenedor || cont.codigo_contenedor,
+      fechaSalidaBl: cont.fecha_etd,
+      fechaLlegadaReal: cont.fecha_llegada_real,
+      fechaEta: cont.fecha_eta,
+      naviera: cont.naviera,
+      buque: cont.buque,
+      importador: docs.importador || cont.naviera || null,
+      pagador: docs.pagador || docs.importador || null,
+      puertoOrigen: cont.puerto_origen,
+      puertoDestino: cont.puerto_destino,
+      costoDesaduanamiento: cont.costo_desaduanamiento,
+      costoIsf: docs.costo_isf !== undefined ? Number(docs.costo_isf) : 350,
+      costoFleteMaritimo: cont.costo_flete_maritimo,
+      resumenPrendasTitulo: 'RESUMEN DE PRENDAS',
+      items: [],
+      balance: docs.balance !== undefined ? Number(docs.balance) : 0,
+      demoras: docs.demoras || '',
+      almacenajes: docs.almacenajes || '',
+      fechaLlegadaAlmacen: docs.fecha_llegada_almacen || '',
+    }
+  }
+
+  // 3. Detalles de las órdenes
+  const { data: detalles } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select(`
+      id, orden_id, producto_id, cantidad_solicitada, precio_unitario, importe_total, cbm_detalle,
+      cajas_pedidas, piezas_pedidas,
+      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+        id, sku_base, nombre, descripcion, composicion, familia,
+        tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
+        genero:cat_generos!productos_genero_id_fkey (nombre),
+        imagenes:producto_imagenes (url, es_principal)
+      )
+    `)
+    .in('orden_id', ordenIds)
+
+  const detalleMap = new Map<string, any>()
+  ;(detalles || []).forEach((d: any) => {
+    detalleMap.set(`${d.orden_id}_${d.producto_id}`, d)
+  })
+
+  // 4. Cajas de las órdenes
+  const { data: ordenCajas } = await supabase
+    .from('orden_cajas')
+    .select(`
+      id, orden_id, caja_id, cantidad_cajas,
+      caja:cajas_producto!orden_cajas_caja_id_fkey (
+        id, codigo_caja, nombre_pack, producto_id,
+        piezas_por_caja, cbm, peso_bruto_kg,
+        producto:productos!cajas_producto_producto_id_fkey (
+          id, sku_base, nombre, descripcion, composicion, familia,
+          tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
+          genero:cat_generos!productos_genero_id_fkey (nombre),
+          imagenes:producto_imagenes (url, es_principal)
+        )
+      )
+    `)
+    .in('orden_id', ordenIds)
+
+  const rawItems: ResumenItemData[] = []
+
+  // Procesar orden_cajas si existen
+  if (ordenCajas && ordenCajas.length > 0) {
+    for (const oc of ordenCajas as any[]) {
+      const c = oc.caja
+      const p = c?.producto
+      if (!p) continue
+
+      const detalle = detalleMap.get(`${oc.orden_id}_${p.id}`)
+
+      const imgs = p.imagenes || []
+      const mainImg = imgs.find((i: any) => i.es_principal) || imgs[0]
+
+      const totalCajas = oc.cantidad_cajas || 0
+      let pzCaja = c.piezas_por_caja || 0
+      if (pzCaja === 0 && detalle && detalle.piezas_pedidas && detalle.cajas_pedidas) {
+        pzCaja = Math.round(detalle.piezas_pedidas / detalle.cajas_pedidas)
+      }
+      const piezasTotales = totalCajas * pzCaja
+      const precioUsd = Number(detalle?.precio_unitario) || 0
+      const importeTotal = Number((piezasTotales * precioUsd).toFixed(2))
+      const cbm = Number(((c.cbm || 0) * totalCajas).toFixed(4)) || Number(detalle?.cbm_detalle || 0)
+
+      rawItems.push({
+        id: `caja_${oc.id}_${c.id}`,
+        ordenId: oc.orden_id,
+        ordenDetalleId: detalle?.id || null,
+        cajaId: c.id,
+        productoId: p.id,
+        control: 0,
+        imagenUrl: mainImg?.url || null,
+        modelo: p.sku_base,
+        skuBase: p.sku_base,
+        nombrePack: c.nombre_pack || null,
+        descripcion: p.descripcion || p.nombre || '',
+        composicion: p.composicion || '',
+        piezasTotales,
+        totalCajas,
+        piezasPorCaja: pzCaja,
+        precioUsd,
+        importeTotal,
+        cbm,
+      })
+    }
+  }
+
+  // Si hay detalles que no tienen registro en orden_cajas
+  for (const d of (detalles || []) as any[]) {
+    const p = d.producto
+    if (!p) continue
+
+    const alreadyInItems = rawItems.some((it) => it.ordenId === d.orden_id && it.productoId === p.id)
+    if (!alreadyInItems) {
+      const imgs = p.imagenes || []
+      const mainImg = imgs.find((i: any) => i.es_principal) || imgs[0]
+
+      const totalCajas = d.cajas_pedidas || 0
+      const piezasTotales = d.piezas_pedidas || d.cantidad_solicitada || 0
+      const pzCaja = totalCajas > 0 ? Math.round(piezasTotales / totalCajas) : piezasTotales
+      const precioUsd = Number(d.precio_unitario) || 0
+      const importeTotal = Number((piezasTotales * precioUsd).toFixed(2)) || Number((d.importe_total || 0).toFixed(2))
+      const cbm = Number((d.cbm_detalle || 0).toFixed(4))
+
+      rawItems.push({
+        id: `detalle_${d.id}`,
+        ordenId: d.orden_id,
+        ordenDetalleId: d.id,
+        cajaId: null,
+        productoId: p.id,
+        control: 0,
+        imagenUrl: mainImg?.url || null,
+        modelo: p.sku_base,
+        skuBase: p.sku_base,
+        nombrePack: null,
+        descripcion: p.descripcion || p.nombre || '',
+        composicion: p.composicion || '',
+        piezasTotales,
+        totalCajas,
+        piezasPorCaja: pzCaja,
+        precioUsd,
+        importeTotal,
+        cbm,
+      })
+    }
+  }
+
+  // CONSOLIDACIÓN Y AGRUPACIÓN POR MODELO / SKU
+  const groupsMap = new Map<string, ResumenItemData & { _maxCajas: number }>()
+
+  for (const it of rawItems) {
+    // Normalizar nombre de pack (ignorar variantes que significan pack único)
+    let pack = (it.nombrePack || '').trim().toUpperCase()
+    if (
+      pack === 'PACK UNICO' ||
+      pack === 'UNICO' ||
+      pack === 'PACK ÚNICO' ||
+      pack === 'ÚNICO' ||
+      pack === 'DEFAULT' ||
+      pack === 'STANDARD' ||
+      pack === 'PRINCIPAL' ||
+      pack === 'A01' ||
+      pack === 'B01' ||
+      pack === 'C01'
+    ) {
+      pack = ''
+    }
+
+    // Extraer identificador de pack si es PACK A, PACK B, etc.
+    const packMatch = pack.match(/PACK\s+([A-Z0-9]+)/i) || pack.match(/^([A-Z0-9]+)$/i)
+    if (packMatch && pack.includes('PACK')) {
+      pack = `PACK ${packMatch[1]}`
+    }
+
+    const key = `${it.productoId}_${pack}`
+
+    if (!groupsMap.has(key)) {
+      let modelo = it.skuBase
+      if (pack && !modelo.toUpperCase().includes(pack)) {
+        modelo = `${modelo} ${pack}`
+      }
+
+      groupsMap.set(key, {
+        id: `group_${key}`,
+        ordenId: it.ordenId,
+        ordenDetalleId: it.ordenDetalleId,
+        cajaId: it.cajaId,
+        productoId: it.productoId,
+        control: 0,
+        imagenUrl: it.imagenUrl,
+        modelo: modelo.trim(),
+        skuBase: it.skuBase,
+        nombrePack: pack || null,
+        descripcion: it.descripcion,
+        composicion: it.composicion,
+        totalCajas: 0,
+        piezasPorCaja: it.piezasPorCaja,
+        piezasTotales: 0,
+        precioUsd: it.precioUsd,
+        importeTotal: 0,
+        cbm: 0,
+        _maxCajas: -1,
+      })
+    }
+
+    const grp = groupsMap.get(key)!
+    grp.totalCajas += it.totalCajas || 0
+    grp.piezasTotales += it.piezasTotales || ((it.totalCajas || 0) * (it.piezasPorCaja || 0))
+    grp.cbm = Number((grp.cbm + (it.cbm || 0)).toFixed(4))
+
+    // Caja predominante: tomar piezasPorCaja de la entrada con mayor número de cajas
+    if ((it.totalCajas || 0) > grp._maxCajas) {
+      grp._maxCajas = it.totalCajas || 0
+      if (it.piezasPorCaja > 0) {
+        grp.piezasPorCaja = it.piezasPorCaja
+      }
+    }
+
+    if (it.precioUsd > 0 && grp.precioUsd === 0) {
+      grp.precioUsd = it.precioUsd
+    }
+    if (it.composicion && !grp.composicion) {
+      grp.composicion = it.composicion
+    }
+    if (it.imagenUrl && !grp.imagenUrl) {
+      grp.imagenUrl = it.imagenUrl
+    }
+  }
+
+  // Generar lista final consolidada con numeración de control
+  let controlIdx = 1
+  const items: ResumenItemData[] = []
+  for (const grp of groupsMap.values()) {
+    const piezasTotales = grp.piezasTotales > 0 ? grp.piezasTotales : (grp.totalCajas * grp.piezasPorCaja)
+    const importeTotal = Number((piezasTotales * grp.precioUsd).toFixed(2))
+
+    items.push({
+      id: grp.id,
+      ordenId: grp.ordenId,
+      ordenDetalleId: grp.ordenDetalleId,
+      cajaId: grp.cajaId,
+      productoId: grp.productoId,
+      control: controlIdx++,
+      imagenUrl: grp.imagenUrl,
+      modelo: grp.modelo,
+      skuBase: grp.skuBase,
+      nombrePack: grp.nombrePack,
+      descripcion: grp.descripcion,
+      composicion: grp.composicion,
+      totalCajas: grp.totalCajas,
+      piezasPorCaja: grp.piezasPorCaja,
+      piezasTotales,
+      precioUsd: grp.precioUsd,
+      importeTotal,
+      cbm: grp.cbm,
+    })
+  }
+
+  // Generar título dinámico de resumen de prendas para Col B
+  const tiposSet = new Set<string>()
+  ;(detalles || []).forEach((d: any) => {
+    const p = d.producto
+    if (p) {
+      const tp = p.tipo_prenda?.nombre || p.familia
+      const g = p.genero?.nombre
+      if (tp && g) tiposSet.add(`${tp.toUpperCase()} ${g.toUpperCase()}`)
+      else if (tp) tiposSet.add(tp.toUpperCase())
+    }
+  })
+
+  const resumenPrendasTitulo = tiposSet.size > 0
+    ? Array.from(tiposSet).join('; ')
+    : 'CONJ. DEP. CHAM Y SUD. DAMA; CHAM. CAB.'
+
+  return {
+    contenedorId: cont.id,
+    codigoContenedor: cont.codigo_contenedor,
+    numeroContenedor: cont.numero_contenedor || cont.codigo_contenedor,
+    fechaSalidaBl: cont.fecha_etd,
+    fechaLlegadaReal: cont.fecha_llegada_real,
+    fechaEta: cont.fecha_eta,
+    naviera: cont.naviera,
+    buque: cont.buque,
+    importador: docs.importador || cont.naviera || null,
+    pagador: docs.pagador || docs.importador || null,
+    puertoOrigen: cont.puerto_origen,
+    puertoDestino: cont.puerto_destino,
+    costoDesaduanamiento: cont.costo_desaduanamiento,
+    costoIsf: docs.costo_isf !== undefined ? Number(docs.costo_isf) : 350,
+    costoFleteMaritimo: cont.costo_flete_maritimo,
+    resumenPrendasTitulo,
+    items,
+    balance: docs.balance !== undefined ? Number(docs.balance) : 0,
+    demoras: docs.demoras || '',
+    almacenajes: docs.almacenajes || '',
+    fechaLlegadaAlmacen: docs.fecha_llegada_almacen || '',
+  }
+}
+

@@ -115,3 +115,77 @@ export type ContenedorReporteItem = {
     }[]
   }>
 }
+
+export type ResumenItemData = {
+  id: string // Identificador único de fila (ej. `${orden_id}_${caja_id}_${producto_id}`)
+  ordenId: number
+  ordenDetalleId: number | null
+  cajaId: number | null
+  productoId: number
+  control: number
+  imagenUrl: string | null
+  modelo: string // SKU Base + Pack (ej. NR-2507 o NR2509 PACK A)
+  skuBase: string
+  nombrePack: string | null
+  descripcion: string
+  composicion: string
+  piezasTotales: number
+  totalCajas: number
+  piezasPorCaja: number
+  precioUsd: number
+  importeTotal: number
+  cbm: number
+}
+
+export type ResumenContenedorData = {
+  contenedorId: number
+  codigoContenedor: string
+  numeroContenedor: string
+  fechaSalidaBl: string | null
+  fechaLlegadaReal: string | null
+  fechaEta: string | null
+  naviera: string | null
+  buque: string | null
+  importador: string | null
+  pagador: string | null
+  puertoOrigen: string | null
+  puertoDestino: string | null
+  costoDesaduanamiento: number | null
+  costoIsf: number | null
+  costoFleteMaritimo: number | null
+  resumenPrendasTitulo: string
+  items: ResumenItemData[]
+  balance: number
+  demoras: string
+  almacenajes: string
+  fechaLlegadaAlmacen: string
+}
+
+export type ResumenEdicionPayload = {
+  contenedorId: number
+  numeroContenedor?: string
+  fechaSalidaBl?: string | null
+  naviera?: string | null
+  buque?: string | null
+  importador?: string | null
+  pagador?: string | null
+  puertoOrigen?: string | null
+  puertoDestino?: string | null
+  costoDesaduanamiento?: number | null
+  costoIsf?: number | null
+  costoFleteMaritimo?: number | null
+  balance?: number | null
+  demoras?: string | null
+  almacenajes?: string | null
+  fechaLlegadaAlmacen?: string | null
+  items: {
+    productoId: number
+    ordenDetalleId: number | null
+    composicion: string
+    precioUsd: number
+    piezasPorCaja: number
+    totalCajas: number
+    cbm: number
+  }[]
+}
+

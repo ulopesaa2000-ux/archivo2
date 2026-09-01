@@ -2,6 +2,7 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Upload, X, ImageIcon, Loader2, Star, Link2, HardDrive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,7 @@ export function SubirImagenModal({
   skuBase,
   totalImagenes,
 }: SubirImagenModalProps) {
+  const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Modo: 'local' | 'url_externa' ─────────────────────────
@@ -174,6 +176,7 @@ export function SubirImagenModal({
       if (res.success) {
         toast.success(modo === 'local' ? 'Imagen subida correctamente.' : 'URL registrada correctamente.')
         handleClose()
+        router.refresh()
       } else {
         toast.error(res.error ?? 'Error al guardar la imagen.')
       }

@@ -71,38 +71,68 @@ export function ContenedorFormDialog({ mode, contenedor }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Código *</Label>
-              <Input name="codigo_contenedor" defaultValue={contenedor?.codigo_contenedor ?? ''} required />
+              <Input name="codigo_contenedor" defaultValue={contenedor?.codigo_contenedor ?? ''} required placeholder="ej. 2026-01" />
             </div>
             <div className="space-y-2">
               <Label>N° Contenedor</Label>
-              <Input name="numero_contenedor" defaultValue={contenedor?.numero_contenedor ?? ''} />
+              <Input name="numero_contenedor" defaultValue={contenedor?.numero_contenedor ?? ''} placeholder="ej. HAMU1553617" />
             </div>
             <div className="space-y-2">
-              <Label>Naviera</Label>
-              <Input name="naviera" defaultValue={contenedor?.naviera ?? ''} />
+              <Label className="font-semibold text-primary">Importador</Label>
+              <Input
+                list="importadores-form-dialog"
+                name="importador"
+                defaultValue={(contenedor?.documentos_checklist as any)?.importador ?? ''}
+                placeholder="ej. VARDIT, ABRAHAM, ILAN, ARIEL..."
+              />
+              <datalist id="importadores-form-dialog">
+                <option value="VARDIT" />
+                <option value="ABRAHAM" />
+                <option value="ILAN" />
+                <option value="ARIEL" />
+              </datalist>
+            </div>
+            <div className="space-y-2">
+              <Label className="font-semibold text-primary">Pagador</Label>
+              <Input
+                list="pagadores-form-dialog"
+                name="pagador"
+                defaultValue={(contenedor?.documentos_checklist as any)?.pagador ?? ''}
+                placeholder="ej. VARDIT, ABRAHAM..."
+              />
+              <datalist id="pagadores-form-dialog">
+                <option value="VARDIT" />
+                <option value="ABRAHAM" />
+                <option value="ILAN" />
+                <option value="ARIEL" />
+              </datalist>
+            </div>
+            <div className="space-y-2">
+              <Label>Naviera / Agente Aduanal</Label>
+              <Input name="naviera" defaultValue={contenedor?.naviera ?? ''} placeholder="ej. VARDIT, SHENZHEN HYT CO..." />
             </div>
             <div className="space-y-2">
               <Label>N° BL</Label>
-              <Input name="numero_bl" defaultValue={contenedor?.numero_bl ?? ''} />
+              <Input name="numero_bl" defaultValue={contenedor?.numero_bl ?? ''} placeholder="ej. SZX2601DDZR9" />
             </div>
             <div className="space-y-2">
-              <Label>Buque</Label>
-              <Input name="buque" defaultValue={contenedor?.buque ?? ''} />
+              <Label>Buque / Viaje</Label>
+              <Input name="buque" defaultValue={contenedor?.buque ?? ''} placeholder="ej. NAVIOS JASMINE/614N" />
             </div>
             <div className="space-y-2">
               <Label>Puerto Origen</Label>
-              <Input name="puerto_origen" defaultValue={contenedor?.puerto_origen ?? ''} />
+              <Input name="puerto_origen" defaultValue={contenedor?.puerto_origen ?? ''} placeholder="ej. XIAMEN, CHINA" />
             </div>
             <div className="space-y-2">
               <Label>Puerto Destino</Label>
-              <Input name="puerto_destino" defaultValue={contenedor?.puerto_destino ?? ''} />
+              <Input name="puerto_destino" defaultValue={contenedor?.puerto_destino ?? ''} placeholder="ej. PUERTO LAREDO / LAZARO CARDENAS" />
             </div>
             <div className="space-y-2">
-              <Label>ETD</Label>
+              <Label>ETD (Salida)</Label>
               <Input type="date" name="fecha_etd" defaultValue={contenedor?.fecha_etd?.slice(0, 10) ?? ''} />
             </div>
             <div className="space-y-2">
-              <Label>ETA</Label>
+              <Label>ETA (Llegada Est.)</Label>
               <Input type="date" name="fecha_eta" defaultValue={contenedor?.fecha_eta?.slice(0, 10) ?? ''} />
             </div>
             <div className="space-y-2">

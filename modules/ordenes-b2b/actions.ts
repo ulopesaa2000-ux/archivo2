@@ -772,14 +772,18 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     let prodId = p.force_new ? null : prodIdMap.get(skuUpper)
 
     if (prodId) {
-      // Actualizar descripción si ya existe
+      // Actualizar descripción y atributos si ya existe
       const { error: updErr } = await supabase
         .from('productos')
         .update({
           descripcion: p.descripcion || null,
           composicion: p.composicion || null,
           nombre: p.nombre || p.descripcion || sku,
-          marca_id: p.marca_id || null
+          marca_id: p.marca_id || null,
+          tipo_prenda_id: p.tipo_prenda_id || null,
+          genero_id: p.genero_id || null,
+          edad_id: p.edad_id || null,
+          persona_id: p.persona_id || payload.proveedorId || null,
         })
         .eq('id', prodId)
 
@@ -787,7 +791,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         return { success: false, error: `Error al actualizar producto ${sku}: ${updErr.message}` }
       }
     } else {
-      // Insertar nuevo producto
+      // Insertar nuevo producto con persona_id (proveedor seleccionado)
       const { data: newProd, error: insErr } = await supabase
         .from('productos')
         .insert({
@@ -796,6 +800,10 @@ export async function guardarOrdenRapidaB2BAction(payload: {
           descripcion: p.descripcion || null,
           composicion: p.composicion || null,
           marca_id: p.marca_id || null,
+          tipo_prenda_id: p.tipo_prenda_id || null,
+          genero_id: p.genero_id || null,
+          edad_id: p.edad_id || null,
+          persona_id: p.persona_id || payload.proveedorId || null,
           cliente_b2b_id: payload.clienteB2bId,
           activo: true,
           estado: 'pendiente'

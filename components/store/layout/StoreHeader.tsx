@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { 
   ShoppingCart, Menu, X, LogOut, LayoutDashboard, 
-  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User
+  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User, Baby
 } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
@@ -130,6 +130,14 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* INFANTIL Link */}
+          <Link
+            href="/shop?genero=infantil"
+            className="text-[13px] font-semibold text-store-ink2 hover:text-store-ink py-2 px-1 transition-colors flex items-center gap-1"
+          >
+            <span>INFANTIL</span>
+          </Link>
 
           {/* PROMOCIONES Link */}
           <Link
@@ -450,8 +458,22 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 )}
               </div>
 
-              {/* 4. Enlaces Rápidos Directos (Promociones & Contactos) */}
+              {/* 4. Enlaces Rápidos Directos (Infantil, Promociones & Contactos) */}
               <div className="pt-1 space-y-1.5">
+                <Link
+                  href="/shop?genero=infantil"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="flex items-center justify-between p-3 rounded-2xl font-bold text-xs text-store-ink hover:bg-store-bg border border-violet-500/20 bg-violet-500/5 transition-all"
+                >
+                  <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
+                    <Baby className="w-4 h-4" />
+                    <span>INFANTIL</span>
+                  </div>
+                  <Badge className="bg-violet-600 text-white font-bold text-[9px] px-1.5 py-0">
+                    TODOS
+                  </Badge>
+                </Link>
+
                 <Link
                   href="/shop?oferta=true"
                   onClick={() => setIsMenuOpen(false)}

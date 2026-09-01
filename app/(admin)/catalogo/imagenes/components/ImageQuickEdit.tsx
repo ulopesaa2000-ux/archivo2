@@ -1,8 +1,8 @@
 // app/(admin)/catalogo/imagenes/components/ImageQuickEdit.tsx
 'use client'
 
-import { useState } from 'react'
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { X, Loader2, Star, ExternalLink } from 'lucide-react'
@@ -27,6 +27,7 @@ interface Props {
 }
 
 export function ImageQuickEdit({ imagen, onClose }: Props) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const [altText, setAltText] = useState(imagen.alt_text ?? '')
@@ -48,6 +49,7 @@ export function ImageQuickEdit({ imagen, onClose }: Props) {
       if (res.success) {
         toast.success('Imagen actualizada')
         onClose()
+        router.refresh()
       } else {
         toast.error(res.error ?? 'Error al guardar')
       }
@@ -60,6 +62,7 @@ export function ImageQuickEdit({ imagen, onClose }: Props) {
       if (res.success) {
         toast.success(desvincularSolo ? 'Imagen desvinculada' : 'Imagen eliminada')
         onClose()
+        router.refresh()
       } else {
         toast.error(res.error ?? 'Error al eliminar')
       }

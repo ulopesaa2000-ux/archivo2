@@ -1,7 +1,7 @@
 // app/(admin)/ordenes-b2b/[id]/components/OrdenCajas.tsx
 'use client'
 
-import React, { useEffect, useState, useTransition } from 'react'
+import React, { useEffect, useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,10 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
-import { Package, Plus, Link2, Loader2, Search, Trash2, Boxes, CheckCircle2 } from 'lucide-react'
+import { 
+  Package, Plus, Link2, Loader2, Search, Trash2, Boxes, CheckCircle2,
+  Layers, ListFilter, ChevronRight, ChevronDown, ChevronsUpDown, 
+} from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { cn } from '@/lib/utils'
 import {
@@ -143,7 +146,6 @@ function VincularCajaDialog({
     setVinculando(false)
 
     if (result.success) {
-      // Limpiar estado persistente al cerrar exitosamente
       persistentSelectedMap = {}
       persistentSelectedCajas = new Map()
       onOpenChange(false)
@@ -161,8 +163,7 @@ function VincularCajaDialog({
           </DialogTitle>
         </DialogHeader>
 
-
-        {/* ── Barra de búsqueda + badge (compacta) ── */}
+        {/* Barra de búsqueda + badge */}
         <div className="px-5 py-3 border-b bg-muted/20 shrink-0 flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -181,9 +182,8 @@ function VincularCajaDialog({
           </Badge>
         </div>
 
-        {/* ── Cuerpo: tabla | panel seleccionadas ── */}
+        {/* Cuerpo: tabla | panel seleccionadas */}
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
-
           {/* Tabla de búsqueda */}
           <div className="flex-1 min-h-0 overflow-auto border-b md:border-b-0 md:border-r">
             {loading ? (
@@ -254,7 +254,6 @@ function VincularCajaDialog({
                     })}
                   </tbody>
                 </table>
-                {/* Paginación */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/20">
                     <p className="text-xs text-muted-foreground">
@@ -289,7 +288,7 @@ function VincularCajaDialog({
             )}
           </div>
 
-          {/* Panel: cajas seleccionadas — altura fija en mobile, ancho fijo en desktop */}
+          {/* Panel: cajas seleccionadas */}
           <div className="h-44 md:h-auto md:w-72 lg:w-80 shrink-0 flex flex-col bg-muted/10 overflow-hidden">
             <div className="px-4 py-2.5 border-b shrink-0">
               <p className="text-sm font-semibold">Seleccionadas</p>
@@ -331,12 +330,12 @@ function VincularCajaDialog({
           </div>
         </div>
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         <div className="px-5 py-3 border-t bg-background flex items-center justify-between gap-3 shrink-0">
           <p className="text-xs text-muted-foreground">
             {selectedCount === 0
               ? 'Ninguna caja seleccionada'
-              : `${selectedCount} caja${selectedCount !== 1 ? 's' : ''} lista${selectedCount !== 1 ? 's' : ''}`}
+              : `${selectedCount} caja${selectedCount !== 1 ? 's' : ''} seleccionada${selectedCount !== 1 ? 's' : ''}`}
           </p>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
@@ -354,17 +353,17 @@ function VincularCajaDialog({
 }
 
 export function OrdenCajas({
-  cajas,
   ordenId,
-  catalogoCajas,
+  cajas,
   detalles,
-  canEditOrden = true,
-  canEditCajas = true,
-  canDeleteCajas = true,
-  canCreateCajas = true,
+  catalogoCajas,
+  canEditOrden = false,
+  canEditCajas = false,
+  canDeleteCajas = false,
+  canCreateCajas = false,
 }: {
-  cajas: OrdenCajaResuelta[]
   ordenId: number
+  cajas: OrdenCajaResuelta[]
   detalles?: OrdenDetalleResuelto[]
   catalogoCajas?: {
     tallas: { id: number; codigo: string; nombre: string; categoria: string }[]
@@ -381,6 +380,9 @@ export function OrdenCajas({
   const [crearOpen, setCrearOpen] = useState(false)
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [deactivating, setDeactivating] = useState<number | null>(null)
+
+  const [modoVista, setModoVista] = useState<'agrupado' | 'extendido'>('agrupado')
+  const [expandedModelos, setExpandedModelos] = useState<Record<string, boolean>>({})
 
   const tallasDisponibles: CatalogoItem[] = (catalogoCajas?.tallas ?? []).map((t) => ({
     id: t.id,
@@ -451,6 +453,57 @@ export function OrdenCajas({
     colores: c.caja_colores,
   })
 
+  // Agrupación por Modelo / SKU
+  const modelosGrupos = useMemo(() => {
+    const map = new Map<string, {
+      sku: string
+      productoNombre: string | null
+      productoDescripcion: string | null
+      cajas: OrdenCajaResuelta[]
+      totalCajas: number
+      totalPiezas: number
+      totalCbm: number
+    }>()
+
+    for (const c of cajas) {
+      const sku = c.producto_sku || 'Sin SKU'
+      if (!map.has(sku)) {
+        const detalle = detalles?.find((d) => d.producto_sku === sku)
+        map.set(sku, {
+          sku,
+          productoNombre: detalle?.producto_nombre || null,
+          productoDescripcion: detalle?.producto_descripcion || null,
+          cajas: [],
+          totalCajas: 0,
+          totalPiezas: 0,
+          totalCbm: 0,
+        })
+      }
+      const grp = map.get(sku)!
+      grp.cajas.push(c)
+      const qty = c.cantidad_cajas ?? 0
+      grp.totalCajas += qty
+      grp.totalPiezas += (c.caja_piezas_por_caja ?? 0) * qty
+      grp.totalCbm += (c.caja_cbm ?? 0) * qty
+    }
+
+    return Array.from(map.values())
+  }, [cajas, detalles])
+
+  const toggleModelo = (sku: string) => {
+    setExpandedModelos((prev) => ({ ...prev, [sku]: !prev[sku] }))
+  }
+
+  const toggleExpandAll = () => {
+    const allKeys: Record<string, boolean> = {}
+    const anyExpanded = Object.values(expandedModelos).some(Boolean)
+    const nextState = !anyExpanded
+    for (const m of modelosGrupos) {
+      allKeys[m.sku] = nextState
+    }
+    setExpandedModelos(allKeys)
+  }
+
   if (cajas.length === 0) {
     return (
       <div className="space-y-4 mt-4">
@@ -499,24 +552,56 @@ export function OrdenCajas({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {cajas.length} caja{cajas.length !== 1 ? 's' : ''} vinculada{cajas.length !== 1 ? 's' : ''}
-        </p>
-        {(canEditOrden || canCreateCajas) && (
-          <div className="flex gap-2">
-            {canEditOrden && (
-              <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
-                <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
-              </Button>
-            )}
-            {canCreateCajas && (
-              <Button size="sm" onClick={() => setCrearOpen(true)}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
-              </Button>
-            )}
-          </div>
-        )}
+      {/* Barra de Control de Modos y Acciones */}
+      <div className="flex items-center justify-between gap-3 flex-wrap bg-muted/20 p-3 rounded-lg border">
+        <div className="flex items-center gap-2">
+          <Button
+            variant={modoVista === 'agrupado' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setModoVista('agrupado')}
+            className="h-8 text-xs font-semibold"
+          >
+            <Layers className="h-3.5 w-3.5 mr-1.5" />
+            Vista Agrupada (Por Modelo / SKU)
+          </Button>
+          <Button
+            variant={modoVista === 'extendido' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setModoVista('extendido')}
+            className="h-8 text-xs font-semibold"
+          >
+            <ListFilter className="h-3.5 w-3.5 mr-1.5" />
+            Vista Extendida ({cajas.length} cajas)
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {modoVista === 'agrupado' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleExpandAll}
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5 mr-1" />
+              Expandir / Colapsar Modelos
+            </Button>
+          )}
+          {(canEditOrden || canCreateCajas) && (
+            <div className="flex gap-2">
+              {canEditOrden && (
+                <Button variant="outline" size="sm" onClick={() => setVincularOpen(true)}>
+                  <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
+                </Button>
+              )}
+              {canCreateCajas && (
+                <Button size="sm" onClick={() => setCrearOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Nueva
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {vincularOpen && (
@@ -538,30 +623,124 @@ export function OrdenCajas({
         />
       )}
 
-      <div className="space-y-4 max-w-5xl">
-        {cajas.map((c) => {
-          const detalleProducto = detalles?.find((d) => d.producto_sku === c.producto_sku)
-          const precioUnitarioUsd = detalleProducto?.precio_unitario ?? c.producto_precio_ec ?? null
+      {/* Renderizado de Cajas */}
+      {modoVista === 'agrupado' ? (
+        /* MODO AGRUPADO POR MODELO / SKU (Colapsado por defecto) */
+        <div className="space-y-4">
+          {modelosGrupos.map((mod) => {
+            const isExpanded = Boolean(expandedModelos[mod.sku])
 
-          return (
-            <CajaCard
-              key={c.id}
-              caja={mapCajaToShared(c)}
-              layout="horizontal"
-              canEdit={canEditCajas}
-              canDelete={canEditOrden || canDeleteCajas}
-              canEditOrden={canEditOrden}
-              isPending={isPending || deactivating === c.caja_id}
-              onRemove={canEditOrden ? () => handleRemove(c.id) : undefined}
-              onEdit={canEditCajas ? handleEdit : undefined}
-              onDeactivate={canDeleteCajas ? handleDeactivate : undefined}
-              tallasDisponibles={tallasDisponibles}
-              coloresDisponibles={coloresDisponibles}
-              precioUnitarioUsd={precioUnitarioUsd}
-            />
-          )
-        })}
-      </div>
+            return (
+              <div
+                key={mod.sku}
+                className="rounded-lg border bg-card overflow-hidden shadow-xs transition-all hover:border-muted-foreground/30"
+              >
+                {/* Cabecera del Modelo */}
+                <div
+                  className="flex items-center justify-between px-4 py-2.5 bg-muted/30 cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                  onClick={() => toggleModelo(mod.sku)}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      className="p-1 rounded hover:bg-muted text-muted-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleModelo(mod.sku)
+                      }}
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-primary" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
+                    <span className="font-mono text-sm font-black text-foreground">
+                      {mod.sku}
+                    </span>
+                    {mod.productoNombre && (
+                      <span className="text-xs text-muted-foreground truncate max-w-[260px]">
+                        — {mod.productoNombre}
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      ({mod.cajas.length} tipo{mod.cajas.length !== 1 ? 's' : ''} de caja)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
+                    <span className="bg-muted px-2 py-0.5 rounded border text-muted-foreground font-semibold">
+                      {mod.totalCajas} caja{mod.totalCajas !== 1 ? 's' : ''}
+                    </span>
+                    <span className="text-foreground font-bold">
+                      {mod.totalPiezas.toLocaleString()} pz
+                    </span>
+                    <span className="text-muted-foreground hidden sm:inline">
+                      {mod.totalCbm.toFixed(3)} CBM
+                    </span>
+                  </div>
+                </div>
+
+                {/* CajaCards Desplegables */}
+                {isExpanded && (
+                  <div className="p-4 bg-background border-t space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {mod.cajas.map((c) => {
+                        const detalleProducto = detalles?.find((d) => d.producto_sku === c.producto_sku)
+                        const precioUnitarioUsd = detalleProducto?.precio_unitario ?? c.producto_precio_ec ?? null
+
+                        return (
+                          <CajaCard
+                            key={c.id}
+                            caja={mapCajaToShared(c)}
+                            layout="horizontal"
+                            canEdit={canEditCajas}
+                            canDelete={canEditOrden || canDeleteCajas}
+                            canEditOrden={canEditOrden}
+                            isPending={isPending || deactivating === c.caja_id}
+                            onRemove={canEditOrden ? () => handleRemove(c.id) : undefined}
+                            onEdit={canEditCajas ? handleEdit : undefined}
+                            onDeactivate={canDeleteCajas ? handleDeactivate : undefined}
+                            tallasDisponibles={tallasDisponibles}
+                            coloresDisponibles={coloresDisponibles}
+                            precioUnitarioUsd={precioUnitarioUsd}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        /* MODO EXTENDIDO (TODAS LAS CAJAS EN GRID) */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {cajas.map((c) => {
+            const detalleProducto = detalles?.find((d) => d.producto_sku === c.producto_sku)
+            const precioUnitarioUsd = detalleProducto?.precio_unitario ?? c.producto_precio_ec ?? null
+
+            return (
+              <CajaCard
+                key={c.id}
+                caja={mapCajaToShared(c)}
+                layout="horizontal"
+                canEdit={canEditCajas}
+                canDelete={canEditOrden || canDeleteCajas}
+                canEditOrden={canEditOrden}
+                isPending={isPending || deactivating === c.caja_id}
+                onRemove={canEditOrden ? () => handleRemove(c.id) : undefined}
+                onEdit={canEditCajas ? handleEdit : undefined}
+                onDeactivate={canDeleteCajas ? handleDeactivate : undefined}
+                tallasDisponibles={tallasDisponibles}
+                coloresDisponibles={coloresDisponibles}
+                precioUnitarioUsd={precioUnitarioUsd}
+              />
+            )
+          })}
+        </div>
+      )}
 
       <AlertDialog open={removingId !== null} onOpenChange={(o) => { if (!o) setRemovingId(null) }}>
         <AlertDialogContent>

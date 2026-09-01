@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { X, ChevronLeft, ChevronRight, Pencil, Star, ExternalLink, Copy } from 'lucide-react'
@@ -197,6 +198,7 @@ export function ImageLightbox({ imagen: initialImagen, imagenes, onClose, onEdit
 }
 
 function SetPrincipalButton({ imagenId, productoId }: { imagenId: number; productoId: number }) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const handle = () => {
@@ -204,6 +206,7 @@ function SetPrincipalButton({ imagenId, productoId }: { imagenId: number; produc
       const res = await setImagenPrincipalAction(imagenId, productoId)
       if (res.success) {
         toast.success('Imagen definida como principal')
+        router.refresh()
       } else {
         toast.error(res.error ?? 'Error al definir principal')
       }

@@ -2,13 +2,47 @@
 // app/(admin)/catalogo/imagenes/components/ImageQuickEdit.tsx
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
 
 type ActionResult = { success: boolean; error?: string; message?: string }
 
 const BUCKET = 'product_images'
+
+/**
+ * Revalida todas las rutas y tags afectados por cambios en imágenes de productos.
+ */
+async function revalidateImagenesProducto(productoId?: number, supabaseClient?: any) {
+  try {
+    revalidatePath('/catalogo/imagenes')
+    revalidatePath('/catalogo')
+    revalidatePath('/ecommerce')
+    revalidatePath('/ecommerce/productos')
+    revalidatePath('/shop')
+    revalidatePath('/inicio')
+    revalidatePath('/')
+    revalidateTag('catalogo-filtros', 'max')
+
+    if (productoId) {
+      revalidatePath(`/catalogo/${productoId}`)
+
+      if (supabaseClient) {
+        const { data: webData } = await supabaseClient
+          .from('productos_web')
+          .select('slug')
+          .eq('producto_id', productoId)
+          .maybeSingle()
+
+        if (webData?.slug) {
+          revalidatePath(`/shop/${webData.slug}`)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[revalidateImagenesProducto] Warning revalidating paths:', err)
+  }
+}
 
 /**
  * Actualiza una imagen (alt_text, uso, orden, principal).
@@ -28,19 +62,24 @@ export async function updateImagenGlobalAction(
 
   const supabase = await createClient()
 
-  // Si es principal, obtener producto_id y quitar principal de otras imágenes
-  if (data.es_principal) {
-    const { data: imgData } = await (supabase.from('producto_imagenes') as any)
-      .select('producto_id')
-      .eq('id', imagenId)
-      .single()
-    
-    if (imgData?.producto_id) {
-      await (supabase.from('producto_imagenes') as any)
-        .update({ es_principal: false })
-        .eq('producto_id', imgData.producto_id)
-        .neq('id', imagenId)
-    }
+  let productoId: number | null = null
+
+  // Obtener producto_id
+  const { data: imgData } = await (supabase.from('producto_imagenes') as any)
+    .select('producto_id, es_principal')
+    .eq('id', imagenId)
+    .single()
+
+  if (imgData?.producto_id) {
+    productoId = imgData.producto_id
+  }
+
+  // Si es principal, quitar principal de otras imágenes
+  if (data.es_principal && productoId) {
+    await (supabase.from('producto_imagenes') as any)
+      .update({ es_principal: false })
+      .eq('producto_id', productoId)
+      .neq('id', imagenId)
   }
 
   const { error } = await (supabase.from('producto_imagenes') as any)
@@ -51,7 +90,7 @@ export async function updateImagenGlobalAction(
     return { success: false, error: error.message }
   }
 
-  revalidatePath('/catalogo/imagenes')
+  await revalidateImagenesProducto(productoId ?? undefined, supabase)
   return { success: true }
 }
 
@@ -73,7 +112,7 @@ export async function deleteImagenGlobalAction(
   // 1. Obtener la URL de la imagen
   const { data: imgData, error: fetchError } = await (supabase
     .from('producto_imagenes') as any)
-    .select('url, origen_imagen, producto_id')
+    .select('url, origen_imagen, producto_id, es_principal')
     .eq('id', imagenId)
     .single()
 
@@ -82,6 +121,7 @@ export async function deleteImagenGlobalAction(
   }
 
   const productoId = imgData.producto_id
+  const eraPrincipal = imgData.es_principal === true
 
   // 2. Si NO es desvincularSolo Y es imagen local, eliminarla del Storage
   if (!desvincularSolo && imgData.origen_imagen === 'local' && imgData.url) {
@@ -110,10 +150,25 @@ export async function deleteImagenGlobalAction(
     return { success: false, error: dbError.message }
   }
 
-  revalidatePath('/catalogo/imagenes')
-  revalidatePath(`/catalogo/${productoId}`)
+  // 4. Si era principal, promover la siguiente imagen restante
+  if (eraPrincipal && productoId) {
+    const { data: restantes } = await (supabase.from('producto_imagenes') as any)
+      .select('id')
+      .eq('producto_id', productoId)
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+
+    if (restantes && restantes.length > 0) {
+      await (supabase.from('producto_imagenes') as any)
+        .update({ es_principal: true })
+        .eq('id', restantes[0].id)
+    }
+  }
+
+  await revalidateImagenesProducto(productoId, supabase)
   
-  return { success: true, message: desvincularSolo ? 'Imagen desvinculada (archivo сохраняется en Storage)' : 'Imagen eliminada' }
+  return { success: true, message: desvincularSolo ? 'Imagen desvinculada (archivo conservado en Storage)' : 'Imagen eliminada' }
 }
 
 /**
@@ -142,7 +197,7 @@ export async function setImagenPrincipalAction(
     return { success: false, error: error.message }
   }
 
-  revalidatePath('/catalogo/imagenes')
+  await revalidateImagenesProducto(productoId, supabase)
   return { success: true }
 }
 
@@ -167,6 +222,7 @@ export async function importarImagenesDesdeExcelAction(
 
   let successCount = 0
   let failCount = 0
+  const productosAfectados = new Set<number>()
 
   for (const row of rows) {
     try {
@@ -183,8 +239,23 @@ export async function importarImagenesDesdeExcelAction(
         continue
       }
 
+      productosAfectados.add(producto.id)
+
+      let esPrincipal = row.es_principal
+
+      if (!esPrincipal) {
+        const { count: principalCount } = await (supabase.from('producto_imagenes') as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('producto_id', producto.id)
+          .eq('es_principal', true)
+
+        if (!principalCount || principalCount === 0) {
+          esPrincipal = true
+        }
+      }
+
       // 2. Si es principal, quitar principal de otras imágenes del producto
-      if (row.es_principal) {
+      if (esPrincipal) {
         await (supabase.from('producto_imagenes') as any)
           .update({ es_principal: false })
           .eq('producto_id', producto.id)
@@ -198,7 +269,7 @@ export async function importarImagenesDesdeExcelAction(
           alt_text: row.alt_text || null,
           uso_imagen: row.uso || 'galeria_secundaria',
           orden: row.orden || 0,
-          es_principal: row.es_principal || false,
+          es_principal: esPrincipal,
           origen_imagen: 'url_externa',
         })
 
@@ -215,7 +286,10 @@ export async function importarImagenesDesdeExcelAction(
   }
 
   if (successCount > 0) {
-    revalidatePath('/catalogo/imagenes')
+    await revalidateImagenesProducto(undefined, supabase)
+    for (const prodId of productosAfectados) {
+      revalidatePath(`/catalogo/${prodId}`)
+    }
   }
 
   return { success: successCount, failed: failCount }
@@ -243,11 +317,25 @@ export async function uploadImagenesConSkuAction(
   
   let successCount = 0
   let failCount = 0
+  const productosAfectados = new Set<number>()
 
   for (const img of imagenes) {
     try {
+      let esPrincipal = img.es_principal
+
+      if (!esPrincipal) {
+        const { count: principalCount } = await (supabase.from('producto_imagenes') as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('producto_id', img.producto_id)
+          .eq('es_principal', true)
+
+        if (!principalCount || principalCount === 0) {
+          esPrincipal = true
+        }
+      }
+
       // 1. Si es principal, quitar principal de otras imágenes del producto
-      if (img.es_principal) {
+      if (esPrincipal) {
         await (supabase.from('producto_imagenes') as any)
           .update({ es_principal: false })
           .eq('producto_id', img.producto_id)
@@ -285,7 +373,7 @@ export async function uploadImagenesConSkuAction(
           alt_text: img.alt_text || null,
           uso_imagen: img.uso_imagen || 'galeria_secundaria',
           orden: img.orden || 0,
-          es_principal: img.es_principal || false,
+          es_principal: esPrincipal,
           origen_imagen: 'local',
         })
 
@@ -296,6 +384,7 @@ export async function uploadImagenesConSkuAction(
         failCount++
       } else {
         successCount++
+        productosAfectados.add(img.producto_id)
       }
     } catch (err) {
       console.warn('[uploadImagenesConSkuAction] Exception:', err)
@@ -304,7 +393,10 @@ export async function uploadImagenesConSkuAction(
   }
 
   if (successCount > 0) {
-    revalidatePath('/catalogo/imagenes')
+    await revalidateImagenesProducto(undefined, supabase)
+    for (const prodId of productosAfectados) {
+      revalidatePath(`/catalogo/${prodId}`)
+    }
   }
 
   return { success: successCount, failed: failCount }
@@ -327,11 +419,22 @@ export async function uploadSingleImagenConSkuAction(
   const skuBase = formData.get('sku_base') as string
   const altText = formData.get('alt_text') as string
   const usoImagen = formData.get('uso_imagen') as string
-  const esPrincipal = formData.get('es_principal') === 'true'
+  let esPrincipal = formData.get('es_principal') === 'true'
 
   if (!file) return { success: false, error: 'Archivo no recibido en el servidor' }
 
   try {
+    if (!esPrincipal) {
+      const { count: principalCount } = await (supabase.from('producto_imagenes') as any)
+        .select('id', { count: 'exact', head: true })
+        .eq('producto_id', productoId)
+        .eq('es_principal', true)
+
+      if (!principalCount || principalCount === 0) {
+        esPrincipal = true
+      }
+    }
+
     // 1. Si es principal, quitar principal de otras imágenes del producto
     if (esPrincipal) {
       await (supabase.from('producto_imagenes') as any)
@@ -382,7 +485,7 @@ export async function uploadSingleImagenConSkuAction(
       return { success: false, error: insertError.message }
     }
 
-    revalidatePath('/catalogo/imagenes')
+    await revalidateImagenesProducto(productoId, supabase)
     return { success: true }
   } catch (err: any) {
     console.warn('[uploadSingleImagenConSkuAction] Exception:', err)

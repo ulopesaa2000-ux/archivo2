@@ -47,8 +47,12 @@ export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
     )
   }
 
-  // Ordenar por orden
-  const imagenesOrdenadas = [...imagenes].sort((a, b) => a.orden - b.orden)
+  // Ordenar por principal primero, luego por orden
+  const imagenesOrdenadas = [...imagenes].sort((a, b) => {
+    if (a.es_principal && !b.es_principal) return -1
+    if (!a.es_principal && b.es_principal) return 1
+    return (a.orden ?? 0) - (b.orden ?? 0)
+  })
   const currentImgUrl = imagenesOrdenadas[imagenActiva]?.url
 
   return (

@@ -9,6 +9,7 @@ import { Pagination } from '@/components/admin/Pagination'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import type { ProductoWebPublico, ConfigEcommerce } from '@/modules/ecommerce/types'
 import { mostrarPrecio, formatearPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
+import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
 
 interface ProductGridProps {
   productos: ProductoWebPublico[]
@@ -104,6 +105,16 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
         {producto.en_oferta && !producto.nuevo && showPrice && (
           <span className="absolute top-2 left-2 bg-[#B35A3E] text-white text-[10px] font-semibold py-[3px] px-[8px] rounded-[3px] tracking-[0.05em] z-10">-Oferta</span>
         )}
+
+        {/* Botones de Compartir (WhatsApp + Link) */}
+        <div className="absolute top-2 right-2 z-10">
+          <ProductShareButtons
+            slug={producto.slug}
+            nombre={producto.nombre}
+            sku={producto.sku_base}
+            variant="card"
+          />
+        </div>
 
         {producto.imagen_principal ? (
           <Image

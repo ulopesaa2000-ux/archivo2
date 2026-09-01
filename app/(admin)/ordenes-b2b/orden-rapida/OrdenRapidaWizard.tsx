@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction } from '@/modules/ordenes-b2b/actions'
+import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
 
 
 type ContainerMock = {
@@ -47,13 +48,16 @@ type ContainerMock = {
   estado: string | null
 }
 
-type MarcaOption = { id: number; nombre: string }
+type CatalogItemOption = { id: number; nombre: string }
 
 type WizardProps = {
   proveedores: PersonaRow[]
   clientes: PersonaRow[]
   contenedores: ContainerMock[]
-  marcas?: MarcaOption[]
+  marcas?: CatalogItemOption[]
+  generos?: CatalogItemOption[]
+  edades?: CatalogItemOption[]
+  tipos_prenda?: CatalogItemOption[]
 }
 
 type WizardWarning = {
@@ -68,13 +72,18 @@ type WizardProducto = {
   nombre?: string
   marca?: string
   marca_id?: number | null
+  genero?: string
+  genero_id?: number | null
+  edad?: string
+  edad_id?: number | null
+  tipo_prenda?: string
+  tipo_prenda_id?: number | null
   json_marca?: string
   descripcion?: string
   composicion?: string
   precio_yuan?: number
   precio_unitario_usd?: number
   estado_temporal?: string
-  tipo_prenda?: string
   es_nuevo?: boolean
   force_new?: boolean
   costo_promedio?: number
@@ -218,23 +227,89 @@ function parseContainerCode(code: string) {
   }
 }
 
-function resolverParserSelector(proveedorNombre: string) {
-  const normalized = proveedorNombre.toLowerCase()
+export type ParserFormatOption = {
+  id: string
+  label: string
+  shortDesc: string
+  fullDesc: string
+  headerPreview: string
+  proveedoresEjemplo: string
+  badgeColor: string
+}
 
-  if (normalized.includes('moti')) return 'MOTI bloques'
+export const PARSER_FORMATS: ParserFormatOption[] = [
+  {
+    id: 'auto',
+    label: '✨ Auto (Detectar por Proveedor)',
+    shortDesc: 'Selecciona automáticamente la rama según el proveedor origen',
+    fullDesc: 'Analiza el nombre del socio comercial y elige la plantilla más adecuada (MOTI, Bonnie, Jackie, Tianyi o General).',
+    headerPreview: 'Auto-detección basada en el socio comercial',
+    proveedoresEjemplo: 'Cualquier proveedor',
+    badgeColor: 'border-primary/40 bg-primary/10 text-primary',
+  },
+  {
+    id: 'bonnie',
+    label: '🏷️ Formato Bonnie / TMB',
+    shortDesc: 'Tallas en columnas (CH/S, M/M, G/L) con PACK A/B y triple QTY',
+    fullDesc: 'Para archivos con encabezados STYLE NO | COLOR | SIZE (C/NO) y tallas en columnas horizontales, seguidas de columnas triples: QTY (cajas), PACKING (pzs/caja), QTY (total). Soporta packs (PACK A, PACK B) y cajas sueltas/remanentes.',
+    headerPreview: 'STYLE NO | COLOR | SIZE (C/NO) | CH/S | M/M | G/L | EG/XL | QTY | PACKING | QTY',
+    proveedoresEjemplo: 'Bonnie, TMB, fabricantes de conjuntos y sets deportivos',
+    badgeColor: 'border-blue-300 bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
+  },
+  {
+    id: 'moti',
+    label: '📦 Formato MOTI Bloques',
+    shortDesc: 'Bloques matriciales repetidos con encabezados de 2 filas y subtotales',
+    fullDesc: 'Para archivos estructurados en bloques separados por filas vacías, con encabezados de 2 filas (CTN NO., OF CTNS, STYLE NO.) y tablas de subtotales al pie de cada bloque (TTL CBM, TTL G.W.).',
+    headerPreview: 'CTN. NO. | QTY OF CTNS | STYLE NO. | BRAND NAME | COMPOSICION | PRECIO | S/CH | M/M...',
+    proveedoresEjemplo: 'MOTI, Movamoda, confecciones en bloques',
+    badgeColor: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+  },
+  {
+    id: 'jackie',
+    label: '📑 Formato Jackie / Venkat',
+    shortDesc: 'Libros de Excel con múltiples hojas/pestañas de modelos',
+    fullDesc: 'Para archivos que desglosan cada estilo o modelo en pestañas independientes dentro del mismo libro de Excel.',
+    headerPreview: '[Hoja 1: Estilo A] [Hoja 2: Estilo B] [Hoja 3: Desglose Cajas]',
+    proveedoresEjemplo: 'Jackie, Jacky, Venkat, Vencart, camisería multi-hoja',
+    badgeColor: 'border-purple-300 bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300',
+  },
+  {
+    id: 'tianyi',
+    label: '📊 Formato Tianyi Resumen',
+    shortDesc: 'Tabla con cabecera de resumen consolidado superior',
+    fullDesc: 'Para archivos con un cuadro resumen superior de totales y desglose continuo de cajas en la parte inferior.',
+    headerPreview: 'RESUMEN: [TOTAL CTNS | TOTAL PCS | TOTAL CBM] ... DETALLE: [CTN 1..N]',
+    proveedoresEjemplo: 'Tianyi, exportadores textiles consolidados',
+    badgeColor: 'border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+  },
+  {
+    id: 'general',
+    label: '📄 Formato General Estándar',
+    shortDesc: 'Plantilla tabular clásica de fila por variante',
+    fullDesc: 'Para plantillas sencillas donde cada fila representa una combinación de producto, color y talla con columnas de piezas y cajas.',
+    headerPreview: 'SKU | DESCRIPCION | COLOR | TALLA | PIEZAS_POR_CAJA | TOTAL_CAJAS',
+    proveedoresEjemplo: 'Proveedores genéricos, plantillas estándar',
+    badgeColor: 'border-gray-300 bg-gray-50 text-gray-800 dark:bg-gray-950/40 dark:text-gray-300',
+  },
+]
 
+function resolverParserSelector(proveedorNombre: string): string {
+  const normalized = (proveedorNombre || '').toLowerCase()
+
+  if (normalized.includes('bonnie') || normalized.includes('tmb')) return 'bonnie'
+  if (normalized.includes('moti')) return 'moti'
   if (
     normalized.includes('jackie') ||
     normalized.includes('jacky') ||
     normalized.includes('venkat') ||
     normalized.includes('vencart')
   ) {
-    return 'Jackie/Venkat multi-hoja'
+    return 'jackie'
   }
+  if (normalized.includes('tianyi')) return 'tianyi'
 
-  if (normalized.includes('tianyi')) return 'Tianyi resumen'
-
-  return 'Auto'
+  return 'auto'
 }
 
 function unwrapN8nResponse(data: unknown) {
@@ -617,7 +692,15 @@ function ComparisonBadge({
   )
 }
 
-export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas = [] }: WizardProps) {
+export function OrdenRapidaWizard({
+  proveedores,
+  clientes,
+  contenedores,
+  marcas = [],
+  generos = [],
+  edades = [],
+  tipos_prenda = [],
+}: WizardProps) {
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [isPending, startTransition] = useTransition()
@@ -704,10 +787,26 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
   const [newMarca, setNewMarca] = useState('')
   const [newPrecio, setNewPrecio] = useState('')
 
+  const [selectedParserFormat, setSelectedParserFormat] = useState<string>(() => {
+    const p18 = proveedores.find((p) => String(p.id) === '18') || proveedores[0]
+    return p18 ? resolverParserSelector(p18.nombre_completo) : 'auto'
+  })
+  const [isParserGuideOpen, setIsParserGuideOpen] = useState(false)
+
+  const handleProveedorChange = (newProvId: string) => {
+    setSelectedProveedor(newProvId)
+    const prov = proveedores.find((p) => String(p.id) === newProvId)
+    if (prov) {
+      const autoFormat = resolverParserSelector(prov.nombre_completo)
+      setSelectedParserFormat(autoFormat)
+    }
+  }
+
   const [discrepancyModal, setDiscrepancyModal] = useState<{
     open: boolean
     items: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }>
   } | null>(null)
+  const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -833,6 +932,78 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
       toast.error('Error inesperado al sincronizar productos desde BD')
     } finally {
       setIsSyncingDbProducts(false)
+    }
+  }
+
+  const detectorCatalogos: DetectorCatalogos = useMemo(
+    () => ({
+      marcas,
+      generos,
+      edades,
+      tipos_prenda,
+    }),
+    [marcas, generos, edades, tipos_prenda],
+  )
+
+  const handleAutoDetectProduct = (index: number) => {
+    const prod = editableProductos[index]
+    if (!prod) return
+    const text = `${prod.sku_base || ''} ${prod.descripcion || prod.nombre || ''}`.trim()
+    if (!text) {
+      toast.info('Ingresa una descripción o SKU para autodetectar atributos.')
+      return
+    }
+
+    const detected = detectProductAttributesFromText(text, detectorCatalogos)
+    if (detected.detectedCount === 0) {
+      toast.info('No se detectaron coincidencias en el texto (Prenda, Género o Marca).')
+      return
+    }
+
+    setEditableProductos((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item
+        return {
+          ...item,
+          ...(detected.tipo_prenda_id ? { tipo_prenda_id: detected.tipo_prenda_id, tipo_prenda: detected.tipo_prenda_nombre } : {}),
+          ...(detected.genero_id ? { genero_id: detected.genero_id, genero: detected.genero_nombre } : {}),
+          ...(detected.edad_id ? { edad_id: detected.edad_id, edad: detected.edad_nombre } : {}),
+          ...(detected.marca_id ? { marca_id: detected.marca_id, marca: detected.marca_nombre } : {}),
+        }
+      })
+    )
+
+    const parts: string[] = []
+    if (detected.tipo_prenda_nombre) parts.push(`Prenda: ${detected.tipo_prenda_nombre}`)
+    if (detected.genero_nombre) parts.push(`Género: ${detected.genero_nombre}`)
+    if (detected.marca_nombre) parts.push(`Marca: ${detected.marca_nombre}`)
+    toast.success(`Atributos detectados (${detected.detectedCount}): ${parts.join(', ')}`)
+  }
+
+  const handleAutoDetectAllProducts = () => {
+    let updatedCount = 0
+    setEditableProductos((prev) =>
+      prev.map((item) => {
+        const text = `${item.sku_base || ''} ${item.descripcion || item.nombre || ''}`.trim()
+        if (!text) return item
+        const detected = detectProductAttributesFromText(text, detectorCatalogos)
+        if (detected.detectedCount > 0) {
+          updatedCount++
+          return {
+            ...item,
+            ...(detected.tipo_prenda_id ? { tipo_prenda_id: detected.tipo_prenda_id, tipo_prenda: detected.tipo_prenda_nombre } : {}),
+            ...(detected.genero_id ? { genero_id: detected.genero_id, genero: detected.genero_nombre } : {}),
+            ...(detected.edad_id ? { edad_id: detected.edad_id, edad: detected.edad_nombre } : {}),
+            ...(detected.marca_id ? { marca_id: detected.marca_id, marca: detected.marca_nombre } : {}),
+          }
+        }
+        return item
+      })
+    )
+    if (updatedCount > 0) {
+      toast.success(`Atributos detectados y actualizados en ${updatedCount} producto${updatedCount > 1 ? 's' : ''}`)
+    } else {
+      toast.info('No se detectaron nuevos atributos en las descripciones de la lista.')
     }
   }
 
@@ -1016,7 +1187,9 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
       formData.append('cliente_b2b_id', String(cliente.id))
       formData.append(
         'parser_selector',
-        resolverParserSelector(proveedor.nombre_completo ?? ''),
+        selectedParserFormat === 'auto'
+          ? resolverParserSelector(proveedor.nombre_completo ?? '')
+          : selectedParserFormat,
       )
       formData.append('contenedor_id', selectedContenedor === 'new' ? '' : selectedContenedor)
       formData.append('contenedor_codigo', selectedContenedor === 'new' ? newContainerCode.trim() : '')
@@ -1090,14 +1263,36 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
         toast.info('Se verificaron los SKUs detectados: las entradas duplicadas fueron unificadas automáticamente para asegurar 1 fila por SKU.')
       }
 
+      // Auto-detección inicial de atributos a partir del texto de cada producto
+      const enrichedProductos = deduplicatedProductos.map((p) => {
+        const text = `${p.sku_base || ''} ${p.descripcion || p.nombre || ''}`.trim()
+        const detected = detectProductAttributesFromText(text, { marcas, generos, edades, tipos_prenda })
+        const matchedBrand = marcas.find(
+          (m) =>
+            (p.marca_id && m.id === p.marca_id) ||
+            (p.marca && m.nombre.toUpperCase() === p.marca.toUpperCase()),
+        )
+        return {
+          ...p,
+          marca_id: matchedBrand ? matchedBrand.id : (detected.marca_id ?? p.marca_id ?? null),
+          marca: matchedBrand ? matchedBrand.nombre : (detected.marca_nombre ?? p.marca ?? ''),
+          tipo_prenda_id: detected.tipo_prenda_id ?? p.tipo_prenda_id ?? null,
+          tipo_prenda: detected.tipo_prenda_nombre ?? p.tipo_prenda ?? '',
+          genero_id: detected.genero_id ?? p.genero_id ?? null,
+          genero: detected.genero_nombre ?? p.genero ?? '',
+          edad_id: detected.edad_id ?? p.edad_id ?? null,
+          edad: detected.edad_nombre ?? p.edad ?? '',
+        }
+      })
+
       setWarnings(wizardData.warnings)
-      setParsedData({ ...wizardData, productos: deduplicatedProductos })
-      setEditableProductos(structuredClone(deduplicatedProductos))
+      setParsedData({ ...wizardData, productos: enrichedProductos })
+      setEditableProductos(structuredClone(enrichedProductos))
       setEditableCajas(structuredClone(wizardData.cajas))
 
       // Verificar existencia de SKUs en Supabase DB para resaltado verde
       const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
-      const skusToCheck = deduplicatedProductos.map(p => p.sku_base)
+      const skusToCheck = enrichedProductos.map(p => p.sku_base)
       if (skusToCheck.length > 0) {
         setIsCheckingDbSkus(true)
         verificarSkusEnBDAction(skusToCheck, proveedorActual?.nombre_completo).then((res) => {
@@ -1242,7 +1437,8 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
 
 
     if (step === 4) {
-      handleConfirmReview()
+      setIsConfirmFinalModalOpen(true)
+      return
     }
   }
 
@@ -1308,7 +1504,7 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="proveedor" className="text-sm font-semibold">Proveedor origen</Label>
-                  <Select value={selectedProveedor} onValueChange={(value) => setSelectedProveedor(value || '')}>
+                  <Select value={selectedProveedor} onValueChange={(value) => handleProveedorChange(value || '')}>
                     <SelectTrigger id="proveedor" className="h-10">
                       <SelectValue placeholder="Selecciona el proveedor extranjero...">
                         {selectedProveedorObj?.nombre_completo}
@@ -1393,6 +1589,74 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                   )}
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Sección de Selección de Formato / Plantilla de Packing List */}
+              <div className="space-y-3 rounded-xl border border-primary/20 bg-muted/20 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="parser-format-sel" className="text-sm font-semibold flex items-center gap-2">
+                      <span>Plantilla / Formato de Packing List (Parser n8n)</span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Define la estructura del Excel para que n8n ejecute la rama especializada adecuada.
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsParserGuideOpen(true)}
+                    className="h-8 gap-1.5 text-xs text-primary border-primary/30 hover:bg-primary/10 self-start sm:self-auto"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" /> Guía visual de formatos
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                  <div className="md:col-span-2">
+                    <Select value={selectedParserFormat} onValueChange={(val) => setSelectedParserFormat(val || 'auto')}>
+                      <SelectTrigger id="parser-format-sel" className="h-10">
+                        <SelectValue placeholder="Selecciona el formato...">
+                          {PARSER_FORMATS.find((f) => f.id === selectedParserFormat)?.label}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {PARSER_FORMATS.map((f) => (
+                          <SelectItem key={f.id} value={f.id} className="py-2">
+                            <div className="flex flex-col gap-0.5 text-left">
+                              <span className="font-semibold text-xs">{f.label}</span>
+                              <span className="text-[10px] text-muted-foreground line-clamp-1">{f.shortDesc}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="md:col-span-1">
+                    {selectedParserFormat === 'auto' ? (
+                      <div className="rounded-md border border-primary/30 bg-primary/5 p-2 text-xs">
+                        <span className="block font-semibold text-primary text-[11px]">Detección Automática</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {selectedProveedorObj?.nombre_completo
+                            ? `Para "${selectedProveedorObj.nombre_completo}": Formato ${resolverParserSelector(selectedProveedorObj.nombre_completo).toUpperCase()}`
+                            : 'Basada en el socio seleccionado'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-emerald-300 bg-emerald-50/60 p-2 text-xs dark:bg-emerald-950/30">
+                        <span className="block font-semibold text-emerald-800 dark:text-emerald-300 text-[11px]">Formato Forzado</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Se procesará explícitamente con la rama seleccionada
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1405,6 +1669,41 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
 
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <div className="space-y-4 lg:col-span-2">
+                  {/* Selector rápido de formato en Step 2 */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-muted-foreground">Formato n8n:</span>
+                      <Badge variant="outline" className={PARSER_FORMATS.find(f => f.id === selectedParserFormat)?.badgeColor || ''}>
+                        {PARSER_FORMATS.find(f => f.id === selectedParserFormat)?.label || selectedParserFormat}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Select value={selectedParserFormat} onValueChange={(val) => setSelectedParserFormat(val || 'auto')}>
+                        <SelectTrigger className="h-7 text-xs w-[190px]">
+                          <SelectValue placeholder="Cambiar formato..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PARSER_FORMATS.map((f) => (
+                            <SelectItem key={f.id} value={f.id} className="text-xs">
+                              {f.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setIsParserGuideOpen(true)}
+                        className="h-7 w-7 text-muted-foreground hover:text-primary"
+                        title="Ver guía visual de formatos"
+                      >
+                        <HelpCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/80 bg-muted/10 p-8 text-center transition-colors hover:border-primary/50">
                     <FileSpreadsheet className="mb-4 h-12 w-12 animate-bounce text-muted-foreground/60 duration-1000" />
                     <p className="text-sm font-semibold">Selecciona tu archivo Packing List</p>
@@ -1550,6 +1849,16 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={handleAutoDetectAllProducts}
+                    className="h-8 gap-1.5 border-amber-400/50 bg-amber-50 text-xs text-amber-900 hover:bg-amber-100 font-bold dark:bg-amber-950/40 dark:text-amber-300"
+                    title="Detectar automáticamente Prenda, Género, Edad y Marca para todos los productos de la lista"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-amber-600 animate-pulse" />
+                    Auto-detectar atributos
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={handleSyncProductsFromDb}
                     disabled={isSyncingDbProducts}
                     className="h-8 gap-1.5 border-emerald-400/50 bg-emerald-50 text-xs text-emerald-800 hover:bg-emerald-100 font-bold dark:bg-emerald-950/40 dark:text-emerald-300"
@@ -1588,10 +1897,12 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                     <thead>
                       <tr className="border-b bg-muted/60 text-left font-bold text-muted-foreground uppercase text-[10px]">
                         <th className="p-3">Verificación BD</th>
-                        <th className="p-3">SKU Base</th>
-                        <th className="p-3 min-w-[220px]">Descripción / Nombre</th>
-                        <th className="p-3 min-w-[180px]">Marca (Catálogo)</th>
-                        <th className="p-3 min-w-[140px]">Composición</th>
+                        <th className="p-3 w-40 min-w-[140px]">SKU Base</th>
+                        <th className="p-3 min-w-[260px]">Descripción / Nombre</th>
+                        <th className="p-3 min-w-[140px]">Prenda</th>
+                        <th className="p-3 min-w-[130px]">Género</th>
+                        <th className="p-3 min-w-[150px]">Marca (Catálogo)</th>
+                        <th className="p-3 min-w-[120px]">Composición</th>
                         <th className="p-3 text-right">Precio USD</th>
                         <th className="p-3 text-center">Acciones</th>
                       </tr>
@@ -1671,10 +1982,11 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                               </div>
                             </td>
 
-                            {/* 2. SKU Base */}
+                            {/* 2. SKU Base (Textarea de 2 filas para SKUs largos) */}
                             <td className="p-3 font-mono text-xs font-bold align-top">
                               {(!isMatch || isForcedNew) ? (
-                                <Input
+                                <Textarea
+                                  rows={2}
                                   value={producto.sku_base}
                                   onChange={(e) => {
                                     const newSkuVal = e.target.value
@@ -1684,32 +1996,118 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                                       )
                                     )
                                   }}
-                                  className="h-9 w-32 font-mono text-xs font-bold bg-background/80"
+                                  placeholder="SKU Base..."
+                                  className="min-h-[52px] w-full min-w-[130px] font-mono text-xs font-bold bg-background/80 resize-none py-1.5 leading-snug"
                                 />
                               ) : (
-                                <span className="text-foreground">{producto.sku_base}</span>
+                                <span className="text-foreground block break-words">{producto.sku_base}</span>
                               )}
                             </td>
 
-                            {/* 3. Descripción / Nombre (2 filas adaptativas) */}
+                            {/* 3. Descripción / Nombre con Botón Auto-detectar */}
                             <td className="p-3 align-top">
-                              <Textarea
-                                rows={2}
-                                value={producto.descripcion ?? producto.nombre ?? ''}
-                                onChange={(event) => {
-                                  const value = event.target.value
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 px-1.5 text-[10px] gap-1 text-primary hover:bg-primary/10 font-bold"
+                                    onClick={() => handleAutoDetectProduct(index)}
+                                    title="Detectar Prenda, Género, Edad y Marca desde el texto"
+                                  >
+                                    <Sparkles className="h-3 w-3 text-amber-500 animate-pulse" />
+                                    <span>Auto-detectar</span>
+                                  </Button>
+                                </div>
+                                <Textarea
+                                  rows={2}
+                                  value={producto.descripcion ?? producto.nombre ?? ''}
+                                  onChange={(event) => {
+                                    const value = event.target.value
+                                    setEditableProductos((prev) =>
+                                      prev.map((item, itemIndex) =>
+                                        itemIndex === index ? { ...item, descripcion: value, nombre: value } : item
+                                      )
+                                    )
+                                  }}
+                                  placeholder="Descripción del producto..."
+                                  className="min-h-[52px] resize-y text-xs bg-background/90 font-medium py-1.5 leading-snug w-full min-w-[240px]"
+                                />
+                              </div>
+                            </td>
+
+                            {/* 4. Selector de Tipo de Prenda */}
+                            <td className="p-3 align-top">
+                              <Select
+                                value={producto.tipo_prenda_id ? String(producto.tipo_prenda_id) : ''}
+                                onValueChange={(val) => {
+                                  const found = tipos_prenda.find((t) => String(t.id) === val)
                                   setEditableProductos((prev) =>
                                     prev.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, descripcion: value, nombre: value } : item
+                                      itemIndex === index
+                                        ? {
+                                            ...item,
+                                            tipo_prenda: found ? found.nombre : item.tipo_prenda,
+                                            tipo_prenda_id: found ? found.id : null,
+                                          }
+                                        : item
                                     )
                                   )
                                 }}
-                                placeholder="Descripción del producto..."
-                                className="min-h-[52px] resize-none text-xs bg-background/90 font-medium py-1.5 leading-snug w-full min-w-[240px]"
-                              />
+                              >
+                                <SelectTrigger className="h-9 text-xs bg-background/90 w-36 font-semibold">
+                                  <span className="truncate text-left flex-1">
+                                    {tipos_prenda.find((t) => String(t.id) === String(producto.tipo_prenda_id))?.nombre || producto.tipo_prenda || 'Seleccionar...'}
+                                  </span>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-56">
+                                  {tipos_prenda.map((t) => (
+                                    <SelectItem key={t.id} value={t.id.toString()} className="text-xs">
+                                      {t.nombre}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </td>
 
-                            {/* 4. Selector de Marca de Catálogo (muestra cat_marcas.nombre) */}
+                            {/* 5. Selector de Género (con auto-inferencia de Edad en segundo plano) */}
+                            <td className="p-3 align-top">
+                              <Select
+                                value={producto.genero_id ? String(producto.genero_id) : ''}
+                                onValueChange={(val) => {
+                                  const found = generos.find((g) => String(g.id) === val)
+                                  const inferredEdad = inferEdadFromGeneroAndText(val, producto.descripcion ?? producto.nombre ?? '', detectorCatalogos)
+                                  setEditableProductos((prev) =>
+                                    prev.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? {
+                                            ...item,
+                                            genero: found ? found.nombre : item.genero,
+                                            genero_id: found ? found.id : null,
+                                            ...(inferredEdad?.id ? { edad_id: inferredEdad.id, edad: inferredEdad.nombre } : {}),
+                                          }
+                                        : item
+                                    )
+                                  )
+                                }}
+                              >
+                                <SelectTrigger className="h-9 text-xs bg-background/90 w-32 font-semibold">
+                                  <span className="truncate text-left flex-1">
+                                    {generos.find((g) => String(g.id) === String(producto.genero_id))?.nombre || producto.genero || 'Seleccionar...'}
+                                  </span>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-56">
+                                  {generos.map((g) => (
+                                    <SelectItem key={g.id} value={g.id.toString()} className="text-xs">
+                                      {g.nombre}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+
+                            {/* 6. Selector de Marca de Catálogo (muestra cat_marcas.nombre) */}
                             <td className="p-3 align-top">
                               <div className="space-y-1">
                                 {jsonMarca && jsonMarca.toUpperCase() !== displayBrandName.toUpperCase() && (
@@ -1734,10 +2132,10 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                                     )
                                   }}
                                 >
-                                  <SelectTrigger className="h-9 text-xs bg-background/90 w-44 font-semibold">
-                                    <SelectValue placeholder="Seleccionar marca...">
+                                  <SelectTrigger className="h-9 text-xs bg-background/90 w-36 font-semibold">
+                                    <span className="truncate text-left flex-1">
                                       {displayBrandName || 'Seleccionar marca...'}
-                                    </SelectValue>
+                                    </span>
                                   </SelectTrigger>
                                   <SelectContent className="max-h-56">
                                     {marcas.map((m) => (
@@ -1750,7 +2148,7 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                               </div>
                             </td>
 
-                            {/* 5. Composición */}
+                            {/* 7. Composición */}
                             <td className="p-3 align-top">
                               <Input
                                 value={producto.composicion ?? ''}
@@ -1767,7 +2165,7 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
                               />
                             </td>
 
-                            {/* 6. Precio USD con Incremento ± 0.5 */}
+                            {/* 8. Precio USD con Incremento ± 0.5 */}
                             <td className="p-3 text-right font-mono text-xs align-top">
                               <div className="flex items-center justify-end gap-1">
                                 <Input
@@ -2577,6 +2975,188 @@ export function OrdenRapidaWizard({ proveedores, clientes, contenedores, marcas 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal 4: Corroborar Proveedor y Confirmación Definitiva de la Orden B2B */}
+      <Dialog open={isConfirmFinalModalOpen} onOpenChange={setIsConfirmFinalModalOpen}>
+        <DialogContent className="w-[98vw] sm:max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" /> Corroborar Proveedor y Guardar Orden B2B
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Antes de registrar la orden en Supabase, corrobora la asignación de socios comerciales para los productos, cajas y orden de compra.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            {/* 1. Selector/Confirmación de Proveedor Origen */}
+            <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+              <Label htmlFor="modal-proveedor" className="text-xs font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
+                <span>🏢 Proveedor Origen (Asignación obligatoria)</span>
+              </Label>
+              <Select value={selectedProveedor} onValueChange={(val) => setSelectedProveedor(val || '')}>
+                <SelectTrigger id="modal-proveedor" className="h-9 bg-background font-semibold text-xs border-emerald-300">
+                  <span className="truncate text-left flex-1">
+                    {selectedProveedorObj?.nombre_completo || 'Selecciona el proveedor...'}
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="max-h-56">
+                  {proveedores.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)} className="text-xs font-medium">
+                      {p.nombre_completo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="space-y-1 text-[11px] text-emerald-900/90 dark:text-emerald-300/90 pt-1">
+                <p>✓ <strong>Productos (`persona_id`):</strong> Los <strong>{editableProductos.length}</strong> productos nuevos o actualizados se asociarán a <strong>{selectedProveedorObj?.nombre_completo}</strong> como su proveedor/fabricante.</p>
+                <p>✓ <strong>Cajas (`proveedor_id`):</strong> Las <strong>{totalCajasCount}</strong> cajas quedarán registradas para este proveedor.</p>
+                <p>✓ <strong>Orden B2B (`proveedor_id`):</strong> La cabecera de la orden quedará registrada a nombre de este proveedor.</p>
+              </div>
+            </div>
+
+            {/* 2. Cliente B2B y Contenedor */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1 rounded-lg border bg-muted/30 p-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase">Cliente B2B Destino</span>
+                <p className="font-semibold text-foreground truncate">{selectedClienteObj?.nombre_completo || 'No seleccionado'}</p>
+                <p className="text-[10px] text-muted-foreground">Guardado como <code className="font-mono">cliente_b2b_id</code> en la orden</p>
+              </div>
+
+              <div className="space-y-1 rounded-lg border bg-muted/30 p-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase">Contenedor Asignado</span>
+                <p className="font-mono font-bold text-foreground truncate">
+                  {selectedContenedor === 'new'
+                    ? `${newContainerCode} (Nuevo)`
+                    : (selectedContenedorObj?.codigo_contenedor ?? 'Sin asignar')}
+                </p>
+                <p className="text-[10px] text-muted-foreground">Unidad de transporte físico (multi-proveedor)</p>
+              </div>
+            </div>
+
+            {/* 3. Resumen de Totales a Registrar */}
+            <div className="rounded-lg border bg-card p-3 space-y-2 shadow-xs">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase">Resumen de carga a registrar</span>
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="rounded bg-muted/50 p-2">
+                  <span className="block text-[10px] text-muted-foreground">SKUs</span>
+                  <span className="font-mono font-bold text-sm text-primary">{editableProductos.length}</span>
+                </div>
+                <div className="rounded bg-muted/50 p-2">
+                  <span className="block text-[10px] text-muted-foreground">Cajas Físicas</span>
+                  <span className="font-mono font-bold text-sm text-primary">{totalCajasCount}</span>
+                </div>
+                <div className="rounded bg-muted/50 p-2">
+                  <span className="block text-[10px] text-muted-foreground">Piezas Totales</span>
+                  <span className="font-mono font-bold text-sm text-primary">{totalPiezasCount.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsConfirmFinalModalOpen(false)}
+              disabled={isPending}
+            >
+              Regresar a revisar
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setIsConfirmFinalModalOpen(false)
+                handleConfirmReview()
+              }}
+              disabled={isPending || !selectedProveedor || !selectedCliente}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 shadow-sm"
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Guardando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar y Guardar en Supabase
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal 5: Guía Visual de Formatos de Packing List */}
+      <Dialog open={isParserGuideOpen} onOpenChange={setIsParserGuideOpen}>
+        <DialogContent className="w-[98vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
+              <HelpCircle className="h-5 w-5 text-primary" /> Guía Visual: Formatos y Plantillas de Packing List (n8n)
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Compara la estructura de tu archivo Excel con las plantillas soportadas para elegir el camino correcto en el procesamiento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {PARSER_FORMATS.filter(f => f.id !== 'auto').map((format) => (
+                <div
+                  key={format.id}
+                  className={`rounded-xl border p-4 space-y-3 transition-all ${
+                    selectedParserFormat === format.id
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5 shadow-xs'
+                      : 'border-border/70 bg-card hover:border-border'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm text-foreground">{format.label}</span>
+                    <Badge variant="outline" className={`text-[10px] font-mono ${format.badgeColor}`}>
+                      Ruta n8n: {format.id}
+                    </Badge>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {format.fullDesc}
+                  </p>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Estructura típica de columnas:</span>
+                    <div className="rounded bg-muted/70 p-2 font-mono text-[10px] text-foreground border border-border/50 overflow-x-auto whitespace-nowrap">
+                      {format.headerPreview}
+                    </div>
+                  </div>
+
+                  <div className="rounded-md bg-muted/30 p-2 text-[11px] space-y-1 border border-border/40">
+                    <span className="font-semibold text-foreground">Proveedores / Fabricantes de ejemplo:</span>
+                    <p className="text-muted-foreground text-[10px]">{format.proveedoresEjemplo}</p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant={selectedParserFormat === format.id ? "default" : "outline"}
+                    size="sm"
+                    className="w-full h-7 text-xs font-semibold"
+                    onClick={() => {
+                      setSelectedParserFormat(format.id)
+                      setIsParserGuideOpen(false)
+                      toast.success(`Formato cambiado a ${format.label}`)
+                    }}
+                  >
+                    {selectedParserFormat === format.id ? "✓ Formato Seleccionado" : `Usar este Formato (${format.id})`}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2 border-t">
+            <Button variant="outline" size="sm" onClick={() => setIsParserGuideOpen(false)}>
+              Cerrar Guía
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

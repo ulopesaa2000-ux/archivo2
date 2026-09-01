@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de campo para edición rápida
 // ─────────────────────────────────────────────────────────────────────────────
-export type FieldType = 'text' | 'number' | 'currency' | 'select' | 'boolean' | 'date'
+export type FieldType = 'text' | 'textarea' | 'number' | 'currency' | 'select' | 'boolean' | 'date'
 
 export type QuickEditField = {
   /** Key del campo en el registro (ej. 'precio_ec', 'estado') */

@@ -62,12 +62,14 @@ async function CatalogoData({
   order,
   vista,
   puedeCrear,
+  rawParams,
 }: { 
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
   vista: 'grid' | 'tabla'
   puedeCrear: boolean
+  rawParams?: CatalogoSearchParams
 }) {
   const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
     fetchProductosCatalogo(filtros),
@@ -79,6 +81,19 @@ async function CatalogoData({
     ...getDefaultFeatures('/catalogo'),
     ...userFeatures,
   }
+
+  const createHref = (() => {
+    const p = new URLSearchParams()
+    if (rawParams) {
+      Object.entries(rawParams).forEach(([k, v]) => {
+        if (v && k !== 'modal' && k !== 'edit_id' && k !== 'delete_id') {
+          p.set(k, v)
+        }
+      })
+    }
+    p.set('modal', 'create')
+    return `/catalogo?${p.toString()}`
+  })()
 
   return (
     <>
@@ -97,7 +112,7 @@ async function CatalogoData({
           {puedeCrear && (
             <>
               <Link 
-                href="/catalogo?modal=create" 
+                href={createHref} 
                 scroll={false} 
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
               >
@@ -173,7 +188,14 @@ export default async function CatalogoPage({
   return (
     <div className="space-y-4">
       <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} vista={vista} puedeCrear={puedeCrear} />
+        <CatalogoData 
+          filtros={filtros} 
+          sortBy={sortBy} 
+          order={order} 
+          vista={vista} 
+          puedeCrear={puedeCrear} 
+          rawParams={params}
+        />
       </Suspense>
     </div>
   )

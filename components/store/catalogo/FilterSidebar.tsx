@@ -23,7 +23,9 @@ import { cn } from '@/lib/utils'
 const GENEROS = [
   { id: 'dama', label: '👩 Dama', value: 'dama' },
   { id: 'caballero', label: '👨 Caballero', value: 'caballero' },
-  { id: 'infantil', label: '👶 Infantil / Niños', value: 'infantil' },
+  { id: 'infantil', label: '👶 Infantil (Todos)', value: 'infantil' },
+  { id: 'nino', label: '👦 Niño', value: 'nino' },
+  { id: 'nina', label: '👧 Niña', value: 'nina' },
   { id: 'unisex', label: '🚻 Unisex', value: 'unisex' },
 ]
 

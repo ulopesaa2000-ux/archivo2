@@ -32,6 +32,10 @@ import {
 import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
 import type { ContenedorResumen } from '@/modules/contenedores/types'
 
+import { ResumenContenedorModal } from './ResumenContenedorModal'
+
+const IMPORTADORES_SUGERIDOS = ['VARDIT', 'ABRAHAM', 'ILAN', 'ARIEL']
+
 const DOC_KEYS = [
   { key: 'bl', label: 'B/L (Bill of Lading)' },
   { key: 'factura', label: 'Factura Comercial' },
@@ -134,7 +138,13 @@ export function ContenedorCabecera({
           <span className="text-foreground font-medium font-mono">{contenedor.codigo_contenedor}</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Botón Resumen / Exportar Tabla Excel */}
+          <ResumenContenedorModal
+            contenedorId={contenedor.id}
+            codigoContenedor={contenedor.codigo_contenedor}
+          />
+
           {/* Estado con transiciones */}
           {canEdit && transicionesPermitidas.length > 0 && (
             <Select onValueChange={(v: any) => { if (v) handleEstado(v) }} disabled={isPending}>
@@ -243,19 +253,49 @@ export function ContenedorCabecera({
                     <Input name="codigo_contenedor" defaultValue={contenedor.codigo_contenedor} required className="h-9" /></div>
                   <div className="space-y-1"><Label className="text-xs">N° Contenedor</Label>
                     <Input name="numero_contenedor" defaultValue={contenedor.numero_contenedor ?? ''} className="h-9" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Naviera</Label>
-                    <Input name="naviera" defaultValue={contenedor.naviera ?? ''} className="h-9" /></div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-primary">Importador</Label>
+                    <Input
+                      list="importadores-cabecera"
+                      name="importador"
+                      defaultValue={(contenedor.documentos_checklist as any)?.importador ?? ''}
+                      placeholder="ej. VARDIT, ABRAHAM, ILAN..."
+                      className="h-9"
+                    />
+                    <datalist id="importadores-cabecera">
+                      {IMPORTADORES_SUGERIDOS.map((imp) => (
+                        <option key={imp} value={imp} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-primary">Pagador</Label>
+                    <Input
+                      list="pagadores-cabecera"
+                      name="pagador"
+                      defaultValue={(contenedor.documentos_checklist as any)?.pagador ?? ''}
+                      placeholder="ej. VARDIT, ABRAHAM..."
+                      className="h-9"
+                    />
+                    <datalist id="pagadores-cabecera">
+                      {IMPORTADORES_SUGERIDOS.map((imp) => (
+                        <option key={imp} value={imp} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="space-y-1"><Label className="text-xs">Naviera / Agente Aduanal</Label>
+                    <Input name="naviera" defaultValue={contenedor.naviera ?? ''} placeholder="ej. VARDIT, SHENZHEN HYT..." className="h-9" /></div>
                   <div className="space-y-1"><Label className="text-xs">N° BL</Label>
                     <Input name="numero_bl" defaultValue={contenedor.numero_bl ?? ''} className="h-9" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Buque</Label>
-                    <Input name="buque" defaultValue={contenedor.buque ?? ''} className="h-9" /></div>
+                  <div className="space-y-1"><Label className="text-xs">Buque / Viaje</Label>
+                    <Input name="buque" defaultValue={contenedor.buque ?? ''} placeholder="ej. NAVIOS JASMINE/614N" className="h-9" /></div>
                   <div className="space-y-1"><Label className="text-xs">Puerto Origen</Label>
                     <Input name="puerto_origen" defaultValue={contenedor.puerto_origen ?? ''} className="h-9" /></div>
                   <div className="space-y-1"><Label className="text-xs">Puerto Destino</Label>
                     <Input name="puerto_destino" defaultValue={contenedor.puerto_destino ?? ''} className="h-9" /></div>
-                  <div className="space-y-1"><Label className="text-xs">ETD</Label>
+                  <div className="space-y-1"><Label className="text-xs">ETD (Salida)</Label>
                     <Input type="date" name="fecha_etd" defaultValue={contenedor.fecha_etd?.slice(0, 10) ?? ''} className="h-9" /></div>
-                  <div className="space-y-1"><Label className="text-xs">ETA</Label>
+                  <div className="space-y-1"><Label className="text-xs">ETA (Llegada Est.)</Label>
                     <Input type="date" name="fecha_eta" defaultValue={contenedor.fecha_eta?.slice(0, 10) ?? ''} className="h-9" /></div>
                   <div className="space-y-1"><Label className="text-xs">Peso (kg)</Label>
                     <Input type="number" step="0.01" name="peso_total_kg" defaultValue={contenedor.peso_total_kg ?? ''} className="h-9" /></div>
@@ -284,7 +324,7 @@ export function ContenedorCabecera({
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Costo Desaduanamiento (USD/MXN)</Label>
+                    <Label className="text-xs">Costo Desaduanamiento / Pasada</Label>
                     <div className="relative">
                       <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input type="number" step="0.01" name="costo_desaduanamiento" defaultValue={contenedor.costo_desaduanamiento ?? ''} className="h-9 pl-8" />
@@ -352,12 +392,30 @@ export function ContenedorCabecera({
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-xl font-bold font-mono">{contenedor.numero_contenedor ?? contenedor.codigo_contenedor}</h2>
                 <Badge className={estadoColor}>{ESTADO_CONTENEDOR_LABELS[contenedor.estado ?? ''] ?? contenedor.estado}</Badge>
+                {(contenedor.documentos_checklist as any)?.importador && (
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                    Importador: {(contenedor.documentos_checklist as any).importador}
+                  </Badge>
+                )}
+                {(contenedor.documentos_checklist as any)?.pagador && (
+                  <Badge variant="outline" className="bg-muted text-muted-foreground">
+                    Pagador: {(contenedor.documentos_checklist as any).pagador}
+                  </Badge>
+                )}
               </div>
 
               {/* Grid 1: Datos Base */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6">
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Naviera</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Importador</span>
+                  <p className="text-base font-bold text-primary">{(contenedor.documentos_checklist as any)?.importador ?? '—'}</p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Pagador</span>
+                  <p className="text-base font-bold text-foreground">{(contenedor.documentos_checklist as any)?.pagador ?? '—'}</p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Naviera / Agente</span>
                   <p className="text-base font-bold text-foreground">{contenedor.naviera ?? '—'}</p>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -365,7 +423,7 @@ export function ContenedorCabecera({
                   <p className="font-mono text-sm font-semibold">{contenedor.numero_bl ?? '—'}</p>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Buque</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Buque / Viaje</span>
                   <p className="text-base font-semibold">{contenedor.buque ?? '—'}</p>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -373,11 +431,11 @@ export function ContenedorCabecera({
                   <p className="text-xs font-medium">{contenedor.puerto_origen ?? '?'} → {contenedor.puerto_destino ?? '?'}</p>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ETD</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ETD (Salida)</span>
                   <p className="text-base font-semibold"><Fecha valor={contenedor.fecha_etd} formato="fecha" /></p>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ETA</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ETA (Llegada Est.)</span>
                   <p className="text-base font-semibold"><Fecha valor={contenedor.fecha_eta} formato="fecha" /></p>
                 </div>
                 <div className="flex flex-col gap-1">

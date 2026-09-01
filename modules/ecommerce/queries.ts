@@ -127,6 +127,8 @@ export async function fetchProductosWebAdmin(
       .from('producto_imagenes')
       .select('producto_id, url, es_principal')
       .in('producto_id', productoIds)
+      .order('es_principal', { ascending: false })
+      .order('orden', { ascending: true })
 
     imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
       if (!acc[img.producto_id] || img.es_principal) {
@@ -271,12 +273,13 @@ export async function fetchProductosNoPublicados(): Promise<
     
     marcas = marcasData || []
     
-    // Get principal images for these products
+    // Get principal images for these products with fallback
     const { data: imagenesData } = await supabase
       .from('producto_imagenes')
       .select('producto_id, url, es_principal')
-      .eq('es_principal', true)
       .in('producto_id', productoIds)
+      .order('es_principal', { ascending: false })
+      .order('orden', { ascending: true })
     
     imagenes = imagenesData || []
   }
@@ -365,15 +368,19 @@ export async function fetchProductosWebPublicos(
         query = query.eq('productos.genero_id', 2) // 2 = Hombre
       } else if (g.includes('unisex')) {
         query = query.eq('productos.genero_id', 3) // 3 = Unisex
-      } else if (g.includes('nino') || g.includes('niña') || g.includes('infantil')) {
-        query = query.in('productos.genero_id', [4, 5]) // 4 = Niño, 5 = Niña
+      } else if (g === 'nino' || g === 'niño' || (g.includes('niñ') && g.includes('o')) || g.includes('nino')) {
+        query = query.eq('productos.genero_id', 4) // 4 = Niño
+      } else if (g === 'nina' || g === 'niña' || (g.includes('niñ') && g.includes('a')) || g.includes('nina')) {
+        query = query.eq('productos.genero_id', 5) // 5 = Niña
+      } else if (g.includes('infantil')) {
+        query = query.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
       }
     }
     if (filtros.tipo) {
       const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
 
       if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
-        query = query.in('productos.genero_id', [4, 5])
+        query = query.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
       }
 
       if (t.includes('chamarr')) {
@@ -427,12 +434,15 @@ export async function fetchProductosWebPublicos(
     if (productoIds.length > 0) {
       const { data: imagenes } = (await supabase
         .from('producto_imagenes')
-        .select('producto_id, url, url_og')
-        .eq('es_principal', true)
-        .in('producto_id', productoIds)) as any
+        .select('producto_id, url, url_og, es_principal, orden')
+        .in('producto_id', productoIds)
+        .order('es_principal', { ascending: false })
+        .order('orden', { ascending: true })) as any
 
       imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-        acc[img.producto_id] = { url: img.url, url_og: img.url_og }
+        if (!acc[img.producto_id] || img.es_principal) {
+          acc[img.producto_id] = { url: img.url, url_og: img.url_og }
+        }
         return acc
       }, {})
     }
@@ -572,13 +582,16 @@ const fetchProductoWebBySlugCached = cache(async (
     return null
   }
 
-  // Obtener imagen principal
-  const { data: imagen } = (await supabase
+  // Obtener imagen principal con fallback seguro
+  const { data: imagenes } = (await supabase
     .from('producto_imagenes')
-    .select('url, url_og')
+    .select('url, url_og, es_principal')
     .eq('producto_id', data.producto_id)
-    .eq('es_principal', true)
-    .single()) as any
+    .order('es_principal', { ascending: false })
+    .order('orden', { ascending: true })
+    .limit(1)) as any
+
+  const imagen = imagenes?.[0] || null
 
   const prod = data.productos as any
 
@@ -718,10 +731,12 @@ export async function fetchImagenesProducto(
 
   const supabase = createStaticClient()
 
-  const { data, error } = await supabase
-    .from('producto_imagenes')
-    .select('url, es_principal, orden')
+  const { data, error } = await (supabase
+    .from('producto_imagenes') as any)
+    .select('url, es_principal, orden, uso_imagen')
     .eq('producto_id', productoId)
+    .not('uso_imagen', 'in', '("oculta","oculto","ficha_tecnica","etiqueta_logistica")')
+    .order('es_principal', { ascending: false })
     .order('orden', { ascending: true })
 
   if (error) {
@@ -729,11 +744,20 @@ export async function fetchImagenesProducto(
     return []
   }
 
-  return (data || []).map((img: any) => ({
-    url: img.url,
-    es_principal: img.es_principal || false,
-    orden: img.orden || 0
-  }))
+  const seenUrls = new Set<string>()
+  const result: { url: string; es_principal: boolean; orden: number }[] = []
+
+  for (const img of data || []) {
+    if (!img.url || seenUrls.has(img.url)) continue
+    seenUrls.add(img.url)
+    result.push({
+      url: img.url,
+      es_principal: img.es_principal || false,
+      orden: img.orden || 0,
+    })
+  }
+
+  return result
 }
 
 // ═══════════════════════════════════════════════════════════════

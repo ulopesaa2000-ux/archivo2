@@ -4,11 +4,12 @@
 export const usoImagenOptions = [
   { value: 'principal_ecommerce', label: 'Principal E-commerce' },
   { value: 'galeria_secundaria', label: 'Galería Secundaria' },
+  { value: 'color_variacion', label: 'Variación de Color' },
+  { value: 'tallas_variacion', label: 'Variación de Talla' },
   { value: 'ficha_tecnica', label: 'Ficha Técnica' },
   { value: 'marketing_banner', label: 'Marketing / Banner' },
   { value: 'etiqueta_logistica', label: 'Etiqueta Logística' },
-  { value: 'color_variacion', label: 'Variación de Color' },
-  { value: 'tallas_variacion', label: 'Variación de Talla' },
+  { value: 'oculta', label: '🚫 Oculta (No pública)' },
 ] as const
 
 export const origenOptions = [
@@ -24,14 +25,18 @@ export const USO_IMAGEN_LABELS: Record<string, string> = {
   etiqueta_logistica: 'Etiqueta Logística',
   color_variacion: 'Variación de Color',
   tallas_variacion: 'Variación de Talla',
+  oculta: '🚫 Oculta (No pública)',
+  oculto: '🚫 Oculta (No pública)',
 }
 
 export const USO_IMAGEN_COLORS: Record<string, string> = {
-  principal_ecommerce: 'bg-blue-500',
-  galeria_secundaria: 'bg-purple-500',
-  ficha_tecnica: 'bg-amber-500',
-  marketing_banner: 'bg-green-500',
-  etiqueta_logistica: 'bg-slate-500',
-  color_variacion: 'bg-pink-500',
-  tallas_variacion: 'bg-indigo-500',
+  principal_ecommerce: 'bg-blue-600 text-white',
+  galeria_secundaria: 'bg-purple-600 text-white',
+  ficha_tecnica: 'bg-amber-600 text-white',
+  marketing_banner: 'bg-green-600 text-white',
+  etiqueta_logistica: 'bg-slate-600 text-white',
+  color_variacion: 'bg-pink-600 text-white',
+  tallas_variacion: 'bg-indigo-600 text-white',
+  oculta: 'bg-zinc-600 text-zinc-200 border border-zinc-500/50',
+  oculto: 'bg-zinc-600 text-zinc-200 border border-zinc-500/50',
 }

@@ -95,6 +95,11 @@ export function StoreFooter() {
                 </Link>
               </li>
               <li>
+                <Link href="/shop?genero=infantil" className="text-store-ink2 hover:text-store-accent transition-colors">
+                  Categoría Infantil
+                </Link>
+              </li>
+              <li>
                 <Link href="/shop?destacado=true" className="text-store-ink2 hover:text-store-accent transition-colors">
                   Promociones & Destacados
                 </Link>
