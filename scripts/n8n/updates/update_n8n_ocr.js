@@ -137,7 +137,11 @@ La estructura general sigue este orden de lectura habitual (NO es una ley rígid
    - CADA COLUMNA REPRESENTA PRODUCTOS TOTALMENTE INDEPENDIENTES.
    - NUNCA tomes el texto o código de la columna derecha como la "descripción" de la columna izquierda.
    - Extrae secuencialmente TODOS los renglones de la Columna Izquierda y luego TODOS los de la Columna Derecha (o renglón por renglón) como elementos SEPARADOS en el arreglo "lineas".
-   - Si la hoja no tiene encabezado impreso "ORDEN DE MOVIMIENTOS", asume tipo_movimiento: "ENT".\`;
+   - Si la hoja no tiene encabezado impreso "ORDEN DE MOVIMIENTOS", asume tipo_movimiento: "ENT".
+
+9. CANTIDADES DECIMALES Y FRACCIONES (MEDIAS CAJAS):
+   - Si en la columna de cantidad (cajas) viene un número decimal o fracción como '0.5', '1/2', '0,5', '.5', o '1.5', conviértelo a su valor numérico decimal en 'cantidad_cajas' (ej: 0.5).
+   - Si el campo de cantidad viene vacío o ilegible, asume 1.\`;
 
 const imageUrl = meta.comprobante_url || meta.image_url || $('Subir imagen al bucket1').first()?.json?.publicUrl || $('Subir imagen al bucket').first()?.json?.publicUrl;
 
@@ -299,8 +303,15 @@ const processedLines = rawLines.map((l, idx) => {
   const textoDescripcion = (l.descripcion_raw && l.descripcion_raw !== rawCandidate) 
     ? l.descripcion_raw 
     : (l.descripcion_texto || skuLimpio || rawCandidate);
-  let qty = l.cantidad_cajas;
-  if (qty == null || isNaN(qty) || Number(qty) <= 0) { qty = 1; }
+  let rawQty = l.cantidad_cajas;
+  if (typeof rawQty === 'string') {
+    rawQty = rawQty.trim().replace(',', '.');
+    if (rawQty === '1/2' || rawQty === '.5') rawQty = '0.5';
+    else if (rawQty === '1/4' || rawQty === '.25') rawQty = '0.25';
+    else if (rawQty === '3/4' || rawQty === '.75') rawQty = '0.75';
+  }
+  let qty = Number(rawQty);
+  if (rawQty == null || isNaN(qty) || qty <= 0) { qty = 1; }
 
   const variantes = Array.isArray(l.posibles_variantes) ? l.posibles_variantes : [];
 
@@ -770,7 +781,7 @@ DECLARE
   v_num_nota TEXT;
   v_linea JSONB;
   v_p_id INT;
-  v_cajas INT;
+  v_cajas NUMERIC;
   v_pzas INT;
   v_omitidas TEXT[] := ARRAY[]::TEXT[];
   v_obs TEXT;
@@ -923,12 +934,12 @@ BEGIN
 
     -- Si se resolvió el producto_id, se inserta en detalle
     IF v_p_id IS NOT NULL THEN
-      v_cajas := COALESCE((v_linea->>'cantidad_cajas')::int, 1);
-      v_pzas := COALESCE((v_linea->>'piezas_por_caja')::int, 0);
+      v_cajas := COALESCE(NULLIF(TRIM(v_linea->>'cantidad_cajas'), '')::numeric, 1.0);
+      v_pzas := COALESCE(NULLIF(TRIM(v_linea->>'piezas_por_caja'), '')::numeric::integer, 0);
 
       PERFORM "inv-tienda".sp_agregar_producto_nota(
         p_caja_id         := NULL::integer,
-        p_cajas           := v_cajas::integer,
+        p_cajas           := v_cajas::numeric,
         p_codigo_original := NULL::character varying,
         p_nota_id         := v_nota_id::integer,
         p_piezas_sueltas  := v_pzas::integer,

@@ -163,3 +163,76 @@ export function validarCantidad(
   
   return { valido: true }
 }
+
+/**
+ * Determina la unidad de venta efectiva para un producto
+ */
+export function getUnidadVentaEfectiva(
+  producto: ProductoWebPublico,
+  config: ConfigEcommerce | null
+): 'piezas' | 'cajas' | 'ambos' {
+  if (producto.unidad_venta) {
+    if (producto.unidad_venta === 'caja') return 'cajas'
+    if (producto.unidad_venta === 'pieza') return 'piezas'
+    if (producto.unidad_venta === 'ambas') return 'ambos'
+  }
+  return (config?.tipo_venta as any) || 'cajas'
+}
+
+/**
+ * Formatea el stock disponible considerando la unidad de venta (cajas, piezas o ambos)
+ */
+export function formatearStockDisponible(
+  producto: ProductoWebPublico,
+  config: ConfigEcommerce | null
+): {
+  texto: string
+  textoCorto: string
+  disponible: boolean
+  cajas: number
+  piezas: number
+} {
+  const unidad = getUnidadVentaEfectiva(producto, config)
+  const cajas = producto.stock_cajas ?? 0
+  const piezas = producto.piezas_estimadas || (producto.stock_piezas ?? 0)
+  const disponible = cajas > 0 || piezas > 0
+
+  if (!disponible) {
+    return {
+      texto: unidad === 'cajas' ? 'Sin cajas en stock actualmente' : 'Sin existencias disponibles',
+      textoCorto: unidad === 'cajas' ? '0 cajas' : '0 pz',
+      disponible: false,
+      cajas: 0,
+      piezas: 0,
+    }
+  }
+
+  if (unidad === 'cajas') {
+    return {
+      texto: `Stock disponible: ${cajas} ${cajas === 1 ? 'caja' : 'cajas'}`,
+      textoCorto: `📦 ${cajas} ${cajas === 1 ? 'caja' : 'cajas'}`,
+      disponible: true,
+      cajas,
+      piezas,
+    }
+  }
+
+  if (unidad === 'piezas') {
+    return {
+      texto: `Stock disponible: ${piezas.toLocaleString('es-MX')} ${piezas === 1 ? 'pieza' : 'piezas'}`,
+      textoCorto: `📦 ${piezas.toLocaleString('es-MX')} pz`,
+      disponible: true,
+      cajas,
+      piezas,
+    }
+  }
+
+  // 'ambos'
+  return {
+    texto: `Stock disponible: ${cajas} ${cajas === 1 ? 'caja' : 'cajas'}${piezas > 0 ? ` (aprox. ${piezas.toLocaleString('es-MX')} pzas)` : ''}`,
+    textoCorto: `📦 ${cajas} ${cajas === 1 ? 'caja' : 'cajas'}${piezas > 0 ? ` (${piezas} pz)` : ''}`,
+    disponible: true,
+    cajas,
+    piezas,
+  }
+}

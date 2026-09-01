@@ -15,6 +15,7 @@ export type ConfigEcommerceInsert = Tables['config_ecommerce']['Insert']
 export type ConfigEcommerceUpdate = Tables['config_ecommerce']['Update']
 
 export type ModoOperacion = 'catalogo' | 'ecommerce' | 'hibrido'
+export type ModoVisibilidadCatalogo = 'todos_publicados' | 'stock_individual' | 'stock_familia'
 export type TipoPrecioVisible = 'publico' | 'oferta' | 'ambos'
 export type TipoVenta = 'piezas' | 'cajas' | 'ambos'
 export type TipoOrdenGenerada = 'cotizacion' | 'orden_b2b' | 'orden_venta'
@@ -24,6 +25,7 @@ export type ModoVistaCarrito = 'drawer' | 'pagina' | 'ambos'
 // Config con tipos fuertes
 export interface ConfigEcommerce extends ConfigEcommerceRow {
   modo_operacion: ModoOperacion
+  modo_visibilidad_catalogo: ModoVisibilidadCatalogo | string | null
   tipo_precio_visible: TipoPrecioVisible
   tipo_venta: TipoVenta
   tipo_orden_generada: TipoOrdenGenerada
@@ -94,6 +96,9 @@ export interface ProductoWebPublico {
   unidad_venta: 'pieza' | 'caja' | 'ambas' | null
   activo: boolean
   visitas?: number | null
+  stock_cajas?: number | null
+  stock_piezas?: number | null
+  piezas_estimadas?: number | null
 }
 
 // ═══════════════════════════════════════════════════════════════
