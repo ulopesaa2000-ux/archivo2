@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { fetchPortadaColeccionHome } from '@/modules/ecommerce/banners'
+import { formatearStockDisponible } from '@/modules/ecommerce/utils'
 import { 
   ArrowRight, 
   Heart, 
@@ -104,11 +105,28 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
             </div>
 
             <div className="p-3.5">
-              {config?.mostrar_sku && prod.sku_base && (
-                <span className="text-[10px] font-mono text-muted-foreground uppercase block truncate">
-                  {prod.sku_base}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                {config?.mostrar_sku && prod.sku_base && (
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase truncate">
+                    {prod.sku_base}
+                  </span>
+                )}
+                {Boolean(config?.mostrar_stock) && (() => {
+                  const stockInfo = formatearStockDisponible(prod, config)
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                        stockInfo.disponible
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                      }`}
+                      title={stockInfo.texto}
+                    >
+                      {stockInfo.textoCorto}
+                    </span>
+                  )
+                })()}
+              </div>
               <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
                 {prod.nombre}
               </h4>

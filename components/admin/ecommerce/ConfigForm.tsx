@@ -34,8 +34,9 @@ import { actualizarConfigEcommerce } from '@/modules/ecommerce/actions'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 
 const formSchema = z.object({
-  // Modo de operación
+  // Modo de operación y visibilidad
   modo_operacion: z.enum(['catalogo', 'ecommerce', 'hibrido']),
+  modo_visibilidad_catalogo: z.enum(['todos_publicados', 'stock_individual', 'stock_familia']),
   mostrar_precios: z.boolean(),
   tipo_precio_visible: z.enum(['publico', 'oferta', 'ambos']),
   
@@ -80,6 +81,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
     resolver: zodResolver(formSchema) as any,
     defaultValues: {
       modo_operacion: (config?.modo_operacion as any) || 'catalogo',
+      modo_visibilidad_catalogo: (config?.modo_visibilidad_catalogo as any) || 'todos_publicados',
       mostrar_precios: config?.mostrar_precios ?? false,
       tipo_precio_visible: (config?.tipo_precio_visible as any) || 'publico',
       tipo_venta: (config?.tipo_venta as any) || 'piezas',
@@ -209,6 +211,89 @@ export function ConfigForm({ config }: ConfigFormProps) {
                 )}
               />
             )}
+          </CardContent>
+        </Card>
+
+        {/* Visibilidad de Productos en Catálogo Público */}
+        <Card className="border-primary/20 bg-primary/[0.02]">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-foreground font-bold">
+                  <span>Visibilidad de Productos en Tienda / Catálogo</span>
+                </CardTitle>
+                <CardDescription>
+                  Define qué productos publicados se muestran a los visitantes en el catálogo público según el stock global
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <FormField
+              control={form.control}
+              name="modo_visibilidad_catalogo"
+              render={({ field }) => (
+                <FormItem className="space-y-3">
+                  <FormLabel className="text-sm font-semibold">Criterio de Visibilidad Pública</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="h-11 bg-background">
+                        <SelectValue placeholder="Selecciona un criterio de visibilidad" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="todos_publicados">
+                        <span className="font-semibold">1. Todos los publicados</span>
+                        <span className="text-muted-foreground text-xs block">Muestra todo producto publicado sin validar existencia de stock</span>
+                      </SelectItem>
+                      <SelectItem value="stock_individual">
+                        <span className="font-semibold">2. Publicados con stock propio (≥ 1 caja)</span>
+                        <span className="text-muted-foreground text-xs block">Solo productos publicados con al menos 1 caja disponible en inventario individual</span>
+                      </SelectItem>
+                      <SelectItem value="stock_familia">
+                        <span className="font-semibold">3. Publicados con stock por familia (≥ 1 caja)</span>
+                        <span className="text-muted-foreground text-xs block">Productos publicados cuya familia cuente con al menos 1 caja global</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Tarjetas de ayuda contextual */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+                    <div className={`p-3 rounded-lg border transition-colors ${field.value === 'todos_publicados' ? 'border-primary bg-primary/10 text-primary-foreground font-medium' : 'border-border/60 bg-muted/30 text-muted-foreground'}`}>
+                      <div className="font-bold mb-1 flex items-center gap-1.5 text-foreground">
+                        <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" />
+                        Modo 1: Catálogo Completo
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Todos los productos marcados como activos se visualizan. Ideal para exhibir temporadas o catálogo general.
+                      </p>
+                    </div>
+
+                    <div className={`p-3 rounded-lg border transition-colors ${field.value === 'stock_individual' ? 'border-primary bg-primary/10 text-primary-foreground font-medium' : 'border-border/60 bg-muted/30 text-muted-foreground'}`}>
+                      <div className="font-bold mb-1 flex items-center gap-1.5 text-foreground">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+                        Modo 2: Stock Propio (≥ 1 Caja)
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Oculta automáticamente productos con 0 cajas. Solo muestra ítems con stock físico real disponible.
+                      </p>
+                    </div>
+
+                    <div className={`p-3 rounded-lg border transition-colors ${field.value === 'stock_familia' ? 'border-primary bg-primary/10 text-primary-foreground font-medium' : 'border-border/60 bg-muted/30 text-muted-foreground'}`}>
+                      <div className="font-bold mb-1 flex items-center gap-1.5 text-foreground">
+                        <span className="h-2 w-2 rounded-full bg-purple-500 inline-block" />
+                        Modo 3: Stock por Familia
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Si un modelo de la familia tiene stock disponible, se muestran los modelos publicados de esa familia.
+                      </p>
+                    </div>
+                  </div>
+
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
 

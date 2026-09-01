@@ -302,6 +302,75 @@ export async function fetchProductosNoPublicados(): Promise<
 // PRODUCTOS WEB PÚBLICOS (STORE)
 // ═══════════════════════════════════════════════════════════════
 
+// Helper para determinar qué producto_ids son visibles según el modo de visibilidad configurado
+async function obtenerIdsProductosVisiblesSegunModo(
+  supabase: any,
+  modoVisibilidad: string
+): Promise<number[] | null> {
+  // Si el modo es 'todos_publicados' (o no definido), no se aplican filtros por stock
+  if (!modoVisibilidad || modoVisibilidad === 'todos_publicados') {
+    return null
+  }
+
+  // Modo 2: Stock propio del producto >= 1 caja
+  if (modoVisibilidad === 'stock_individual') {
+    const { data, error } = await supabase
+      .from('v_stock_consolidado')
+      .select('producto_id')
+      .gte('cajas_total_global', 1)
+
+    if (error || !data) {
+      console.error('Error al consultar stock individual en fetchProductosWebPublicos:', error)
+      return []
+    }
+    return (data as any[]).map((d) => d.producto_id)
+  }
+
+  // Modo 3: Stock por familia >= 1 caja (o stock propio si no tiene familia)
+  if (modoVisibilidad === 'stock_familia') {
+    const { data: stockData, error: stockErr } = await supabase
+      .from('v_stock_consolidado')
+      .select('producto_id, cajas_total_global, producto:productos!inner(id, familia)')
+      .gte('cajas_total_global', 1)
+
+    if (stockErr || !stockData) {
+      console.error('Error al consultar stock por familia en fetchProductosWebPublicos:', stockErr)
+      return []
+    }
+
+    const familiasConStock: string[] = []
+    const prodsSinFamiliaConStock: number[] = []
+
+    for (const item of stockData as any[]) {
+      const fam = item.producto?.familia?.trim()
+      if (fam) {
+        familiasConStock.push(fam)
+      } else if (item.producto_id) {
+        prodsSinFamiliaConStock.push(item.producto_id)
+      }
+    }
+
+    const uniqueFamilias = Array.from(new Set(familiasConStock))
+    let validIds: number[] = [...prodsSinFamiliaConStock]
+
+    if (uniqueFamilias.length > 0) {
+      const { data: prodsFam, error: famErr } = await supabase
+        .from('productos')
+        .select('id')
+        .in('familia', uniqueFamilias)
+        .eq('activo', true)
+
+      if (!famErr && prodsFam) {
+        validIds.push(...(prodsFam as any[]).map((p) => p.id))
+      }
+    }
+
+    return Array.from(new Set(validIds))
+  }
+
+  return null
+}
+
 export async function fetchProductosWebPublicos(
   filtros: FiltrosProductoWeb
 ): Promise<{ productos: ProductoWebPublico[]; total: number }> {
@@ -310,6 +379,17 @@ export async function fetchProductosWebPublicos(
     const page = filtros.page ?? 1
     const from = (page - 1) * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
+
+    // Consultar configuración global de visibilidad
+    const config = await fetchConfigEcommerce()
+    const modoVisibilidad = config?.modo_visibilidad_catalogo || 'todos_publicados'
+
+    const allowedProductIds = await obtenerIdsProductosVisiblesSegunModo(supabase, modoVisibilidad)
+
+    // Si el modo exige stock y ningún producto cumple, retornar lista vacía directamente
+    if (allowedProductIds !== null && allowedProductIds.length === 0) {
+      return { productos: [], total: 0 }
+    }
 
     let query = (supabase
       .from('productos_web') as any)
@@ -343,6 +423,11 @@ export async function fetchProductosWebPublicos(
       )
       .eq('activo', true)
       .eq('productos.activo', true)
+
+    // Aplicar filtro de IDs válidos según modo de visibilidad de stock
+    if (allowedProductIds !== null && allowedProductIds.length > 0) {
+      query = query.in('producto_id', allowedProductIds)
+    }
 
     // Filtros públicos
     if (filtros.en_oferta) {
@@ -427,21 +512,40 @@ export async function fetchProductosWebPublicos(
       return { productos: [], total: 0 }
     }
 
-    // Obtener imágenes principales
+    // Obtener imágenes principales y stock consolidado
     const productoIds = (data || []).map((p: any) => p.producto_id)
 
     let imagenesMap: Record<number, { url: string; url_og: string | null }> = {}
-    if (productoIds.length > 0) {
-      const { data: imagenes } = (await supabase
-        .from('producto_imagenes')
-        .select('producto_id, url, url_og, es_principal, orden')
-        .in('producto_id', productoIds)
-        .order('es_principal', { ascending: false })
-        .order('orden', { ascending: true })) as any
+    let stockMap: Record<number, { cajas: number; piezas: number; estimadas: number }> = {}
 
-      imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
+    if (productoIds.length > 0) {
+      const [imgRes, stockRes] = await Promise.all([
+        (supabase
+          .from('producto_imagenes')
+          .select('producto_id, url, url_og, es_principal, orden')
+          .in('producto_id', productoIds)
+          .order('es_principal', { ascending: false })
+          .order('orden', { ascending: true }) as any),
+        supabase
+          .from('v_stock_consolidado')
+          .select('producto_id, cajas_total_global, piezas_total_global, piezas_estimadas_global')
+          .in('producto_id', productoIds),
+      ])
+
+      const imagenes = imgRes.data || []
+      imagenesMap = imagenes.reduce((acc: any, img: any) => {
         if (!acc[img.producto_id] || img.es_principal) {
           acc[img.producto_id] = { url: img.url, url_og: img.url_og }
+        }
+        return acc
+      }, {})
+
+      const stocks = stockRes.data || []
+      stockMap = stocks.reduce((acc: any, s: any) => {
+        acc[s.producto_id] = {
+          cajas: Number(s.cajas_total_global || 0),
+          piezas: Number(s.piezas_total_global || 0),
+          estimadas: Number(s.piezas_estimadas_global || 0),
         }
         return acc
       }, {})
@@ -478,6 +582,9 @@ export async function fetchProductosWebPublicos(
         modo_override: item.modo_override,
         unidad_venta: item.unidad_venta,
         activo: item.activo,
+        stock_cajas: stockMap[item.producto_id]?.cajas ?? 0,
+        stock_piezas: stockMap[item.producto_id]?.piezas ?? 0,
+        piezas_estimadas: stockMap[item.producto_id]?.estimadas ?? 0,
       }
     })
 
@@ -582,16 +689,24 @@ const fetchProductoWebBySlugCached = cache(async (
     return null
   }
 
-  // Obtener imagen principal con fallback seguro
-  const { data: imagenes } = (await supabase
-    .from('producto_imagenes')
-    .select('url, url_og, es_principal')
-    .eq('producto_id', data.producto_id)
-    .order('es_principal', { ascending: false })
-    .order('orden', { ascending: true })
-    .limit(1)) as any
+  // Obtener imagen principal con fallback seguro y stock consolidado
+  const [imagenesRes, stockRes] = await Promise.all([
+    supabase
+      .from('producto_imagenes')
+      .select('url, url_og, es_principal')
+      .eq('producto_id', data.producto_id)
+      .order('es_principal', { ascending: false })
+      .order('orden', { ascending: true })
+      .limit(1) as any,
+    supabase
+      .from('v_stock_consolidado')
+      .select('cajas_total_global, piezas_total_global, piezas_estimadas_global')
+      .eq('producto_id', data.producto_id)
+      .maybeSingle(),
+  ])
 
-  const imagen = imagenes?.[0] || null
+  const imagen = imagenesRes.data?.[0] || null
+  const stockRow = stockRes.data as any
 
   const prod = data.productos as any
 
@@ -626,6 +741,9 @@ const fetchProductoWebBySlugCached = cache(async (
     unidad_venta: data.unidad_venta,
     activo: data.activo,
     visitas: data.visitas ?? null,
+    stock_cajas: Number(stockRow?.cajas_total_global || 0),
+    stock_piezas: Number(stockRow?.piezas_total_global || 0),
+    piezas_estimadas: Number(stockRow?.piezas_estimadas_global || 0),
   } as ProductoWebPublico
 })
 

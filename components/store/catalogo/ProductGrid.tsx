@@ -8,7 +8,7 @@ import { Check } from 'lucide-react'
 import { Pagination } from '@/components/admin/Pagination'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import type { ProductoWebPublico, ConfigEcommerce } from '@/modules/ecommerce/types'
-import { mostrarPrecio, formatearPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
+import { mostrarPrecio, formatearPrecio, getPrecioAMostrar, formatearStockDisponible } from '@/modules/ecommerce/utils'
 import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
 
 interface ProductGridProps {
@@ -158,15 +158,30 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
           {producto.nombre}
         </div>
         
-        {/* Fila inferior: SKU (h2 estilo subtítulo) a la izquierda, Botón de acción a la derecha */}
-        <div className="flex items-center justify-between min-h-[26px]">
-          {config?.mostrar_sku && producto.sku_base ? (
-            <div className="text-[13px] font-mono font-medium text-muted-foreground dark:text-gray-300 truncate">
-              {producto.sku_base}
-            </div>
-          ) : (
-            <div />
-          )}
+        {/* Fila inferior: SKU y Stock a la izquierda, Botón de acción a la derecha */}
+        <div className="flex items-center justify-between min-h-[26px] gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap truncate">
+            {config?.mostrar_sku && producto.sku_base && (
+              <span className="text-[13px] font-mono font-medium text-muted-foreground dark:text-gray-300">
+                {producto.sku_base}
+              </span>
+            )}
+            {Boolean(config?.mostrar_stock) && (() => {
+              const stockInfo = formatearStockDisponible(producto, config)
+              return (
+                <span
+                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                    stockInfo.disponible
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                  }`}
+                  title={stockInfo.texto}
+                >
+                  {stockInfo.textoCorto}
+                </span>
+              )
+            })()}
+          </div>
 
           <button
             type="button"

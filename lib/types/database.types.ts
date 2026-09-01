@@ -1073,6 +1073,7 @@ export type Database = {
           mensaje_precio_variable: string | null
           minimo_unidades: number | null
           modo_operacion: string
+          modo_visibilidad_catalogo: string | null
           modo_vista_carrito: string | null
           mostrar_medidas_tabla: boolean | null
           mostrar_precios: boolean
@@ -1101,6 +1102,7 @@ export type Database = {
           mensaje_precio_variable?: string | null
           minimo_unidades?: number | null
           modo_operacion?: string
+          modo_visibilidad_catalogo?: string | null
           modo_vista_carrito?: string | null
           mostrar_medidas_tabla?: boolean | null
           mostrar_precios?: boolean
@@ -1129,6 +1131,7 @@ export type Database = {
           mensaje_precio_variable?: string | null
           minimo_unidades?: number | null
           modo_operacion?: string
+          modo_visibilidad_catalogo?: string | null
           modo_vista_carrito?: string | null
           mostrar_medidas_tabla?: boolean | null
           mostrar_precios?: boolean

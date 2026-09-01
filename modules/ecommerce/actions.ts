@@ -22,6 +22,7 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
   // Extraer únicamente las columnas válidas existentes en la base de datos (inv-tienda.config_ecommerce)
   const {
     modo_operacion,
+    modo_visibilidad_catalogo,
     mostrar_precios,
     tipo_precio_visible,
     tipo_venta,
@@ -51,6 +52,7 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
   }
 
   if (modo_operacion !== undefined) updatePayload.modo_operacion = modo_operacion
+  if (modo_visibilidad_catalogo !== undefined) updatePayload.modo_visibilidad_catalogo = modo_visibilidad_catalogo
   if (modo_vista_carrito !== undefined) updatePayload.modo_vista_carrito = modo_vista_carrito
   if (mostrar_precios !== undefined) updatePayload.mostrar_precios = mostrar_precios
   if (tipo_precio_visible !== undefined) updatePayload.tipo_precio_visible = tipo_precio_visible

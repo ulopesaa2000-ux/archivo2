@@ -1,7 +1,7 @@
 // components/store/producto/ProductInfo.tsx
 import type { ProductoWebPublico } from '@/modules/ecommerce/types'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
-import { mostrarPrecio, formatearPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
+import { mostrarPrecio, formatearPrecio, getPrecioAMostrar, formatearStockDisponible } from '@/modules/ecommerce/utils'
 
 interface ProductInfoProps {
   producto: ProductoWebPublico
@@ -16,6 +16,10 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
 
   const descuento = esOferta && precio && precioAnterior
     ? Math.round((1 - precio / precioAnterior) * 100)
+    : null
+
+  const stockInfo = Boolean(config?.mostrar_stock)
+    ? formatearStockDisponible(producto, config)
     : null
 
   return (
@@ -34,8 +38,29 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
 
       {/* SKU destacado debajo de marca y nombre */}
       {Boolean(config?.mostrar_sku) && producto.sku_base && producto.sku_base !== producto.nombre && (
-        <div className="text-[14px] font-bold text-store-ink mb-4 font-sans tracking-wide">
+        <div className="text-[14px] font-bold text-store-ink mb-3 font-sans tracking-wide">
           SKU: <span className="font-semibold">{producto.sku_base}</span>
+        </div>
+      )}
+
+      {/* Stock disponible adaptado al tipo de venta (cajas, piezas o ambos) */}
+      {stockInfo && (
+        <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[13px] font-medium bg-[var(--surface)] border-store-border">
+          {stockInfo.disponible ? (
+            <>
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-store-ink">
+                {stockInfo.texto}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0" />
+              <span className="text-amber-700 dark:text-amber-400 font-medium">
+                {stockInfo.texto}
+              </span>
+            </>
+          )}
         </div>
       )}
 
