@@ -340,10 +340,16 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         dataRowBodegasValues[`b_${b.id}`] = b.nombre.toUpperCase()
       })
       const dataRowBodegas = dataSheet.addRow(dataRowBodegasValues)
+      dataRowBodegas.height = 90
       dataRowBodegas.font = { bold: true, size: 9 }
       dataRowBodegas.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
-      dataRowBodegas.getCell('sku').alignment = { horizontal: 'right' }
+      dataRowBodegas.getCell('sku').alignment = { horizontal: 'right', vertical: 'middle' }
       dataRowBodegas.getCell('total_cajas').font = { bold: true, color: { argb: 'FFDC2626' } }
+      dataRowBodegas.getCell('total_cajas').alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom' }
+      bodegasColumnas.forEach(b => {
+        const cell = dataRowBodegas.getCell(`b_${b.id}`)
+        cell.alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom' }
+      })
 
       // --- HOJA 2: FORMATO IMPRESIÓN (Similar a la imagen) ---
       const printSheet = workbook.addWorksheet('Formato Impresión')
@@ -370,11 +376,11 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       printSheet.getCell('A1').value = 'REPORTE DE EXISTENCIAS GLOBAL'
       printSheet.getCell('A1').font = { bold: true, size: 18 }
       
-      // Headers de Bodegas Inclinados
+      // Headers de Bodegas Inclinados / Verticales hacia arriba
       const startBodegaCol = 4
       const headerRowIdx = 3
       const headerRow = printSheet.getRow(headerRowIdx)
-      headerRow.height = 90 // Más alto para el texto inclinado
+      headerRow.height = 100 // Altura para que los nombres de bodega quepan completos
       
       // Estilo para headers de Familia, Estilo, Descripcion
       const mainHeaderStyle: Partial<ExcelJS.Style> = {
@@ -391,33 +397,45 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       bodegasColumnas.forEach((b, idx) => {
         const cell = printSheet.getCell(headerRowIdx, startBodegaCol + idx)
         cell.value = b.nombre.toUpperCase()
-        cell.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
-        cell.font = { bold: true, size: 10 }
+        cell.alignment = { textRotation: 90, vertical: 'bottom', horizontal: 'center', wrapText: false }
+        cell.font = { bold: true, size: 9 }
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
-        cell.border = { bottom: { style: 'medium' }, left: { style: 'thin' } }
+        cell.border = { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
       })
       
       const globalCol = startBodegaCol + bodegasColumnas.length
       const globalHeader = printSheet.getCell(headerRowIdx, globalCol)
       globalHeader.value = 'GLOBAL'
-      globalHeader.alignment = { textRotation: 45, vertical: 'middle', horizontal: 'center' }
+      globalHeader.alignment = { textRotation: 90, vertical: 'bottom', horizontal: 'center' }
       globalHeader.font = { bold: true, color: { argb: 'FFDC2626' } }
       globalHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+      globalHeader.border = { bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
-      // Datos en Hoja de Impresión con Merge
+      // Datos en Hoja de Impresión con Merge y Autoajuste dinámico de altura para Descripciones
       let currentRowIdx = 4
       Object.entries(itemsByFamily).forEach(([family, familyItems], fIdx) => {
         const startRow = currentRowIdx
         const isEven = fIdx % 2 === 0
         const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
         
+        const descText = familyDescriptions[family] || ''
+        // Estimación de líneas requeridas para la descripción (ancho columna 48 permite aprox 32-35 chars por línea con tamaño 10)
+        const descLines = Math.max(1, Math.ceil(descText.length / 32))
+        const minBlockHeight = Math.max(34, descLines * 16 + 14)
+
+        const itemsCount = familyItems.length
+        let rowHeight = 34 // Altura base para que las celdas de bodega se vean cuadradas con width = 6.8
+        if (itemsCount * rowHeight < minBlockHeight) {
+          rowHeight = Math.ceil(minBlockHeight / itemsCount)
+        }
+        
         familyItems.forEach((item, itemIdx) => {
           const row = printSheet.getRow(currentRowIdx)
-          row.height = 35 // Filas más altas para que se vean cuadradas
+          row.height = rowHeight
           
           if (itemIdx === 0) {
             printSheet.getCell(currentRowIdx, 1).value = family
-            printSheet.getCell(currentRowIdx, 3).value = familyDescriptions[family]
+            printSheet.getCell(currentRowIdx, 3).value = descText
           }
           
           const estiloCell = printSheet.getCell(currentRowIdx, 2)
@@ -433,18 +451,18 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
             
             // Estilo de número: 0 en gris, >0 en Negro Negrita
             cell.font = { 
-              size: 13, 
+              size: 12, 
               bold: val > 0, 
               color: { argb: val > 0 ? 'FF000000' : 'FFD1D5DB' } 
             }
-            cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+            cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } }, right: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
           })
           
           const totalCell = printSheet.getCell(currentRowIdx, globalCol)
           totalCell.value = item.total_general
-          totalCell.font = { bold: true, color: { argb: 'FFDC2626' }, size: 13 }
+          totalCell.font = { bold: true, color: { argb: 'FFDC2626' }, size: 12 }
           totalCell.alignment = { horizontal: 'center', vertical: 'middle' }
-          totalCell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
+          totalCell.border = { bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } }, right: { style: 'thin', color: { argb: 'FFD1D5DB' } } }
 
           row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
           currentRowIdx++
@@ -482,7 +500,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         })
       })
 
-      // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN (Idéntico a la imagen de referencia: TOTAL CAJAS + BODEGAS)
+      // RESUMEN AL FINAL EN HOJA DE IMPRESIÓN (TOTAL CAJAS + BODEGAS con texto girado hacia arriba)
       currentRowIdx += 2
 
       // 1. FILA TOTAL CAJAS
@@ -497,7 +515,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       bodegasColumnas.forEach((b, idx) => {
         const cell = printSheet.getCell(rowCajasIdx, startBodegaCol + idx)
         cell.value = expTotalsCajasPerBodega[b.id] ?? 0
-        cell.font = { bold: true, size: 12, color: { argb: 'FF0F172A' } }
+        cell.font = { bold: true, size: 11, color: { argb: 'FF0F172A' } }
         cell.alignment = { horizontal: 'center', vertical: 'middle' }
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
         cell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
@@ -505,15 +523,15 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
       const finalCajasCell = printSheet.getCell(rowCajasIdx, globalCol)
       finalCajasCell.value = expGrandTotalCajas
-      finalCajasCell.font = { bold: true, size: 13, color: { argb: 'FFDC2626' } }
+      finalCajasCell.font = { bold: true, size: 12, color: { argb: 'FFDC2626' } }
       finalCajasCell.alignment = { horizontal: 'center', vertical: 'middle' }
       finalCajasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
       finalCajasCell.border = { top: { style: 'medium' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
-      // 2. FILA NOMBRE DE BODEGA ABAJO (Idéntica a la imagen de referencia)
+      // 2. FILA NOMBRE DE BODEGA ABAJO (Con texto girado hacia arriba y altura completa para no recortar)
       currentRowIdx++
       const rowBodegasIdx = currentRowIdx
-      printSheet.getRow(rowBodegasIdx).height = 42
+      printSheet.getRow(rowBodegasIdx).height = 100 // Altura para nombres de bodegas girados verticalmente
       printSheet.getCell(rowBodegasIdx, 3).value = 'BODEGAS'
       printSheet.getCell(rowBodegasIdx, 3).font = { bold: true, size: 11, color: { argb: 'FF1E40AF' } }
       printSheet.getCell(rowBodegasIdx, 3).alignment = { horizontal: 'right', vertical: 'middle' }
@@ -524,26 +542,26 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         const cell = printSheet.getCell(rowBodegasIdx, startBodegaCol + idx)
         cell.value = b.nombre.toUpperCase()
         cell.font = { bold: true, size: 9, color: { argb: 'FF0F172A' } }
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+        cell.alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom', wrapText: false }
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
         cell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
       })
 
       const finalBodegaTotalCell = printSheet.getCell(rowBodegasIdx, globalCol)
       finalBodegaTotalCell.value = 'TOTAL'
-      finalBodegaTotalCell.font = { bold: true, size: 11, color: { argb: 'FFDC2626' } }
-      finalBodegaTotalCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      finalBodegaTotalCell.font = { bold: true, size: 10, color: { argb: 'FFDC2626' } }
+      finalBodegaTotalCell.alignment = { textRotation: 90, horizontal: 'center', vertical: 'bottom' }
       finalBodegaTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
       finalBodegaTotalCell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
-      // Anchos Hoja Impresión
-      printSheet.getColumn(1).width = 15
+      // Anchos Hoja Impresión (Bodegas cuadradas y descripciones amplias)
+      printSheet.getColumn(1).width = 16
       printSheet.getColumn(2).width = 18
-      printSheet.getColumn(3).width = 50
+      printSheet.getColumn(3).width = 48
       bodegasColumnas.forEach((_, idx) => {
-        printSheet.getColumn(startBodegaCol + idx).width = 12
+        printSheet.getColumn(startBodegaCol + idx).width = 6.8 // Proporción cuadrada 1:1 con altura 34pt
       })
-      printSheet.getColumn(globalCol).width = 12
+      printSheet.getColumn(globalCol).width = 11 // Espacio suficiente para número total sin comprimir bodegas
 
       // Descargar
       const buffer = await workbook.xlsx.writeBuffer()
