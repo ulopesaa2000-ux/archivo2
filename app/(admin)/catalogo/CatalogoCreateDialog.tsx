@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Search } from 'lucide-react'
+import { Loader2, Search, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { createProductAction, updateProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
 import { fetchProductoPorIdParaEdicion } from '@/modules/catalogo/queries'
+import { detectProductAttributesFromText } from '@/modules/catalogo/utils/detector'
 import type { ProductoRow } from '@/lib/types/tables'
 import type { CatalogosParaFiltros } from '@/modules/catalogo/types'
 
@@ -77,7 +78,8 @@ export function CatalogoCreateDialog({
     const params = new URLSearchParams(searchParams.toString())
     params.delete('modal')
     params.delete('edit_id')
-    router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    const queryString = params.toString()
+    router.push(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
   }
 
   return (
@@ -150,6 +152,8 @@ function ProductForm({
     estado: producto.estado || 'borrador',
     marca_id: producto.marca_id?.toString() || '',
     genero_id: producto.genero_id?.toString() || '',
+    edad_id: producto.edad_id?.toString() || '',
+    tipo_prenda_id: producto.tipo_prenda_id?.toString() || '',
     pz_en_caja: (producto.pz_en_caja ?? 1).toString(),
     familia: producto.familia || 'F000-000C',
     activo: producto.activo ?? true,
@@ -214,6 +218,45 @@ function ProductForm({
     })
   }
 
+  const handleAutoDetect = () => {
+    const text = `${formValues.nombre} ${formValues.descripcion}`.trim()
+    if (!text) {
+      toast.info('Ingresa una descripción o nombre para autodetectar atributos.')
+      return
+    }
+
+    const detected = detectProductAttributesFromText(text, catalogos)
+    if (detected.detectedCount === 0) {
+      toast.info('No se detectaron coincidencias para Prenda, Género, Edad o Marca en el texto.')
+      return
+    }
+
+    const updates: Partial<typeof formValues> = {}
+    const detectedNames: string[] = []
+
+    if (detected.tipo_prenda_id) {
+      updates.tipo_prenda_id = detected.tipo_prenda_id.toString()
+      detectedNames.push(`Prenda: ${detected.tipo_prenda_nombre}`)
+    }
+    if (detected.genero_id) {
+      updates.genero_id = detected.genero_id.toString()
+      detectedNames.push(`Género: ${detected.genero_nombre}`)
+    }
+    if (detected.edad_id) {
+      updates.edad_id = detected.edad_id.toString()
+      detectedNames.push(`Edad: ${detected.edad_nombre}`)
+    }
+    if (detected.marca_id) {
+      updates.marca_id = detected.marca_id.toString()
+      detectedNames.push(`Marca: ${detected.marca_nombre}`)
+    }
+
+    setFormValues(prev => ({ ...prev, ...updates }))
+    toast.success(`Atributos detectados (${detected.detectedCount}):`, {
+      description: detectedNames.join(', '),
+    })
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -250,8 +293,29 @@ function ProductForm({
         </div>
         
         <div className="space-y-2 lg:col-span-3">
-          <Label htmlFor="descripcion">Descripción</Label>
-          <Textarea id="descripcion" name="descripcion" rows={2} value={formValues.descripcion} onChange={(e) => setFormValues(v => ({ ...v, descripcion: e.target.value }))} />
+          <div className="flex items-center justify-between">
+            <Label htmlFor="descripcion">Descripción</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5 border-dashed border-primary/40 hover:border-primary hover:bg-primary/5 text-primary"
+              onClick={handleAutoDetect}
+              title="Detectar automáticamente Género, Edad y Marca a partir del texto"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+              <span>Auto-detectar (Género, Edad, Marca)</span>
+            </Button>
+          </div>
+          <Textarea 
+            id="descripcion" 
+            name="descripcion" 
+            rows={3} 
+            value={formValues.descripcion} 
+            onChange={(e) => setFormValues(v => ({ ...v, descripcion: e.target.value }))} 
+            placeholder="Escriba la descripción del producto..."
+            className="text-sm leading-relaxed"
+          />
         </div>
         
         <div className="space-y-2">
@@ -273,6 +337,22 @@ function ProductForm({
               <SelectItem value="publicado">Publicado</SelectItem>
               <SelectItem value="pausado">Pausado</SelectItem>
               <SelectItem value="descontinuado">Descontinuado</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="tipo_prenda_id">Prenda (Tipo)</Label>
+          <Select name="tipo_prenda_id" value={formValues.tipo_prenda_id} onValueChange={(val) => setFormValues(v => ({ ...v, tipo_prenda_id: val || '' }))}>
+            <SelectTrigger className="w-full h-8 px-3">
+              <span className="flex-1 text-left truncate">
+                {catalogos.tipos_prenda?.find(t => String(t.id) === String(formValues.tipo_prenda_id))?.nombre || "Seleccione prenda"}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {catalogos.tipos_prenda?.map(t => (
+                <SelectItem key={t.id} value={t.id.toString()}>{t.nombre}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -304,6 +384,22 @@ function ProductForm({
             <SelectContent>
               {catalogos.generos.map(g => (
                 <SelectItem key={g.id} value={g.id.toString()}>{g.nombre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="edad_id">Edad</Label>
+          <Select name="edad_id" value={formValues.edad_id} onValueChange={(val) => setFormValues(v => ({ ...v, edad_id: val || '' }))}>
+            <SelectTrigger className="w-full h-8 px-3">
+              <span className="flex-1 text-left truncate">
+                {catalogos.edades?.find(e => String(e.id) === String(formValues.edad_id))?.nombre || "Seleccione una edad"}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {catalogos.edades?.map(e => (
+                <SelectItem key={e.id} value={e.id.toString()}>{e.nombre}</SelectItem>
               ))}
             </SelectContent>
           </Select>

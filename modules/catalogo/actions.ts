@@ -50,6 +50,7 @@ export {
   updateImagenAction,
   setPrincipalImagenAction,
   deleteImagenAction,
+  cambiarUsoImagenAction,
 } from './actions/imagenes'
 
 // Familias

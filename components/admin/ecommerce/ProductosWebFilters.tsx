@@ -12,6 +12,7 @@ import {
 import {
   Search, X, SlidersHorizontal, Image as ImageIcon, ArrowUpDown, Tag, Users, Shirt,
 } from 'lucide-react'
+import { CatalogoPdfModal } from './CatalogoPdfModal'
 
 interface Props {
   marcas: { id: number; nombre: string }[]
@@ -128,17 +129,22 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
           Filtros del Catálogo Web
         </div>
 
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClear}
-            className="h-8 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5 mr-1" />
-            Limpiar Filtros
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClear}
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Limpiar Filtros
+            </Button>
+          )}
+
+          {/* Botón Rojo CATÁLOGO PDF */}
+          <CatalogoPdfModal tiposPrenda={tiposPrenda} generos={generos} />
+        </div>
       </div>
 
       {/* Grid de Filtros */}

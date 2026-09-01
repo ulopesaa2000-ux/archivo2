@@ -44,6 +44,8 @@ export type ProductoListItem = {
   es_conjunto: boolean | null
   marca_id: number | null
   genero_id: number | null
+  edad_id: number | null
+  tipo_prenda_id: number | null
   tela_ext_id: number | null
   imagen_principal: string | null
 }
@@ -53,6 +55,8 @@ export type CatalogosParaFiltros = {
   marcas: Pick<MarcaRow, 'id' | 'nombre'>[]
   generos: Pick<GeneroRow, 'id' | 'nombre'>[]
   telas: Pick<TelaRow, 'id' | 'nombre'>[]
+  edades: CatalogoItem[]
+  tipos_prenda: CatalogoItem[]
 }
 
 // ── Catálogos para edición de producto (detalle) ────────────

@@ -11,9 +11,11 @@ export function getDefaultFeatures(route: string): TableFeatures {
         selectable: true,
         sortable: true,
         quickEdit: [
-          { key: 'descripcion', label: 'Descripción', type: 'text' },
+          { key: 'descripcion', label: 'Descripción', type: 'textarea' },
           { key: 'familia', label: 'Familia', type: 'text' },
           { key: 'marca_id', label: 'Marca', type: 'select' },
+          { key: 'genero_id', label: 'Género', type: 'select' },
+          { key: 'edad_id', label: 'Edad', type: 'select' },
           { key: 'precio_ec', label: 'Precio EC', type: 'currency' },
           { key: 'estado', label: 'Estado', type: 'select' },
         ],

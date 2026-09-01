@@ -174,24 +174,39 @@ export function DataTable<T>({
               <TableHead className="w-[40px] px-2" />
             )}
 
-            {columns.map((col) => (
-              <TableHead
-                key={col.key}
-                className={cn('text-xs font-semibold', col.headerClassName)}
-              >
-                {col.sortKey && sortable && currentSortKey !== undefined ? (
-                  <SortableHeader
-                    label={col.header}
-                    field={col.sortKey}
-                    currentSort={currentSortKey}
-                    currentOrder={currentOrder}
-                    onSort={handleSort}
-                  />
-                ) : (
-                  col.header
-                )}
-              </TableHead>
-            ))}
+            {columns.map((col) => {
+              const isRight = col.headerClassName?.includes('text-right') || col.className?.includes('text-right')
+              const isCenter = col.headerClassName?.includes('text-center') || col.className?.includes('text-center')
+
+              return (
+                <TableHead
+                  key={col.key}
+                  className={cn('text-xs font-semibold px-3 py-2.5', col.headerClassName)}
+                >
+                  {col.sortKey && sortable && currentSortKey !== undefined ? (
+                    <SortableHeader
+                      label={col.header}
+                      field={col.sortKey}
+                      currentSort={currentSortKey}
+                      currentOrder={currentOrder}
+                      onSort={handleSort}
+                      className={cn(
+                        isRight && 'justify-end ml-auto',
+                        isCenter && 'justify-center mx-auto'
+                      )}
+                    />
+                  ) : (
+                    <div className={cn(
+                      'flex items-center',
+                      isRight && 'justify-end',
+                      isCenter && 'justify-center'
+                    )}>
+                      {col.header}
+                    </div>
+                  )}
+                </TableHead>
+              )
+            })}
           </TableRow>
         </TableHeader>
 
@@ -234,7 +249,7 @@ export function DataTable<T>({
 
                   {/* Expand button column */}
                   {hasExpandable && (
-                    <TableCell className="px-2 py-3 w-[40px]">
+                    <TableCell className="px-2 py-2.5 w-[40px]">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -257,7 +272,7 @@ export function DataTable<T>({
                   {columns.map((col) => (
                     <TableCell
                       key={col.key}
-                      className={cn('py-3', col.className)}
+                      className={cn('px-3 py-2.5', col.className)}
                     >
                       {col.cell(row)}
                     </TableCell>
@@ -300,12 +315,14 @@ function SortableHeader({
   currentSort,
   currentOrder,
   onSort,
+  className,
 }: {
   label: string
   field: string
   currentSort: string
   currentOrder: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
+  className?: string
 }) {
   const isActive = currentSort === field
   const nextOrder = isActive && currentOrder === 'asc' ? 'desc' : 'asc'
@@ -316,7 +333,8 @@ function SortableHeader({
       onClick={() => onSort(field, nextOrder)}
       className={cn(
         'flex items-center gap-1 group transition-colors whitespace-nowrap',
-        isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+        isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+        className
       )}
     >
       {label}

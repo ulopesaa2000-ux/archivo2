@@ -388,7 +388,7 @@ async function HomePageContent() {
           </div>
         </div>
 
-        {/* Bloque 3: Línea Infantil / Novedades General */}
+        {/* Bloque 3: Línea Infantil */}
         <div className="p-5 rounded-2xl bg-gradient-to-r from-violet-950/20 via-card to-card dark:from-violet-950/40 dark:via-zinc-900/60 dark:to-zinc-900 border border-violet-500/20 dark:border-violet-500/30 shadow-xs">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 rounded-xl bg-violet-600 text-white shadow-xs">
@@ -396,29 +396,30 @@ async function HomePageContent() {
             </div>
             <div>
               <h3 className="text-sm font-bold uppercase tracking-wider text-violet-700 dark:text-violet-400 flex items-center gap-1.5">
-                <span>Línea Infantil & Novedades</span>
+                <span>Línea Infantil</span>
                 <span className="text-[10px] font-semibold text-violet-600/80 dark:text-violet-300/80 bg-violet-500/10 px-2 py-0.5 rounded-full">
-                  3 Categorías
+                  4 Categorías
                 </span>
               </h3>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { name: 'Chamarras Niños', href: '/shop?tipo=chamarras-ninos', icon: Baby },
-              { name: 'Conjuntos Infantil', href: '/shop?tipo=conjuntos-infantil', icon: Sparkles },
-              { name: 'Novedades & Accesorios', href: '/shop?tipo=novedades', icon: Zap }
+              { name: 'Niño', href: '/shop?genero=nino', icon: Baby },
+              { name: 'Niña', href: '/shop?genero=nina', icon: Sparkles },
+              { name: 'Conjuntos Infantiles', href: '/shop?tipo=conjuntos-infantil', icon: Layers },
+              { name: 'Chamarras Infantiles', href: '/shop?tipo=chamarras-ninos', icon: Shirt },
             ].map((sub) => {
               const IconComp = sub.icon
               return (
                 <Link
                   key={sub.name}
                   href={sub.href}
-                  className="group bg-card dark:bg-zinc-950 hover:bg-violet-600 hover:text-white dark:hover:bg-violet-600 text-foreground dark:text-gray-200 border border-border dark:border-zinc-800 rounded-xl p-3.5 text-center transition-all duration-300 shadow-xs hover:shadow-lg flex items-center justify-center gap-3 hover:-translate-y-0.5"
+                  className="group bg-card dark:bg-zinc-950 hover:bg-violet-600 hover:text-white dark:hover:bg-violet-600 text-foreground dark:text-gray-200 border border-border dark:border-zinc-800 rounded-xl p-3.5 text-center transition-all duration-300 shadow-xs hover:shadow-lg flex items-center justify-center gap-2.5 hover:-translate-y-0.5"
                 >
-                  <IconComp className="h-5 w-5 text-violet-600 dark:text-violet-400 group-hover:text-white transition-colors" />
-                  <span className="text-xs font-semibold block">{sub.name}</span>
+                  <IconComp className="h-4.5 w-4.5 text-violet-600 dark:text-violet-400 group-hover:text-white transition-colors" />
+                  <span className="text-xs font-semibold block truncate">{sub.name}</span>
                 </Link>
               )
             })}

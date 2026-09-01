@@ -16,21 +16,29 @@ export default async function OrdenRapidaPage() {
   const clientes = personas.filter((persona) => persona.tipo_entidad === 'Cliente B2B')
 
   const supabase = await createClient()
-  const { data: contenedoresRaw } = await supabase
-    .from('contenedores')
-    .select('id, codigo_contenedor, numero_contenedor, estado')
-    .in('estado', ['borrador', 'en_transito', 'en_aduana', 'en_bodega'])
-    .order('created_at', { ascending: false })
+  const [
+    { data: contenedoresRaw },
+    { data: marcasData },
+    { data: generosData },
+    { data: edadesData },
+    { data: tiposPrendaData },
+  ] = await Promise.all([
+    supabase
+      .from('contenedores')
+      .select('id, codigo_contenedor, numero_contenedor, estado')
+      .in('estado', ['borrador', 'en_transito', 'en_aduana', 'en_bodega'])
+      .order('created_at', { ascending: false }),
+    supabase.from('cat_marcas').select('id, nombre').eq('activo', true).order('nombre'),
+    supabase.from('cat_generos').select('id, nombre').eq('activo', true).order('nombre'),
+    supabase.from('cat_edades').select('id, rango').order('orden'),
+    supabase.from('cat_tipo_prenda').select('id, nombre').order('nombre'),
+  ])
 
   const contenedores = contenedoresRaw ?? []
-
-  const { data: marcasData } = await supabase
-    .from('cat_marcas')
-    .select('id, nombre')
-    .eq('activo', true)
-    .order('nombre', { ascending: true })
-
   const marcas = marcasData ?? []
+  const generos = generosData ?? []
+  const edades = (edadesData ?? []).map((e: any) => ({ id: e.id, nombre: e.rango ?? String(e.id) }))
+  const tipos_prenda = tiposPrendaData ?? []
 
   return (
     <div className="space-y-6">
@@ -47,6 +55,9 @@ export default async function OrdenRapidaPage() {
         clientes={clientes}
         contenedores={contenedores}
         marcas={marcas}
+        generos={generos}
+        edades={edades}
+        tipos_prenda={tipos_prenda}
       />
     </div>
   )

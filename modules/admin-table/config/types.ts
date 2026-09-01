@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react'
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de campo para edición rápida (copia local sin dependencias de cliente)
 // ─────────────────────────────────────────────────────────────────────────────
-export type FieldType = 'text' | 'number' | 'currency' | 'select' | 'boolean' | 'date'
+export type FieldType = 'text' | 'textarea' | 'number' | 'currency' | 'select' | 'boolean' | 'date'
 
 export type QuickEditField = {
   key: string

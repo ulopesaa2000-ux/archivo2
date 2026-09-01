@@ -13,6 +13,7 @@ import type { ProductoListItem } from '@/modules/catalogo/types'
 import { Star, Pencil, Eye, Package } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { DestacadoStarButton } from './DestacadoStarButton'
+import { ShareProductoButton } from './ShareProductoButton'
 
 interface Props {
   productos: ProductoListItem[]
@@ -99,12 +100,15 @@ export function CatalogoGrid({ productos }: Props) {
                   />
                 </div>
 
-                {/* Badge es_conjunto */}
-                {producto.es_conjunto && (
-                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-purple-600 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow-md border border-purple-400/30">
-                    Conjunto
-                  </div>
-                )}
+                {/* Acciones superiores derechas: Badge es_conjunto y Botón Compartir */}
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+                  {producto.es_conjunto && (
+                    <div className="flex items-center gap-1 bg-purple-600 text-white text-[10px] font-bold rounded-full px-2 py-0.5 shadow-md border border-purple-400/30">
+                      Conjunto
+                    </div>
+                  )}
+                  <ShareProductoButton producto={producto} />
+                </div>
               </div>
             </Link>
 

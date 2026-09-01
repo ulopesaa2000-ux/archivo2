@@ -7,6 +7,7 @@ import { after } from 'next/server'
 import { Suspense } from 'react'
 import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
+import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
 import { SITE_NAME, SITE_URL, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
 import { slugify } from '@/lib/utils'
@@ -332,8 +333,16 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               <VariantSelectorSection productoId={producto.producto_id} config={config} />
             </Suspense>
 
-            <div className="pt-4">
+            <div className="pt-4 space-y-3">
               <AddToQuoteButton producto={producto} config={config} />
+              <div className="pt-1">
+                <ProductShareButtons
+                  slug={producto.slug}
+                  nombre={producto.nombre}
+                  sku={producto.sku_base}
+                  variant="detail"
+                />
+              </div>
             </div>
 
             {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && !isJsonString(config.mensaje_precio_variable) && (

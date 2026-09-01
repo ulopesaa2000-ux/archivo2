@@ -46,7 +46,7 @@ export async function fetchProductosCatalogo(
   let query = supabase
     .from('productos')
     .select(
-      'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, tela_ext_id, cliente_b2b_id, persona_id',
+      'id, sku_base, nombre, descripcion, familia, estado, precio_ec, pz_en_caja, activo, destacado, es_conjunto, marca_id, genero_id, edad_id, tipo_prenda_id, tela_ext_id, cliente_b2b_id, persona_id',
       { count: 'exact' }
     )
 
@@ -121,11 +121,15 @@ export async function fetchProductosCatalogo(
   if (productoIds.length > 0) {
     const { data: imagenes } = await supabase
       .from('producto_imagenes')
-      .select('producto_id, url')
-      .eq('es_principal', true)
+      .select('producto_id, url, es_principal')
       .in('producto_id', productoIds)
+      .order('es_principal', { ascending: false })
+      .order('orden', { ascending: true })
+
     imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-      acc[img.producto_id] = img.url
+      if (!acc[img.producto_id] || img.es_principal) {
+        acc[img.producto_id] = img.url
+      }
       return acc
     }, {})
   }
@@ -149,7 +153,7 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
 
   const supabase = createStaticClient()
 
-  const [marcasRes, generosRes, telasRes] = await Promise.all([
+  const [marcasRes, generosRes, telasRes, edadesRes, tiposPrendaRes] = await Promise.all([
     supabase
       .from('cat_marcas')
       .select('id, nombre')
@@ -164,12 +168,28 @@ export async function fetchCatalogosParaFiltros(): Promise<CatalogosParaFiltros>
       .from('cat_telas')
       .select('id, nombre')
       .order('nombre'),
+    supabase
+      .from('cat_edades')
+      .select('id, rango')
+      .order('orden'),
+    supabase
+      .from('cat_tipo_prenda')
+      .select('id, nombre')
+      .order('nombre'),
   ])
 
   return {
     marcas: (marcasRes.data ?? []) as MarcaRow[],
     generos: (generosRes.data ?? []) as GeneroRow[],
     telas: (telasRes.data ?? []) as TelaRow[],
+    edades: (edadesRes.data ?? []).map((item: any) => ({
+      id: item.id,
+      nombre: item.rango ?? String(item.id),
+    })),
+    tipos_prenda: (tiposPrendaRes.data ?? []).map((item: any) => ({
+      id: item.id,
+      nombre: item.nombre ?? String(item.id),
+    })),
   }
 }
 
@@ -824,12 +844,15 @@ export async function fetchProductosPorFamilia(
   const ids = productos.map((p: any) => p.id)
 
   const { data: imagenes } = await supabase.from('producto_imagenes')
-    .select('producto_id, url')
-    .eq('es_principal', true)
+    .select('producto_id, url, es_principal')
     .in('producto_id', ids)
+    .order('es_principal', { ascending: false })
+    .order('orden', { ascending: true })
 
   const imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
-    acc[img.producto_id] = img.url
+    if (!acc[img.producto_id] || img.es_principal) {
+      acc[img.producto_id] = img.url
+    }
     return acc
   }, {})
 
