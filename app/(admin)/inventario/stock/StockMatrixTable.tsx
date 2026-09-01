@@ -118,8 +118,12 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       })
     })
 
-    // Sort groups by name alphabetically
-    return Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
+    // Sort groups by name alphabetically and sort models inside each group
+    const sortedGroups = Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
+    sortedGroups.forEach((g) => {
+      g.items.sort((a, b) => (a.producto_sku || '').localeCompare(b.producto_sku || ''))
+    })
+    return sortedGroups
   }, [items, agruparPor, bodegasColumnas])
 
   // Cálculos de totales dinámicos basados en las bodegas visibles
@@ -195,6 +199,13 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       }
 
       const allItems = res.data
+      allItems.sort((a, b) => {
+        const famA = a.producto_familia || 'SIN FAMILIA'
+        const famB = b.producto_familia || 'SIN FAMILIA'
+        const famCmp = famA.localeCompare(famB)
+        if (famCmp !== 0) return famCmp
+        return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+      })
       const workbook = new ExcelJS.Workbook()
       
       // Mapear descripción general por familia y calcular totales
