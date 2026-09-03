@@ -335,6 +335,13 @@ export type NotaOcrPropuesta = {
 export type FiltrosOcrPropuestas = {
   estado?: string
   page?: number
+  q?: string
+  bodega_origen_id?: number | string
+  bodega_destino_id?: number | string
+  fecha_desde?: string
+  fecha_hasta?: string
+  sort_by?: 'fecha_escaneo' | 'origen' | 'destino' | 'confianza' | 'id' | string
+  order?: 'asc' | 'desc'
 }
 
 // ── Productos Sustitutos por Familia con Stock ──────────────

@@ -128,9 +128,33 @@ La estructura general sigue este orden de lectura habitual (NO es una ley rígid
    - Si dudas entre 'H' o 'M' en el género: incluye la alternativa en 'posibles_variantes': ["TY26/01MC"].
    - Si dudas entre '0' y 'D' en sets: incluye la alternativa en 'posibles_variantes': ["BO/3DSETFE"].
 
-7. REGLAS DE ENCABEZADO Y FECHA:
+7. REGLAS DE ENCABEZADO, CASILLAS DE MOVIMIENTO Y BODEGAS:
    - En México el formato es DD/MM/AAAA o DD/MM/AA (ej: 20/08/26 es 20 de Agosto de 2026 -> "2026-08-20").
-   - tipo_movimiento: Si la nota dice "ORDEN DE MOVIMIENTOS", revisa las casillas marcadas (ENTRADA -> "ENT", SALIDA -> "SAL", TRASPASO -> "TRF", DEVOLUCION -> "DEV").
+   - CASILLAS DE MOVIMIENTO:
+     * Revisa atentamente las casillas impresas: [ENTRADA], [SALIDA], [TRASPASO], [DEVOLUCION].
+     * Si una casilla tiene marca (cruz 'X', paloma '✓', raya o relleno manuscrito), clasifícala:
+       - ENTRADA marcada -> "ENT"
+       - SALIDA marcada -> "SAL"
+       - TRASPASO marcada -> "TRF"
+       - DEVOLUCION marcada -> "DEV"
+   - REGLA CRÍTICA PARA TRASPASO (ORIGEN Y DESTINO OBLIGATORIOS):
+     * Si la casilla TRASPASO está marcada, es OBLIGATORIO inspeccionar con máxima atención los recuadros 'Origen:' y 'Destino:'.
+     * Los nombres de bodegas se escriben a mano con caligrafía rápida. Usa la lista canónica para normalizar trazos dudosos:
+       - 'Cocina': habitualmente escrito como 'Cosina', 'Casina', 'Cosinca', 'Cosinci', 'Casinci', 'Cosina 1' -> transcribe como "Cocina".
+       - 'San Diego 1': escrito como 'San Diego 1', 'San Diego I', 'SD1', 'SD 1' -> transcribe como "San Diego 1".
+       - 'San Diego 2': escrito como 'San Diego 2', 'San Diego II', 'SD2', 'SD 2' -> transcribe como "San Diego 2".
+       - 'Andrade': escrito como 'Andrade', 'Andrad' -> transcribe como "Andrade".
+       - 'Toluca Bordado': escrito como 'Toluca Bordado', 'Bordado Toluca', 'Bordado', 'Toluca Bord' -> transcribe como "Toluca Bordado".
+       - 'Toluca Angel': escrito como 'Toluca Angel', 'Angel' -> transcribe como "Toluca Angel".
+       - 'Durazno': escrito como 'Durazno', 'Durasno' -> transcribe como "Durazno".
+       - 'Tortilla': escrito como 'Tortilla' -> transcribe como "Tortilla".
+       - 'Zandunga 1 / 2 / 3': escrito como 'Zandunga', 'Sandunga' (1, 2 o 3) -> transcribe como "Zandunga 1", "Zandunga 2", etc.
+       - 'Tulancingo': escrito como 'Tulancingo', 'Tolancingo' -> transcribe como "Tulancingo".
+       - 'Vacas': escrito como 'Vacas' -> transcribe como "Vacas".
+       - 'Chiconcuac': escrito como 'Chiconcuac', 'Chiconkuac' -> transcribe como "Chiconcuac".
+       - 'Bodega Aux': escrito como 'Bodega Aux', 'Auxiliar', 'General' -> transcribe como "Bodega Aux".
+     * Si lees trazos fonéticamente correspondientes a estas bodegas, transcribe el nombre canónico.
+     * Si el recuadro de origen o destino está completamente vacío o tachado, devuelve null.
 
 8. REGLA ESTRICTA PARA HOJAS EN MÚLTIPLES COLUMNAS (HOJAS DE LIBRETA / CONTEOS / AJUSTES):
    - Si la hoja manuscrita está dividida en dos o más columnas de texto escritas en paralelo (por ejemplo: Columna 1 a la izquierda con sus cantidades, y Columna 2 a la derecha con sus cantidades):
@@ -459,6 +483,26 @@ const BODEGAS = [
   { id: 20, codigo: "SUC000", nombre: "BODEGA AUX",     ciudad: "MEXICO",        es_matriz: true }
 ];
 
+function similitudLevenshtein(s1, s2) {
+  if (!s1 || !s2) return 0;
+  const a = s1.toLowerCase();
+  const b = s2.toLowerCase();
+  const m = [];
+  for (let i = 0; i <= b.length; i++) m[i] = [i];
+  for (let j = 0; j <= a.length; j++) m[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        m[i][j] = m[i - 1][j - 1];
+      } else {
+        m[i][j] = Math.min(m[i - 1][j - 1] + 1, m[i][j - 1] + 1, m[i - 1][j] + 1);
+      }
+    }
+  }
+  const maxLen = Math.max(a.length, b.length);
+  return (maxLen - m[b.length][a.length]) / maxLen;
+}
+
 const MATRICES_CIUDAD = {
   'TOLUCA': 4,              // TOLUCA BORDADO
   'SAN MARTIN': 10,         // COCINA
@@ -477,13 +521,16 @@ const MATRICES_CIUDAD = {
 function normalizarTextoBodega(raw) {
   if (!raw) return '';
   let s = String(raw).toUpperCase().trim();
-  s = s.replace(/COSINA/g, 'COCINA');
+  s = s.replace(/COSINA|COSINCA|COSINCI|CASINA|CASINCA|CASINCI|COZINA|COZINCA|COSINA 1|COCINA 1/g, 'COCINA');
   s = s.replace(/RIKA|RI Y KA|RI&KA/g, 'RI&KA');
   s = s.replace(/PANTACO|PANTACO 1/g, 'PANTACO');
   s = s.replace(/DURASNO/g, 'DURAZNO');
   s = s.replace(/SANDUNGA/g, 'ZANDUNGA');
   s = s.replace(/BORDADOS/g, 'BORDADO');
   s = s.replace(/CHICONKUAC/g, 'CHICONCUAC');
+  s = s.replace(/TULANCINGO/g, 'TULANCINGO');
+  s = s.replace(/SD1\b|SD 1\b|SAN DIEGO I\b/g, 'SAN DIEGO 1');
+  s = s.replace(/SD2\b|SD 2\b|SAN DIEGO II\b/g, 'SAN DIEGO 2');
   return s;
 }
 
@@ -512,23 +559,18 @@ function buscarBodega(texto) {
   }
 
   // Nivel 3: Desambiguación de Nombres Parciales con Defaults a Matriz / Sucursal 1
-  // Zandunga / Sandunga (default Zandunga 1 a menos que especifique 2 o 3)
   if (limpio.includes('ZANDUNGA') || limpio.includes('SANDUNGA')) {
     if (limpio.includes('2')) return BODEGAS.find(b => b.id === 13);
     if (limpio.includes('3')) return BODEGAS.find(b => b.id === 14);
-    return BODEGAS.find(b => b.id === 12); // Default ZANDUNGA 1
+    return BODEGAS.find(b => b.id === 12);
   }
-
-  // San Diego (default San Diego 1 a menos que especifique 2)
   if (limpio.includes('SAN DIEGO')) {
     if (limpio.includes('2')) return BODEGAS.find(b => b.id === 8);
-    return BODEGAS.find(b => b.id === 6); // Default SAN DIEGO 1
+    return BODEGAS.find(b => b.id === 6);
   }
-
-  // Toluca (default Toluca Bordado a menos que especifique Angel)
   if (limpio.includes('TOLUCA') || limpio.includes('BORDADO')) {
     if (limpio.includes('ANGEL')) return BODEGAS.find(b => b.id === 3);
-    return BODEGAS.find(b => b.id === 4); // Default TOLUCA BORDADO (Matriz)
+    return BODEGAS.find(b => b.id === 4);
   }
 
   // Nivel 4: Resolución por Ciudad / Bodega Matriz (Padre)
@@ -539,10 +581,25 @@ function buscarBodega(texto) {
   }
 
   // Nivel 5: Contención simple de subcadena
-  return BODEGAS.find(b => 
+  const subcadenaMatch = BODEGAS.find(b => 
     limpio.includes(b.nombre) || 
     b.nombre.includes(limpio)
-  ) || null;
+  );
+  if (subcadenaMatch) return subcadenaMatch;
+
+  // Nivel 6: Fuzzy matching de similitud fonética/ortográfica (≥ 70%)
+  let mejorMatch = null;
+  let maxSim = 0;
+  for (const b of BODEGAS) {
+    const sim = similitudLevenshtein(limpio, b.nombre);
+    if (sim > maxSim && sim >= 0.70) {
+      maxSim = sim;
+      mejorMatch = b;
+    }
+  }
+  if (mejorMatch) return mejorMatch;
+
+  return null;
 }
 
 function resolverBodegaId(campo, rawTexto, hintTexto) {
@@ -576,7 +633,6 @@ if (!priorizarIa && meta.tipo_hint) {
   else if (hintUpper.includes('ENT')) tipo = 'ENT';
 }
 
-// Default a Entrada (ENT) si no se pudo determinar
 if (!tipo || tipo === 'NULL') {
   tipo = 'ENT';
 }
@@ -589,7 +645,6 @@ let bodega_destino_id = null;
 let textoOrigenParaBD = ocr.origen;
 let textoDestinoParaBD = ocr.destino;
 
-// Si viene hint explícito de bodega origen desde el webhook
 const hintOrigenValido = (meta.origen_hint && meta.origen_hint !== 'auto' && meta.origen_hint !== 'null') ? meta.origen_hint : null;
 const hintDestinoValido = (meta.destino_hint && meta.destino_hint !== 'auto' && meta.destino_hint !== 'null') ? meta.destino_hint : null;
 
@@ -620,11 +675,17 @@ if (tipo === 'SAL') {
   bodega_destino_id = ocr.destino ? resolverBodegaId('destino', ocr.destino, hintDestinoValido) : null;
 }
 
-// ── Fallback Seguro: Si no se detectó origen ni por OCR ni por Webhook ──
 if (!bodega_origen_id) {
-  bodega_origen_id = 20; // BODEGA AUX (ID 20)
+  bodega_origen_id = 20;
   textoOrigenParaBD = 'BODEGA AUX';
   observacionesArr.push('⚠️ Asignada temporalmente a BODEGA AUX (ID 20) por falta de encabezado manuscrito.');
+}
+
+// ── Fallback Seguro para Traspasos: Si no se detectó destino en TRF ──
+if (tipo === 'TRF' && !bodega_destino_id) {
+  bodega_destino_id = 20;
+  textoDestinoParaBD = 'BODEGA AUX';
+  observacionesArr.push('⚠️ TRASPASO: Destino no identificado en nota física (leído: "' + (ocr.destino || 'en blanco') + '"). Asignado provisionalmente a BODEGA AUX (ID 20) para permitir creación de nota.');
 }
 
 const bObjOrigen = bodega_origen_id ? BODEGAS.find(b => b.id === bodega_origen_id) : null;
@@ -804,10 +865,23 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Validar requerimientos mínimos (bodega origen y tipo de movimiento)
-  IF v_prop.bodega_origen_id IS NULL OR v_prop.tipo_movimiento_id IS NULL THEN
-    RAISE NOTICE 'Propuesta incompleta (falta origen o tipo movimiento)';
+  -- Validar requerimientos mínimos (tipo de movimiento)
+  IF v_prop.tipo_movimiento_id IS NULL THEN
+    UPDATE "inv-tienda".nota_ocr_propuestas
+    SET observaciones = COALESCE(observaciones, '') || ' | ❌ No se pudo crear nota: Falta tipo de movimiento.',
+        estado = 'PENDIENTE_REVISION'
+    WHERE id = v_propuesta_id;
+    RAISE NOTICE 'Propuesta incompleta (falta tipo movimiento)';
     RETURN;
+  END IF;
+
+  -- Fallback de seguridad: si el origen no está asignado, asignar BODEGA AUX (ID 20)
+  IF v_prop.bodega_origen_id IS NULL THEN
+    v_prop.bodega_origen_id := 20;
+    UPDATE "inv-tienda".nota_ocr_propuestas
+    SET bodega_origen_id = 20
+    WHERE id = v_propuesta_id;
+    RAISE NOTICE 'Origen asignado automáticamente a Bodega Auxiliar (ID 20)';
   END IF;
 
   -- Validar si el tipo de movimiento requiere destino (ej. Transferencia TRF)
@@ -815,9 +889,13 @@ BEGIN
   FROM "inv-tienda".cat_tipos_movimiento
   WHERE id = v_prop.tipo_movimiento_id;
 
+  -- Fallback de seguridad: si es traspaso y falta bodega destino, asignar BODEGA AUX (ID 20)
   IF v_req_dest AND v_prop.bodega_destino_id IS NULL THEN
-    RAISE NOTICE 'Propuesta requiere bodega destino pendiente de asignar: %', v_propuesta_id;
-    RETURN;
+    v_prop.bodega_destino_id := 20;
+    UPDATE "inv-tienda".nota_ocr_propuestas
+    SET bodega_destino_id = 20
+    WHERE id = v_propuesta_id;
+    RAISE NOTICE 'Destino en traspaso asignado automáticamente a Bodega Auxiliar (ID 20)';
   END IF;
 
   -- 2. Inspeccionar líneas y compilar omitidas con resolución en 2 Fases (ID + Fallback String)
@@ -863,6 +941,13 @@ BEGIN
 
   -- Armar observaciones
   v_obs := COALESCE(v_prop.json_crudo->>'observaciones', '');
+  IF v_prop.bodega_destino_id = 20 AND COALESCE(v_prop.destino_detectado, '') NOT ILIKE '%AUX%' AND v_req_dest THEN
+    IF v_obs != '' THEN
+      v_obs := v_obs || ' | ⚠️ Destino asignado provisionalmente a Bodega Auxiliar (detectado: ' || COALESCE(v_prop.destino_detectado, 'en blanco') || ')';
+    ELSE
+      v_obs := '⚠️ Destino asignado provisionalmente a Bodega Auxiliar (detectado: ' || COALESCE(v_prop.destino_detectado, 'en blanco') || ')';
+    END IF;
+  END IF;
   IF array_length(v_omitidas, 1) > 0 THEN
     IF v_obs != '' THEN
       v_obs := v_obs || ' | ⚠️ OCR no vinculó: ' || array_to_string(v_omitidas, ', ');

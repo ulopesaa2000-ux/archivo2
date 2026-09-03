@@ -2174,7 +2174,7 @@ export async function fetchResumenReporteNotas(filtros: {
 // ════════════════════════════════════════════════════════════
 
 export async function fetchOcrPropuestas(
-  filtros: { estado?: string; page?: number }
+  filtros: FiltrosOcrPropuestas
 ): Promise<{ propuestas: NotaOcrPropuesta[]; total: number }> {
   const supabase = await createClient()
   const page = filtros.page ?? 1
@@ -2187,6 +2187,47 @@ export async function fetchOcrPropuestas(
 
   if (filtros.estado) {
     query = query.eq('estado', filtros.estado)
+  }
+
+  if (filtros.q && filtros.q.trim()) {
+    const term = filtros.q.trim()
+    query = query.or(
+      `folio_detectado.ilike.*${term}*,origen_detectado.ilike.*${term}*,destino_detectado.ilike.*${term}*,tipo_movimiento_detectado.ilike.*${term}*`
+    )
+  }
+
+  if (filtros.bodega_origen_id && filtros.bodega_origen_id !== '_all') {
+    query = query.eq('bodega_origen_id', Number(filtros.bodega_origen_id))
+  }
+
+  if (filtros.bodega_destino_id && filtros.bodega_destino_id !== '_all') {
+    query = query.eq('bodega_destino_id', Number(filtros.bodega_destino_id))
+  }
+
+  if (filtros.fecha_desde) {
+    query = query.gte('creado_en', `${filtros.fecha_desde}T00:00:00.000Z`)
+  }
+
+  if (filtros.fecha_hasta) {
+    query = query.lte('creado_en', `${filtros.fecha_hasta}T23:59:59.999Z`)
+  }
+
+  const isAsc = filtros.order === 'asc'
+  switch (filtros.sort_by) {
+    case 'origen':
+      query = query.order('origen_detectado', { ascending: isAsc, nullsFirst: false })
+      break
+    case 'destino':
+      query = query.order('destino_detectado', { ascending: isAsc, nullsFirst: false })
+      break
+    case 'confianza':
+      query = query.order('confianza_global', { ascending: isAsc, nullsFirst: false })
+      break
+    case 'fecha_escaneo':
+    case 'creado_en':
+    default:
+      query = query.order('creado_en', { ascending: isAsc, nullsFirst: false })
+      break
   }
 
   query = query
@@ -2277,6 +2318,25 @@ export async function fetchOcrPropuestas(
   })
 
   return { propuestas, total: count ?? 0 }
+}
+
+export async function fetchOcrPropuestasCounts(): Promise<{ pendientes: number; revisadas: number }> {
+  const supabase = await createClient()
+  const [resPend, resRev] = await Promise.all([
+    supabase
+      .from('nota_ocr_propuestas')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'PENDIENTE_REVISION'),
+    supabase
+      .from('nota_ocr_propuestas')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'REVISADO'),
+  ])
+
+  return {
+    pendientes: resPend.count ?? 0,
+    revisadas: resRev.count ?? 0,
+  }
 }
 
 export async function fetchOcrPropuestaById(
