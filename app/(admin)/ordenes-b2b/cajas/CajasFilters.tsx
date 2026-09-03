@@ -3,15 +3,13 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useCallback, useTransition, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Loader2, X, Plus, Upload } from 'lucide-react'
-import { AÑOS_DISPONIBLES } from '@/lib/constants'
+import { X, Plus, Upload } from 'lucide-react'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
 import { CrearCajaDialog } from '@/components/admin/cajas/CrearCajaDialog'
 import { ImportCajasModal } from './components/ImportCajasModal'
+import { SearchInput } from '@/components/admin/SearchInput'
 
 export function CajasFilters({
   catalogos,
@@ -39,8 +37,6 @@ export function CajasFilters({
     id: c.id, nombre: c.nombre,
   }))
   
-  const currentQuery = searchParams.get('q') ?? ''
-
   const updateParam = useCallback((k: string, v: string | null) => {
     startTransition(() => {
       const p = new URLSearchParams(searchParams.toString())
@@ -54,40 +50,38 @@ export function CajasFilters({
     })
   }, [searchParams, pathname, router])
 
-  const handleSearch = useDebouncedCallback((t: string) => updateParam('q', t || null), 400)
-
   const updateSort = useCallback((val: string | null) => {
     if (!val) return
+    const [by, ord] = val.split(':')
     startTransition(() => {
       const p = new URLSearchParams(searchParams.toString())
-      const [sort, dir] = val.split(':')
-      if (sort) p.set('sort_by', sort)
-      if (dir) p.set('order', dir)
+      p.set('sort_by', by)
+      p.set('order', ord)
       p.delete('page')
       router.push(`${pathname}?${p.toString()}`, { scroll: false })
     })
   }, [searchParams, pathname, router])
 
-  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
-  const currentSort = `${searchParams.get('sort_by') || 'codigo_caja'}:${searchParams.get('order') || 'asc'}`
+  const clearFilters = useCallback(() => {
+    startTransition(() => {
+      router.push(pathname, { scroll: false })
+    })
+  }, [pathname, router])
+
+  const hasFilters = searchParams.has('q') || searchParams.has('proveedor_id') || searchParams.has('año') || searchParams.has('anio')
+  const currentSort = `${searchParams.get('sort_by') ?? 'codigo_caja'}:${searchParams.get('order') ?? 'desc'}`
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
-      <div className="relative flex-1 max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          key={currentQuery}
-          placeholder="Buscar código de caja..."
-          defaultValue={currentQuery}
-          onChange={(e) => {
-            handleSearch(e.target.value)
-          }}
-          className="pl-10"
-        />
-        {isPending && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-        )}
-      </div>
+      <SearchInput
+        id="cajas-search"
+        placeholder="Buscar código de caja..."
+        currentValue={searchParams.get('q')}
+        onSearch={(term) => updateParam('q', term)}
+        delay={300}
+        minLength={2}
+        controlled
+      />
 
       <Select
         value={searchParams.get('proveedor_id') ?? '_all'}

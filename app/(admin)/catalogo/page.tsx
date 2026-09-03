@@ -1,8 +1,8 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\catalogo\page.tsx
 import type { Metadata } from 'next'
 import { Pagination } from '@/components/admin/Pagination'
-import { fetchProductosCatalogo } from '@/modules/catalogo/queries'
-import type { FiltrosCatalogo, CatalogoSortBy } from '@/modules/catalogo/types'
+import { fetchProductosCatalogo, fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
+import type { FiltrosCatalogo, CatalogoSortBy, CatalogosParaFiltros } from '@/modules/catalogo/types'
 import { CatalogoCreateDialog } from './CatalogoCreateDialog'
 import { CatalogoFilters } from './CatalogoFilters'
 import { CatalogoTable } from './CatalogoTable'
@@ -49,29 +49,23 @@ function parseOptionalInt(value?: string) {
 }
 
 /**
- * Listado del catálogo.
- *
- * Arquitectura:
- * - `CatalogoFilters` es client y permanece montado entre cambios de filtro.
- * - `CatalogoTable` es server y se vuelve a resolver con los search params.
- * - `Pagination` actualiza la URL sin recargar el shell admin.
+ * Componente asíncrono para la tabla/grid y paginación.
+ * Solo este componente se suspende y re-renderiza con los searchParams.
  */
-async function CatalogoData({ 
+async function CatalogoTableData({ 
   filtros, 
   sortBy, 
   order,
   vista,
-  puedeCrear,
-  rawParams,
+  catalogos,
 }: { 
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
   vista: 'grid' | 'tabla'
-  puedeCrear: boolean
-  rawParams?: CatalogoSearchParams
+  catalogos: CatalogosParaFiltros
 }) {
-  const [{ productos, total, catalogos }, tableConfig] = await Promise.all([
+  const [{ productos, total }, tableConfig] = await Promise.all([
     fetchProductosCatalogo(filtros),
     fetchUserTableConfig('/catalogo')
   ])
@@ -82,74 +76,54 @@ async function CatalogoData({
     ...userFeatures,
   }
 
-  const createHref = (() => {
-    const p = new URLSearchParams()
-    if (rawParams) {
-      Object.entries(rawParams).forEach(([k, v]) => {
-        if (v && k !== 'modal' && k !== 'edit_id' && k !== 'delete_id') {
-          p.set(k, v)
-        }
-      })
-    }
-    p.set('modal', 'create')
-    return `/catalogo?${p.toString()}`
-  })()
-
   return (
-    <>
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Catálogo de Productos
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
-          </p>
-        </div>
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
+      </p>
 
-        <div className="flex items-center gap-2">
-          <CatalogoVistaToggle />
-          {puedeCrear && (
-            <>
-              <Link 
-                href={createHref} 
-                scroll={false} 
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Nuevo Producto
-              </Link>
-              <ImportCsvButton />
-            </>
-          )}
-        </div>
-      </div>
-
-      {puedeCrear && <CatalogoCreateDialog catalogos={catalogos} />}
-
-      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
       {vista === 'grid' ? (
         <CatalogoGrid productos={productos} />
       ) : (
-        <CatalogoTable productos={productos} catalogos={catalogos} sortBy={sortBy} order={order} initialFeatures={features} />
+        <CatalogoTable 
+          productos={productos} 
+          catalogos={catalogos} 
+          sortBy={sortBy} 
+          order={order} 
+          initialFeatures={features} 
+        />
       )}
       <Pagination total={total} />
-    </>
+    </div>
   )
 }
 
-function CatalogoSkeleton() {
+function CatalogoTableSkeleton({ vista }: { vista: 'grid' | 'tabla' }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-32 mt-1" />
+      <Skeleton className="h-4 w-36" />
+      {vista === 'grid' ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Skeleton key={i} className="h-64 w-full rounded-xl" />
+          ))}
         </div>
-        <Skeleton className="h-9 w-32" />
+      ) : (
+        <div className="rounded-md border">
+          <div className="border-b bg-muted/50 p-3">
+            <Skeleton className="h-4 w-full" />
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="border-b p-3">
+              <Skeleton className="h-6 w-full" />
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex justify-between">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-48" />
       </div>
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-[400px] w-full" />
     </div>
   )
 }
@@ -164,7 +138,10 @@ export default async function CatalogoPage({
   const user = await getCurrentUser()
   const puedeCrear = can(user, 'catalogo_productos', 'puede_crear')
 
-  const params = await searchParams
+  const [params, catalogos] = await Promise.all([
+    searchParams,
+    fetchCatalogosParaFiltros(),
+  ])
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as CatalogoSortBy)
     ? params.sort_by
@@ -185,16 +162,61 @@ export default async function CatalogoPage({
 
   const vista = params.vista === 'tabla' ? 'tabla' : 'grid'
 
+  const createHref = (() => {
+    const p = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v && k !== 'modal' && k !== 'edit_id' && k !== 'delete_id') {
+          p.set(k, v)
+        }
+      })
+    }
+    p.set('modal', 'create')
+    return `/catalogo?${p.toString()}`
+  })()
+
   return (
     <div className="space-y-4">
-      <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoData 
+      {/* ── Encabezado fijo y estable ── */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Catálogo de Productos
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <CatalogoVistaToggle />
+          {puedeCrear && (
+            <>
+              <Link 
+                href={createHref} 
+                scroll={false} 
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Producto
+              </Link>
+              <ImportCsvButton />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Modal de creación ── */}
+      {puedeCrear && <CatalogoCreateDialog catalogos={catalogos} />}
+
+      {/* ── Filtros fijos y estables (NUNCA se desmontan ni muestran skeletons) ── */}
+      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+
+      {/* ── Solo la tabla o grid y su paginación se suspenden dinámicamente ── */}
+      <Suspense fallback={<CatalogoTableSkeleton vista={vista} />}>
+        <CatalogoTableData 
           filtros={filtros} 
           sortBy={sortBy} 
           order={order} 
           vista={vista} 
-          puedeCrear={puedeCrear} 
-          rawParams={params}
+          catalogos={catalogos}
         />
       </Suspense>
     </div>

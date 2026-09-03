@@ -42,24 +42,20 @@ function parseArray(val: string | string[] | undefined): string[] {
   return Array.isArray(val) ? val : [val]
 }
 
-async function StockMatrixData({
+async function StockMatrixTableData({
   filtros,
   isNone,
   bodegas,
   bodegaActivaId,
   agruparPor,
-  defaultAgrupacionConfig = 'ninguno',
   pageSize = 20,
-  showImport = true,
 }: {
   filtros: FiltrosStockMatrix
   isNone: boolean
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
-  defaultAgrupacionConfig?: string
   pageSize?: number
-  showImport?: boolean
 }) {
   let bodegasColumnas = bodegas
   if (!isNone) {
@@ -88,27 +84,12 @@ async function StockMatrixData({
 
   const items = isNone ? [] : res.items
   const total = isNone ? 0 : res.total
-  const grandTotalCajas: number = Object.values(totalesCajasRealesPorBodega).reduce(
-    (a: number, b: number) => a + b,
-    0
-  )
-  const totalNotasPendientes = res.totalNotasPendientes ?? 0
 
   return (
     <div className="space-y-4">
-      <StockPageHeader
-        title="Stock Consolidado (Matriz)"
-        subtitle={`Todas las bodegas disponibles — ${total} producto${total !== 1 ? 's' : ''}`}
-        bodegas={bodegas}
-        bodegaActivaId={bodegaActivaId}
-        totalCajas={grandTotalCajas}
-        showImport={showImport}
-      />
-      <StockMatrixFilters
-        bodegas={bodegas}
-        defaultAgrupacion={defaultAgrupacionConfig}
-        totalNotasPendientes={totalNotasPendientes}
-      />
+      <p className="text-sm text-muted-foreground">
+        {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
+      </p>
       <StockMatrixTable
         items={items}
         bodegasColumnas={bodegasColumnas}
@@ -121,55 +102,30 @@ async function StockMatrixData({
   )
 }
 
-async function StockNormalData({
+async function StockNormalTableData({
   filtros,
   bodegas,
   bodegaActivaId,
   agruparPor,
-  defaultAgrupacionConfig = 'ninguno',
   pageSize = 20,
-  limiteNotasPendientes = 5,
-  showImport = true,
 }: {
   filtros: FiltrosStock
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
-  defaultAgrupacionConfig?: string
   pageSize?: number
-  limiteNotasPendientes?: number
-  showImport?: boolean
 }) {
-  const { items, total, totalCajas, totalCajasPronosticadas, totalNotasPendientes } = await fetchStockByBodega(
+  const { items, total } = await fetchStockByBodega(
     bodegaActivaId,
     filtros
   )
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
-  const isPronostico = filtros.modo === 'pronostico'
 
   return (
     <div className="space-y-4">
-      <Suspense fallback={null}>
-        <NotasPendientesPanel bodegaId={bodegaActivaId} limit={limiteNotasPendientes} />
-      </Suspense>
-      <StockPageHeader
-        title={isPronostico ? 'Stock Pronosticado por Bodega' : 'Stock por Bodega'}
-        subtitle={
-          isPronostico
-            ? `${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — Proyección con notas pendientes (${total} producto${total !== 1 ? 's' : ''})`
-            : `${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — ${total} producto${total !== 1 ? 's' : ''}`
-        }
-        bodegas={bodegas}
-        bodegaActivaId={bodegaActivaId}
-        totalCajas={totalCajas}
-        totalCajasPronosticadas={totalCajasPronosticadas}
-        isPronostico={isPronostico}
-        showImport={showImport}
-      />
-      <StockFilters
-        defaultAgrupacion={defaultAgrupacionConfig}
-        totalNotasPendientes={totalNotasPendientes}
-      />
+      <p className="text-sm text-muted-foreground">
+        {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}
+      </p>
       <StockTable
         items={items}
         bodegaId={bodegaActivaId}
@@ -177,6 +133,28 @@ async function StockNormalData({
         bodegaNombre={bodegaActiva?.nombre}
       />
       <Pagination total={total} pageSize={pageSize} />
+    </div>
+  )
+}
+
+function StockTableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-4 w-40" />
+      <div className="rounded-md border">
+        <div className="border-b bg-muted/50 p-3">
+          <Skeleton className="h-4 w-full" />
+        </div>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="border-b p-3">
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between items-center">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-8 w-48" />
+      </div>
     </div>
   )
 }
@@ -308,18 +286,34 @@ async function StockPageContent({
     }
 
     return (
-      <Suspense fallback={<StockSkeleton />}>
-        <StockMatrixData 
-          filtros={filtros} 
-          isNone={isNone} 
-          bodegas={bodegasPermitidas} 
-          bodegaActivaId={bodegaActivaId} 
-          agruparPor={defaultAgrupacion}
-          defaultAgrupacionConfig={configuredDefaultAgrupacion}
-          pageSize={pageSize}
+      <div className="space-y-4">
+        {/* ── Encabezado fijo y estable ── */}
+        <StockPageHeader
+          title="Stock Consolidado (Matriz)"
+          subtitle="Todas las bodegas disponibles"
+          bodegas={bodegasPermitidas}
+          bodegaActivaId={bodegaActivaId}
           showImport={canImport}
         />
-      </Suspense>
+
+        {/* ── Filtros fijos y estables (NUNCA se desmontan) ── */}
+        <StockMatrixFilters
+          bodegas={bodegasPermitidas}
+          defaultAgrupacion={configuredDefaultAgrupacion}
+        />
+
+        {/* ── Solo la tabla se suspende dinámicamente ── */}
+        <Suspense fallback={<StockTableSkeleton />}>
+          <StockMatrixTableData 
+            filtros={filtros} 
+            isNone={isNone} 
+            bodegas={bodegasPermitidas} 
+            bodegaActivaId={bodegaActivaId} 
+            agruparPor={defaultAgrupacion}
+            pageSize={pageSize}
+          />
+        </Suspense>
+      </div>
     )
   }
 
@@ -332,19 +326,46 @@ async function StockPageContent({
     solo_afectados: sp.solo_afectados === 'true',
   }
 
+  const bodegaActiva = bodegasPermitidas.find((b) => b.id === bodegaActivaId)
+  const isPronostico = sp.modo === 'pronostico'
+
   return (
-    <Suspense fallback={<StockSkeleton />}>
-      <StockNormalData 
-        filtros={filtros} 
-        bodegas={bodegasPermitidas} 
-        bodegaActivaId={bodegaActivaId} 
-        agruparPor={defaultAgrupacion}
-        defaultAgrupacionConfig={configuredDefaultAgrupacion}
-        pageSize={pageSize}
-        limiteNotasPendientes={config.limite_notas_pendientes_panel}
+    <div className="space-y-4">
+      {/* ── Panel de notas pendientes ── */}
+      <Suspense fallback={null}>
+        <NotasPendientesPanel bodegaId={bodegaActivaId} limit={config.limite_notas_pendientes_panel} />
+      </Suspense>
+
+      {/* ── Encabezado fijo y estable ── */}
+      <StockPageHeader
+        title={isPronostico ? 'Stock Pronosticado por Bodega' : 'Stock por Bodega'}
+        subtitle={
+          isPronostico
+            ? `${bodegaActiva?.nombre ?? 'Bodega seleccionada'} — Proyección con notas pendientes`
+            : `${bodegaActiva?.nombre ?? 'Bodega seleccionada'}`
+        }
+        bodegas={bodegasPermitidas}
+        bodegaActivaId={bodegaActivaId}
+        isPronostico={isPronostico}
         showImport={canImport}
       />
-    </Suspense>
+
+      {/* ── Filtros fijos y estables (NUNCA se desmontan) ── */}
+      <StockFilters
+        defaultAgrupacion={configuredDefaultAgrupacion}
+      />
+
+      {/* ── Solo la tabla se suspende dinámicamente ── */}
+      <Suspense fallback={<StockTableSkeleton />}>
+        <StockNormalTableData 
+          filtros={filtros} 
+          bodegas={bodegasPermitidas} 
+          bodegaActivaId={bodegaActivaId} 
+          agruparPor={defaultAgrupacion}
+          pageSize={pageSize}
+        />
+      </Suspense>
+    </div>
   )
 }
 
