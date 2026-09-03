@@ -1,15 +1,13 @@
 // app/(admin)/inventario/stock/StockFilters.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Search, Loader2, X, Eye, Layers, Package, TrendingUp, AlertTriangle } from 'lucide-react'
+import { X, Eye, Layers, Package, TrendingUp, AlertTriangle } from 'lucide-react'
 import { useFilterParams } from '@/components/admin/useFilterParams'
+import { SearchInput } from '@/components/admin/SearchInput'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,23 +31,7 @@ export function StockFilters({
   const currentStockCero     = searchParam('con_stock_cero') === 'true'
   const currentAgrupacion    = searchParam('agrupar_por') || defaultAgrupacion
 
-  const [localQ, setLocalQ] = useState(currentQ)
-
-  useEffect(() => {
-    setLocalQ(currentQ)
-  }, [currentQ])
-
-  const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term.trim() || null)
-  }, 300)
-
-  const onSearchChange = (val: string) => {
-    setLocalQ(val)
-    handleSearch(val)
-  }
-
   const handleClear = () => {
-    setLocalQ('')
     clearAll(['stock-search'])
   }
 
@@ -101,19 +83,15 @@ export function StockFilters({
         </div>
 
         {/* Buscador */}
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            id="stock-search"
-            placeholder="Buscar por SKU o nombre..."
-            value={localQ}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="pl-10 h-8 text-sm"
-          />
-          {isPending && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-          )}
-        </div>
+        <SearchInput
+          id="stock-search"
+          placeholder="Buscar por SKU o nombre..."
+          currentValue={currentQ}
+          onSearch={(term) => updateParam('q', term)}
+          delay={300}
+          minLength={2}
+          controlled
+        />
 
         {/* Agrupar Por */}
         <DropdownMenu>

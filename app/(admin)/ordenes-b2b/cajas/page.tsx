@@ -1,5 +1,6 @@
 // app/(admin)/ordenes-b2b/cajas/page.tsx
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { fetchCajasListado, fetchCatalogosB2B, fetchCatalogoTallasColores } from '@/modules/ordenes-b2b/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
@@ -7,9 +8,11 @@ import { CajasFilters } from './CajasFilters'
 import { CajasTable } from './CajasTable'
 import { Pagination } from '@/components/admin/Pagination'
 import type { FiltrosCajas } from '@/modules/ordenes-b2b/types'
+import type { TableFeatures } from '@/components/admin/DataTable/types'
 import { requirePermission } from '@/lib/dal'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from '@/lib/auth/permissions'
+import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
 
 export const metadata: Metadata = { title: 'Cajas de Producto' }
 
@@ -21,6 +24,29 @@ type CajasSearchParams = {
   page?: string
   sort_by?: string
   order?: string
+}
+
+async function CajasTableData({
+  filtros,
+  features,
+}: {
+  filtros: FiltrosCajas
+  features: TableFeatures
+}) {
+  const { items, total } = await fetchCajasListado(filtros)
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
+      <CajasTable
+        items={items}
+        initialFeatures={features}
+        sortKey={filtros.sort_by}
+        sortOrder={filtros.order}
+      />
+      <Pagination total={total} />
+    </div>
+  )
 }
 
 export default async function CajasPage({
@@ -45,14 +71,13 @@ export default async function CajasPage({
   const user = await getCurrentUser()
   const puedeCrear = can(user, 'b2b_cajas', 'puede_crear')
 
-  const [{ items, total }, catalogos, tableConfig, catalogoCajas] = await Promise.all([
-    fetchCajasListado(filtros),
+  const [catalogos, tableConfig, catalogoCajas] = await Promise.all([
     fetchCatalogosB2B(),
     fetchUserTableConfig('/ordenes-b2b/cajas'),
     fetchCatalogoTallasColores(),
   ])
 
-  const features = {
+  const features: TableFeatures = {
     ...getDefaultFeatures('/ordenes-b2b/cajas'),
     ...tableConfig.config,
   }
@@ -61,16 +86,11 @@ export default async function CajasPage({
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Cajas de Producto</h1>
-        <p className="text-sm text-muted-foreground">{total} caja{total !== 1 ? 's' : ''}</p>
       </div>
       <CajasFilters catalogos={catalogos} catalogoCajas={catalogoCajas} puedeCrear={puedeCrear} />
-      <CajasTable
-        items={items}
-        initialFeatures={features}
-        sortKey={filtros.sort_by}
-        sortOrder={filtros.order}
-      />
-      <Pagination total={total} />
+      <Suspense fallback={<ListPageSkeleton rows={8} />}>
+        <CajasTableData filtros={filtros} features={features} />
+      </Suspense>
     </div>
   )
 }

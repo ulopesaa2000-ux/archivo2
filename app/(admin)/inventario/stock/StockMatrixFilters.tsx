@@ -1,11 +1,10 @@
 // app/(admin)/inventario/stock/StockMatrixFilters.tsx
 'use client'
 
-import { useTransition, useCallback, useState, useEffect } from 'react'
+import { useTransition, useCallback } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Input } from '@/components/ui/input'
-import { Search, Loader2, X, Layers, Boxes, TrendingUp, Filter } from 'lucide-react'
-import { useDebouncedCallback } from 'use-debounce'
+import { SearchInput } from '@/components/admin/SearchInput'
+import { X, Layers, Boxes, TrendingUp, Filter, Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import type { BodegaRow } from '@/lib/types/tables'
@@ -41,16 +40,9 @@ export function StockMatrixFilters({
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
-  const [localQ, setLocalQ] = useState(searchParams.get('q') ?? '')
   const modo = searchParams.get('modo') === 'pronostico' ? 'pronostico' : 'fisico'
   const isPronostico = modo === 'pronostico'
   const soloAfectados = searchParams.get('solo_afectados') === 'true'
-
-  // Sync localQ when URL searchParams change (e.g. browser back/forward)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate: sync local input state from URL params (external system)
-    setLocalQ(searchParams.get('q') ?? '')
-  }, [searchParams])
 
   const setParam = useCallback(
     (key: string, value: string | string[] | null, showForecastToast = false) => {
@@ -79,15 +71,6 @@ export function StockMatrixFilters({
     },
     [searchParams, pathname, router, isPronostico]
   )
-
-  const debouncedSearch = useDebouncedCallback((value: string) => {
-    setParam('q', value || null)
-  }, 300)
-
-  const handleQChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalQ(e.target.value)
-    debouncedSearch(e.target.value)
-  }
 
   const ciudadesUnicas = Array.from(new Set(bodegas.map((b) => b.ciudad || 'sin_asignar'))).sort()
   const currentCiudades = searchParams.getAll('ciudades').filter((c) => c !== 'none')
@@ -184,18 +167,15 @@ export function StockMatrixFilters({
         </div>
 
         {/* Buscar */}
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por SKU, Familia o Nombre..."
-            value={localQ}
-            onChange={handleQChange}
-            className="pl-9 bg-background"
-          />
-          {isPending && (
-            <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
-          )}
-        </div>
+        <SearchInput
+          id="matrix-search"
+          placeholder="Buscar por SKU, Familia o Nombre..."
+          currentValue={searchParams.get('q')}
+          onSearch={(term) => setParam('q', term)}
+          delay={300}
+          minLength={2}
+          controlled
+        />
 
         {/* Agrupar Por */}
         <DropdownMenu>

@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\components\admin\SearchInput.tsx
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,7 @@ export function SearchInput({
   id = 'search-input',
   currentValue = '',
   onSearch,
-  delay = 400,
+  delay = 300,
   controlled = false,
   minLength = 0,
   showSubmitButton = false,
@@ -34,13 +34,21 @@ export function SearchInput({
   const [isTyping, setIsTyping] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [prevCurrentValue, setPrevCurrentValue] = useState(currentValue)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const isFocusedRef = useRef(false)
+  const isTypingRef = useRef(false)
 
   // Sincroniza el input cuando cambia la URL por navegación, paginación o limpiar filtros.
+  // IMPORTANTE: Si el usuario tiene el foco activo en el input y está escribiendo, NO sobrescribir
+  // su texto con respuestas de búsquedas anteriores en vuelo (previene cortes de texto).
   if (currentValue !== prevCurrentValue) {
     setPrevCurrentValue(currentValue)
-    setLocalValue(currentValue ?? '')
-    setIsTyping(false)
-    setValidationMessage(null)
+    if (!isFocusedRef.current || !currentValue) {
+      setLocalValue(currentValue ?? '')
+      setIsTyping(false)
+      isTypingRef.current = false
+      setValidationMessage(null)
+    }
   }
 
   const debouncedSearch = useDebouncedCallback(
@@ -48,10 +56,12 @@ export function SearchInput({
       const normalized = term.trim()
       if (normalized.length < minLength) {
         setIsTyping(false)
+        isTypingRef.current = false
         return
       }
       onSearch(normalized || null)
       setIsTyping(false)
+      isTypingRef.current = false
     },
     delay,
   )
@@ -62,6 +72,7 @@ export function SearchInput({
       if (term && term.length < minLength) {
         debouncedSearch.cancel()
         setIsTyping(false)
+        isTypingRef.current = false
         setValidationMessage(`Escribe al menos ${minLength} caracteres.`)
         return
       }
@@ -70,6 +81,7 @@ export function SearchInput({
       setValidationMessage(null)
       onSearch(term || null)
       setIsTyping(false)
+      isTypingRef.current = false
     },
     [debouncedSearch, localValue, minLength, onSearch],
   )
@@ -86,12 +98,14 @@ export function SearchInput({
 
   const handleChange = (value: string) => {
     setLocalValue(value)
+    isTypingRef.current = true
     const normalized = value.trim()
 
     if (!normalized) {
       debouncedSearch.cancel()
       onSearch(null)
       setIsTyping(false)
+      isTypingRef.current = false
       setValidationMessage(null)
       return
     }
@@ -108,6 +122,19 @@ export function SearchInput({
     debouncedSearch(value)
   }
 
+  const handleFocus = () => {
+    isFocusedRef.current = true
+  }
+
+  const handleBlur = () => {
+    isFocusedRef.current = false
+    isTypingRef.current = false
+    // Si al desenfocar el valor local está vacío o coincide con la URL, limpiar mensaje de validación
+    if (!localValue) {
+      setValidationMessage(null)
+    }
+  }
+
   useEffect(() => {
     return () => {
       debouncedSearch.cancel()
@@ -119,6 +146,7 @@ export function SearchInput({
       debouncedSearch.cancel()
       setLocalValue('')
       setIsTyping(false)
+      isTypingRef.current = false
       setValidationMessage(null)
     }
     window.addEventListener(`clear-${id}`, handleClear)
@@ -132,11 +160,14 @@ export function SearchInput({
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
+              ref={inputRef}
               id={id}
               placeholder={placeholder}
               value={localValue}
               onChange={(e) => handleChange(e.target.value)}
               onKeyDown={handleKeyDown}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
               aria-describedby={`${id}-hint`}
               className="pl-10 pr-10"
             />
@@ -166,11 +197,14 @@ export function SearchInput({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
+          ref={inputRef}
           id={id}
           placeholder={placeholder}
           defaultValue={currentValue ?? ''}
           onChange={(e) => debouncedSearch(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           className="pl-10 pr-10"
         />
       </div>
