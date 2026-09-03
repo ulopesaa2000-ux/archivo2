@@ -1429,5 +1429,149 @@ export async function eliminarNotaAction(
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// RESOLVER PRODUCTOS PEGADOS DESDE EXCEL / PORTAPAPELES
+// ════════════════════════════════════════════════════════════
 
+export type ResolvedProductoPegado = {
+  producto_id: number
+  sku_base: string
+  sku_ingresado: string
+  nombre: string | null
+  pz_en_caja: number | null
+  cajas: number
+  stock_origen_cajas: number
+  stock_origen_piezas: number
+}
 
+export type ResultadoResolverPegados = {
+  encontrados: ResolvedProductoPegado[]
+  noEncontrados: Array<{ sku: string; cajas: number }>
+}
+
+export async function resolverProductosPegadosAction(
+  items: Array<{ sku: string; cajas: number }>,
+  bodegaOrigenId?: number | null
+): Promise<ResultadoResolverPegados> {
+  const supabase = await createClient()
+
+  if (!items || items.length === 0) {
+    return { encontrados: [], noEncontrados: [] }
+  }
+
+  // Filtrar y normalizar SKUs válidos
+  const cleanedItems = items
+    .map((it) => ({
+      sku: (it.sku || '').trim(),
+      cajas: Number(it.cajas) || 0,
+    }))
+    .filter((it) => it.sku.length > 0)
+
+  if (cleanedItems.length === 0) {
+    return { encontrados: [], noEncontrados: [] }
+  }
+
+  // Mapear SKU normalizado (mayúsculas y trim) a los items pegados
+  const uniqueSkusUpper = Array.from(new Set(cleanedItems.map((it) => it.sku.toUpperCase())))
+
+  // 1. Búsqueda directa en tabla productos por sku_base
+  const { data: directProducts, error: prodError } = await supabase
+    .from('productos')
+    .select('id, sku_base, nombre, descripcion, pz_en_caja')
+    .in('sku_base', uniqueSkusUpper)
+    .eq('activo', true)
+
+  if (prodError) {
+    console.error('Error al buscar productos directos:', prodError)
+  }
+
+  // Mapa de productos encontrados por sku_base en mayúsculas
+  const foundMap = new Map<string, {
+    id: number
+    sku_base: string
+    nombre: string | null
+    pz_en_caja: number | null
+  }>()
+
+  if (directProducts) {
+    for (const p of directProducts) {
+      foundMap.set(p.sku_base.toUpperCase(), {
+        id: p.id,
+        sku_base: p.sku_base,
+        nombre: p.descripcion || p.nombre || null,
+        pz_en_caja: p.pz_en_caja ?? null,
+      })
+    }
+  }
+
+  // 2. Si quedaron SKUs sin encontrar, intentar búsqueda inteligente por import-queries
+  const pendingSkus = uniqueSkusUpper.filter((s) => !foundMap.has(s))
+  if (pendingSkus.length > 0) {
+    try {
+      const { buscarProductosPorSkuBatch } = await import('./import-queries')
+      const batchMatches = await buscarProductosPorSkuBatch(pendingSkus)
+      for (const [searchedSku, match] of batchMatches.entries()) {
+        if (match && match.producto_id) {
+          foundMap.set(searchedSku.toUpperCase(), {
+            id: match.producto_id,
+            sku_base: match.sku_base,
+            nombre: match.nombre,
+            pz_en_caja: match.pz_en_caja ?? null,
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Error en búsqueda fallback de productos:', err)
+    }
+  }
+
+  // 3. Consultar existencias de todos los productos encontrados en la bodega origen seleccionada
+  const resolvedProductIds = Array.from(new Set(Array.from(foundMap.values()).map((p) => p.id)))
+  const stockMap = new Map<number, { cajas: number; piezas_sueltas: number }>()
+
+  if (bodegaOrigenId && resolvedProductIds.length > 0) {
+    const { data: stockRows, error: stockErr } = await supabase
+      .from('inventario_stock')
+      .select('producto_id, cajas, piezas_sueltas')
+      .eq('bodega_id', bodegaOrigenId)
+      .in('producto_id', resolvedProductIds)
+      .is('caja_id', null)
+
+    if (!stockErr && stockRows) {
+      for (const s of stockRows) {
+        stockMap.set(s.producto_id, {
+          cajas: Number(s.cajas) || 0,
+          piezas_sueltas: Number(s.piezas_sueltas) || 0,
+        })
+      }
+    }
+  }
+
+  // 4. Construir resultado ordenado manteniendo la secuencia pegada
+  const encontrados: ResolvedProductoPegado[] = []
+  const noEncontrados: Array<{ sku: string; cajas: number }> = []
+
+  for (const item of cleanedItems) {
+    const matched = foundMap.get(item.sku.toUpperCase())
+    if (matched) {
+      const stock = stockMap.get(matched.id) || { cajas: 0, piezas_sueltas: 0 }
+      encontrados.push({
+        producto_id: matched.id,
+        sku_base: matched.sku_base,
+        sku_ingresado: item.sku,
+        nombre: matched.nombre,
+        pz_en_caja: matched.pz_en_caja,
+        cajas: item.cajas,
+        stock_origen_cajas: stock.cajas,
+        stock_origen_piezas: stock.piezas_sueltas,
+      })
+    } else {
+      noEncontrados.push(item)
+    }
+  }
+
+  return {
+    encontrados,
+    noEncontrados,
+  }
+}

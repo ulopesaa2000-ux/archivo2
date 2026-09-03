@@ -30,6 +30,7 @@ import {
   Warehouse,
   RotateCcw,
   Sliders,
+  Route,
 } from 'lucide-react'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -73,6 +74,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Notas', href: ADMIN_ROUTES.inventario.notas, icon: FileText, modulo: 'inventario_notas' },
       { label: 'Propuestas OCR', href: ADMIN_ROUTES.inventario.notaPropuestas, icon: Sparkles, modulo: 'inventario_notas' },
       { label: 'Stock', href: ADMIN_ROUTES.inventario.stock, icon: Warehouse, modulo: 'inventario_stock' },
+      { label: 'Trazabilidad', href: ADMIN_ROUTES.inventario.trazabilidad, icon: Route, modulo: 'inventario_stock' },
       { label: 'Bodegas', href: ADMIN_ROUTES.inventario.bodegas, icon: Building2, modulo: 'inventario_bodegas' },
       { label: 'Configuración', href: ADMIN_ROUTES.inventario.config, icon: Settings, modulo: 'inventario_config' },
     ],
