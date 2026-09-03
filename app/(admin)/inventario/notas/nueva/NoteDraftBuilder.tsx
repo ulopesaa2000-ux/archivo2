@@ -31,11 +31,17 @@ import {
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
 import { ConciliadorAmpliadoStockModal } from '@/components/admin/ConciliadorAmpliadoStockModal'
+import { PasteExcelProductosModal } from '@/components/admin/inventario/PasteExcelProductosModal'
 import Link from 'next/link'
 import {
   ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
 } from '@/lib/constants'
-import { guardarNotaAction, actualizarNotaAction, subirComprobanteNotaAction } from '@/modules/inventario/actions'
+import {
+  guardarNotaAction,
+  actualizarNotaAction,
+  subirComprobanteNotaAction,
+  type ResolvedProductoPegado,
+} from '@/modules/inventario/actions'
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
   ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta,
@@ -800,6 +806,59 @@ export function NoteDraftBuilder({
 
   // Estado para alternar visibilidad de las columnas secundarias (Caja física y Piezas)
   const [showExtraCols, setShowExtraCols] = useState<boolean>(false)
+
+  // Estado y manejador para pegar productos desde Excel / Portapapeles
+  const [showPasteExcelModal, setShowPasteExcelModal] = useState<boolean>(false)
+
+  const handleApplyPastedProducts = (
+    items: ResolvedProductoPegado[],
+    modoFusion: 'sumar' | 'anexar'
+  ) => {
+    setDraft((prev) => {
+      const existingList = [...prev.productos]
+      const itemsToAdd: DraftProducto[] = []
+
+      for (const item of items) {
+        if (modoFusion === 'sumar') {
+          const existingIdx = existingList.findIndex(
+            (p) => p.producto_id === item.producto_id && (!p.caja_id || p.caja_id === null)
+          )
+          if (existingIdx >= 0) {
+            existingList[existingIdx] = {
+              ...existingList[existingIdx],
+              cajas: existingList[existingIdx].cajas + item.cajas,
+              stock_origen_cajas: item.stock_origen_cajas || existingList[existingIdx].stock_origen_cajas,
+              stock_origen_piezas: item.stock_origen_piezas || existingList[existingIdx].stock_origen_piezas,
+            }
+            continue
+          }
+        }
+
+        itemsToAdd.push({
+          tempId: crypto.randomUUID(),
+          producto_id: item.producto_id,
+          producto_sku: item.sku_base,
+          producto_nombre: item.nombre,
+          producto_pz_en_caja: item.pz_en_caja,
+          cajas: item.cajas,
+          piezas_sueltas: 0,
+          caja_id: null,
+          caja_codigo: null,
+          caja_nombre_pack: null,
+          stock_origen_cajas: item.stock_origen_cajas,
+          stock_origen_piezas: item.stock_origen_piezas,
+          codigo_original: item.sku_ingresado !== item.sku_base ? item.sku_ingresado : null,
+        })
+      }
+
+      return {
+        ...prev,
+        productos: [...existingList, ...itemsToAdd],
+      }
+    })
+
+    toast.success(`Se agregaron ${items.length} productos a la nota con éxito.`)
+  }
 
   // ── Drag & Drop para reordenar productos con la manita ─────
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -1710,7 +1769,20 @@ export function NoteDraftBuilder({
       {/* ── Agregar productos ────────────────────────────── */}
       <Card className="shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
         <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0 flex-wrap gap-2">
-          <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Productos en la Nota</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Productos en la Nota</CardTitle>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-xl border border-muted/80 bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/40 shadow-xs transition-colors"
+              onClick={() => setShowPasteExcelModal(true)}
+              title="Pegar productos desde Excel / Portapapeles (SKU y Cajas)"
+              disabled={todoBloqueado || soloEditaDestino}
+            >
+              <ClipboardPaste className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="flex items-center gap-2">
             {draft.productos.length > 0 && (
               <Button
@@ -2580,6 +2652,14 @@ export function NoteDraftBuilder({
         comprobanteUrl={comprobantePreview || initialData?.cabecera.comprobante_url}
         bodegaOrigenId={draft.bodega_origen_id}
         onApplyToDraft={handleApplyOcrLinesToDraft}
+      />
+
+      {/* ── Modal de Pegar Productos desde Excel / Portapapeles ── */}
+      <PasteExcelProductosModal
+        open={showPasteExcelModal}
+        onOpenChange={setShowPasteExcelModal}
+        bodegaOrigenId={draft.bodega_origen_id}
+        onApplyProducts={handleApplyPastedProducts}
       />
 
       {/* ── Diálogo de Confirmación al Cambiar Bodega Origen ── */}
