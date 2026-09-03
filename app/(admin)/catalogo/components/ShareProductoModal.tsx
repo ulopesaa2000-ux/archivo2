@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
-import { formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 import type { ProductoListItem } from '@/modules/catalogo/types'
 import {
   Copy,
@@ -260,182 +260,206 @@ export function ShareProductoModal({ producto, open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-5 gap-4">
-        <DialogHeader className="gap-1 text-left">
-          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-            <Share2 className="h-4 w-4 text-primary" />
-            Compartir Producto
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Envía o copia la tarjeta interactiva con foto y datos para WhatsApp y Telegram.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-xl md:max-w-2xl max-h-[90dvh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl border bg-background shadow-2xl">
+        {/* Header con título y descripción */}
+        <div className="p-4 sm:p-5 pb-3 border-b border-border/60 shrink-0 pr-12">
+          <DialogHeader className="gap-1 text-left">
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg font-bold tracking-tight">
+              <div className="p-1.5 rounded-lg bg-primary/10 text-primary shrink-0">
+                <Share2 className="h-4 w-4" />
+              </div>
+              <span>Compartir Producto</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Envía o copia la tarjeta interactiva con foto y datos para WhatsApp y Telegram.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        {/* Tarjeta de previsualización compacta estilo bloque */}
-        <div className="flex gap-3 p-3.5 rounded-xl bg-muted/50 dark:bg-slate-900/70 border border-border/80 items-center">
-          <div className="relative w-16 h-20 bg-background rounded-lg border overflow-hidden shrink-0 flex items-center justify-center shadow-xs">
-            {producto.imagen_principal ? (
-              <Image
-                src={getSmartImagenUrl(producto.imagen_principal, 'thumbnail')}
-                alt={producto.sku_base}
-                fill
-                className="object-contain p-1"
-              />
-            ) : (
-              <ImageIcon className="h-6 w-6 text-muted-foreground/40" />
-            )}
+        {/* Cuerpo scrolleable para evitar desbordes en cualquier resolución */}
+        <div className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden space-y-3.5 sm:space-y-4 flex-1 min-w-0">
+          {/* Tarjeta de previsualización con foto y datos */}
+          <div className="flex gap-3 sm:gap-4 p-3 sm:p-3.5 rounded-xl bg-muted/40 dark:bg-slate-900/60 border border-border/70 items-center min-w-0 w-full">
+            <div className="relative w-16 h-20 sm:w-20 sm:h-24 bg-background rounded-lg border overflow-hidden shrink-0 flex items-center justify-center shadow-xs">
+              {producto.imagen_principal ? (
+                <Image
+                  src={getSmartImagenUrl(producto.imagen_principal, 'thumbnail')}
+                  alt={producto.sku_base}
+                  fill
+                  className="object-contain p-1"
+                  sizes="(max-width: 640px) 64px, 80px"
+                />
+              ) : (
+                <ImageIcon className="h-7 w-7 text-muted-foreground/40" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono font-bold text-sm sm:text-base text-foreground tracking-tight break-all">
+                  {skuFamilia}
+                </span>
+                {producto.estado && (
+                  <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 capitalize shrink-0 font-medium">
+                    {producto.estado}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2 leading-tight">
+                {descripcionLimpia || 'Sin descripción'}
+              </p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium pt-0.5 flex-wrap">
+                {producto.pz_en_caja && (
+                  <span className="bg-primary/10 text-primary font-semibold px-2 py-0.5 rounded text-[11px] shrink-0">
+                    📦 {producto.pz_en_caja} pz/caja
+                  </span>
+                )}
+                {producto.precio_ec != null && (
+                  <span className="font-bold text-foreground text-xs sm:text-sm shrink-0">
+                    💰 {formatCurrency(producto.precio_ec)}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-mono font-bold text-sm text-foreground">
-                {skuFamilia}
+
+          {/* Opciones y Vista previa del texto de la tarjeta */}
+          <div className="space-y-2 min-w-0 w-full">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-muted-foreground">
+                Formato de mensaje (previsualización):
               </span>
-              <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">
-                {producto.estado}
-              </Badge>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {directImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setIncluirLinkFoto(!incluirLinkFoto)}
+                    className={cn(
+                      'text-[11px] px-2.5 py-1 rounded-md font-medium border transition-colors cursor-pointer flex items-center gap-1',
+                      incluirLinkFoto
+                        ? 'bg-primary/10 text-primary border-primary/30'
+                        : 'bg-muted/40 text-muted-foreground border-border hover:text-foreground'
+                    )}
+                  >
+                    {incluirLinkFoto ? <Check className="h-3 w-3" /> : <Link2 className="h-3 w-3" />}
+                    <span>Link de foto</span>
+                  </button>
+                )}
+                {producto.precio_ec != null && (
+                  <button
+                    type="button"
+                    onClick={() => setIncluirPrecio(!incluirPrecio)}
+                    className={cn(
+                      'text-[11px] px-2.5 py-1 rounded-md font-medium border transition-colors cursor-pointer flex items-center gap-1',
+                      incluirPrecio
+                        ? 'bg-primary/10 text-primary border-primary/30'
+                        : 'bg-muted/40 text-muted-foreground border-border hover:text-foreground'
+                    )}
+                  >
+                    {incluirPrecio ? <Check className="h-3 w-3" /> : <span>+</span>}
+                    <span>Con precio</span>
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground line-clamp-2 leading-tight">
-              {descripcionLimpia || 'Sin descripción'}
-            </p>
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-medium pt-0.5">
-              {producto.pz_en_caja && (
-                <span className="bg-primary/10 text-primary font-semibold px-1.5 py-0.2 rounded text-[10px]">
-                  {producto.pz_en_caja} pz/caja
-                </span>
-              )}
-              {producto.precio_ec != null && (
-                <span className="font-bold text-foreground">
-                  {formatCurrency(producto.precio_ec)}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
 
-        {/* Opciones y Vista previa del texto de la tarjeta */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-muted-foreground">
-              Formato de mensaje:
-            </span>
-            <div className="flex items-center gap-2">
-              {directImageUrl && (
-                <button
-                  type="button"
-                  onClick={() => setIncluirLinkFoto(!incluirLinkFoto)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground font-medium cursor-pointer"
-                >
-                  {incluirLinkFoto ? '✓ Link de foto' : '+ Link de foto'}
-                </button>
-              )}
-              {producto.precio_ec != null && (
-                <button
-                  type="button"
-                  onClick={() => setIncluirPrecio(!incluirPrecio)}
-                  className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
-                >
-                  {incluirPrecio ? '✓ Con precio' : '+ Precio'}
-                </button>
-              )}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-background border font-mono text-xs text-foreground select-all whitespace-pre-wrap break-all [overflow-wrap:anywhere] leading-relaxed shadow-xs max-h-36 sm:max-h-44 overflow-y-auto w-full min-w-0">
+              {textoCompartir}
             </div>
           </div>
-          <div className="p-2.5 rounded-lg bg-background border font-mono text-xs text-foreground select-all whitespace-pre-wrap break-words leading-relaxed shadow-xs max-h-32 overflow-y-auto">
-            {textoCompartir}
-          </div>
-        </div>
 
-        {/* BOTÓN PRINCIPAL 1-CLICK: FOTO + TEXTO */}
-        <Button
-          type="button"
-          className="w-full h-10 gap-2 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all active:scale-[0.98] cursor-pointer"
-          onClick={handleShareOrCopyAll}
-          disabled={isProcessingAll}
-        >
-          {isProcessingAll ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Preparando Tarjeta + Foto...</span>
-            </>
-          ) : copiedAll ? (
-            <>
-              <Check className="h-4 w-4 text-emerald-400" />
-              <span>¡Tarjeta y Foto Copiadas!</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-4 w-4" />
-              <span>Copiar Tarjeta Completa (Foto + Texto)</span>
-            </>
-          )}
-        </Button>
-
-        {/* Botones secundarios */}
-        <div className="grid grid-cols-2 gap-2 pt-0.5">
+          {/* BOTÓN PRINCIPAL 1-CLICK: FOTO + TEXTO */}
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 active:scale-95 transition-all cursor-pointer"
-            onClick={handleCopyText}
+            className="w-full h-10 sm:h-11 gap-2 text-xs sm:text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all active:scale-[0.98] cursor-pointer rounded-xl"
+            onClick={handleShareOrCopyAll}
+            disabled={isProcessingAll}
           >
-            {copiedText ? (
+            {isProcessingAll ? (
               <>
-                <Check className="h-3 w-3 text-emerald-500" />
-                <span className="text-emerald-500">¡Texto Copiado!</span>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Preparando Tarjeta + Foto...</span>
+              </>
+            ) : copiedAll ? (
+              <>
+                <Check className="h-4 w-4 text-emerald-400" />
+                <span>¡Tarjeta y Foto Copiadas!</span>
               </>
             ) : (
               <>
-                <Copy className="h-3 w-3" />
-                <span>Solo Texto</span>
+                <Sparkles className="h-4 w-4" />
+                <span>Copiar Tarjeta Completa (Foto + Texto)</span>
               </>
             )}
           </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 active:scale-95 transition-all cursor-pointer"
-            onClick={handleCopyImage}
-            disabled={!producto.imagen_principal || copyingImage}
-          >
-            {copyingImage ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                <span>Copiando...</span>
-              </>
-            ) : copiedImage ? (
-              <>
-                <Check className="h-3 w-3 text-emerald-500" />
-                <span className="text-emerald-500">¡Imagen Copiada!</span>
-              </>
-            ) : (
-              <>
-                <ImageIcon className="h-3 w-3" />
-                <span>Solo Imagen</span>
-              </>
-            )}
-          </Button>
-        </div>
+          {/* Botones secundarios */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 text-xs font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 active:scale-95 transition-all cursor-pointer rounded-xl"
+              onClick={handleCopyText}
+            >
+              {copiedText ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="text-emerald-500 font-semibold">¡Texto Copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>Solo Texto</span>
+                </>
+              )}
+            </Button>
 
-        {/* Accesos directos a WhatsApp y Telegram */}
-        <div className="flex items-center gap-2 pt-1 border-t border-border/60">
-          <Button
-            type="button"
-            className="flex-1 h-8 text-xs font-semibold gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-xs cursor-pointer"
-            onClick={handleWhatsApp}
-          >
-            <MessageCircle className="h-3.5 w-3.5 fill-white" />
-            <span>WhatsApp</span>
-          </Button>
-          <Button
-            type="button"
-            className="flex-1 h-8 text-xs font-semibold gap-1.5 bg-[#229ED9] hover:bg-[#1e8cc0] text-white shadow-xs cursor-pointer"
-            onClick={handleTelegram}
-          >
-            <Send className="h-3.5 w-3.5" />
-            <span>Telegram</span>
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 text-xs font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 active:scale-95 transition-all cursor-pointer rounded-xl"
+              onClick={handleCopyImage}
+              disabled={!producto.imagen_principal || copyingImage}
+            >
+              {copyingImage ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span>Copiando...</span>
+                </>
+              ) : copiedImage ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="text-emerald-500 font-semibold">¡Imagen Copiada!</span>
+                </>
+              ) : (
+                <>
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Solo Imagen</span>
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Accesos directos a WhatsApp y Telegram */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-2 border-t border-border/60">
+            <Button
+              type="button"
+              className="h-9 sm:h-10 text-xs font-semibold gap-1.5 sm:gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-xs cursor-pointer rounded-xl"
+              onClick={handleWhatsApp}
+            >
+              <MessageCircle className="h-4 w-4 fill-white" />
+              <span>WhatsApp</span>
+            </Button>
+            <Button
+              type="button"
+              className="h-9 sm:h-10 text-xs font-semibold gap-1.5 sm:gap-2 bg-[#229ED9] hover:bg-[#1e8cc0] text-white shadow-xs cursor-pointer rounded-xl"
+              onClick={handleTelegram}
+            >
+              <Send className="h-4 w-4" />
+              <span>Telegram</span>
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

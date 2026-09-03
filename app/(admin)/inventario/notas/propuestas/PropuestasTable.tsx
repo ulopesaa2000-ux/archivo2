@@ -12,15 +12,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Pagination } from '@/components/admin/Pagination'
 import { eliminarOcrPropuestaAction } from '@/modules/inventario/actions'
 import type { NotaOcrPropuesta } from '@/modules/inventario/types'
-import { Trash2, Eye, ArrowRight, CheckCircle2, AlertTriangle, HelpCircle, ImageIcon, Loader2, Sparkles } from 'lucide-react'
+import { Trash2, Eye, ArrowRight, CheckCircle2, AlertTriangle, HelpCircle, ImageIcon, Loader2, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { Fecha } from '@/components/shared/Fecha'
+import { useSearchParams, usePathname } from 'next/navigation'
 
 type Props = {
   propuestas: NotaOcrPropuesta[]
   total: number
   page: number
   estado: 'PENDIENTE_REVISION' | 'REVISADO'
+  sortBy?: string
+  order?: 'asc' | 'desc'
 }
 
 function ImageLightbox({ url, title }: { url: string; title: string }) {
@@ -67,10 +70,45 @@ function ImageLightbox({ url, title }: { url: string; title: string }) {
   )
 }
 
-export function PropuestasTable({ propuestas, total, page, estado }: Props) {
+export function PropuestasTable({
+  propuestas,
+  total,
+  page,
+  estado,
+  sortBy = 'fecha_escaneo',
+  order = 'desc',
+}: Props) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const currentSort = searchParams.get('sort_by') || sortBy || 'fecha_escaneo'
+  const currentOrder = ((searchParams.get('order') as 'asc' | 'desc') || order || 'desc')
+
+  const handleSort = (columnKey: string) => {
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (currentSort === columnKey) {
+        // Alternar dirección
+        const nextOrder = currentOrder === 'asc' ? 'desc' : 'asc'
+        params.set('order', nextOrder)
+      } else {
+        // Nueva columna
+        if (columnKey === 'fecha_escaneo') {
+          params.delete('sort_by')
+          params.set('order', 'desc')
+        } else {
+          params.set('sort_by', columnKey)
+          params.set('order', 'asc')
+        }
+      }
+      params.delete('page')
+      const qs = params.toString()
+      router.push(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false })
+    })
+  }
 
   const handleDelete = (id: string) => {
     if (!window.confirm('¿Seguro que deseas eliminar/descartar esta propuesta OCR?')) return
@@ -118,6 +156,10 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
     }
   }
 
+  const hasActiveFilters = Array.from(searchParams.entries()).some(
+    ([key]) => key !== 'estado' && key !== 'page'
+  )
+
   if (propuestas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px] border border-dashed rounded-2xl bg-muted/20 text-center p-8 space-y-4">
@@ -127,7 +169,9 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
         <div className="max-w-sm space-y-1">
           <p className="font-bold text-sm">No se encontraron propuestas</p>
           <p className="text-xs text-muted-foreground">
-            {estado === 'PENDIENTE_REVISION'
+            {hasActiveFilters
+              ? 'No hay propuestas que coincidan con los filtros o búsqueda actuales.'
+              : estado === 'PENDIENTE_REVISION'
               ? 'No hay propuestas OCR pendientes de revisión en este momento.'
               : 'No hay historial de propuestas procesadas todavía.'}
           </p>
@@ -137,17 +181,89 @@ export function PropuestasTable({ propuestas, total, page, estado }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 transition-opacity ${isPending ? 'opacity-70' : ''}`}>
       <div className="border rounded-2xl bg-card overflow-hidden shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-[80px]">Imagen</TableHead>
-              <TableHead className="w-[140px]">Origen Detectado</TableHead>
-              <TableHead className="w-[180px]">Destino / Mov.</TableHead>
-              <TableHead className="w-[140px] text-center">Líneas Extraídas</TableHead>
-              <TableHead className="w-[100px] text-center">Confianza</TableHead>
-              <TableHead className="w-[150px]">Fecha Escaneo</TableHead>
+              <TableHead className="w-[150px]">
+                <button
+                  type="button"
+                  onClick={() => handleSort('origen')}
+                  className="group inline-flex items-center gap-1.5 font-bold hover:text-foreground transition-colors cursor-pointer select-none text-left"
+                  title="Ordenar por Origen detectado"
+                >
+                  <span>Origen Detectado</span>
+                  {currentSort === 'origen' ? (
+                    currentOrder === 'asc' ? (
+                      <ArrowUp className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-[180px]">
+                <button
+                  type="button"
+                  onClick={() => handleSort('destino')}
+                  className="group inline-flex items-center gap-1.5 font-bold hover:text-foreground transition-colors cursor-pointer select-none text-left"
+                  title="Ordenar por Destino detectado"
+                >
+                  <span>Destino / Mov.</span>
+                  {currentSort === 'destino' ? (
+                    currentOrder === 'asc' ? (
+                      <ArrowUp className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-[130px] text-center">Líneas Extraídas</TableHead>
+              <TableHead className="w-[110px] text-center">
+                <button
+                  type="button"
+                  onClick={() => handleSort('confianza')}
+                  className="group inline-flex items-center justify-center gap-1.5 font-bold hover:text-foreground transition-colors cursor-pointer select-none text-center w-full"
+                  title="Ordenar por Confianza OCR"
+                >
+                  <span>Confianza</span>
+                  {currentSort === 'confianza' ? (
+                    currentOrder === 'asc' ? (
+                      <ArrowUp className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-[160px]">
+                <button
+                  type="button"
+                  onClick={() => handleSort('fecha_escaneo')}
+                  className="group inline-flex items-center gap-1.5 font-bold hover:text-foreground transition-colors cursor-pointer select-none text-left"
+                  title="Ordenar por Fecha de escaneo"
+                >
+                  <span>Fecha Escaneo</span>
+                  {currentSort === 'fecha_escaneo' || !currentSort ? (
+                    currentOrder === 'asc' ? (
+                      <ArrowUp className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                  )}
+                </button>
+              </TableHead>
               {estado === 'REVISADO' && <TableHead className="w-[150px]">Revisado por</TableHead>}
               <TableHead className="w-[120px] text-right">Acciones</TableHead>
             </TableRow>
