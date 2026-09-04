@@ -40,6 +40,7 @@ export type FilaPreview = {
   cajasRaw: string
   bodegaRaw: string
   producto_id: number | null
+  producto_sku: string | null
   producto_nombre: string | null
   bodega_id: number | null
   bodega_nombre: string | null
@@ -119,6 +120,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: null,
+              producto_sku: null,
               producto_nombre: null,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
@@ -133,6 +135,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
@@ -147,6 +150,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? null,
               bodega_nombre: bodegaMatch?.nombre ?? null,
@@ -161,6 +165,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: null,
               bodega_nombre: null,
@@ -174,6 +179,7 @@ export function ImportStepPreview({
           return {
             ...f,
             producto_id: producto.producto_id,
+            producto_sku: producto.sku_base,
             producto_nombre: producto.nombre,
             bodega_id: bodegaMatch.id,
             bodega_nombre: bodegaMatch.nombre,
@@ -236,6 +242,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: null,
+              producto_sku: null,
               producto_nombre: null,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
@@ -250,6 +257,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
@@ -264,6 +272,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
               bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
@@ -281,6 +290,7 @@ export function ImportStepPreview({
             return {
               ...f,
               producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
               producto_nombre: producto.nombre,
               bodega_id: null,
               bodega_nombre: null,
@@ -294,6 +304,7 @@ export function ImportStepPreview({
           return {
             ...f,
             producto_id: producto.producto_id,
+            producto_sku: producto.sku_base,
             producto_nombre: producto.nombre,
             bodega_id: finalBodegaId,
             bodega_nombre: finalBodegaNombre,
@@ -369,6 +380,7 @@ export function ImportStepPreview({
         cajasRaw: '1',
         bodegaRaw: defaultB?.nombre ?? '',
         producto_id: null,
+        producto_sku: null,
         producto_nombre: null,
         bodega_id: defaultB?.id ?? null,
         bodega_nombre: defaultB?.nombre ?? null,
@@ -423,12 +435,14 @@ export function ImportStepPreview({
 
       copy[idx] = {
         ...row,
-        sku: prod.sku_base,
         producto_id: prod.producto_id,
+        producto_sku: prod.sku_base,
         producto_nombre: prod.nombre,
         bodega_id: bId,
         bodega_nombre: bNombre,
         manualMatch: true,
+        score: 1,
+        metodo: 'MANUAL',
         status: isNaN(cajasNum) || cajasNum === 0 ? 'warning' : 'ok',
         message: isNaN(cajasNum) ? 'Cajas no válidas' : cajasNum === 0 ? 'Cajas = 0' : `+${cajasNum} cajas`,
       }
@@ -485,7 +499,7 @@ export function ImportStepPreview({
           f.sku,
           f.cajasRaw,
           f.bodega_nombre || f.bodegaRaw || '',
-          f.producto_id ? `${f.sku} - ${f.producto_nombre}` : 'NO ENCONTRADO EN BD',
+          f.producto_id ? `[${f.producto_sku || f.sku}] (ID: ${f.producto_id}) - ${f.producto_nombre}` : 'NO ENCONTRADO EN BD',
           f.message,
         ])
 
@@ -545,7 +559,7 @@ export function ImportStepPreview({
     const validas: ImportFilaValida[] = filasPreview
       .filter((f) => f.status === 'ok')
       .map((f) => ({
-        sku: f.sku,
+        sku: f.producto_sku || f.sku,
         producto_id: f.producto_id!,
         producto_nombre: f.producto_nombre,
         cajas: parseFloat(f.cajasRaw),
@@ -751,8 +765,11 @@ export function ImportStepPreview({
                     {f.producto_id !== null ? (
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-mono font-bold shrink-0">
-                          ✓ {f.sku}
+                          ✓ {f.producto_sku || f.sku}
                         </Badge>
+                        <span className="text-[10px] font-mono font-semibold text-muted-foreground bg-muted/80 px-1.5 py-0.5 rounded border shrink-0">
+                          ID: {f.producto_id}
+                        </span>
                         {f.metodo && (
                           <Badge variant="outline" className="text-[9px] font-semibold uppercase tracking-wider py-0 px-1.5 border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/5">
                             {f.metodo === 'EXACTO'
@@ -765,12 +782,24 @@ export function ImportStepPreview({
                               ? 'Similitud SKU'
                               : f.metodo === 'EXACTO_VARIANTE'
                               ? 'Variante'
+                              : f.metodo === 'MANUAL'
+                              ? 'Manual'
                               : f.metodo}
                           </Badge>
                         )}
-                        <span className="text-[11px] text-muted-foreground truncate max-w-[200px]" title={f.producto_nombre || ''}>
+                        <span className="text-[11px] text-muted-foreground truncate max-w-[220px]" title={f.producto_nombre || ''}>
                           {f.producto_nombre}
                         </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenSearchModal(idx)}
+                          className="h-6 text-[10px] text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 px-1.5 rounded font-medium ml-auto"
+                          title="Cambiar producto asignado"
+                        >
+                          Cambiar
+                        </Button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
