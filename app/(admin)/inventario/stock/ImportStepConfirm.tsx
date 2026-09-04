@@ -215,7 +215,10 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
           <tbody>
             {filas.slice(0, 100).map((f, i) => (
               <tr key={i}>
-                <td className="px-3 py-1.5 font-mono">{f.sku}</td>
+                <td className="px-3 py-1.5 font-mono">
+                  <span className="font-bold">{f.sku}</span>
+                  <span className="ml-1.5 text-[10px] text-muted-foreground font-sans">(ID: {f.producto_id})</span>
+                </td>
                 <td className="px-3 py-1.5">{f.producto_nombre ?? '—'}</td>
                 <td className={`px-3 py-1.5 text-right font-mono ${f.cajas > 0 ? 'text-emerald-700' : f.cajas < 0 ? 'text-red-700' : ''}`}>
                   {f.cajas > 0 ? `+${f.cajas}` : f.cajas}
