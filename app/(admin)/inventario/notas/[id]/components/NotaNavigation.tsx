@@ -15,6 +15,7 @@ type Props = {
 function StatusIndicator({ item }: { item: NavegacionNotaItem }) {
   const isPend = item.estado_codigo === 'PEND' || item.estado_codigo === 'PROC'
   const isConf = item.estado_codigo === 'CONF'
+  const isModf = item.estado_codigo === 'MODF'
   const isCanc = item.estado_codigo === 'CANC'
 
   // Si tiene formato N-YYYYMMDD-XXXX mostramos el folio corto (ej. "0087")
@@ -26,8 +27,9 @@ function StatusIndicator({ item }: { item: NavegacionNotaItem }) {
         "inline-flex items-center gap-1.5 font-mono text-xs font-semibold px-2 py-0.5 rounded-md border transition-colors",
         isPend && "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
         isConf && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+        isModf && "bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30",
         isCanc && "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
-        !isPend && !isConf && !isCanc && "bg-muted text-muted-foreground border-border"
+        !isPend && !isConf && !isModf && !isCanc && "bg-muted text-muted-foreground border-border"
       )}
     >
       <span
@@ -35,8 +37,9 @@ function StatusIndicator({ item }: { item: NavegacionNotaItem }) {
           "w-1.5 h-1.5 rounded-full inline-block",
           isPend && "bg-amber-500 shadow-sm shadow-amber-500/50 animate-pulse",
           isConf && "bg-emerald-500 shadow-sm shadow-emerald-500/50",
+          isModf && "bg-teal-500 shadow-sm shadow-teal-500/50",
           isCanc && "bg-rose-500",
-          !isPend && !isConf && !isCanc && "bg-muted-foreground"
+          !isPend && !isConf && !isModf && !isCanc && "bg-muted-foreground"
         )}
       />
       <span>{shortNumber}</span>

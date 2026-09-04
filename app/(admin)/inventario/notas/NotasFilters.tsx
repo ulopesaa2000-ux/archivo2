@@ -39,6 +39,9 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
   const currentSortBy  = searchParam('sort_by', 'fecha_nota')
   const currentOrder   = searchParam('order', 'desc')
 
+  const isPorConfirmar = currentEstado === 'PEND' || currentEstado === 'PEND,PROC' || currentEstado === 'por_confirmar'
+  const isConfirmadas  = currentEstado === 'CONF' || currentEstado === 'CONF,MODF' || currentEstado === 'confirmadas'
+
   // Conteo de filtros secundarios activos
   const activeAdvancedCount = [
     currentTipo !== '_all',
@@ -181,29 +184,29 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
                 </Button>
                 <Button
                   type="button"
-                  variant={currentEstado === 'PEND' ? 'default' : 'outline'}
+                  variant={isPorConfirmar ? 'default' : 'outline'}
                   size="sm"
                   className={`h-8 text-[11px] px-1 rounded-xl font-bold truncate justify-center ${
-                    currentEstado === 'PEND'
+                    isPorConfirmar
                       ? 'bg-amber-600 text-white'
                       : 'text-amber-600 border-amber-500/30'
                   }`}
                   onClick={() => updateParam('estado_codigo', 'PEND')}
                 >
-                  ⚡ Pendiente
+                  ⚡ Por Confirmar
                 </Button>
                 <Button
                   type="button"
-                  variant={currentEstado === 'CONF' ? 'default' : 'outline'}
+                  variant={isConfirmadas ? 'default' : 'outline'}
                   size="sm"
                   className={`h-8 text-[11px] px-1 rounded-xl font-bold truncate justify-center ${
-                    currentEstado === 'CONF'
+                    isConfirmadas
                       ? 'bg-emerald-600 text-white'
                       : 'text-emerald-600 border-emerald-500/30'
                   }`}
                   onClick={() => updateParam('estado_codigo', 'CONF')}
                 >
-                  ✅ Confirmada
+                  ✅ Confirmadas
                 </Button>
               </div>
 
@@ -330,10 +333,10 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
           </Button>
           <Button
             type="button"
-            variant={currentEstado === 'PEND' ? 'default' : 'outline'}
+            variant={isPorConfirmar ? 'default' : 'outline'}
             size="sm"
             className={`h-9 text-xs px-2 sm:px-3 justify-center font-bold rounded-xl ${
-              currentEstado === 'PEND'
+              isPorConfirmar
                 ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-xs'
                 : 'text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10'
             }`}
@@ -343,10 +346,10 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
           </Button>
           <Button
             type="button"
-            variant={currentEstado === 'CONF' ? 'default' : 'outline'}
+            variant={isConfirmadas ? 'default' : 'outline'}
             size="sm"
             className={`h-9 text-xs px-2 sm:px-3 justify-center font-bold rounded-xl ${
-              currentEstado === 'CONF'
+              isConfirmadas
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
                 : 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10'
             }`}
@@ -552,29 +555,29 @@ export function NotasFilters({ catalogos }: { catalogos: CatalogosInventario }) 
                 </Button>
                 <Button
                   type="button"
-                  variant={currentEstado === 'PEND' ? 'default' : 'outline'}
+                  variant={isPorConfirmar ? 'default' : 'outline'}
                   size="sm"
                   className={`h-10 text-xs font-bold rounded-xl ${
-                    currentEstado === 'PEND'
+                    isPorConfirmar
                       ? 'bg-amber-600 text-white'
                       : 'text-amber-600 border-amber-500/30'
                   }`}
                   onClick={() => updateParam('estado_codigo', 'PEND')}
                 >
-                  ⚡ Pendiente
+                  ⚡ Por Confirmar
                 </Button>
                 <Button
                   type="button"
-                  variant={currentEstado === 'CONF' ? 'default' : 'outline'}
+                  variant={isConfirmadas ? 'default' : 'outline'}
                   size="sm"
                   className={`h-10 text-xs font-bold rounded-xl ${
-                    currentEstado === 'CONF'
+                    isConfirmadas
                       ? 'bg-emerald-600 text-white'
                       : 'text-emerald-600 border-emerald-500/30'
                   }`}
                   onClick={() => updateParam('estado_codigo', 'CONF')}
                 >
-                  ✅ Confirmada
+                  ✅ Confirmadas
                 </Button>
               </div>
             </div>

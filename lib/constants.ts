@@ -10,14 +10,16 @@ export const ESTADO_NOTA = {
   CONF: 2,
   CANC: 3,
   PROC: 4,
+  MODF: 5,
 } as const
 
 // ── Colores de badges por código de estado ──────────────────
 export const ESTADO_NOTA_COLORS: Record<string, string> = {
-  PEND: 'bg-yellow-100 text-yellow-800',
-  CONF: 'bg-green-100 text-green-800',
-  CANC: 'bg-red-100 text-red-800',
-  PROC: 'bg-blue-100 text-blue-800',
+  PEND: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-400 border border-yellow-500/20',
+  CONF: 'bg-green-100 text-green-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-500/20',
+  CANC: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-500/20',
+  PROC: 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-500/20',
+  MODF: 'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300 border border-teal-500/30',
 }
 
 export const ESTADO_NOTA_LABELS: Record<string, string> = {
@@ -25,6 +27,7 @@ export const ESTADO_NOTA_LABELS: Record<string, string> = {
   CONF: 'Confirmada',
   CANC: 'Cancelada',
   PROC: 'En Proceso',
+  MODF: 'Modificada',
 }
 
 // ── Tipos de movimiento ─────────────────────────────────────

@@ -67,7 +67,7 @@ export function NotaAcciones({
     })
   }
 
-  const currentStepIdx = STEPS.findIndex(s => s.id === nota.estado_codigo)
+  const currentStepIdx = nota.estado_codigo === 'MODF' ? STEPS.findIndex(s => s.id === 'CONF') : STEPS.findIndex(s => s.id === nota.estado_codigo)
   const hasChanged = selectedEstadoId !== nota.estado_codigo
 
   return (
@@ -82,9 +82,9 @@ export function NotaAcciones({
             {STEPS.map((step, idx) => {
               const StepIcon = step.icon
               const isPast = idx < currentStepIdx
-              const isCurrent = step.id === nota.estado_codigo
+              const isCurrent = step.id === nota.estado_codigo || (nota.estado_codigo === 'MODF' && step.id === 'CONF')
               const isSelected = step.id === selectedEstadoId
-              const isDisabled = nota.estado_codigo === 'CONF' // Una vez confirmada, no se puede regresar via UI simple
+              const isDisabled = nota.estado_codigo === 'CONF' || nota.estado_codigo === 'MODF' // Una vez confirmada/modificada, no se puede regresar via UI simple
 
               return (
                 <div key={step.id} className="flex items-center">

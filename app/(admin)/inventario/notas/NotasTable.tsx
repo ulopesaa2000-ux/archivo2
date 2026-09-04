@@ -137,7 +137,7 @@ function NotaAccionesCell({
                 <span>
                   La nota cambiará a estado <strong>Cancelada</strong>. El administrador podrá revisarla o decidir eliminarla definitivamente.
                 </span>
-              ) : row.estado_codigo === 'CONF' ? (
+              ) : row.estado_codigo === 'CONF' || row.estado_codigo === 'MODF' ? (
                 <span>
                   Esta nota ya fue confirmada. Se ocultará de las listas conservando el historial de movimientos de inventario.
                 </span>
@@ -645,8 +645,8 @@ function NotaMobileCard({
 
   // Estado badge color classes
   const estadoColors = ESTADO_NOTA_COLORS[row.estado_codigo] ?? 'bg-gray-100 text-gray-800'
-  const isEstadoConfirmada = row.estado_codigo === 'CONF'
-  const isEstadoPendiente = row.estado_codigo === 'PEND' || row.estado_codigo === 'BORR'
+  const isEstadoConfirmada = row.estado_codigo === 'CONF' || row.estado_codigo === 'MODF'
+  const isEstadoPendiente = row.estado_codigo === 'PEND' || row.estado_codigo === 'BORR' || row.estado_codigo === 'PROC'
 
   // OCR Tag detection
   const esOcr = Boolean(
