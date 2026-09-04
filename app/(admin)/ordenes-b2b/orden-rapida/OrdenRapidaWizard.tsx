@@ -271,7 +271,7 @@ export const PARSER_FORMATS: ParserFormatOption[] = [
     shortDesc: 'Libros de Excel con múltiples hojas/pestañas de modelos',
     fullDesc: 'Para archivos que desglosan cada estilo o modelo en pestañas independientes dentro del mismo libro de Excel.',
     headerPreview: '[Hoja 1: Estilo A] [Hoja 2: Estilo B] [Hoja 3: Desglose Cajas]',
-    proveedoresEjemplo: 'Jackie, Jacky, Venkat, Vencart, camisería multi-hoja',
+    proveedoresEjemplo: 'Jackie, Jacky, Venkat, Vencart, QingQing, Honor, camisería multi-hoja',
     badgeColor: 'border-purple-300 bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300',
   },
   {
@@ -303,7 +303,9 @@ function resolverParserSelector(proveedorNombre: string): string {
     normalized.includes('jackie') ||
     normalized.includes('jacky') ||
     normalized.includes('venkat') ||
-    normalized.includes('vencart')
+    normalized.includes('vencart') ||
+    normalized.includes('qingqing') ||
+    normalized.includes('honor')
   ) {
     return 'jackie'
   }
