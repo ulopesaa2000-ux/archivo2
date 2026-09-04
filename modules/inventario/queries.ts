@@ -84,14 +84,39 @@ export async function fetchNotas(
 
   // ── Filtro: estado por código ───────────────────────────
   if (filtros.estado_codigo) {
-    // Necesitamos buscar el ID del estado por código
-    const { data: estadoData } = await supabase
+    const { data: estadosData } = await supabase
       .from('cat_estados_nota')
-      .select('id')
-      .eq('codigo', filtros.estado_codigo)
-      .single()
-    if (estadoData) {
-      query = query.eq('estado_id', estadoData.id)
+      .select('id, codigo')
+
+    if (estadosData && estadosData.length > 0) {
+      let targetCodigos: string[] = []
+      const codigosInput = filtros.estado_codigo.split(',').map(c => c.trim().toUpperCase())
+
+      for (const cod of codigosInput) {
+        if (cod === 'CONF') {
+          // Confirmadas incluye CONF (Confirmada) y MODF (Modificada)
+          targetCodigos.push('CONF', 'MODF')
+        } else if (cod === 'PEND') {
+          // Por Confirmar incluye PEND (Pendiente) y PROC (En Proceso)
+          targetCodigos.push('PEND', 'PROC')
+        } else {
+          targetCodigos.push(cod)
+        }
+      }
+
+      targetCodigos = Array.from(new Set(targetCodigos))
+
+      const matchingIds = estadosData
+        .filter(e => targetCodigos.includes(e.codigo.toUpperCase()))
+        .map(e => e.id)
+
+      if (matchingIds.length === 1) {
+        query = query.eq('estado_id', matchingIds[0])
+      } else if (matchingIds.length > 1) {
+        query = query.in('estado_id', matchingIds)
+      } else {
+        query = query.eq('id', -1)
+      }
     }
   }
 
@@ -2019,13 +2044,37 @@ export async function fetchNotasParaReporte(
   }
 
   if (filtros.estado_codigo) {
-    const { data: estadoData } = await supabase
+    const { data: estadosData } = await supabase
       .from('cat_estados_nota')
-      .select('id')
-      .eq('codigo', filtros.estado_codigo)
-      .single()
-    if (estadoData) {
-      query = query.eq('estado_id', estadoData.id)
+      .select('id, codigo')
+
+    if (estadosData && estadosData.length > 0) {
+      let targetCodigos: string[] = []
+      const codigosInput = filtros.estado_codigo.split(',').map(c => c.trim().toUpperCase())
+
+      for (const cod of codigosInput) {
+        if (cod === 'CONF') {
+          targetCodigos.push('CONF', 'MODF')
+        } else if (cod === 'PEND') {
+          targetCodigos.push('PEND', 'PROC')
+        } else {
+          targetCodigos.push(cod)
+        }
+      }
+
+      targetCodigos = Array.from(new Set(targetCodigos))
+
+      const matchingIds = estadosData
+        .filter(e => targetCodigos.includes(e.codigo.toUpperCase()))
+        .map(e => e.id)
+
+      if (matchingIds.length === 1) {
+        query = query.eq('estado_id', matchingIds[0])
+      } else if (matchingIds.length > 1) {
+        query = query.in('estado_id', matchingIds)
+      } else {
+        query = query.eq('id', -1)
+      }
     }
   }
 
@@ -2626,8 +2675,9 @@ export async function getNotasKPIsGlobales(
 
   const pendientes      = notas.filter(n => { const c = getCodEstado(n); return c === 'PEND' || c === 'BORR' }).length
   const enProceso       = notas.filter(n => { const c = getCodEstado(n); return c === 'PROC' || c === 'PROCESO' }).length
-  const cajasIngresadas = notas.filter(n => getCodTipo(n) === 'ENT' && getCodEstado(n) === 'CONF').reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
-  const cajasEgresadas  = notas.filter(n => getCodTipo(n) === 'SAL' && getCodEstado(n) === 'CONF').reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
+  const isConfOrModf = (c?: string) => c === 'CONF' || c === 'MODF'
+  const cajasIngresadas = notas.filter(n => getCodTipo(n) === 'ENT' && isConfOrModf(getCodEstado(n))).reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
+  const cajasEgresadas  = notas.filter(n => getCodTipo(n) === 'SAL' && isConfOrModf(getCodEstado(n))).reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
 
   return { pendientes, enProceso, cajasIngresadas, cajasEgresadas }
 }

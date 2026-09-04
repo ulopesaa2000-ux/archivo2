@@ -224,9 +224,14 @@ export function DashboardInventarioView({ data, periodo }: DashboardInventarioVi
                       <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                         +{nota.total_piezas} pzs
                       </span>
-                      <Badge className={ESTADO_NOTA_COLORS[nota.estado_id === 2 ? 'CONF' : nota.estado_id === 3 ? 'CANC' : 'PEND']}>
-                        {ESTADO_NOTA_LABELS[nota.estado_id === 2 ? 'CONF' : nota.estado_id === 3 ? 'CANC' : 'PEND']}
-                      </Badge>
+                      {(() => {
+                        const code = nota.estado_id === 2 ? 'CONF' : nota.estado_id === 5 ? 'MODF' : nota.estado_id === 3 ? 'CANC' : 'PEND'
+                        return (
+                          <Badge className={ESTADO_NOTA_COLORS[code]}>
+                            {ESTADO_NOTA_LABELS[code]}
+                          </Badge>
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}
