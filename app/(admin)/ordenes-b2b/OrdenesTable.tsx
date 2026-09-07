@@ -233,28 +233,45 @@ function OrdenesTableInner({
         />
       )}
 
-      {ordenAEliminar && (
-        <ConfirmDeleteModal
-          isOpen={Boolean(ordenAEliminar)}
-          onOpenChange={(open) => {
-            if (!open) setOrdenAEliminar(null)
-          }}
-          title="¿Desactivar orden B2B?"
-          elementName={`Orden #${ordenAEliminar.id} ${ordenAEliminar.folio_proveedor ? `(Folio: ${ordenAEliminar.folio_proveedor})` : ''} ${ordenAEliminar.proveedor_nombre ? `• ${ordenAEliminar.proveedor_nombre}` : ''}`}
-          description="Esta orden de compra B2B se marcará como inactiva y ya no aparecerá en el listado ni en los contenedores. Los detalles de productos y cajas asociadas se conservarán de manera segura en el historial."
-          onConfirm={async () => {
-            if (!ordenAEliminar) return
-            const id = ordenAEliminar.id
-            const res = await eliminarOrdenB2BAction(id)
-            if (res.success) {
-              toast.success(`Orden #${id} desactivada correctamente.`)
-              router.refresh()
-            } else {
-              toast.error(res.error ?? 'No se pudo desactivar la orden.')
+      {ordenAEliminar && (() => {
+        const hasContainer = Boolean(ordenAEliminar.contenedor_id || ordenAEliminar.contenedor_codigo)
+        const containerStr = ordenAEliminar.contenedor_codigo
+          ? `"${ordenAEliminar.contenedor_codigo}"`
+          : ordenAEliminar.contenedor_id
+          ? `#${ordenAEliminar.contenedor_id}`
+          : ''
+
+        return (
+          <ConfirmDeleteModal
+            isOpen={Boolean(ordenAEliminar)}
+            onOpenChange={(open) => {
+              if (!open) setOrdenAEliminar(null)
+            }}
+            title={hasContainer ? "¿Desactivar orden y desvincular de contenedor?" : "¿Desactivar orden B2B?"}
+            elementName={`Orden #${ordenAEliminar.id} ${ordenAEliminar.folio_proveedor ? `(Folio: ${ordenAEliminar.folio_proveedor})` : ''} ${ordenAEliminar.proveedor_nombre ? `• ${ordenAEliminar.proveedor_nombre}` : ''}`}
+            description={
+              hasContainer
+                ? `⚠️ ATENCIÓN: Esta orden está vinculada al contenedor ${containerStr}. Al desactivarla, SE DESVINCULARÁ automáticamente de dicho contenedor. Los detalles de productos y cajas asociadas se conservarán de manera segura en el historial.`
+                : "Esta orden de compra B2B se marcará como inactiva. Los detalles de productos y cajas asociadas se conservarán de manera segura en el historial."
             }
-          }}
-        />
-      )}
+            onConfirm={async () => {
+              if (!ordenAEliminar) return
+              const id = ordenAEliminar.id
+              const res = await eliminarOrdenB2BAction(id)
+              if (res.success) {
+                toast.success(
+                  hasContainer
+                    ? `Orden #${id} desactivada y desvinculada del contenedor correctamente.`
+                    : `Orden #${id} desactivada correctamente.`
+                )
+                router.refresh()
+              } else {
+                toast.error(res.error ?? 'No se pudo desactivar la orden.')
+              }
+            }}
+          />
+        )
+      })()}
     </>
   )
 }

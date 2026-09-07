@@ -654,10 +654,13 @@ export async function eliminarOrdenB2BAction(
   const access = await requireCommercialOrderAccess(supabase, id)
   if ('success' in access) return access
 
-  // Borrado lógico (soft delete): marcar activo = false sin destruir historial de detalles o cajas
+  // Borrado lógico (soft delete): marcar activo = false y desvincular del contenedor (contenedor_id = null) sin destruir historial de detalles o cajas
   const { error } = await supabase
     .from('ordenes_b2b')
-    .update({ activo: false })
+    .update({ 
+      activo: false,
+      contenedor_id: null,
+    })
     .eq('id', id)
 
   if (error) return { success: false, error: error.message }
@@ -1123,6 +1126,26 @@ function extractAndToken(s: string): string | null {
   return match ? match[0].trim() : null
 }
 
+const MOTI_MODEL_PREFIXES = ['1AK', '3VT', '3JA', '1VT']
+
+/** Extrae el token de modelo secundario de MOTI (ej: 1AK7986, 3VT3423, 3JA8811, 1VT552) */
+function extractMotiModelToken(s: string): string | null {
+  const upper = s.toUpperCase()
+  for (const prefix of MOTI_MODEL_PREFIXES) {
+    const reg = new RegExp(`${prefix}\\d+`, 'i')
+    const match = upper.match(reg)
+    if (match) return match[0].trim()
+  }
+  return null
+}
+
+/** Extrae el prefijo de proveedor (ej: HO para Honor, JA para Jacky, TY para Tianyi) */
+function extractSupplierPrefix(s: string): string | null {
+  const clean = s.toUpperCase().trim()
+  const match = clean.match(/^([A-Z]{2,3})/i)
+  return match ? match[1] : null
+}
+
 /** Determina si el proveedor corresponde a MOTI */
 function isMotiSupplier(supplierName?: string): boolean {
   if (!supplierName) return false
@@ -1154,7 +1177,7 @@ function levenshteinDistance(a: string, b: string): number {
  */
 function findBestDbSkuMatch(
   inputSku: string,
-  dbProducts: { id: number; sku_base: string }[],
+  dbProducts: { id: number; sku_base: string; persona_id?: number | null }[],
   proveedorNombre?: string,
 ): { dbSku: string; dbId: number } | null {
   const inputClean = inputSku.trim()
@@ -1207,6 +1230,13 @@ function findBestDbSkuMatch(
       }
     } else {
       // Proveedores estándar (no MOTI)
+      // Exigir estricta coincidencia de prefijo de proveedor (ej: AL no puede coincidir con FK o TY)
+      const inputPrefix = extractSupplierPrefix(inputClean)
+      const dbPrefix = extractSupplierPrefix(dbSku)
+      if (inputPrefix && dbPrefix && inputPrefix !== dbPrefix) {
+        continue
+      }
+
       if (inputNorm === dbNorm) {
         score = 90
       } else {
@@ -1251,14 +1281,14 @@ export async function verificarSkusEnBDAction(
 
   const { data: dbData, error } = await supabase
     .from('productos')
-    .select('id, sku_base')
+    .select('id, sku_base, persona_id')
 
   if (error || !dbData) {
     console.error('Error al verificar SKUs en BD:', error)
     return { success: false, skusExistentes: [], skuMap: {} }
   }
 
-  const dbProducts = dbData.map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
+  const dbProducts = dbData.map((p: any) => ({ id: p.id, sku_base: String(p.sku_base), persona_id: p.persona_id }))
   const skusExistentes: string[] = []
   const skuMap: Record<string, string> = {}
 
@@ -1275,16 +1305,21 @@ export async function verificarSkusEnBDAction(
 
 export async function obtenerDatosProductosDeBDAction(
   skus: string[],
+  personaId?: number,
+  proveedorNombre?: string,
 ): Promise<{
   success: boolean
   productosMap?: Record<string, {
-    id: number
+    id?: number
     nombre?: string
     descripcion?: string
     composicion?: string
     precio_usd?: number
     marca_id?: number
     marca_nombre?: string
+    esNuevoLoteMoti?: boolean
+    esVersionAnterior?: boolean
+    skuHeredado?: string
   }>
   error?: string
 }> {
@@ -1295,7 +1330,8 @@ export async function obtenerDatosProductosDeBDAction(
     const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
     if (cleanSkus.length === 0) return { success: true, productosMap: {} }
 
-    const { data, error } = await supabase
+    // Obtener catálogo de productos de Supabase
+    let query = supabase
       .from('productos')
       .select(`
         id,
@@ -1305,36 +1341,130 @@ export async function obtenerDatosProductosDeBDAction(
         composicion,
         precio_ec,
         marca_id,
+        persona_id,
         cat_marcas (
           id,
           nombre
         )
       `)
-      .in('sku_base', cleanSkus)
+
+    if (personaId) {
+      query = query.eq('persona_id', personaId)
+    }
+
+    const { data: dbData, error } = await query
 
     if (error) throw error
 
+    // Si no hubo resultados filtrando por persona_id, consultar productos generales como fallback
+    let allProducts = dbData || []
+    if (personaId && allProducts.length === 0) {
+      const { data: fallbackData } = await supabase
+        .from('productos')
+        .select(`
+          id,
+          sku_base,
+          nombre,
+          descripcion,
+          composicion,
+          precio_ec,
+          marca_id,
+          persona_id,
+          cat_marcas (
+            id,
+            nombre
+          )
+        `)
+      allProducts = fallbackData || []
+    }
+
     const productosMap: Record<string, {
-      id: number
+      id?: number
       nombre?: string
       descripcion?: string
       composicion?: string
       precio_usd?: number
       marca_id?: number
       marca_nombre?: string
+      esNuevoLoteMoti?: boolean
+      esVersionAnterior?: boolean
+      skuHeredado?: string
     }> = {}
 
-    for (const p of data || []) {
-      const skuKey = String(p.sku_base).trim().toUpperCase()
-      const marcaObj = p.cat_marcas as any
-      productosMap[skuKey] = {
-        id: p.id,
-        nombre: p.nombre || '',
-        descripcion: p.descripcion || p.nombre || '',
-        composicion: p.composicion || '',
-        precio_usd: Number(p.precio_ec || 0),
-        marca_id: p.marca_id || (marcaObj ? marcaObj.id : undefined),
-        marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+    const isMoti = isMotiSupplier(proveedorNombre)
+
+    for (const inputSku of cleanSkus) {
+      const inputUpper = inputSku.trim().toUpperCase()
+
+      // 1. Búsqueda exacta
+      const exactMatch = allProducts.find((p) => String(p.sku_base).trim().toUpperCase() === inputUpper)
+      if (exactMatch) {
+        const marcaObj = exactMatch.cat_marcas as any
+        productosMap[inputUpper] = {
+          id: exactMatch.id,
+          nombre: exactMatch.nombre || '',
+          descripcion: exactMatch.descripcion || exactMatch.nombre || '',
+          composicion: exactMatch.composicion || '',
+          precio_usd: Number(exactMatch.precio_ec || 0),
+          marca_id: exactMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
+          marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+        }
+        continue
+      }
+
+      // 2. Búsqueda por Aliasing Especial de MOTI (1AK, 3VT, 3JA, 1VT)
+      if (isMoti) {
+        const modelToken = extractMotiModelToken(inputSku)
+        if (modelToken) {
+          const modelMatch = allProducts.find((p) => {
+            const dbSkuUpper = String(p.sku_base).toUpperCase()
+            return dbSkuUpper.includes(modelToken)
+          })
+
+          if (modelMatch) {
+            const marcaObj = modelMatch.cat_marcas as any
+            productosMap[inputUpper] = {
+              nombre: modelMatch.nombre || '',
+              descripcion: modelMatch.descripcion || modelMatch.nombre || '',
+              composicion: modelMatch.composicion || '',
+              precio_usd: Number(modelMatch.precio_ec || 0),
+              marca_id: modelMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
+              marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+              esNuevoLoteMoti: true,
+              skuHeredado: modelMatch.sku_base,
+            }
+            continue
+          }
+        }
+      }
+
+      // 3. Coincidencia por Versión Anterior del Mismo Proveedor (ej. HO26/09HC -> HO25/09HC)
+      const inputPrefix = extractSupplierPrefix(inputSku)
+      if (inputPrefix && inputPrefix.length >= 2) {
+        const versionMatch = allProducts.find((p) => {
+          const dbSkuUpper = String(p.sku_base).toUpperCase()
+          const dbPrefix = extractSupplierPrefix(p.sku_base)
+          if (dbPrefix !== inputPrefix) return false
+
+          // Mismo prefijo (ej: HO == HO). Comparar similitud estructural de la clave
+          const inputNorm = normalizeSkuKey(inputSku)
+          const dbNorm = normalizeSkuKey(p.sku_base)
+          return levenshteinDistance(inputNorm, dbNorm) <= 3
+        })
+
+        if (versionMatch) {
+          const marcaObj = versionMatch.cat_marcas as any
+          productosMap[inputUpper] = {
+            nombre: versionMatch.nombre || '',
+            descripcion: versionMatch.descripcion || versionMatch.nombre || '',
+            composicion: versionMatch.composicion || '',
+            precio_usd: Number(versionMatch.precio_ec || 0),
+            marca_id: versionMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
+            marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+            esVersionAnterior: true,
+            skuHeredado: versionMatch.sku_base,
+          }
+        }
       }
     }
 
@@ -1344,4 +1474,5 @@ export async function obtenerDatosProductosDeBDAction(
     return { success: false, error: err.message || 'Error al obtener datos de productos en BD' }
   }
 }
+
 

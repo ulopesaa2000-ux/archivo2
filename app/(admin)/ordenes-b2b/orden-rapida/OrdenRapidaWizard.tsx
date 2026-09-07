@@ -67,6 +67,8 @@ type WizardWarning = {
 }
 
 type WizardProducto = {
+  temp_id?: string
+  producto_id?: number | null
   sku_base: string
   sku_raw?: string
   nombre?: string
@@ -91,6 +93,8 @@ type WizardProducto = {
 }
 
 type WizardCaja = {
+  producto_temp_id?: string
+  producto_id?: number | null
   codigo_caja_temporal?: string
   codigo_caja: string
   sku_base?: string
@@ -595,38 +599,71 @@ function buildCatalogoItemsFromStrings(items: string[]): CatalogoItem[] {
   }))
 }
 
-function groupCajasByProduct(
+function agruparCajasPorProducto(
   cajas: WizardCaja[],
   productos: WizardProducto[],
 ): Array<{ producto: WizardProducto; cajas: WizardCaja[] }> {
+  const cajasPorTempId = new Map<string, WizardCaja[]>()
   const cajasPorSku = new Map<string, WizardCaja[]>()
-  for (const caja of cajas) {
-    const sku = caja.sku_base || '__sin_sku__'
-    if (!cajasPorSku.has(sku)) cajasPorSku.set(sku, [])
-    cajasPorSku.get(sku)!.push(caja)
-  }
 
-  const result: Array<{ producto: WizardProducto; cajas: WizardCaja[] }> = []
-  for (const producto of productos) {
-    const cajasDelProducto = cajasPorSku.get(producto.sku_base) || []
-    if (cajasDelProducto.length > 0) {
-      for (const caja of cajasDelProducto) {
-        if (!caja.sku_base) caja.sku_base = producto.sku_base
-      }
-      result.push({ producto, cajas: cajasDelProducto })
-      cajasPorSku.delete(producto.sku_base)
+  for (const caja of cajas) {
+    if (caja.producto_temp_id) {
+      if (!cajasPorTempId.has(caja.producto_temp_id)) cajasPorTempId.set(caja.producto_temp_id, [])
+      cajasPorTempId.get(caja.producto_temp_id)!.push(caja)
+    }
+    const normSku = (caja.sku_base || '').trim().toUpperCase()
+    if (normSku) {
+      if (!cajasPorSku.has(normSku)) cajasPorSku.set(normSku, [])
+      cajasPorSku.get(normSku)!.push(caja)
     }
   }
 
-  for (const [sku, cajasRestantes] of cajasPorSku) {
-    if (cajasRestantes.length > 0) {
+  const result: Array<{ producto: WizardProducto; cajas: WizardCaja[] }> = []
+  const cajasAsignadas = new Set<WizardCaja>()
+
+  for (const producto of productos) {
+    let cajasDelProducto: WizardCaja[] = []
+    const normProdSku = (producto.sku_base || '').trim().toUpperCase()
+
+    // Prioridad 1: Coincidencia por producto_temp_id
+    if (producto.temp_id && cajasPorTempId.has(producto.temp_id)) {
+      cajasDelProducto = cajasPorTempId.get(producto.temp_id) || []
+    }
+    // Prioridad 2: Coincidencia por SKU normalizado
+    else if (normProdSku && cajasPorSku.has(normProdSku)) {
+      cajasDelProducto = cajasPorSku.get(normProdSku) || []
+    }
+
+    // Sincronizar SKU, temp_id y producto_id en todas las cajas asociadas
+    for (const caja of cajasDelProducto) {
+      cajasAsignadas.add(caja)
+      caja.sku_base = producto.sku_base
+      if (producto.temp_id) caja.producto_temp_id = producto.temp_id
+      if (producto.producto_id) caja.producto_id = producto.producto_id
+    }
+
+    result.push({ producto, cajas: cajasDelProducto })
+  }
+
+  // Cajas restantes no vinculadas a productos de la lista
+  const cajasRestantes = cajas.filter((c) => !cajasAsignadas.has(c))
+  const cajasRestantesPorSku = new Map<string, WizardCaja[]>()
+  for (const c of cajasRestantes) {
+    const sku = (c.sku_base || '').trim().toUpperCase() || '__sin_sku__'
+    if (!cajasRestantesPorSku.has(sku)) cajasRestantesPorSku.set(sku, [])
+    cajasRestantesPorSku.get(sku)!.push(c)
+  }
+
+  for (const [sku, list] of cajasRestantesPorSku) {
+    if (list.length > 0) {
       result.push({
         producto: {
+          temp_id: `orphan_${sku}`,
           sku_base: sku,
           nombre: `SKU sin producto: ${sku}`,
           estado_temporal: 'sin_producto',
         },
-        cajas: cajasRestantes,
+        cajas: list,
       })
     }
   }
@@ -873,7 +910,7 @@ export function OrdenRapidaWizard({
           setEditableProductos((prev) =>
             prev.map((p) =>
               p.sku_base.toUpperCase() === cleanSku.toUpperCase()
-                ? { ...p, sku_base: matchedDbSku, es_nuevo: false }
+                ? { ...p, es_nuevo: false }
                 : p,
             ),
           )
@@ -894,7 +931,15 @@ export function OrdenRapidaWizard({
 
     setIsSyncingDbProducts(true)
     try {
-      const res = await obtenerDatosProductosDeBDAction(skus)
+      const selectedProveedorId = selectedProveedor ? Number(selectedProveedor) : undefined
+      const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+
+      const res = await obtenerDatosProductosDeBDAction(
+        skus,
+        selectedProveedorId,
+        proveedorActual?.nombre_completo,
+      )
+
       if (res.success && res.productosMap) {
         let syncCount = 0
         setEditableProductos((prev) =>
@@ -909,8 +954,15 @@ export function OrdenRapidaWizard({
                 ? marcas.find((m) => m.nombre.toUpperCase() === dbProd.marca_nombre?.toUpperCase())
                 : null
 
+              if (dbProd.esNuevoLoteMoti) {
+                toast.info(`El SKU "${item.sku_base}" heredó metadatos del modelo MOTI (${dbProd.skuHeredado}).`)
+              } else if (dbProd.esVersionAnterior) {
+                toast.info(`El SKU "${item.sku_base}" heredó metadatos de la versión previa de proveedor (${dbProd.skuHeredado}).`)
+              }
+
               return {
                 ...item,
+                producto_id: dbProd.id || item.producto_id,
                 descripcion: dbProd.descripcion || dbProd.nombre || item.descripcion,
                 nombre: dbProd.nombre || dbProd.descripcion || item.nombre,
                 composicion: dbProd.composicion || item.composicion,
@@ -923,9 +975,9 @@ export function OrdenRapidaWizard({
           }),
         )
         if (syncCount > 0) {
-          toast.success(`Se sincronizaron ${syncCount} productos directamente desde la base de datos.`)
+          toast.success(`Se sincronizaron ${syncCount} productos con la información de la base de datos.`)
         } else {
-          toast.info('Ninguno de los SKUs de la lista tiene registro completo en la base de datos.')
+          toast.info('Ninguno de los SKUs de la lista tiene coincidencia directa en la base de datos.')
         }
       } else {
         toast.error(res.error || 'Error al consultar productos de la base de datos')
@@ -1029,7 +1081,7 @@ export function OrdenRapidaWizard({
   }
 
   const cajasAgrupadas = useMemo(
-    () => groupCajasByProduct(editableCajas, editableProductos),
+    () => agruparCajasPorProducto(editableCajas, editableProductos),
     [editableCajas, editableProductos],
   )
 
@@ -1265,8 +1317,9 @@ export function OrdenRapidaWizard({
         toast.info('Se verificaron los SKUs detectados: las entradas duplicadas fueron unificadas automáticamente para asegurar 1 fila por SKU.')
       }
 
-      // Auto-detección inicial de atributos a partir del texto de cada producto
-      const enrichedProductos = deduplicatedProductos.map((p) => {
+      // Auto-detección inicial de atributos a partir del texto de cada producto y asignación de temp_id
+      const enrichedProductos = deduplicatedProductos.map((p, idx) => {
+        const tempId = p.temp_id || `temp_prod_${p.sku_base.toUpperCase()}_${idx}_${Date.now()}`
         const text = `${p.sku_base || ''} ${p.descripcion || p.nombre || ''}`.trim()
         const detected = detectProductAttributesFromText(text, { marcas, generos, edades, tipos_prenda })
         const matchedBrand = marcas.find(
@@ -1276,6 +1329,7 @@ export function OrdenRapidaWizard({
         )
         return {
           ...p,
+          temp_id: tempId,
           marca_id: matchedBrand ? matchedBrand.id : (detected.marca_id ?? p.marca_id ?? null),
           marca: matchedBrand ? matchedBrand.nombre : (detected.marca_nombre ?? p.marca ?? ''),
           tipo_prenda_id: detected.tipo_prenda_id ?? p.tipo_prenda_id ?? null,
@@ -1287,10 +1341,27 @@ export function OrdenRapidaWizard({
         }
       })
 
+      // Mapa auxiliar para asociar producto_temp_id a las cajas según su SKU inicial
+      const skuToTempIdMap = new Map<string, string>()
+      enrichedProductos.forEach((p) => {
+        if (p.sku_base && p.temp_id) {
+          skuToTempIdMap.set(p.sku_base.trim().toUpperCase(), p.temp_id)
+        }
+      })
+
+      const enrichedCajas = wizardData.cajas.map((c) => {
+        const normSku = (c.sku_base || '').trim().toUpperCase()
+        const matchedTempId = normSku ? skuToTempIdMap.get(normSku) : undefined
+        return {
+          ...c,
+          producto_temp_id: matchedTempId || c.producto_temp_id,
+        }
+      })
+
       setWarnings(wizardData.warnings)
-      setParsedData({ ...wizardData, productos: enrichedProductos })
+      setParsedData({ ...wizardData, productos: enrichedProductos, cajas: enrichedCajas })
       setEditableProductos(structuredClone(enrichedProductos))
-      setEditableCajas(structuredClone(wizardData.cajas))
+      setEditableCajas(structuredClone(enrichedCajas))
 
       // Verificar existencia de SKUs en Supabase DB para resaltado verde
       const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
@@ -1310,22 +1381,10 @@ export function OrdenRapidaWizard({
               setEditableProductos(prev =>
                 prev.map(p => {
                   const matchedDbSku = skuMap[p.sku_base.toUpperCase()]
-                  if (matchedDbSku && matchedDbSku !== p.sku_base) {
-                    return { ...p, sku_base: matchedDbSku, sku_raw: p.sku_raw || p.sku_base, es_nuevo: false }
-                  }
                   if (matchedDbSku) {
                     return { ...p, es_nuevo: false }
                   }
                   return p
-                })
-              )
-              setEditableCajas(prev =>
-                prev.map(c => {
-                  const matchedDbSku = c.sku_base ? skuMap[c.sku_base.toUpperCase()] : null
-                  if (matchedDbSku && matchedDbSku !== c.sku_base) {
-                    return { ...c, sku_base: matchedDbSku, sku_raw: c.sku_raw || c.sku_base }
-                  }
-                  return c
                 })
               )
             }
@@ -1992,10 +2051,22 @@ export function OrdenRapidaWizard({
                                   value={producto.sku_base}
                                   onChange={(e) => {
                                     const newSkuVal = e.target.value
+                                    const targetTempId = producto.temp_id
+                                    const oldSku = producto.sku_base
+
                                     setEditableProductos((prev) =>
                                       prev.map((item, itemIndex) =>
                                         itemIndex === index ? { ...item, sku_base: newSkuVal } : item
                                       )
+                                    )
+
+                                    setEditableCajas((prev) =>
+                                      prev.map((c) => {
+                                        if ((targetTempId && c.producto_temp_id === targetTempId) || (oldSku && c.sku_base === oldSku)) {
+                                          return { ...c, sku_base: newSkuVal, producto_temp_id: targetTempId || c.producto_temp_id }
+                                        }
+                                        return c
+                                      })
                                     )
                                   }}
                                   placeholder="SKU Base..."
