@@ -285,6 +285,9 @@ async function StockPageContent({
       solo_afectados: sp.solo_afectados === 'true',
     }
 
+    const totalesMap = await fetchTotalesCajasPorBodegas(bodegasPermitidas.map((b) => b.id))
+    const totalCajasMatriz = Object.values(totalesMap).reduce((sum, val) => sum + val, 0)
+
     return (
       <div className="space-y-4">
         {/* ── Encabezado fijo y estable ── */}
@@ -293,6 +296,7 @@ async function StockPageContent({
           subtitle="Todas las bodegas disponibles"
           bodegas={bodegasPermitidas}
           bodegaActivaId={bodegaActivaId}
+          totalCajas={totalCajasMatriz}
           showImport={canImport}
         />
 
@@ -329,6 +333,9 @@ async function StockPageContent({
   const bodegaActiva = bodegasPermitidas.find((b) => b.id === bodegaActivaId)
   const isPronostico = sp.modo === 'pronostico'
 
+  const totalesMap = await fetchTotalesCajasPorBodegas([bodegaActivaId])
+  const totalCajasBodega = totalesMap[bodegaActivaId] ?? 0
+
   return (
     <div className="space-y-4">
       {/* ── Panel de notas pendientes ── */}
@@ -347,6 +354,7 @@ async function StockPageContent({
         bodegas={bodegasPermitidas}
         bodegaActivaId={bodegaActivaId}
         isPronostico={isPronostico}
+        totalCajas={totalCajasBodega}
         showImport={canImport}
       />
 
