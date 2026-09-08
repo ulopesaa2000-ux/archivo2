@@ -13,6 +13,7 @@ import ExcelJS from 'exceljs'
 import { exportStockByBodegaAction } from '@/modules/inventario/actions'
 import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types'
 import { ADMIN_ROUTES } from '@/lib/constants'
+import { isUnassignedFamily } from './StockMatrixTable'
 
 export function StockTable({
   items,
@@ -185,6 +186,10 @@ export function StockTable({
       allItems.sort((a, b) => {
         const famA = a.producto_familia || 'SIN FAMILIA'
         const famB = b.producto_familia || 'SIN FAMILIA'
+        const aUn = isUnassignedFamily(famA)
+        const bUn = isUnassignedFamily(famB)
+        if (aUn && !bUn) return 1
+        if (!aUn && bUn) return -1
         const famCmp = famA.localeCompare(famB)
         if (famCmp !== 0) return famCmp
         return (a.producto_sku || '').localeCompare(b.producto_sku || '')

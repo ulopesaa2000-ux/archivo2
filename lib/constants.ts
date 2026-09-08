@@ -221,4 +221,8 @@ export const CAT_TALLAS_MAESTRO = [
   { id: 19, codigo: '14', categoria: 'INFANTIL', nombre: 'TALLA 14' },
   { id: 20, codigo: '16', categoria: 'INFANTIL', nombre: 'TALLA 16' },
   { id: 21, codigo: 'UNITALLA', categoria: 'ADULTO', nombre: 'UNITALLA' },
+  { id: 22, codigo: 'CH-M', categoria: 'ADULTO', nombre: 'CHICA - MEDIANA' },
+  { id: 23, codigo: 'M-G', categoria: 'ADULTO', nombre: 'MEDIANA - GRANDE' },
+  { id: 24, codigo: 'G-EG', categoria: 'ADULTO', nombre: 'GRANDE - EXTRA GDE' },
+  { id: 25, codigo: 'EG-2EG', categoria: 'ADULTO', nombre: 'EXTRA GDE - 2EG' },
 ] as const

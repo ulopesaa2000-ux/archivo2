@@ -2,7 +2,7 @@
 'use client'
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useState, useTransition, useCallback, useEffect } from 'react'
+import { useState, useTransition, useCallback, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
@@ -623,6 +623,10 @@ export function NoteDraftBuilder({
   const [selectedProduct, setSelectedProduct] = useState<ProductoBusqueda | null>(null)
   const [cajasDisponibles, setCajasDisponibles] = useState<CajaParaSelector[]>([])
 
+  // AbortControllers para cancelar consultas en vuelo
+  const searchAbortRef = useRef<AbortController | null>(null)
+  const swapSearchAbortRef = useRef<AbortController | null>(null)
+
   // Existencias en tiempo real
   const [selectedProductStock, setSelectedProductStock] = useState<{ cajas: number; piezas_sueltas: number } | null>(null)
 
@@ -695,31 +699,57 @@ export function NoteDraftBuilder({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, draft.bodega_origen_id])
 
-  // ── Búsqueda con debounce ───────────────────────────────
+  // ── Búsqueda con debounce y cancelación en vuelo ───────
   const doSearch = useDebouncedCallback(async (term: string) => {
-    if (term.length < 2) {
+    const clean = term.trim()
+    if (clean.length < 1) {
+      if (searchAbortRef.current) searchAbortRef.current.abort()
       setSearchResults([])
       setIsSearching(false)
       return
     }
+
+    // Cancelar consulta previa en vuelo para evitar condiciones de carrera
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort()
+    }
+    const abortController = new AbortController()
+    searchAbortRef.current = abortController
+
     setIsSearching(true)
     try {
       const res = await fetch(
-        `/api/inventario/notas/nueva/search?q=${encodeURIComponent(term)}`
+        `/api/inventario/notas/nueva/search?q=${encodeURIComponent(clean)}`,
+        { signal: abortController.signal }
       )
       if (res.ok) {
         const data = await res.json()
         setSearchResults(data)
       }
-    } catch {
-      setSearchResults([])
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        setSearchResults([])
+      }
+    } finally {
+      if (searchAbortRef.current === abortController) {
+        setIsSearching(false)
+      }
     }
-    setIsSearching(false)
-  }, 400)
+  }, 200)
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value)
-    doSearch(value)
+    if (selectedProduct && value !== selectedProduct.sku_base) {
+      setSelectedProduct(null)
+      setSelectedProductStock(null)
+    }
+    if (value.trim().length === 0) {
+      if (searchAbortRef.current) searchAbortRef.current.abort()
+      setSearchResults([])
+      setIsSearching(false)
+    } else {
+      doSearch(value)
+    }
   }
 
   // ── Seleccionar producto de resultados ──────────────────
@@ -1039,27 +1069,50 @@ export function NoteDraftBuilder({
   const [pendingConfirmState, setPendingConfirmState] = useState<boolean>(false)
 
   const doSearchSwap = useDebouncedCallback(async (term: string) => {
-    if (term.length < 2) {
+    const clean = term.trim()
+    if (clean.length < 1) {
+      if (swapSearchAbortRef.current) swapSearchAbortRef.current.abort()
       setSwapSearchResults([])
       setIsSearchingSwap(false)
       return
     }
+
+    if (swapSearchAbortRef.current) {
+      swapSearchAbortRef.current.abort()
+    }
+    const abortController = new AbortController()
+    swapSearchAbortRef.current = abortController
+
     setIsSearchingSwap(true)
     try {
-      const res = await fetch(`/api/inventario/notas/nueva/search?q=${encodeURIComponent(term)}`)
+      const res = await fetch(
+        `/api/inventario/notas/nueva/search?q=${encodeURIComponent(clean)}`,
+        { signal: abortController.signal }
+      )
       if (res.ok) {
         const data = await res.json()
         setSwapSearchResults(data)
       }
-    } catch {
-      setSwapSearchResults([])
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        setSwapSearchResults([])
+      }
+    } finally {
+      if (swapSearchAbortRef.current === abortController) {
+        setIsSearchingSwap(false)
+      }
     }
-    setIsSearchingSwap(false)
-  }, 400)
+  }, 200)
 
   const handleSwapSearchChange = (value: string) => {
     setSwapSearchTerm(value)
-    doSearchSwap(value)
+    if (value.trim().length === 0) {
+      if (swapSearchAbortRef.current) swapSearchAbortRef.current.abort()
+      setSwapSearchResults([])
+      setIsSearchingSwap(false)
+    } else {
+      doSearchSwap(value)
+    }
   }
 
   const handleSwapProduct = async (tempId: string, newProduct: ProductoBusqueda) => {
@@ -1856,16 +1909,34 @@ export function NoteDraftBuilder({
               placeholder="Buscar por SKU o nombre del producto..."
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-10 h-11 rounded-xl"
+              className="pl-10 pr-16 h-11 rounded-xl"
               disabled={!draft.bodega_origen_id || todoBloqueado || soloEditaDestino}
             />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {searchTerm.length > 0 && (
+                <button
+                  type="button"
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  onClick={() => {
+                    setSearchTerm('')
+                    setSelectedProduct(null)
+                    setSelectedProductStock(null)
+                    setSearchResults([])
+                    if (searchAbortRef.current) searchAbortRef.current.abort()
+                  }}
+                  title="Limpiar búsqueda"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {isSearching && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
             {!draft.bodega_origen_id && (
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-orange-600 uppercase bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">
                 * Selecciona bodega origen primero
               </span>
-            )}
-            {isSearching && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
             )}
           </div>
 

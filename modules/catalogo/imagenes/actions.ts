@@ -45,8 +45,8 @@ async function revalidateImagenesProducto(productoId?: number, supabaseClient?: 
 }
 
 /**
- * Actualiza una imagen (alt_text, uso, orden, principal).
- * Nota: producto_id no es editable - la imagen ya está asociada a un producto.
+ * Actualiza una imagen (alt_text, uso, orden, principal, producto_id).
+ * Permite reasignar la imagen a otro producto si fue asociada incorrectamente.
  */
 export async function updateImagenGlobalAction(
   imagenId: number,
@@ -55,6 +55,7 @@ export async function updateImagenGlobalAction(
     uso_imagen?: string
     orden?: number
     es_principal?: boolean
+    producto_id?: number
   }
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
@@ -62,36 +63,89 @@ export async function updateImagenGlobalAction(
 
   const supabase = await createClient()
 
-  let productoId: number | null = null
-
-  // Obtener producto_id
-  const { data: imgData } = await (supabase.from('producto_imagenes') as any)
+  // 1. Obtener imagen actual
+  const { data: imgData, error: fetchErr } = await (supabase.from('producto_imagenes') as any)
     .select('producto_id, es_principal')
     .eq('id', imagenId)
     .single()
 
-  if (imgData?.producto_id) {
-    productoId = imgData.producto_id
+  if (fetchErr || !imgData) {
+    return { success: false, error: 'No se encontró la imagen' }
   }
 
-  // Si es principal, quitar principal de otras imágenes
-  if (data.es_principal && productoId) {
+  const oldProductoId = imgData.producto_id as number
+  const targetProductoId = data.producto_id !== undefined ? Number(data.producto_id) : oldProductoId
+  const isChangingProduct = targetProductoId !== oldProductoId
+
+  // 2. Si se cambia de producto y la imagen era principal en el producto anterior:
+  if (isChangingProduct && imgData.es_principal) {
+    // Promover la siguiente imagen disponible del producto anterior a principal
+    const { data: remainingImgs } = await (supabase.from('producto_imagenes') as any)
+      .select('id')
+      .eq('producto_id', oldProductoId)
+      .neq('id', imagenId)
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+
+    if (remainingImgs && remainingImgs.length > 0) {
+      await (supabase.from('producto_imagenes') as any)
+        .update({ es_principal: true })
+        .eq('id', remainingImgs[0].id)
+    }
+  }
+
+  // 3. Determinar es_principal para el producto destino
+  let finalEsPrincipal = data.es_principal
+  if (isChangingProduct && finalEsPrincipal === undefined) {
+    // Si no se especificó y se movió de producto, verificar si el nuevo producto ya tiene principal
+    const { data: targetHasPrincipal } = await (supabase.from('producto_imagenes') as any)
+      .select('id')
+      .eq('producto_id', targetProductoId)
+      .eq('es_principal', true)
+      .limit(1)
+
+    if (!targetHasPrincipal || targetHasPrincipal.length === 0) {
+      finalEsPrincipal = true
+    }
+  }
+
+  // Si esta imagen será principal, quitar principal de otras imágenes del producto destino
+  if (finalEsPrincipal) {
     await (supabase.from('producto_imagenes') as any)
       .update({ es_principal: false })
-      .eq('producto_id', productoId)
+      .eq('producto_id', targetProductoId)
       .neq('id', imagenId)
   }
 
-  const { error } = await (supabase.from('producto_imagenes') as any)
-    .update(data)
+  // 4. Preparar payload de actualización
+  const updatePayload: Record<string, any> = {}
+  if (data.alt_text !== undefined) updatePayload.alt_text = data.alt_text
+  if (data.uso_imagen !== undefined) updatePayload.uso_imagen = data.uso_imagen
+  if (data.orden !== undefined) updatePayload.orden = data.orden
+  if (finalEsPrincipal !== undefined) updatePayload.es_principal = finalEsPrincipal
+  if (isChangingProduct) updatePayload.producto_id = targetProductoId
+
+  const { error: updateErr } = await (supabase.from('producto_imagenes') as any)
+    .update(updatePayload)
     .eq('id', imagenId)
 
-  if (error) {
-    return { success: false, error: error.message }
+  if (updateErr) {
+    return { success: false, error: updateErr.message }
   }
 
-  await revalidateImagenesProducto(productoId ?? undefined, supabase)
-  return { success: true }
+  // 5. Revalidar caches y páginas
+  await revalidateImagenesProducto(oldProductoId, supabase)
+  if (isChangingProduct) {
+    await revalidateImagenesProducto(targetProductoId, supabase)
+  }
+
+  return {
+    success: true,
+    message: isChangingProduct
+      ? 'Imagen reasignada al nuevo producto con éxito'
+      : 'Imagen actualizada'
+  }
 }
 
 /**
