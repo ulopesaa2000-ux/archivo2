@@ -726,6 +726,7 @@ export interface FamiliaResumenSku {
   sku_base: string
   descripcion: string | null
   activo?: boolean | null
+  imagen_principal?: string | null
 }
 
 export interface FamiliaResumen {
@@ -739,14 +740,26 @@ export interface FamiliaResumen {
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
 
-  // Obtenemos id, familia, descripcion, sku_base y activo para el cliente 27 (Andrés Mendoza)
-  const { data, error } = await supabase.from('productos')
-    .select('id, familia, descripcion, sku_base, activo')
-    .eq('cliente_b2b_id' as any, 27)
+  // Obtenemos productos e imágenes principales en paralelo para evitar peticiones cliente en cascada
+  const [productosRes, imagenesRes] = await Promise.all([
+    supabase.from('productos')
+      .select('id, familia, descripcion, sku_base, activo')
+      .eq('cliente_b2b_id' as any, 27),
+    supabase.from('producto_imagenes')
+      .select('producto_id, url')
+      .eq('es_principal', true)
+  ])
 
-  if (error) {
-    console.error('Error fetchResumenFamilias:', error)
+  if (productosRes.error) {
+    console.error('Error fetchResumenFamilias productos:', productosRes.error)
     return []
+  }
+
+  const imagenesMap = new Map<number, string>()
+  for (const img of imagenesRes.data || []) {
+    if (img.producto_id && img.url) {
+      imagenesMap.set(img.producto_id, img.url)
+    }
   }
 
   const conteos: Record<string, number> = {}
@@ -754,7 +767,8 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const skusPorFamilia: Record<string, FamiliaResumenSku[]> = {}
   let countNull = 0
 
-  for (const p of data || []) {
+  for (const p of productosRes.data || []) {
+    const imgUrl = imagenesMap.get(p.id) || null
     if (p.familia) {
       conteos[p.familia] = (conteos[p.familia] || 0) + 1
       if (!descripciones[p.familia] && p.descripcion) {
@@ -768,7 +782,8 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
           id: p.id,
           sku_base: p.sku_base,
           descripcion: p.descripcion || null,
-          activo: p.activo
+          activo: p.activo,
+          imagen_principal: imgUrl
         })
       }
     } else {
@@ -794,13 +809,14 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
       total_productos: countNull,
       es_codigo_raw: false,
       descripcion: 'Productos sin familia asignada',
-      skus: (data || [])
+      skus: (productosRes.data || [])
         .filter((p: any) => !p.familia && p.sku_base)
         .map((p: any) => ({
           id: p.id,
           sku_base: p.sku_base,
           descripcion: p.descripcion || null,
-          activo: p.activo
+          activo: p.activo,
+          imagen_principal: imagenesMap.get(p.id) || null
         })),
     })
   }
