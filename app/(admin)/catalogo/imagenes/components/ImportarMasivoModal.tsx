@@ -11,8 +11,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { importarImagenesDesdeExcelAction, uploadSingleImagenConSkuAction } from '@/modules/catalogo/imagenes/actions'
-import { buscarProductosPorSkuBatch } from '@/modules/inventario/import-queries'
+import {
+  importarImagenesDesdeExcelAction,
+  uploadSingleImagenConSkuAction,
+  detectarSkusArchivosAction,
+} from '@/modules/catalogo/imagenes/actions'
+import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { BuscadorSku } from './BuscadorSku'
@@ -25,10 +29,7 @@ interface Props {
 
 const MAX_FILES = 40
 const MAX_SIZE_BYTES = 5 * 1024 * 1024
-const CHUNK_SIZE = 12
-const PARALLEL_CHUNKS = 2
 const PARALLEL_UPLOADS = 3
-const MIN_SCORE = 0.60
 
 interface FilePreview {
   file: File
@@ -68,58 +69,38 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   }[]>([])
 
   /**
-   * Detecta SKUs usando el RPC fn_buscar_candidatos_sku_ocr del módulo de inventario.
-   * Procesa en chunks paralelos para no saturar.
+   * Detecta SKUs usando el motor híbrido multicapa (reglas MOTI, canónicas, O/0, sufijos de fotos).
    */
   const runDetectionForFiles = async (currentFiles: FilePreview[]) => {
     setDetecting(true)
     setDetectionProgress({ current: 0, total: currentFiles.length })
     try {
-      // Extraer nombres de archivo sin extensión como candidatos de SKU
-      const filenames = currentFiles.map(f => f.file.name.replace(/\.[^.]+$/, '').trim())
+      const filenames = currentFiles.map(f => f.file.name)
+      const res = await detectarSkusArchivosAction(filenames)
 
-      // Dividir en chunks y procesar en paralelo limitado
-      const chunks: string[][] = []
-      for (let i = 0; i < filenames.length; i += CHUNK_SIZE) {
-        chunks.push(filenames.slice(i, i + CHUNK_SIZE))
-      }
-
-      const allMatches = new Map<string, { producto_id: number; sku_base: string; nombre: string | null }>()
-
-      for (let i = 0; i < chunks.length; i += PARALLEL_CHUNKS) {
-        const batch = chunks.slice(i, i + PARALLEL_CHUNKS)
-        const results = await Promise.all(
-          batch.map(chunk => buscarProductosPorSkuBatch(chunk))
-        )
-        for (const map of results) {
-          for (const [key, value] of map) {
-            allMatches.set(key, value)
+      if (res.success && res.results) {
+        const updated = currentFiles.map((f) => {
+          const match = res.results[f.file.name]
+          if (match && match.status === 'detected') {
+            return {
+              ...f,
+              sku: match.sku,
+              productoId: match.productoId,
+              productoNombre: match.productoNombre,
+              alt_text: `Imagen de ${match.productoNombre ?? match.sku}`,
+              status: 'detected' as const,
+              es_principal: match.es_principal,
+            }
           }
-        }
-        setDetectionProgress({
-          current: Math.min((i + PARALLEL_CHUNKS) * CHUNK_SIZE, filenames.length),
-          total: filenames.length,
-        })
-      }
-
-      // Mapear resultados de vuelta a los archivos
-      const updated = currentFiles.map((f, idx) => {
-        const filename = filenames[idx]
-        const match = allMatches.get(filename)
-        if (match && match.sku_base) {
           return {
             ...f,
-            sku: match.sku_base,
-            productoId: match.producto_id,
-            productoNombre: match.nombre ?? undefined,
-            alt_text: `Imagen de ${match.nombre ?? match.sku_base}`,
-            status: 'detected' as const,
-            es_principal: true,
+            sku: match?.sku || f.file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, '/').toUpperCase(),
+            status: 'not_found' as const,
+            es_principal: false,
           }
-        }
-        return { ...f, sku: filename.replace(/[-_]/g, '/').toUpperCase(), status: 'not_found' as const, es_principal: false }
-      })
-      setFiles(updated)
+        })
+        setFiles(updated)
+      }
     } catch (e) {
       console.error('Error detectando SKUs:', e)
     } finally {
@@ -128,28 +109,54 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     }
   }
 
-  const handleSkuChange = async (index: number, newSku: string) => {
+  const handleSkuChange = async (
+    index: number,
+    newSku: string,
+    matchedProduct?: { id: number; sku_base: string; nombre: string | null }
+  ) => {
     const updated = [...files]
-    updated[index].sku = newSku.toUpperCase()
-    if (!newSku) {
+    const cleanSku = newSku.trim().toUpperCase()
+    updated[index].sku = cleanSku
+
+    if (!cleanSku) {
       updated[index].status = 'pending'
       updated[index].productoId = undefined
       updated[index].productoNombre = undefined
-    } else {
-      // Buscar via RPC para validar el SKU
-      const matches = await buscarProductosPorSkuBatch([newSku])
-      const match = matches.get(newSku)
-      if (match && match.sku_base) {
+      setFiles(updated)
+      return
+    }
+
+    // 1. Si viene el producto resuelto directamente por el selector rápido:
+    if (matchedProduct) {
+      updated[index].status = 'assigned'
+      updated[index].productoId = matchedProduct.id
+      updated[index].productoNombre = matchedProduct.nombre ?? undefined
+      updated[index].alt_text = `Imagen de ${matchedProduct.nombre ?? matchedProduct.sku_base}`
+      setFiles(updated)
+      return
+    }
+
+    // 2. Buscar con buscarProductosParaSelector (rápido e indexado, tolerando '/', '-')
+    try {
+      const prods = await buscarProductosParaSelector(cleanSku, 5)
+      const exact = prods.find(p => p.sku_base.toUpperCase() === cleanSku) || (prods.length === 1 ? prods[0] : null)
+
+      if (exact && exact.sku_base.toUpperCase() === cleanSku) {
         updated[index].status = 'assigned'
-        updated[index].productoId = match.producto_id
-        updated[index].productoNombre = match.nombre ?? undefined
-        updated[index].alt_text = `Imagen de ${match.nombre ?? match.sku_base}`
+        updated[index].productoId = exact.id
+        updated[index].productoNombre = exact.nombre || undefined
+        updated[index].alt_text = `Imagen de ${exact.nombre || exact.sku_base}`
       } else {
         updated[index].status = 'not_found'
         updated[index].productoId = undefined
         updated[index].productoNombre = undefined
       }
+    } catch {
+      updated[index].status = 'not_found'
+      updated[index].productoId = undefined
+      updated[index].productoNombre = undefined
     }
+
     setFiles(updated)
   }
 
@@ -207,20 +214,23 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
   }
 
   const resolveCsvSkus = async () => {
-    const skus = csvRows.map(r => r.sku.toUpperCase()).filter(Boolean)
+    const skus = csvRows.map(r => r.sku.trim()).filter(Boolean)
     if (skus.length === 0) return
-    const matches = await buscarProductosPorSkuBatch(skus)
-    const updated = csvRows.map(r => {
-      const match = matches.get(r.sku.toUpperCase())
-      return {
-        ...r,
-        productoId: match?.producto_id,
-        productoNombre: match?.nombre ?? undefined,
-        status: match ? 'found' as const : 'not_found' as const,
-        alt_text: match?.nombre ? `Imagen de ${match.nombre}` : '',
-      }
-    })
-    setCsvRows(updated)
+    const res = await detectarSkusArchivosAction(skus)
+    if (res.success && res.results) {
+      const updated = csvRows.map(r => {
+        const match = res.results[r.sku.trim()]
+        return {
+          ...r,
+          sku: match && match.status === 'detected' ? match.sku : r.sku,
+          productoId: match?.productoId,
+          productoNombre: match?.productoNombre,
+          status: match && match.status === 'detected' ? ('found' as const) : ('not_found' as const),
+          alt_text: match?.productoNombre ? `Imagen de ${match.productoNombre}` : '',
+        }
+      })
+      setCsvRows(updated)
+    }
   }
 
   const handleCsvImport = () => {
@@ -511,14 +521,14 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                     <div
                       key={i}
                       className={cn(
-                        'rounded-xl border-2 flex flex-col overflow-hidden bg-card',
+                        'rounded-xl border-2 flex flex-col bg-card relative',
                         f.status === 'detected' || f.status === 'assigned'
                           ? 'border-green-400/60'
                           : 'border-red-400/60'
                       )}
                     >
                       {/* Imagen contenida */}
-                      <div className="relative w-full aspect-[4/3] bg-muted shrink-0 overflow-hidden">
+                      <div className="relative w-full aspect-[4/3] bg-muted shrink-0 overflow-hidden rounded-t-[10px]">
                         <Image
                           src={f.preview}
                           alt={f.file.name}
@@ -548,7 +558,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                           <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">SKU Producto</Label>
                           <BuscadorSku
                             value={f.sku}
-                            onChange={(sku) => handleSkuChange(i, sku)}
+                            onChange={(sku, matched) => handleSkuChange(i, sku, matched)}
                             status={f.status}
                           />
                         </div>
