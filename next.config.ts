@@ -6,6 +6,7 @@ const withSerwist = withSerwistInit({
   swSrc: 'app/sw.ts',
   swDest: 'public/sw.js',
   disable: process.env.NODE_ENV === 'development',
+  exclude: [/\.map$/, /\(admin\)/, /%28admin%29/],
 })
 
 const nextConfig: NextConfig = {

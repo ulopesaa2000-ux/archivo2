@@ -1,15 +1,22 @@
 // app/(admin)/catalogo/imagenes/components/ImagenesToolbar.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { LayoutGrid, Table, Upload, FileSpreadsheet, HardDrive, FolderOpen } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { LayoutGrid, Table, Upload, FileSpreadsheet, HardDrive, FolderOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ImportarMasivoModal } from './ImportarMasivoModal'
+
+// Carga perezosa (code-splitting) del modal pesado (42KB) solo cuando el usuario lo solicita
+const ImportarMasivoModal = dynamic(
+  () => import('./ImportarMasivoModal').then((m) => m.ImportarMasivoModal),
+  { ssr: false }
+)
 
 export function ImagenesToolbar({ total }: { total: number }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importMode, setImportMode] = useState<'files' | 'excel'>('files')
   const [showImportMenu, setShowImportMenu] = useState(false)
@@ -17,13 +24,16 @@ export function ImagenesToolbar({ total }: { total: number }) {
   const currentVista = searchParams.get('vista') ?? 'grid'
 
   const setVista = (vista: 'grid' | 'agrupado' | 'tabla') => {
-    const params = new URLSearchParams(searchParams.toString())
-    if (vista === 'grid') {
-      params.delete('vista')
-    } else {
-      params.set('vista', vista)
-    }
-    router.push(`/catalogo/imagenes?${params.toString()}`, { scroll: false })
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (vista === 'grid') {
+        params.delete('vista')
+      } else {
+        params.set('vista', vista)
+      }
+      params.delete('page')
+      router.push(`/catalogo/imagenes?${params.toString()}`, { scroll: false })
+    })
   }
 
   const handleImportOption = (mode: 'files' | 'excel') => {
@@ -34,12 +44,13 @@ export function ImagenesToolbar({ total }: { total: number }) {
 
   return (
     <div className="flex items-center gap-2">
-      {/* Toggle vista */}
-      <div className="flex rounded-md border overflow-hidden">
+      {/* Toggle vista con transiciones concurrentes */}
+      <div className={`flex rounded-md border overflow-hidden transition-opacity ${isPending ? 'opacity-70' : ''}`}>
         <button
           type="button"
-          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm ${
-            currentVista === 'grid' ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+          disabled={isPending}
+          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm transition-colors ${
+            currentVista === 'grid' ? 'bg-muted font-medium text-foreground' : 'hover:bg-muted/50 text-muted-foreground'
           }`}
           onClick={() => setVista('grid')}
           title="Vista individual"
@@ -49,19 +60,21 @@ export function ImagenesToolbar({ total }: { total: number }) {
         </button>
         <button
           type="button"
-          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm border-l ${
-            currentVista === 'agrupado' ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+          disabled={isPending}
+          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm border-l transition-colors ${
+            currentVista === 'agrupado' ? 'bg-muted font-medium text-foreground' : 'hover:bg-muted/50 text-muted-foreground'
           }`}
           onClick={() => setVista('agrupado')}
-          title="Vista agrupada por producto"
+          title="Vista agrupada por producto/SKU"
         >
           <FolderOpen className="h-4 w-4" />
           <span className="hidden sm:inline">Agrupado</span>
         </button>
         <button
           type="button"
-          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm border-l ${
-            currentVista === 'tabla' ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+          disabled={isPending}
+          className={`px-3 py-1.5 flex items-center gap-1.5 text-sm border-l transition-colors ${
+            currentVista === 'tabla' ? 'bg-muted font-medium text-foreground' : 'hover:bg-muted/50 text-muted-foreground'
           }`}
           onClick={() => setVista('tabla')}
           title="Vista tabla"
@@ -114,12 +127,14 @@ export function ImagenesToolbar({ total }: { total: number }) {
         <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
       )}
 
-      {/* Modal import */}
-      <ImportarMasivoModal
-        open={importModalOpen}
-        onOpenChange={setImportModalOpen}
-        mode={importMode}
-      />
+      {/* Modal import - solo se renderiza cuando está abierto para evitar consumo de memoria */}
+      {importModalOpen && (
+        <ImportarMasivoModal
+          open={importModalOpen}
+          onOpenChange={setImportModalOpen}
+          mode={importMode}
+        />
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@
 import { useState, useRef, useTransition } from 'react'
 import Image from 'next/image'
 import Papa from 'papaparse'
-import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download } from 'lucide-react'
+import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -20,6 +20,7 @@ import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { BuscadorSku } from './BuscadorSku'
+import { usoImagenOptions } from './imagenesConstants'
 
 interface Props {
   open: boolean
@@ -38,6 +39,7 @@ interface FilePreview {
   alt_text: string
   uso: string
   es_principal: boolean
+  tienePrincipalActual?: boolean
   productoId?: number
   productoNombre?: string
   status: 'pending' | 'detected' | 'not_found' | 'assigned'
@@ -90,6 +92,8 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
               alt_text: `Imagen de ${match.productoNombre ?? match.sku}`,
               status: 'detected' as const,
               es_principal: match.es_principal,
+              uso: match.es_principal ? 'principal_ecommerce' : 'galeria_secundaria',
+              tienePrincipalActual: match.tienePrincipalActual,
             }
           }
           return {
@@ -233,6 +237,64 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     }
   }
 
+  const handleTogglePrincipal = (index: number) => {
+    setFiles((prev) => {
+      const updated = [...prev]
+      const current = { ...updated[index] }
+      const willBePrincipal = !current.es_principal
+
+      if (willBePrincipal) {
+        current.es_principal = true
+        current.uso = 'principal_ecommerce'
+
+        // Si hay otras fotos del mismo SKU en el lote, se desmarcan y pasan a oculta
+        const currentSku = current.sku?.trim().toUpperCase()
+        if (currentSku) {
+          updated.forEach((f, idx) => {
+            if (idx !== index && f.sku && f.sku.trim().toUpperCase() === currentSku) {
+              if (f.es_principal) {
+                updated[idx] = {
+                  ...f,
+                  es_principal: false,
+                  uso: 'oculta',
+                }
+              }
+            }
+          })
+        }
+      } else {
+        current.es_principal = false
+        current.uso = 'galeria_secundaria'
+      }
+
+      updated[index] = current
+      return updated
+    })
+  }
+
+  const marcarUnaPrincipalPorSku = () => {
+    setFiles((prev) => {
+      const seenSkus = new Set<string>()
+      return prev.map((item) => {
+        const cleanSku = item.sku?.trim().toUpperCase()
+        const isValid = item.status === 'detected' || item.status === 'assigned'
+        if (isValid && cleanSku && !seenSkus.has(cleanSku)) {
+          seenSkus.add(cleanSku)
+          return {
+            ...item,
+            es_principal: true,
+            uso: 'principal_ecommerce',
+          }
+        }
+        return {
+          ...item,
+          es_principal: false,
+          uso: item.uso === 'principal_ecommerce' ? 'galeria_secundaria' : item.uso,
+        }
+      })
+    })
+  }
+
   const handleCsvImport = () => {
     const validRows = csvRows.filter(r => r.status === 'found')
     if (validRows.length === 0) { setError('No hay filas con SKU válido'); return }
@@ -247,7 +309,15 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
           orden: r.orden,
         }))
       )
-      if (result.success > 0) toast.success(`${result.success} imagen${result.success > 1 ? 'es' : ''} importada${result.success > 1 ? 's' : ''}`)
+      if (result.success > 0) {
+        const desc = result.principales > 0
+          ? `${result.principales} imagen${result.principales > 1 ? 'es cambiaron' : ' cambió'} a Principal y ${result.ocultadas} imagen${result.ocultadas !== 1 ? 'es anteriores pasaron' : ' anterior pasó'} a tipo Oculto.`
+          : 'Todas las imágenes se importaron con éxito.'
+        toast.success(`${result.success} imagen${result.success > 1 ? 'es importadas' : ' importada'}`, {
+          description: desc,
+          duration: 6000,
+        })
+      }
       if (result.failed > 0) toast.error(`${result.failed} fallaron`)
       handleClose()
     })
@@ -287,6 +357,8 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
 
       let successCount = 0
       let failCount = 0
+      let principalesSubidas = 0
+      let ocultadasAnteriores = 0
 
       // Subir en paralelo limitado (PARALLEL_UPLOADS a la vez)
       for (let i = 0; i < files.length; i += PARALLEL_UPLOADS) {
@@ -304,8 +376,13 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
           })
         )
         for (const r of results) {
-          if (r.status === 'fulfilled' && r.value.success) successCount++
-          else failCount++
+          if (r.status === 'fulfilled' && r.value.success) {
+            successCount++
+            if (r.value.esPrincipal) principalesSubidas++
+            if (r.value.ocultadaAnterior) ocultadasAnteriores++
+          } else {
+            failCount++
+          }
         }
         setUploadProgress({
           current: Math.min(i + PARALLEL_UPLOADS, files.length),
@@ -315,7 +392,16 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
       }
 
       setUploadProgress(null)
-      if (successCount > 0) toast.success(`${successCount} imagen${successCount > 1 ? 'es' : ''} subida${successCount > 1 ? 's' : ''} con éxito.`)
+      if (successCount > 0) {
+        const desc = principalesSubidas > 0
+          ? `${principalesSubidas} imagen${principalesSubidas > 1 ? 'es cambiaron' : ' cambió'} a Principal y ${ocultadasAnteriores} imagen${ocultadasAnteriores !== 1 ? 'es anteriores pasaron' : ' anterior pasó'} a tipo Oculto.`
+          : 'Todas las imágenes se subieron a galería secundaria.'
+
+        toast.success(`Subida completada: ${successCount} imagen${successCount > 1 ? 'es' : ''}`, {
+          description: desc,
+          duration: 6000,
+        })
+      }
       if (failCount > 0) toast.error(`${failCount} imagen${failCount > 1 ? 'es' : ''} fallaron.`)
       handleClose()
     })
@@ -492,126 +578,201 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
           )}
 
           {/* PASO 2 — Files */}
-          {step === 2 && mode === 'files' && (
-            <div className="h-full flex flex-col">
-              {/* Sub-header stats */}
-              <div className="flex items-center gap-4 px-5 py-2 border-b bg-muted/20 shrink-0 text-xs flex-wrap">
-                {detecting && (
-                  <span className="flex items-center gap-1 text-blue-600">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Detectando SKUs...{detectionProgress ? ` ${detectionProgress.current}/${detectionProgress.total}` : ''}
+          {step === 2 && mode === 'files' && (() => {
+            const detectadasCount = files.filter(f => f.status === 'detected' || f.status === 'assigned').length
+            const sinSkuCount = files.filter(f => f.status === 'not_found' || f.status === 'pending').length
+            const principalesCount = files.filter(f => f.es_principal).length
+            const reemplazaranActualCount = files.filter(f => f.es_principal && f.tienePrincipalActual).length
+
+            return (
+              <div className="h-full flex flex-col">
+                {/* Sub-header stats */}
+                <div className="flex items-center gap-3 px-5 py-2.5 border-b bg-muted/20 shrink-0 text-xs flex-wrap">
+                  {detecting && (
+                    <span className="flex items-center gap-1 text-blue-600 font-medium">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Detectando SKUs...{detectionProgress ? ` ${detectionProgress.current}/${detectionProgress.total}` : ''}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-green-600 font-medium">
+                    <Check className="h-3.5 w-3.5" />
+                    {detectadasCount} detectadas
                   </span>
-                )}
-                <span className="flex items-center gap-1 text-green-600"><Check className="h-3 w-3" />{detected} detectadas</span>
-                <span className="flex items-center gap-1 text-red-500"><AlertCircle className="h-3 w-3" />{pending} sin SKU</span>
-                <div className="ml-auto">
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setFiles(f => f.map(i => ({...i, es_principal: i.status === 'detected' || i.status === 'assigned'})))}>
-                    <Check className="h-3 w-3 mr-1" />Hacer principales todas
-                  </Button>
+                  {sinSkuCount > 0 && (
+                    <span className="flex items-center gap-1 text-red-500 font-medium">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {sinSkuCount} sin SKU
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded">
+                    <Star className="h-3.5 w-3.5 fill-current" />
+                    {principalesCount} {principalesCount === 1 ? 'cambiará a Principal' : 'cambiarán a Principal'}
+                  </span>
+                  {reemplazaranActualCount > 0 && (
+                    <span className="text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 rounded font-medium">
+                      👁️ {reemplazaranActualCount} {reemplazaranActualCount === 1 ? 'anterior pasará a Oculta' : 'anteriores pasarán a Ocultas'}
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={marcarUnaPrincipalPorSku}>
+                      <Star className="h-3 w-3 text-amber-500 fill-current" />
+                      1 Principal por SKU
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Grid scrolleable */}
-              <div className="flex-1 overflow-auto p-4">
-                <div
-                  className="grid gap-4"
-                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
-                >
-                  {files.map((f, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        'rounded-xl border-2 flex flex-col bg-card relative',
-                        f.status === 'detected' || f.status === 'assigned'
-                          ? 'border-green-400/60'
-                          : 'border-red-400/60'
-                      )}
-                    >
-                      {/* Imagen contenida */}
-                      <div className="relative w-full aspect-[4/3] bg-muted shrink-0 overflow-hidden rounded-t-[10px]">
-                        <Image
-                          src={f.preview}
-                          alt={f.file.name}
-                          fill
-                          unoptimized
-                          className="object-contain"
-                        />
-                        {f.es_principal && (
-                          <div className="absolute top-2 left-2 bg-amber-400 text-amber-900 text-[10px] font-bold rounded px-2 py-0.5">
-                            ★ Principal
+                {/* Grid scrolleable */}
+                <div className="flex-1 overflow-auto p-4">
+                  <div
+                    className="grid gap-4"
+                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
+                  >
+                    {files.map((f, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'rounded-xl border-2 flex flex-col bg-card relative transition-all shadow-sm',
+                          f.status === 'detected' || f.status === 'assigned'
+                            ? f.es_principal ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-400/30' : 'border-green-400/60'
+                            : 'border-red-400/60'
+                        )}
+                      >
+                        {/* Imagen contenida */}
+                        <div className="relative w-full aspect-[4/3] bg-muted shrink-0 overflow-hidden rounded-t-[10px]">
+                          <Image
+                            src={f.preview}
+                            alt={f.file.name}
+                            fill
+                            unoptimized
+                            className="object-contain"
+                          />
+                          {f.es_principal && (
+                            <div className="absolute top-2 left-2 bg-amber-400 text-amber-950 text-[10px] font-bold rounded px-2 py-0.5 shadow-sm flex items-center gap-1">
+                              <Star className="h-3 w-3 fill-current" />
+                              Principal
+                            </div>
+                          )}
+                          {!f.es_principal && f.uso === 'oculta' && (
+                            <div className="absolute top-2 left-2 bg-zinc-800/90 text-zinc-200 text-[10px] font-bold rounded px-2 py-0.5 shadow-sm">
+                              🚫 Oculta
+                            </div>
+                          )}
+                          <button
+                            onClick={() => removeFile(i)}
+                            className="absolute top-2 right-2 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity shadow"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                          <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1">
+                            <span className="text-[9px] text-white block truncate">{f.file.name}</span>
                           </div>
-                        )}
-                        <button
-                          onClick={() => removeFile(i)}
-                          className="absolute top-2 right-2 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                        <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1">
-                          <span className="text-[9px] text-white block truncate">{f.file.name}</span>
+                        </div>
+
+                        {/* Controles */}
+                        <div className="p-3 space-y-2 flex flex-col flex-1">
+                          <div>
+                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">SKU Producto</Label>
+                            <BuscadorSku
+                              value={f.sku}
+                              onChange={(sku, matched) => handleSkuChange(i, sku, matched)}
+                              status={f.status}
+                            />
+                          </div>
+
+                          {f.productoNombre && (
+                            <p className="text-[10px] text-green-700 dark:text-green-400 font-medium truncate bg-green-50 dark:bg-green-950/30 rounded px-2 py-1">
+                              {f.productoNombre}
+                            </p>
+                          )}
+                          {f.status === 'not_found' && f.sku && (
+                            <p className="text-[10px] text-red-500 font-medium">SKU no encontrado</p>
+                          )}
+
+                          <div>
+                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Uso de Imagen</Label>
+                            <Select
+                              value={f.uso}
+                              onValueChange={(v) => {
+                                const u = [...files]
+                                const nuevoUso = v ?? 'galeria_secundaria'
+                                u[i].uso = nuevoUso
+                                if (nuevoUso === 'principal_ecommerce') {
+                                  u[i].es_principal = true
+                                  const currentSku = u[i].sku?.trim().toUpperCase()
+                                  if (currentSku) {
+                                    u.forEach((item, idx) => {
+                                      if (idx !== i && item.sku && item.sku.trim().toUpperCase() === currentSku && item.es_principal) {
+                                        u[idx] = { ...item, es_principal: false, uso: 'oculta' }
+                                      }
+                                    })
+                                  }
+                                } else if (nuevoUso === 'oculta') {
+                                  u[i].es_principal = false
+                                } else if (u[i].es_principal) {
+                                  u[i].es_principal = false
+                                }
+                                setFiles(u)
+                              }}
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {usoImagenOptions.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Alt Text</Label>
+                            <Input
+                              value={f.alt_text}
+                              onChange={(e) => { const u = [...files]; u[i].alt_text = e.target.value; setFiles(u) }}
+                              placeholder="Descripción de la imagen..."
+                              className="h-7 text-xs"
+                            />
+                          </div>
+
+                          <div className="mt-auto pt-2 border-t space-y-1">
+                            <label className="flex items-center gap-2 text-xs cursor-pointer font-medium">
+                              <input
+                                type="checkbox"
+                                checked={f.es_principal}
+                                onChange={() => handleTogglePrincipal(i)}
+                                className="h-3.5 w-3.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                              />
+                              <span className={cn(f.es_principal ? 'font-bold text-amber-600 dark:text-amber-400' : 'text-foreground')}>
+                                Marcar como principal
+                              </span>
+                            </label>
+                            {f.es_principal && f.tienePrincipalActual && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold leading-tight">
+                                ⚠️ La principal actual pasará a <strong>Oculta</strong>
+                              </p>
+                            )}
+                            {f.es_principal && !f.tienePrincipalActual && (
+                              <p className="text-[10px] text-muted-foreground leading-tight">
+                                Primera imagen principal del producto
+                              </p>
+                            )}
+                            {!f.es_principal && f.uso === 'oculta' && (
+                              <p className="text-[10px] text-zinc-500 leading-tight">
+                                Se guardará como imagen oculta (no pública)
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
-
-                      {/* Controles */}
-                      <div className="p-3 space-y-2 flex flex-col flex-1">
-                        <div>
-                          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">SKU Producto</Label>
-                          <BuscadorSku
-                            value={f.sku}
-                            onChange={(sku, matched) => handleSkuChange(i, sku, matched)}
-                            status={f.status}
-                          />
-                        </div>
-
-                        {f.productoNombre && (
-                          <p className="text-[10px] text-green-700 dark:text-green-400 font-medium truncate bg-green-50 dark:bg-green-950/30 rounded px-2 py-1">
-                            {f.productoNombre}
-                          </p>
-                        )}
-                        {f.status === 'not_found' && f.sku && (
-                          <p className="text-[10px] text-red-500 font-medium">SKU no encontrado</p>
-                        )}
-
-                        <div>
-                          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Uso</Label>
-                          <Select value={f.uso} onValueChange={(v) => { const u = [...files]; u[i].uso = v ?? 'galeria_secundaria'; setFiles(u) }}>
-                            <SelectTrigger className="h-7 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="galeria_principal">Galería Principal</SelectItem>
-                              <SelectItem value="galeria_secundaria">Galería Secundaria</SelectItem>
-                              <SelectItem value="thumbnails">Thumbnail</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Alt Text</Label>
-                          <Input
-                            value={f.alt_text}
-                            onChange={(e) => { const u = [...files]; u[i].alt_text = e.target.value; setFiles(u) }}
-                            placeholder="Descripción de la imagen..."
-                            className="h-7 text-xs"
-                          />
-                        </div>
-
-                        <label className="flex items-center gap-2 text-xs cursor-pointer font-medium mt-auto pt-1">
-                          <input
-                            type="checkbox"
-                            checked={f.es_principal}
-                            onChange={() => { const u = [...files]; u[i].es_principal = !u[i].es_principal; setFiles(u) }}
-                            className="h-3.5 w-3.5"
-                          />
-                          <span>Marcar como principal</span>
-                        </label>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* PASO 2 — Excel/CSV */}
           {step === 2 && mode === 'excel' && (

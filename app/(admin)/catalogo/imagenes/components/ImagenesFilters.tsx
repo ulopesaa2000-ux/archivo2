@@ -26,15 +26,17 @@ export function ImagenesFilters() {
   const hasFilters = currentQ || currentUso || currentOrigen || currentPrincipal
 
   const updateParam = (key: string, value: string | null) => {
-    const params = new URLSearchParams(searchParams.toString())
-    if (value) {
-      params.set(key, value)
-    } else {
-      params.delete(key)
-    }
-    params.delete('page')
-    const qs = params.toString()
-    router.push(`/catalogo/imagenes${qs ? `?${qs}` : ''}`, { scroll: false })
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (value) {
+        params.set(key, value)
+      } else {
+        params.delete(key)
+      }
+      params.delete('page')
+      const qs = params.toString()
+      router.push(`/catalogo/imagenes${qs ? `?${qs}` : ''}`, { scroll: false })
+    })
   }
 
   const handleSearch = useDebouncedCallback((term: string) => {

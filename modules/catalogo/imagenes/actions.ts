@@ -111,11 +111,12 @@ export async function updateImagenGlobalAction(
     }
   }
 
-  // Si esta imagen será principal, quitar principal de otras imágenes del producto destino
+  // Si esta imagen será principal, quitar principal de otras imágenes del producto destino y pasarlas a oculta
   if (finalEsPrincipal) {
     await (supabase.from('producto_imagenes') as any)
-      .update({ es_principal: false })
+      .update({ es_principal: false, uso_imagen: 'oculta' })
       .eq('producto_id', targetProductoId)
+      .eq('es_principal', true)
       .neq('id', imagenId)
   }
 
@@ -146,6 +147,63 @@ export async function updateImagenGlobalAction(
     message: isChangingProduct
       ? 'Imagen reasignada al nuevo producto con éxito'
       : 'Imagen actualizada'
+  }
+}
+
+/**
+ * Cambia rápidamente el uso de una imagen (ej. de oculta a galeria, o a principal).
+ * Si se cambia a principal, la principal previa pasa a oculta automáticamente.
+ */
+export async function cambiarUsoImagenRapidoAction(
+  imagenId: number,
+  nuevoUso: string
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+
+  const supabase = await createClient()
+
+  // 1. Obtener datos de la imagen
+  const { data: imgData, error: fetchErr } = await (supabase.from('producto_imagenes') as any)
+    .select('producto_id, es_principal, uso_imagen')
+    .eq('id', imagenId)
+    .single()
+
+  if (fetchErr || !imgData) {
+    return { success: false, error: 'No se encontró la imagen' }
+  }
+
+  const esPrincipal = nuevoUso === 'principal_ecommerce'
+  const esOculta = nuevoUso === 'oculta' || nuevoUso === 'oculto'
+
+  // Si se define como principal, demoler las anteriores a oculta
+  if (esPrincipal) {
+    await (supabase.from('producto_imagenes') as any)
+      .update({ es_principal: false, uso_imagen: 'oculta' })
+      .eq('producto_id', imgData.producto_id)
+      .eq('es_principal', true)
+      .neq('id', imagenId)
+  }
+
+  const { error: updateErr } = await (supabase.from('producto_imagenes') as any)
+    .update({
+      uso_imagen: nuevoUso,
+      es_principal: esPrincipal ? true : (esOculta ? false : imgData.es_principal),
+    })
+    .eq('id', imagenId)
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message }
+  }
+
+  await revalidateImagenesProducto(imgData.producto_id, supabase)
+  return {
+    success: true,
+    message: esOculta
+      ? 'Imagen marcada como oculta'
+      : esPrincipal
+      ? 'Imagen definida como principal'
+      : `Tipo de imagen actualizado a ${nuevoUso}`
   }
 }
 
@@ -269,14 +327,16 @@ export async function importarImagenesDesdeExcelAction(
     uso: string
     orden: number
   }[]
-): Promise<{ success: number; failed: number }> {
+): Promise<{ success: number; failed: number; principales: number; ocultadas: number }> {
   const user = await getCurrentUser()
-  if (!user) return { success: 0, failed: rows.length }
+  if (!user) return { success: 0, failed: rows.length, principales: 0, ocultadas: 0 }
 
   const supabase = await createClient()
 
   let successCount = 0
   let failCount = 0
+  let principalesCount = 0
+  let ocultadasCount = 0
   const productosAfectados = new Set<number>()
 
   for (const row of rows) {
@@ -309,20 +369,32 @@ export async function importarImagenesDesdeExcelAction(
         }
       }
 
-      // 2. Si es principal, quitar principal de otras imágenes del producto
+      // 2. Si es principal, las imágenes anteriores que eran principales pasan a tipo 'oculta'
       if (esPrincipal) {
-        await (supabase.from('producto_imagenes') as any)
-          .update({ es_principal: false })
+        principalesCount++
+        const { data: prevPrincipales } = await (supabase.from('producto_imagenes') as any)
+          .select('id')
           .eq('producto_id', producto.id)
+          .eq('es_principal', true)
+
+        if (prevPrincipales && prevPrincipales.length > 0) {
+          await (supabase.from('producto_imagenes') as any)
+            .update({ es_principal: false, uso_imagen: 'oculta' })
+            .eq('producto_id', producto.id)
+            .eq('es_principal', true)
+
+          ocultadasCount += prevPrincipales.length
+        }
       }
 
       // 3. Insertar imagen
+      const finalUso = esPrincipal ? (row.uso || 'principal_ecommerce') : (row.uso || 'galeria_secundaria')
       const { error: insertError } = await (supabase.from('producto_imagenes') as any)
         .insert({
           producto_id: producto.id,
           url: row.url,
           alt_text: row.alt_text || null,
-          uso_imagen: row.uso || 'galeria_secundaria',
+          uso_imagen: finalUso,
           orden: row.orden || 0,
           es_principal: esPrincipal,
           origen_imagen: 'url_externa',
@@ -347,7 +419,7 @@ export async function importarImagenesDesdeExcelAction(
     }
   }
 
-  return { success: successCount, failed: failCount }
+  return { success: successCount, failed: failCount, principales: principalesCount, ocultadas: ocultadasCount }
 }
 
 /**
@@ -364,14 +436,16 @@ export async function uploadImagenesConSkuAction(
     orden: number
     es_principal: boolean
   }[]
-): Promise<{ success: number; failed: number }> {
+): Promise<{ success: number; failed: number; principales: number; ocultadas: number }> {
   const user = await getCurrentUser()
-  if (!user) return { success: 0, failed: imagenes.length }
+  if (!user) return { success: 0, failed: imagenes.length, principales: 0, ocultadas: 0 }
 
   const supabase = await createClient()
   
   let successCount = 0
   let failCount = 0
+  let principalesCount = 0
+  let ocultadasCount = 0
   const productosAfectados = new Set<number>()
 
   for (const img of imagenes) {
@@ -389,11 +463,22 @@ export async function uploadImagenesConSkuAction(
         }
       }
 
-      // 1. Si es principal, quitar principal de otras imágenes del producto
+      // 1. Si es principal, las imágenes anteriores del producto pasan a 'oculta'
       if (esPrincipal) {
-        await (supabase.from('producto_imagenes') as any)
-          .update({ es_principal: false })
+        principalesCount++
+        const { data: prevPrincipales } = await (supabase.from('producto_imagenes') as any)
+          .select('id')
           .eq('producto_id', img.producto_id)
+          .eq('es_principal', true)
+
+        if (prevPrincipales && prevPrincipales.length > 0) {
+          await (supabase.from('producto_imagenes') as any)
+            .update({ es_principal: false, uso_imagen: 'oculta' })
+            .eq('producto_id', img.producto_id)
+            .eq('es_principal', true)
+
+          ocultadasCount += prevPrincipales.length
+        }
       }
 
       // 2. Subir archivo al Storage
@@ -421,12 +506,13 @@ export async function uploadImagenesConSkuAction(
       const publicUrl = urlData.publicUrl
 
       // 4. Crear registro en producto_imagenes
+      const finalUso = esPrincipal ? (img.uso_imagen || 'principal_ecommerce') : (img.uso_imagen || 'galeria_secundaria')
       const { error: insertError } = await (supabase.from('producto_imagenes') as any)
         .insert({
           producto_id: img.producto_id,
           url: publicUrl,
           alt_text: img.alt_text || null,
-          uso_imagen: img.uso_imagen || 'galeria_secundaria',
+          uso_imagen: finalUso,
           orden: img.orden || 0,
           es_principal: esPrincipal,
           origen_imagen: 'local',
@@ -454,7 +540,7 @@ export async function uploadImagenesConSkuAction(
     }
   }
 
-  return { success: successCount, failed: failCount }
+  return { success: successCount, failed: failCount, principales: principalesCount, ocultadas: ocultadasCount }
 }
 
 /**
@@ -463,7 +549,7 @@ export async function uploadImagenesConSkuAction(
  */
 export async function uploadSingleImagenConSkuAction(
   formData: FormData
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; esPrincipal?: boolean; ocultadaAnterior?: boolean }> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado' }
 
@@ -490,11 +576,25 @@ export async function uploadSingleImagenConSkuAction(
       }
     }
 
-    // 1. Si es principal, quitar principal de otras imágenes del producto
+    let ocultadaAnterior = false
+
+    // 1. Si es principal, las imágenes principales anteriores de este producto pasan a 'oculta'
     if (esPrincipal) {
-      await (supabase.from('producto_imagenes') as any)
-        .update({ es_principal: false })
+      const { data: prevPrincipales } = await (supabase.from('producto_imagenes') as any)
+        .select('id')
         .eq('producto_id', productoId)
+        .eq('es_principal', true)
+
+      if (prevPrincipales && prevPrincipales.length > 0) {
+        const { error: updateOldErr } = await (supabase.from('producto_imagenes') as any)
+          .update({ es_principal: false, uso_imagen: 'oculta' })
+          .eq('producto_id', productoId)
+          .eq('es_principal', true)
+
+        if (!updateOldErr) {
+          ocultadaAnterior = true
+        }
+      }
     }
 
     // 2. Subir archivo al Storage
@@ -522,12 +622,13 @@ export async function uploadSingleImagenConSkuAction(
     const publicUrl = urlData.publicUrl
 
     // 4. Crear registro en producto_imagenes
+    const finalUso = esPrincipal ? (usoImagen || 'principal_ecommerce') : (usoImagen || 'galeria_secundaria')
     const { error: insertError } = await (supabase.from('producto_imagenes') as any)
       .insert({
         producto_id: productoId,
         url: publicUrl,
         alt_text: altText || null,
-        uso_imagen: usoImagen || 'galeria_secundaria',
+        uso_imagen: finalUso,
         orden: 0,
         es_principal: esPrincipal,
         origen_imagen: 'local',
@@ -541,7 +642,7 @@ export async function uploadSingleImagenConSkuAction(
     }
 
     await revalidateImagenesProducto(productoId, supabase)
-    return { success: true }
+    return { success: true, esPrincipal, ocultadaAnterior }
   } catch (err: any) {
     console.warn('[uploadSingleImagenConSkuAction] Exception:', err)
     return { success: false, error: err.message }
@@ -576,9 +677,22 @@ export async function detectarSkusArchivosAction(
       nombre: p.nombre ? String(p.nombre) : null,
     }))
 
+    // Consultar qué productos ya cuentan con una imagen principal activa
+    const { data: imgPrincipales } = await (supabase.from('producto_imagenes') as any)
+      .select('producto_id')
+      .eq('es_principal', true)
+
+    const setProdsConPrincipal = new Set<number>(
+      (imgPrincipales || []).map((img: any) => Number(img.producto_id))
+    )
+
     const results: Record<string, MatchResult> = {}
     for (const filename of filenames) {
-      results[filename] = resolverSkuParaArchivo(filename, catalog)
+      const match = resolverSkuParaArchivo(filename, catalog)
+      if (match.productoId) {
+        match.tienePrincipalActual = setProdsConPrincipal.has(match.productoId)
+      }
+      results[filename] = match
     }
 
     return { success: true, results }

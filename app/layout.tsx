@@ -2,6 +2,7 @@
 import './globals.css'
 import { Noto_Serif, Plus_Jakarta_Sans } from 'next/font/google'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { ChunkErrorRecovery } from '@/components/shared/ChunkErrorRecovery'
 import { ThemeProvider } from '@/components/theme-provider'
 import { storeMetadata, storeViewport } from '@/lib/seo/store-metadata'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body suppressHydrationWarning>
+        <ChunkErrorRecovery />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
