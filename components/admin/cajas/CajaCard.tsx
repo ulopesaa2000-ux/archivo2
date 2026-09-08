@@ -62,6 +62,16 @@ const COLOR_EN_ES_MAP: Record<string, string> = {
   '灰色': 'GRIS',
   '咖啡': 'CAFÉ',
   '咖啡色': 'CAFÉ',
+  LATTE: 'BEIGE',
+  OXFORD: 'GRIS',
+  'GRIS OXFORD': 'GRIS',
+  MILITARY: 'VERDE',
+  ARMY: 'VERDE',
+  CAMO: 'VERDE',
+  CAMEL: 'BEIGE',
+  CREAM: 'BEIGE',
+  ARENA: 'BEIGE',
+  HUESO: 'BLANCO',
 }
 
 export function standardizeColorName(rawColor: string, catalogItems: CatalogoItem[] = []): { nombreEsp: string; isNewColor: boolean } {
@@ -102,6 +112,27 @@ const TALLA_EN_ES_MAP: Record<string, string> = {
   '5X EXTRA GRANDE': '5EG',
   'ONE SIZE': 'UNITALLA',
   OS: 'UNITALLA',
+  'CH-M': 'CH-M',
+  'CH/M': 'CH-M',
+  'S-M': 'CH-M',
+  'S/M': 'CH-M',
+  SM: 'CH-M',
+  'M-G': 'M-G',
+  'M/G': 'M-G',
+  'M-L': 'M-G',
+  'M/L': 'M-G',
+  ML: 'M-G',
+  'G-EG': 'G-EG',
+  'G/EG': 'G-EG',
+  'L-XL': 'G-EG',
+  'L/XL': 'G-EG',
+  LXL: 'G-EG',
+  'EG-2EG': 'EG-2EG',
+  'EG/2EG': 'EG-2EG',
+  'XL-2XL': 'EG-2EG',
+  'XL/2XL': 'EG-2EG',
+  'XL-XXL': 'EG-2EG',
+  'XL/XXL': 'EG-2EG',
 }
 
 export function standardizeTallaName(rawTalla: string): string {
@@ -301,9 +332,16 @@ export function CajaCard({
     if (isEditing) {
       setEditFilas(initialFilas)
       if (effectiveContenidoMap && effectiveContenidoMap.tallas.length > 0) {
-        setEditTallas(effectiveContenidoMap.tallas.map((tallaNombre, idx) => {
-          const tallaCat = effectiveTallasDisponibles.find(t => t.nombre === tallaNombre)
-          return { id: tallaCat?.id || idx + 1, nombre: tallaNombre }
+        setEditTallas(effectiveContenidoMap.tallas.map((tallaNombreRaw, idx) => {
+          const tallaStd = standardizeTallaName(tallaNombreRaw)
+          const tallaCat = effectiveTallasDisponibles.find(t => 
+            t.nombre?.toUpperCase() === tallaStd.toUpperCase() || 
+            t.codigo?.toUpperCase() === tallaStd.toUpperCase() || 
+            t.nombre?.toUpperCase() === tallaNombreRaw.toUpperCase() ||
+            t.codigo?.toUpperCase() === tallaNombreRaw.toUpperCase() ||
+            (t as any).talla_us?.toUpperCase() === tallaStd.toUpperCase()
+          )
+          return { id: tallaCat?.id || idx + 1, nombre: tallaCat?.codigo || tallaStd }
         }))
       }
     }
@@ -428,19 +466,40 @@ export function CajaCard({
     setIsSaving(true)
     try {
       // Preparar datos de detalles
-      const detalles: { talla_id: number; color_id: number; cantidad: number; talla_nombre?: string; color_nombre?: string }[] = []
+      const detalles: { 
+        talla_id: number
+        color_id: number
+        cantidad: number
+        talla_codigo?: string
+        talla_nombre?: string
+        color_nombre?: string 
+      }[] = []
 
       editFilas.forEach(fila => {
         editTallas.forEach(talla => {
           const cantidad = fila.cantidades[talla.nombre] || 0
           if (cantidad > 0) {
-            const realTalla = tallasDisponibles.find(t => t.nombre === talla.nombre)
-            const realColor = coloresDisponibles.find(c => c.nombre === fila.colorNombre)
+            const tallaStd = standardizeTallaName(talla.nombre)
+            const realTalla = tallasDisponibles.find(t => 
+              t.nombre?.toUpperCase() === tallaStd.toUpperCase() || 
+              t.codigo?.toUpperCase() === tallaStd.toUpperCase() ||
+              t.nombre?.toUpperCase() === talla.nombre.toUpperCase() || 
+              t.codigo?.toUpperCase() === talla.nombre.toUpperCase() ||
+              (t as any).talla_us?.toUpperCase() === tallaStd.toUpperCase()
+            )
+            const { nombreEsp } = standardizeColorName(fila.colorNombre, coloresDisponibles)
+            const realColor = coloresDisponibles.find(c => 
+              c.nombre?.toUpperCase() === nombreEsp.toUpperCase() ||
+              c.nombre?.toUpperCase() === fila.colorNombre.toUpperCase() ||
+              c.codigo?.toUpperCase() === nombreEsp.toUpperCase() ||
+              c.codigo?.toUpperCase() === fila.colorNombre.toUpperCase()
+            )
             detalles.push({
               talla_id: realTalla?.id ?? talla.id,
               color_id: realColor?.id ?? fila.colorId,
-              talla_nombre: talla.nombre,
-              color_nombre: fila.colorNombre,
+              talla_codigo: realTalla?.codigo || tallaStd || talla.nombre,
+              talla_nombre: realTalla?.nombre || talla.nombre,
+              color_nombre: realColor?.nombre || nombreEsp || fila.colorNombre,
               cantidad
             })
           }

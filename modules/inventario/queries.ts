@@ -1674,40 +1674,44 @@ export async function searchProductos(
   term: string,
   limit: number = 15
 ): Promise<ProductoBusqueda[]> {
+  const clean = term.trim()
+  if (!clean) return []
+
   const supabase = await createClient()
-  const cleanTerm = term.trim().replace(/[\s\/_-]+/g, '%')
+
+  // Sanitizar caracteres especiales que rompen la sintaxis de PostgREST en .or()
+  const sanitized = clean.replace(/[,()"]/g, ' ').trim()
+  if (!sanitized) return []
+
+  // Normalizar separadores para tolerar '/', '-', '_' o espacios en SKUs
+  const cleanTerm = sanitized.replace(/[\s\/_-]+/g, '%')
+  const prefixPattern = `${cleanTerm}%`
+  const containsPattern = `%${cleanTerm}%`
 
   const { data, error } = await supabase
     .from('productos')
-    .select(`
-      id, sku_base, nombre, descripcion, pz_en_caja,
-      marca:cat_marcas!productos_marca_id_fkey ( nombre ),
-      imagenes:producto_imagenes!producto_imagenes_producto_id_fkey (
-        url
-      )
-    `)
+    .select('id, sku_base, nombre, descripcion, pz_en_caja')
     .eq('activo', true)
-    .or(`sku_base.ilike.%${term}%,sku_base.ilike.%${cleanTerm}%,descripcion.ilike.%${term}%,descripcion.ilike.%${cleanTerm}%`)
+    .or(
+      `sku_base.ilike.${prefixPattern},sku_base.ilike.${containsPattern},nombre.ilike.${containsPattern},descripcion.ilike.${containsPattern}`
+    )
     .order('sku_base')
     .limit(limit)
 
-  if (error || !data) return []
+  if (error || !data) {
+    if (error) console.error('[searchProductos] Error:', error)
+    return []
+  }
 
-  return data.map((p: any) => {
-    const marca = Array.isArray(p.marca) ? p.marca[0] : p.marca
-    const imgs = Array.isArray(p.imagenes) ? p.imagenes : []
-    const primeraImagen = imgs.length > 0 ? imgs[0]?.url : null
-
-    return {
-      id: p.id,
-      sku_base: p.sku_base,
-      nombre: p.descripcion ?? p.nombre ?? '',
-      descripcion: p.descripcion,
-      pz_en_caja: p.pz_en_caja,
-      marca_nombre: marca?.nombre ?? null,
-      imagen_url: primeraImagen,
-    }
-  })
+  return data.map((p: any) => ({
+    id: p.id,
+    sku_base: p.sku_base,
+    nombre: p.descripcion || p.nombre || '',
+    descripcion: p.descripcion,
+    pz_en_caja: p.pz_en_caja,
+    marca_nombre: null,
+    imagen_url: null,
+  }))
 }
 
 export async function fetchCajasDeProducto(

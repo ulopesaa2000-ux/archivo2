@@ -29,9 +29,11 @@ type CajasSearchParams = {
 async function CajasTableData({
   filtros,
   features,
+  canEdit = true,
 }: {
   filtros: FiltrosCajas
   features: TableFeatures
+  canEdit?: boolean
 }) {
   const { items, total } = await fetchCajasListado(filtros)
 
@@ -43,6 +45,7 @@ async function CajasTableData({
         initialFeatures={features}
         sortKey={filtros.sort_by}
         sortOrder={filtros.order}
+        canEdit={canEdit}
       />
       <Pagination total={total} />
     </div>
@@ -70,6 +73,7 @@ export default async function CajasPage({
 
   const user = await getCurrentUser()
   const puedeCrear = can(user, 'b2b_cajas', 'puede_crear')
+  const puedeEditar = can(user, 'b2b_cajas', 'puede_editar') || puedeCrear || can(user, 'b2b_ordenes', 'puede_editar')
 
   const [catalogos, tableConfig, catalogoCajas] = await Promise.all([
     fetchCatalogosB2B(),
@@ -89,7 +93,7 @@ export default async function CajasPage({
       </div>
       <CajasFilters catalogos={catalogos} catalogoCajas={catalogoCajas} puedeCrear={puedeCrear} />
       <Suspense fallback={<ListPageSkeleton rows={8} />}>
-        <CajasTableData filtros={filtros} features={features} />
+        <CajasTableData filtros={filtros} features={features} canEdit={puedeEditar} />
       </Suspense>
     </div>
   )

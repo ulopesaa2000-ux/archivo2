@@ -888,6 +888,27 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     '5XL': '5EG',
     'ONE SIZE': 'UNITALLA',
     OS: 'UNITALLA',
+    'CH-M': 'CH-M',
+    'CH/M': 'CH-M',
+    'S-M': 'CH-M',
+    'S/M': 'CH-M',
+    SM: 'CH-M',
+    'M-G': 'M-G',
+    'M/G': 'M-G',
+    'M-L': 'M-G',
+    'M/L': 'M-G',
+    ML: 'M-G',
+    'G-EG': 'G-EG',
+    'G/EG': 'G-EG',
+    'L-XL': 'G-EG',
+    'L/XL': 'G-EG',
+    LXL: 'G-EG',
+    'EG-2EG': 'EG-2EG',
+    'EG/2EG': 'EG-2EG',
+    'XL-2XL': 'EG-2EG',
+    'XL/2XL': 'EG-2EG',
+    'XL-XXL': 'EG-2EG',
+    'XL/XXL': 'EG-2EG',
   }
 
   function standardizeTallaNameAction(rawTalla: string): string {
@@ -1473,6 +1494,79 @@ export async function obtenerDatosProductosDeBDAction(
     console.error('Error al consultar datos de productos en BD:', err)
     return { success: false, error: err.message || 'Error al obtener datos de productos en BD' }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ASIGNAR PRODUCTO A CAJAS (EDITOR RÁPIDO)
+// ═══════════════════════════════════════════════════════════════
+
+export async function asignarProductoCajasAction(
+  cajaIds: number[],
+  productoId: number | null
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  if (
+    !can(user, 'b2b_cajas', 'puede_editar') &&
+    !can(user, 'b2b_cajas', 'puede_crear') &&
+    !can(user, 'b2b_ordenes', 'puede_editar')
+  ) {
+    return { success: false, error: 'No tienes permisos para modificar cajas de producto.' }
+  }
+
+  if (!cajaIds || cajaIds.length === 0) {
+    return { success: false, error: 'No se especificaron cajas para actualizar.' }
+  }
+
+  const supabase = await createClient()
+
+  const { error } = await (supabase
+    .from('cajas_producto') as any)
+    .update({ producto_id: productoId })
+    .in('id', cajaIds)
+
+  if (error) {
+    console.error('Error en asignarProductoCajasAction:', error)
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/(admin)/ordenes-b2b/cajas', 'page')
+  revalidatePath('/(admin)/catalogo/[id]', 'page')
+
+  return { success: true }
+}
+
+export async function buscarProductosParaCajaAction(
+  query: string,
+  limit = 25
+): Promise<Array<{ id: number; sku_base: string; nombre: string | null; descripcion: string | null }>> {
+  const supabase = await createClient()
+  const cleanQ = query.trim()
+
+  let q = supabase
+    .from('productos')
+    .select('id, sku_base, nombre, descripcion')
+    .eq('activo', true)
+    .limit(limit)
+
+  if (cleanQ) {
+    const term = `%${cleanQ}%`
+    const termSlash = `%${cleanQ.replace(/-/g, '/')}%`
+    const termHyphen = `%${cleanQ.replace(/\//g, '-')}%`
+    q = q.or(
+      `sku_base.ilike.${term},nombre.ilike.${term},sku_base.ilike.${termSlash},sku_base.ilike.${termHyphen}`
+    )
+  }
+
+  const { data, error } = await q.order('sku_base', { ascending: true })
+
+  if (error) {
+    console.error('Error en buscarProductosParaCajaAction:', error)
+    return []
+  }
+
+  return (data ?? []) as Array<{ id: number; sku_base: string; nombre: string | null; descripcion: string | null }>
 }
 
 

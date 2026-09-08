@@ -1,14 +1,19 @@
 'use client'
 
+// app/(admin)/ordenes-b2b/cajas/CajasTable.tsx
+
 import { useState } from 'react'
-import { DataTable, DataTableProvider, useDataTableContext } from '@/components/admin/DataTable'
+import { DataTable, DataTableProvider, useDataTableContext, BulkActionBar } from '@/components/admin/DataTable'
 import type { ColumnDef } from '@/components/admin/DataTable'
+import type { BulkAction } from '@/components/admin/DataTable/types'
 import { Badge } from '@/components/ui/badge'
 import { Eye, Package } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { cn } from '@/lib/utils'
 import type { CajaListItem } from '@/modules/ordenes-b2b/types'
 import { DetalleCajaSheet } from './DetalleCajaSheet'
+import { CajaProductoQuickEdit } from './components/CajaProductoQuickEdit'
+import { AsignarProductoMasivoDialog } from './components/AsignarProductoMasivoDialog'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
@@ -17,12 +22,27 @@ type Props = {
   initialFeatures?: import('@/components/admin/DataTable/types').TableFeatures
   sortKey?: string
   sortOrder?: 'asc' | 'desc'
+  canEdit?: boolean
 }
 
-function CajasTableInner({ items, sortKey, sortOrder }: Props) {
+function CajasTableInner({ items, sortKey, sortOrder, canEdit = true }: Props) {
   const ctx = useDataTableContext()
   const [selectedCajaId, setSelectedCajaId] = useState<number | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+  const [bulkCajaIds, setBulkCajaIds] = useState<number[]>([])
+
+  const bulkActions: BulkAction[] = [
+    {
+      id: 'asignar_producto',
+      label: 'Asignar Producto',
+      icon: Package,
+      onClick: async (ids: number[]) => {
+        setBulkCajaIds(ids)
+        setBulkAssignOpen(true)
+      },
+    },
+  ]
 
   const columns: ColumnDef<CajaListItem>[] = [
     {
@@ -38,12 +58,14 @@ function CajasTableInner({ items, sortKey, sortOrder }: Props) {
       header: 'Producto',
       sortKey: 'producto_sku',
       cell: (row: CajaListItem) => (
-        <>
-          <span className="font-mono">{row.producto_sku ?? '—'}</span>
-          {row.producto_nombre && (
-            <span className="text-muted-foreground ml-1">({row.producto_nombre})</span>
-          )}
-        </>
+        <CajaProductoQuickEdit
+          cajaId={row.id}
+          codigoCaja={row.codigo_caja}
+          productoId={row.producto_id}
+          productoSku={row.producto_sku}
+          productoNombre={row.producto_nombre}
+          canEdit={canEdit}
+        />
       ),
     },
     {
@@ -143,6 +165,17 @@ function CajasTableInner({ items, sortKey, sortOrder }: Props) {
           </div>
         </SheetContent>
       </Sheet>
+
+      <BulkActionBar actions={bulkActions} label="cajas" />
+
+      <AsignarProductoMasivoDialog
+        open={bulkAssignOpen}
+        onOpenChange={setBulkAssignOpen}
+        cajaIds={bulkCajaIds}
+        onSuccess={() => {
+          ctx.selectedIds.clear()
+        }}
+      />
     </div>
   )
 }

@@ -70,13 +70,18 @@ async function run() {
   if (normNode) {
     console.log('3. Actualizando router "Normalizar archivo + ruta"...');
     let codeNorm = normNode.parameters.jsCode;
+    // Corregir cualquier regex incompleto o actualizar
     codeNorm = codeNorm.replace(
-      "/jackie|jacky|venkat|vencart|multi/.test(s)",
-      "/jackie|jacky|venkat|vencart|qingqing|honor|multi/.test(s)"
+      /\/jackie\|jacky\|venkat[^\n]*?\/(\.test\(signal\))?/,
+      "/jackie|jacky|venkat|vencart|qingqing|honor|alin|2026.*ja\\b/"
     );
     codeNorm = codeNorm.replace(
-      "/jackie|jacky|venkat|vencart/.test(signal)",
-      "/jackie|jacky|venkat|vencart|qingqing|honor|2026.*ja\\b/.test(signal)"
+      /\/jackie\|jacky\|venkat[^\n]*?(\.test\(signal\))/,
+      "/jackie|jacky|venkat|vencart|qingqing|honor|alin|2026.*ja\\b/.test(signal)"
+    );
+    codeNorm = codeNorm.replace(
+      /\/jackie\|jacky\|venkat[^\n]*?(\.test\(s\))/,
+      "/jackie|jacky|venkat|vencart|qingqing|honor|alin|multi/.test(s)"
     );
     normNode.parameters.jsCode = codeNorm;
   }

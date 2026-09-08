@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { ImageLightbox } from './ImageLightbox'
+import { ImageQuickEdit } from './ImageQuickEdit'
 import type { ImagenGlobal } from '@/modules/catalogo/imagenes/queries'
 import { Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,6 +28,7 @@ type GrupoProducto = {
 
 export function VistaAgrupada({ imagenes }: Props) {
   const [lightboxImg, setLightboxImg] = useState<ImagenGlobal | null>(null)
+  const [editImagen, setEditImagen] = useState<ImagenGlobal | null>(null)
 
   const grupos = useMemo(() => {
     const map = new Map<number, GrupoProducto>()
@@ -90,7 +92,17 @@ export function VistaAgrupada({ imagenes }: Props) {
           imagen={lightboxImg}
           imagenes={imagenes.filter(i => i.producto_id === lightboxImg.producto_id)}
           onClose={() => setLightboxImg(null)}
-          onEdit={() => {}}
+          onEdit={(img) => {
+            setLightboxImg(null)
+            setEditImagen(img)
+          }}
+        />
+      )}
+
+      {editImagen && (
+        <ImageQuickEdit
+          imagen={editImagen}
+          onClose={() => setEditImagen(null)}
         />
       )}
     </>

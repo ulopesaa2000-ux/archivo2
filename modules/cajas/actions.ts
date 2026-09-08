@@ -278,9 +278,228 @@ export async function desactivarCajaAction(cajaId: number) {
 
 // Tipo para los detalles de caja
 export type CajaDetalleInput = {
-  talla_id: number
-  color_id: number
+  talla_id?: number | null
+  color_id?: number | null
+  talla_codigo?: string | null
+  talla_nombre?: string | null
+  color_nombre?: string | null
   cantidad: number
+}
+
+const COLOR_ALIAS_MAP: Record<string, string> = {
+  LATTE: 'BEIGE',
+  OXFORD: 'GRIS',
+  'GRIS OXFORD': 'GRIS',
+  MILITARY: 'VERDE',
+  ARMY: 'VERDE',
+  CAMO: 'VERDE',
+  CAMEL: 'BEIGE',
+  CREAM: 'BEIGE',
+  ARENA: 'BEIGE',
+  HUESO: 'BLANCO',
+  BLACK: 'NEGRO',
+  WHITE: 'BLANCO',
+  NAVY: 'MARINO',
+  'NAVY BLUE': 'AZUL MARINO',
+  GRAY: 'GRIS',
+  GREY: 'GRIS',
+  BROWN: 'CAFÉ',
+  COFFEE: 'CAFÉ',
+  PINK: 'ROSA',
+  ROSE: 'ROSA',
+  RED: 'ROJO',
+  BLUE: 'AZUL',
+  YELLOW: 'AMARILLO',
+  GREEN: 'VERDE',
+  '黑色': 'NEGRO',
+  '白色': 'BLANCO',
+  '红色': 'ROJO',
+  '藏青': 'MARINO',
+  '藏青色': 'MARINO',
+  '灰色': 'GRIS',
+  '咖啡': 'CAFÉ',
+  '咖啡色': 'CAFÉ',
+}
+
+const TALLA_ALIAS_MAP: Record<string, string> = {
+  XS: 'ECH',
+  'EXTRA SMALL': 'ECH',
+  S: 'CH',
+  SMALL: 'CH',
+  M: 'M',
+  MEDIUM: 'M',
+  L: 'G',
+  LARGE: 'G',
+  XL: 'EG',
+  'EXTRA LARGE': 'EG',
+  '2XL': '2EG',
+  XXL: '2EG',
+  '2X EXTRA GRANDE': '2EG',
+  '3XL': '3EG',
+  XXXL: '3EG',
+  '3X EXTRA GRANDE': '3EG',
+  '4XL': '4EG',
+  XXXXL: '4EG',
+  '4X EXTRA GRANDE': '4EG',
+  '5XL': '5EG',
+  '5X EXTRA GRANDE': '5EG',
+  OS: 'UNITALLA',
+  'ONE SIZE': 'UNITALLA',
+  'CH-M': 'CH-M',
+  'CH/M': 'CH-M',
+  'S-M': 'CH-M',
+  'S/M': 'CH-M',
+  SM: 'CH-M',
+  'M-G': 'M-G',
+  'M/G': 'M-G',
+  'M-L': 'M-G',
+  'M/L': 'M-G',
+  ML: 'M-G',
+  'G-EG': 'G-EG',
+  'G/EG': 'G-EG',
+  'L-XL': 'G-EG',
+  'L/XL': 'G-EG',
+  LXL: 'G-EG',
+  'EG-2EG': 'EG-2EG',
+  'EG/2EG': 'EG-2EG',
+  'XL-2XL': 'EG-2EG',
+  'XL/2XL': 'EG-2EG',
+  'XL-XXL': 'EG-2EG',
+  'XL/XXL': 'EG-2EG',
+}
+
+function normalizeStr(str: string): string {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+/**
+ * Normaliza y resuelve talla_id y color_id válidos contra la base de datos,
+ * evitando violaciones de foreign key en caja_detalles.
+ */
+async function resolveAndAggregateDetalles(
+  supabase: any,
+  cajaId: number,
+  detalles: CajaDetalleInput[]
+): Promise<{
+  payloadRows: { caja_id: number; talla_id: number; color_id: number; cantidad: number }[]
+  tallaIds: number[]
+  colorIds: number[]
+  totalPiezas: number
+}> {
+  const detallesValidos = detalles.filter(d => (d.cantidad || 0) > 0)
+  if (detallesValidos.length === 0) {
+    return { payloadRows: [], tallaIds: [], colorIds: [], totalPiezas: 0 }
+  }
+
+  const [tallasRes, coloresRes] = await Promise.all([
+    supabase.from('cat_tallas').select('id, codigo, nombre, talla_us'),
+    supabase.from('cat_colores').select('id, codigo, nombre').eq('activo', true)
+  ])
+
+  const tallasList = tallasRes.data || []
+  const coloresList = coloresRes.data || []
+
+  const validTallaIds = new Set<number>(tallasList.map((t: any) => t.id))
+  const validColorIds = new Set<number>(coloresList.map((c: any) => c.id))
+
+  const tallaMapByCodigo = new Map<string, number>()
+  const tallaMapByNombre = new Map<string, number>()
+  tallasList.forEach((t: any) => {
+    if (t.codigo) tallaMapByCodigo.set(t.codigo.trim().toUpperCase(), t.id)
+    if (t.nombre) tallaMapByNombre.set(t.nombre.trim().toUpperCase(), t.id)
+    if (t.talla_us) tallaMapByCodigo.set(t.talla_us.trim().toUpperCase(), t.id)
+  })
+
+  function resolveTalla(d: CajaDetalleInput): number {
+    const tallaKey = (d.talla_codigo || d.talla_nombre || '').trim().toUpperCase()
+    const stdTalla = TALLA_ALIAS_MAP[tallaKey] || tallaKey
+
+    if (stdTalla && tallaMapByCodigo.has(stdTalla)) return tallaMapByCodigo.get(stdTalla)!
+    if (stdTalla && tallaMapByNombre.has(stdTalla)) return tallaMapByNombre.get(stdTalla)!
+    if (tallaKey && tallaMapByCodigo.has(tallaKey)) return tallaMapByCodigo.get(tallaKey)!
+    if (tallaKey && tallaMapByNombre.has(tallaKey)) return tallaMapByNombre.get(tallaKey)!
+
+    if (stdTalla) {
+      const norm = normalizeStr(stdTalla)
+      const match = tallasList.find((t: any) => 
+        normalizeStr(t.codigo) === norm || 
+        normalizeStr(t.nombre) === norm || 
+        normalizeStr(t.talla_us || '') === norm
+      )
+      if (match) return match.id
+    }
+
+    if (d.talla_id && validTallaIds.has(d.talla_id)) return d.talla_id
+
+    return tallaMapByCodigo.get('CH') || tallasList[0]?.id || 1
+  }
+
+  function resolveColor(d: CajaDetalleInput): number {
+    const rawColor = (d.color_nombre || '').trim().toUpperCase()
+    const stdColor = COLOR_ALIAS_MAP[rawColor] || rawColor
+
+    if (d.color_id && d.color_id < 10000 && validColorIds.has(d.color_id)) {
+      return d.color_id
+    }
+
+    const matchExact = coloresList.find((c: any) => 
+      c.nombre.trim().toUpperCase() === stdColor || 
+      c.nombre.trim().toUpperCase() === rawColor ||
+      c.codigo?.trim().toUpperCase() === stdColor ||
+      c.codigo?.trim().toUpperCase() === rawColor
+    )
+    if (matchExact) return matchExact.id
+
+    const normRaw = normalizeStr(rawColor)
+    const normStd = normalizeStr(stdColor)
+    const matchNorm = coloresList.find((c: any) => {
+      const n = normalizeStr(c.nombre)
+      return n === normStd || n === normRaw
+    })
+    if (matchNorm) return matchNorm.id
+
+    if (normStd.length >= 3) {
+      const matchPartial = coloresList.find((c: any) => {
+        const n = normalizeStr(c.nombre)
+        return n.includes(normStd) || normStd.includes(n)
+      })
+      if (matchPartial) return matchPartial.id
+    }
+
+    return coloresList.find((c: any) => c.id === 1)?.id || coloresList[0]?.id || 1
+  }
+
+  const aggregated = new Map<string, { caja_id: number; talla_id: number; color_id: number; cantidad: number }>()
+  let totalPiezas = 0
+
+  for (const d of detallesValidos) {
+    const tallaId = resolveTalla(d)
+    const colorId = resolveColor(d)
+    const key = `${tallaId}_${colorId}`
+    const cant = Number(d.cantidad) || 0
+    totalPiezas += cant
+
+    if (aggregated.has(key)) {
+      aggregated.get(key)!.cantidad += cant
+    } else {
+      aggregated.set(key, {
+        caja_id: cajaId,
+        talla_id: tallaId,
+        color_id: colorId,
+        cantidad: cant,
+      })
+    }
+  }
+
+  const payloadRows = Array.from(aggregated.values())
+  const tallaIds = Array.from(new Set(payloadRows.map(r => r.talla_id)))
+  const colorIds = Array.from(new Set(payloadRows.map(r => r.color_id)))
+
+  return { payloadRows, tallaIds, colorIds, totalPiezas }
 }
 
 /**
@@ -348,47 +567,38 @@ export async function updateCajaDetallesAction(
     throw new Error('No se pudo actualizar los detalles de la caja')
   }
 
-  // 2. Insertar nuevos detalles (solo los que tienen cantidad > 0)
-  const detallesValidos = detalles.filter(d => d.cantidad > 0)
+  // 2. Normalizar e insertar nuevos detalles
+  const { payloadRows, tallaIds, colorIds, totalPiezas } = await resolveAndAggregateDetalles(
+    supabase,
+    cajaId,
+    detalles
+  )
 
-  if (detallesValidos.length > 0) {
+  if (payloadRows.length > 0) {
     const { error: insertError } = await supabase
       .from('caja_detalles')
-      .insert(
-        detallesValidos.map(d => ({
-          caja_id: cajaId,
-          talla_id: d.talla_id,
-          color_id: d.color_id,
-          cantidad: d.cantidad,
-        }))
-      )
+      .insert(payloadRows)
 
     if (insertError) {
       console.error('Error insertando nuevos detalles:', insertError)
-      throw new Error('No se pudo guardar los detalles de la caja')
+      throw new Error(`No se pudo guardar los detalles de la caja: ${insertError.message || 'Error de base de datos'}`)
     }
   }
 
   // 3. Actualizar campos resumen solo si la matriz contiene detalles válidos
-  // Si no hay detalles (totalPiezas = 0), respetamos lo que el usuario guardó manualmente
-  const totalPiezas = detallesValidos.reduce((sum, d) => sum + d.cantidad, 0)
-
   if (totalPiezas > 0) {
-    const tallasUnicas = new Set(detallesValidos.map(d => d.talla_id))
-    const coloresUnicos = new Set(detallesValidos.map(d => d.color_id))
-
     const { data: tallasData } = await supabase
       .from('cat_tallas')
       .select('id, nombre, codigo')
-      .in('id', Array.from(tallasUnicas))
+      .in('id', tallaIds)
 
     const { data: coloresData } = await supabase
       .from('cat_colores')
       .select('id, nombre')
-      .in('id', Array.from(coloresUnicos))
+      .in('id', colorIds)
 
-    const tallasTexto = tallasData?.map(t => t.codigo || t.nombre).join('|') || ''
-    const coloresTexto = coloresData?.map(c => c.nombre).join('|') || ''
+    const tallasTexto = tallasData?.map((t: any) => t.codigo || t.nombre).join('|') || ''
+    const coloresTexto = coloresData?.map((c: any) => c.nombre).join('|') || ''
 
     const { error: updateError } = await supabase
       .from('cajas_producto')
@@ -483,17 +693,17 @@ export async function createCajaAction(
   const cajaId = newCaja.id
 
   // 2. Insertar detalles si existen
-  if (detallesValidos.length > 0) {
+  // 2. Normalizar e insertar detalles si existen
+  const { payloadRows } = await resolveAndAggregateDetalles(
+    supabase,
+    cajaId,
+    data.detalles
+  )
+
+  if (payloadRows.length > 0) {
     const { error: detallesError } = await supabase
       .from('caja_detalles')
-      .insert(
-        detallesValidos.map(d => ({
-          caja_id: cajaId,
-          talla_id: d.talla_id,
-          color_id: d.color_id,
-          cantidad: d.cantidad,
-        }))
-      )
+      .insert(payloadRows)
 
     if (detallesError) {
       console.error('Error insertando detalles:', detallesError)

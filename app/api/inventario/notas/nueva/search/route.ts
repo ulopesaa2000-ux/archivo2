@@ -12,10 +12,14 @@ export async function GET(request: NextRequest) {
   }
 
   const q = request.nextUrl.searchParams.get('q') ?? ''
-  if (q.length < 2) {
+  if (q.trim().length < 1) {
     return NextResponse.json([])
   }
 
-  const results = await searchProductos(q, 10)
-  return NextResponse.json(results)
+  const results = await searchProductos(q, 15)
+  return NextResponse.json(results, {
+    headers: {
+      'Cache-Control': 'private, max-age=10, stale-while-revalidate=20'
+    }
+  })
 }

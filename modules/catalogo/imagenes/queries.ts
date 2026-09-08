@@ -70,8 +70,27 @@ export async function fetchImagenesGlobales(
 
   // Filtro: búsqueda por SKU o nombre del producto
   if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(`productos.sku_base.ilike.${term},productos.nombre.ilike.${term}`)
+    const clean = filtros.q.trim().replace(/[,()"]/g, ' ')
+    const cleanTerm = clean.replace(/[\s\/_-]+/g, '%')
+    const termPattern = `%${cleanTerm}%`
+    const prefixPattern = `${cleanTerm}%`
+
+    const { data: matchedProducts, error: prodErr } = await (supabase
+      .from('productos') as any)
+      .select('id')
+      .or(`sku_base.ilike.${prefixPattern},sku_base.ilike.${termPattern},nombre.ilike.${termPattern},descripcion.ilike.${termPattern}`)
+      .limit(300)
+
+    if (prodErr) {
+      console.error('[fetchImagenesGlobales] Error buscando productos:', prodErr.message || prodErr)
+    }
+
+    const productIds = (matchedProducts || []).map((p: any) => p.id)
+    if (productIds.length === 0) {
+      return { imagenes: [], total: 0, page: 1, totalPages: 0 }
+    }
+
+    query = query.in('producto_id', productIds)
   }
 
   // Filtro: tipo de uso
@@ -96,8 +115,8 @@ export async function fetchImagenesGlobales(
   const { data, error, count } = await query
 
   if (error) {
-    console.error('[fetchImagenesGlobales] Error:', error)
-    throw new Error(`Error al obtener imágenes: ${error.message}`)
+    console.error('[fetchImagenesGlobales] Error:', error.message || error)
+    throw new Error(`Error al obtener imágenes: ${error.message || 'Error desconocido'}`)
   }
 
   // Transformar datos
@@ -130,16 +149,19 @@ export async function fetchImagenesGlobales(
 export async function buscarProductosParaSelector(
   term: string,
   limit: number = 20
-): Promise<{ id: number; sku_base: string; nombre: string }[]> {
-  if (!term || term.length < 2) return []
+): Promise<{ id: number; sku_base: string; nombre: string; descripcion?: string | null }[]> {
+  if (!term || term.trim().length < 1) return []
 
   const supabase = await createClient()
-  const termPattern = `%${term}%`
+  const cleanQ = term.trim()
+  const termPattern = `%${cleanQ}%`
+  const termSlash = `%${cleanQ.replace(/-/g, '/')}%`
+  const termHyphen = `%${cleanQ.replace(/\//g, '-')}%`
 
   const { data, error } = await (supabase
     .from('productos') as any)
-    .select('id, sku_base, nombre')
-    .or(`sku_base.ilike.${termPattern},nombre.ilike.${termPattern}`)
+    .select('id, sku_base, nombre, descripcion')
+    .or(`sku_base.ilike.${termPattern},nombre.ilike.${termPattern},sku_base.ilike.${termSlash},sku_base.ilike.${termHyphen}`)
     .eq('activo', true)
     .order('sku_base')
     .limit(limit)
@@ -153,6 +175,7 @@ export async function buscarProductosParaSelector(
     id: p.id,
     sku_base: p.sku_base,
     nombre: p.nombre,
+    descripcion: p.descripcion,
   }))
 }
 
