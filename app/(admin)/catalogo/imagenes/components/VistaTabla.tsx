@@ -4,14 +4,22 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { USO_IMAGEN_LABELS, USO_IMAGEN_COLORS } from './imagenesConstants'
 import type { ImagenGlobal } from '@/modules/catalogo/imagenes/queries'
-import { ImageQuickEdit } from './ImageQuickEdit'
-import { ImageLightbox } from './ImageLightbox'
 import { Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const ImageLightbox = dynamic(
+  () => import('./ImageLightbox').then((m) => m.ImageLightbox),
+  { ssr: false }
+)
+const ImageQuickEdit = dynamic(
+  () => import('./ImageQuickEdit').then((m) => m.ImageQuickEdit),
+  { ssr: false }
+)
 
 interface Props {
   imagenes: ImagenGlobal[]

@@ -37,6 +37,26 @@ export type ResultadoImagenes = {
   totalPages: number
 }
 
+export type GrupoProductoConImagenes = {
+  productoId: number
+  sku: string
+  nombre: string
+  descripcion: string
+  principal: ImagenGlobal | null
+  secundarias: ImagenGlobal[]
+  imagenes: ImagenGlobal[]
+  total: number
+  ultimaFecha: string | null
+}
+
+export type ResultadoImagenesAgrupadas = {
+  grupos: GrupoProductoConImagenes[]
+  totalGrupos: number
+  totalImagenes: number
+  page: number
+  totalPages: number
+}
+
 // ─── Queries ────────────────────────────────────────────────────────────
 
 /**
@@ -44,12 +64,13 @@ export type ResultadoImagenes = {
  * Paginación + filtros.
  */
 export async function fetchImagenesGlobales(
-  filtros: FiltrosImagenes
+  filtros: FiltrosImagenes,
+  pageSize: number = PAGE_SIZE
 ): Promise<ResultadoImagenes> {
   const supabase = await createClient()
   const page = filtros.page ?? 1
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
 
   // Query base con join a productos
   let query = (supabase
@@ -137,9 +158,164 @@ export async function fetchImagenesGlobales(
   }))
 
   const total = count ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.ceil(total / pageSize)
 
   return { imagenes, total, page, totalPages }
+}
+
+/**
+ * Obtiene todas las imágenes agrupadas por producto/SKU.
+ * Ordena los grupos de lo más reciente a lo más antiguo (según la fecha de la última imagen).
+ * En cada grupo une la imagen principal y todas las secundarias en un solo recuadro.
+ * Pagina a nivel de producto (grupos).
+ */
+export async function fetchImagenesAgrupadas(
+  filtros: FiltrosImagenes,
+  page: number = 1,
+  pageSize: number = 24
+): Promise<ResultadoImagenesAgrupadas> {
+  const supabase = await createClient()
+
+  // Query con join a productos
+  let query = (supabase
+    .from('producto_imagenes') as any)
+    .select(`
+      id,
+      producto_id,
+      url,
+      url_og,
+      es_principal,
+      orden,
+      alt_text,
+      uso_imagen,
+      origen_imagen,
+      created_at,
+      productos!inner(sku_base, nombre, descripcion)
+    `)
+
+  // Filtro: búsqueda por SKU o nombre del producto
+  if (filtros.q) {
+    const clean = filtros.q.trim().replace(/[,()"]/g, ' ')
+    const cleanTerm = clean.replace(/[\s\/_-]+/g, '%')
+    const termPattern = `%${cleanTerm}%`
+    const prefixPattern = `${cleanTerm}%`
+
+    const { data: matchedProducts, error: prodErr } = await (supabase
+      .from('productos') as any)
+      .select('id')
+      .or(`sku_base.ilike.${prefixPattern},sku_base.ilike.${termPattern},nombre.ilike.${termPattern},descripcion.ilike.${termPattern}`)
+      .limit(500)
+
+    if (prodErr) {
+      console.error('[fetchImagenesAgrupadas] Error buscando productos:', prodErr.message || prodErr)
+    }
+
+    const productIds = (matchedProducts || []).map((p: any) => p.id)
+    if (productIds.length === 0) {
+      return { grupos: [], totalGrupos: 0, totalImagenes: 0, page: 1, totalPages: 0 }
+    }
+
+    query = query.in('producto_id', productIds)
+  }
+
+  // Filtro: tipo de uso
+  if (filtros.uso_imagen) {
+    query = query.eq('uso_imagen', filtros.uso_imagen)
+  }
+
+  // Filtro: origen
+  if (filtros.origen) {
+    query = query.eq('origen_imagen', filtros.origen)
+  }
+
+  // Filtro: solo principales
+  if (filtros.es_principal === true) {
+    query = query.eq('es_principal', true)
+  }
+
+  // Ordenar imágenes por created_at DESC:
+  // Al iterar en orden descendente, la primera vez que encontramos un producto,
+  // esa es su imagen más reciente. El orden de inserción en el Map preserva
+  // de forma natural los productos de más reciente a más antiguo.
+  query = query.order('created_at', { ascending: false })
+
+  const { data, error } = await query
+
+  if (error) {
+    console.error('[fetchImagenesAgrupadas] Error:', error.message || error)
+    throw new Error(`Error al agrupar imágenes: ${error.message || 'Error desconocido'}`)
+  }
+
+  const rows = data || []
+  const totalImagenes = rows.length
+
+  const map = new Map<number, GrupoProductoConImagenes>()
+
+  for (const row of rows) {
+    let grupo = map.get(row.producto_id)
+    if (!grupo) {
+      grupo = {
+        productoId: row.producto_id,
+        sku: row.productos?.sku_base ?? '',
+        nombre: row.productos?.nombre ?? '',
+        descripcion: row.productos?.descripcion ?? '',
+        principal: null,
+        secundarias: [],
+        imagenes: [],
+        total: 0,
+        ultimaFecha: row.created_at,
+      }
+      map.set(row.producto_id, grupo)
+    }
+
+    const img: ImagenGlobal = {
+      id: row.id,
+      producto_id: row.producto_id,
+      sku_base: row.productos?.sku_base ?? '',
+      nombre_producto: row.productos?.nombre ?? '',
+      descripcion_producto: row.productos?.descripcion ?? '',
+      url: row.url,
+      url_og: row.url_og,
+      es_principal: row.es_principal ?? false,
+      orden: row.orden,
+      alt_text: row.alt_text,
+      uso_imagen: row.uso_imagen,
+      origen_imagen: row.origen_imagen,
+      created_at: row.created_at,
+    }
+
+    grupo.imagenes.push(img)
+    grupo.total++
+
+    if (img.es_principal && !grupo.principal) {
+      grupo.principal = img
+    }
+  }
+
+  // Normalizar: si no hay principal marcada, asignar la primera imagen
+  // Y armar secundarias (todas las imágenes excepto la principal)
+  for (const grupo of map.values()) {
+    if (!grupo.principal && grupo.imagenes.length > 0) {
+      grupo.principal = grupo.imagenes[0]
+    }
+    grupo.secundarias = grupo.imagenes.filter(i => i.id !== grupo.principal?.id)
+  }
+
+  const allGroups = Array.from(map.values())
+  const totalGrupos = allGroups.length
+  const totalPages = Math.ceil(totalGrupos / pageSize)
+
+  // Paginar sobre los grupos (a nivel producto)
+  const from = (page - 1) * pageSize
+  const grupos = allGroups.slice(from, from + pageSize)
+
+  return {
+    grupos,
+    totalGrupos,
+    totalImagenes,
+    page,
+    totalPages,
+  }
 }
 
 /**

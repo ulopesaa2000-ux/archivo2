@@ -1,26 +1,58 @@
 // app/(admin)/catalogo/imagenes/components/VistaGrid.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { getSmartImagenUrl, IMAGEN_SIZES } from '@/lib/utils/imagen'
 import { USO_IMAGEN_LABELS, USO_IMAGEN_COLORS } from './imagenesConstants'
 import type { ImagenGlobal } from '@/modules/catalogo/imagenes/queries'
-import { ImageQuickEdit } from './ImageQuickEdit'
-import { ImageLightbox } from './ImageLightbox'
-import { Star, Pencil, Trash2 } from 'lucide-react'
+import { cambiarUsoImagenRapidoAction } from '@/modules/catalogo/imagenes/actions'
+import { Star, Pencil, Trash2, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+
+const ImageLightbox = dynamic(
+  () => import('./ImageLightbox').then((m) => m.ImageLightbox),
+  { ssr: false }
+)
+const ImageQuickEdit = dynamic(
+  () => import('./ImageQuickEdit').then((m) => m.ImageQuickEdit),
+  { ssr: false }
+)
 
 interface Props {
   imagenes: ImagenGlobal[]
 }
 
 export function VistaGrid({ imagenes }: Props) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
   const [selectedImagen, setSelectedImagen] = useState<ImagenGlobal | null>(null)
   const [editImagen, setEditImagen] = useState<ImagenGlobal | null>(null)
+
+  const handleToggleOculta = (img: ImagenGlobal) => {
+    const isCurrentlyOculta = img.uso_imagen === 'oculta' || img.uso_imagen === 'oculto'
+    const nuevoUso = isCurrentlyOculta ? 'galeria_secundaria' : 'oculta'
+
+    startTransition(async () => {
+      const res = await cambiarUsoImagenRapidoAction(img.id, nuevoUso)
+      if (res.success) {
+        toast.success(
+          nuevoUso === 'oculta'
+            ? 'Imagen pasada a Oculta'
+            : 'Imagen pasada a Galería visible'
+        )
+        router.refresh()
+      } else {
+        toast.error(res.error ?? 'Error al cambiar visibilidad')
+      }
+    })
+  }
 
   if (imagenes.length === 0) {
     return (
@@ -43,6 +75,7 @@ export function VistaGrid({ imagenes }: Props) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {imagenes.map((img) => {
           const usoColor = USO_IMAGEN_COLORS[img.uso_imagen] ?? 'bg-gray-500'
+          const isOculta = img.uso_imagen === 'oculta' || img.uso_imagen === 'oculto'
           
           return (
             <div
@@ -50,7 +83,8 @@ export function VistaGrid({ imagenes }: Props) {
               className={cn(
                 'group relative rounded-xl border bg-card overflow-hidden transition-all duration-200',
                 'hover:shadow-md hover:border-primary/20',
-                img.es_principal && 'ring-2 ring-amber-400 ring-offset-1'
+                img.es_principal && 'ring-2 ring-amber-400 ring-offset-1',
+                isOculta && 'ring-2 ring-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.45)] border-red-500/60'
               )}
               onClick={() => setSelectedImagen(img)}
             >
@@ -66,29 +100,36 @@ export function VistaGrid({ imagenes }: Props) {
 
                 {/* Badge principal */}
                 {img.es_principal && (
-                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400/95 text-amber-900 text-[10px] font-semibold rounded-full px-2 py-0.5">
+                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400/95 text-amber-900 text-[10px] font-semibold rounded-full px-2 py-0.5 z-10">
                     <Star className="h-2.5 w-2.5 fill-amber-900" />
                     Principal
                   </div>
                 )}
 
+                {/* Badge oculta */}
+                {isOculta && !img.es_principal && (
+                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600/95 text-white text-[10px] font-semibold rounded-full px-2 py-0.5 z-10 animate-pulse shadow-sm">
+                    🚫 Oculta
+                  </div>
+                )}
+
                 {/* Badge origen */}
                 {img.origen_imagen === 'url_externa' ? (
-                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-orange-500/90 text-white text-[10px] font-semibold rounded-full px-2 py-0.5">
+                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-orange-500/90 text-white text-[10px] font-semibold rounded-full px-2 py-0.5 z-10">
                     URL
                   </div>
                 ) : (
-                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/90 text-white text-[10px] font-semibold rounded-full px-2 py-0.5">
+                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/90 text-white text-[10px] font-semibold rounded-full px-2 py-0.5 z-10">
                     Storage
                   </div>
                 )}
 
                 {/* Overlay de acciones */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 z-20">
                   <Button
                     size="icon"
                     variant="secondary"
-                    className="h-8 w-8 bg-white/90"
+                    className="h-8 w-8 bg-white/90 text-foreground hover:bg-white"
                     onClick={(e) => {
                       e.stopPropagation()
                       setEditImagen(img)
@@ -96,6 +137,28 @@ export function VistaGrid({ imagenes }: Props) {
                     title="Editar"
                   >
                     <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className={cn(
+                      "h-8 w-8 text-white",
+                      isOculta
+                        ? "bg-emerald-600 hover:bg-emerald-700"
+                        : "bg-red-600 hover:bg-red-700"
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleToggleOculta(img)
+                    }}
+                    title={isOculta ? "Hacer visible (Galería)" : "Ocultar imagen"}
+                  >
+                    {isOculta ? (
+                      <Eye className="h-3.5 w-3.5" />
+                    ) : (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </div>
               </div>

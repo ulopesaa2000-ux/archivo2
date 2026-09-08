@@ -338,7 +338,7 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               <div className="pt-1">
                 <ProductShareButtons
                   slug={producto.slug}
-                  nombre={producto.nombre}
+                  nombre={producto.descripcion || producto.nombre}
                   sku={producto.sku_base}
                   variant="detail"
                 />
@@ -349,15 +349,14 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               <p className="text-[12px] text-store-ink3 italic mt-3">{config.mensaje_precio_variable}</p>
             )}
 
-            {((producto.descripcion && producto.descripcion !== producto.nombre && !isJsonString(producto.descripcion)) ||
+            {/* Abajo de compartir: Descripción SEO opcional cuando esté disponible */}
+            {((producto.descripcion_seo && !isJsonString(producto.descripcion_seo)) ||
               producto.composicion ||
               producto.keywords) && (
               <div className="mt-8 text-[14px] leading-[1.75] text-store-ink2 space-y-4 border-t border-store-border pt-6">
-                {producto.descripcion &&
-                  producto.descripcion !== producto.nombre &&
-                  !isJsonString(producto.descripcion) && (
-                    <p>{producto.descripcion}</p>
-                  )}
+                {producto.descripcion_seo && !isJsonString(producto.descripcion_seo) && (
+                  <p className="text-store-ink">{producto.descripcion_seo}</p>
+                )}
 
                 {producto.keywords && (
                   <div className="pt-2 flex flex-wrap gap-2">

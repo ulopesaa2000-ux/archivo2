@@ -31,13 +31,13 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
         </div>
       )}
 
-      {/* Nombre — serif, grande */}
+      {/* Descripción como título principal — serif, grande (siempre descripción si existe) */}
       <h1 className="font-serif text-[28px] sm:text-[34px] leading-[1.15] text-store-ink mb-3">
-        {producto.nombre}
+        {producto.descripcion || producto.nombre}
       </h1>
 
-      {/* SKU destacado debajo de marca y nombre */}
-      {Boolean(config?.mostrar_sku) && producto.sku_base && producto.sku_base !== producto.nombre && (
+      {/* SKU destacado debajo del título */}
+      {Boolean(config?.mostrar_sku) && producto.sku_base && (
         <div className="text-[14px] font-bold text-store-ink mb-3 font-sans tracking-wide">
           SKU: <span className="font-semibold">{producto.sku_base}</span>
         </div>

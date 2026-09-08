@@ -723,7 +723,7 @@ const fetchProductoWebBySlugCached = cache(async (
     descripcion: cleanDescripcion,
     composicion: cleanJsonGarbage(prod?.composicion) ?? null,
     titulo_seo: cleanTituloSeo,
-    descripcion_seo: null,
+    descripcion_seo: cleanJsonGarbage(data.descripcion_seo) ?? null,
     precio_publico: data.precio_publico,
     precio_oferta: data.precio_oferta,
     en_oferta: data.en_oferta,

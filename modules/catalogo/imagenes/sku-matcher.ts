@@ -11,6 +11,7 @@ export interface MatchResult {
   sku: string
   productoNombre?: string
   es_principal: boolean
+  tienePrincipalActual?: boolean
   status: 'detected' | 'not_found'
   metodo?: string
 }

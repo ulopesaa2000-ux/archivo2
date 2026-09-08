@@ -37,6 +37,6 @@ export const USO_IMAGEN_COLORS: Record<string, string> = {
   etiqueta_logistica: 'bg-slate-600 text-white',
   color_variacion: 'bg-pink-600 text-white',
   tallas_variacion: 'bg-indigo-600 text-white',
-  oculta: 'bg-zinc-600 text-zinc-200 border border-zinc-500/50',
-  oculto: 'bg-zinc-600 text-zinc-200 border border-zinc-500/50',
+  oculta: 'bg-red-950/80 text-red-200 border border-red-500/60 shadow-[0_0_8px_rgba(239,68,68,0.35)]',
+  oculto: 'bg-red-950/80 text-red-200 border border-red-500/60 shadow-[0_0_8px_rgba(239,68,68,0.35)]',
 }

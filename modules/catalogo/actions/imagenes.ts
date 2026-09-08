@@ -167,12 +167,13 @@ export async function uploadImagenAction(
     }
   }
 
-  // ── Si es principal, quitar la anterior ───────────────────
+  // ── Si es principal, la anterior pasa a tipo oculta ─────
   if (esPrincipal) {
     await supabase
       .from('producto_imagenes')
-      .update({ es_principal: false })
+      .update({ es_principal: false, uso_imagen: 'oculta' })
       .eq('producto_id', productoId)
+      .eq('es_principal', true)
   }
 
   // ── Registrar en BD ───────────────────────────────────────
@@ -246,7 +247,7 @@ export async function updateImagenAction(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Marca una imagen como principal y quita la propiedad de todas las demás del mismo producto.
+ * Marca una imagen como principal y pasa la imagen anterior de este producto a 'oculta'.
  */
 export async function setPrincipalImagenAction(
   imagenId: number,
@@ -257,18 +258,20 @@ export async function setPrincipalImagenAction(
 
   const supabase = await createClient()
 
-  // 1. Quitar principal de todas las imágenes de este producto
+  // 1. Las imágenes anteriores que eran principales pasan a tipo 'oculta'
   const { error: clearError } = await supabase
     .from('producto_imagenes')
-    .update({ es_principal: false })
+    .update({ es_principal: false, uso_imagen: 'oculta' })
     .eq('producto_id', productoId)
+    .eq('es_principal', true)
+    .neq('id', imagenId)
 
   if (clearError) return { success: false, error: clearError.message }
 
-  // 2. Marcar la nueva como principal
+  // 2. Marcar la nueva como principal y asegurar uso_imagen
   const { error: setError } = await supabase
     .from('producto_imagenes')
-    .update({ es_principal: true })
+    .update({ es_principal: true, uso_imagen: 'principal_ecommerce' })
     .eq('id', imagenId)
 
   if (setError) return { success: false, error: setError.message }
