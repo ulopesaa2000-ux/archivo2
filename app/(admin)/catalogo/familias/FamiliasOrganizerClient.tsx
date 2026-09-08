@@ -39,12 +39,14 @@ import {
   Save,
   Info,
   ArrowRightLeft,
+  ExternalLink,
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'motion/react'
 import { fetchProductosPorFamilia, type FamiliaResumen, type FamiliaResumenSku } from '@/modules/catalogo/queries'
-import { moverProductosDeFamiliaAction, renombrarFamiliaAction } from '@/modules/catalogo/actions'
+import { moverProductosDeFamiliaAction, renombrarFamiliaAction, createProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { cn } from '@/lib/utils'
 
 interface ProductListItem {
@@ -76,10 +78,168 @@ export function FamiliasOrganizerClient({
   const [searchQuery, setSearchQuery] = useState('')
   const [mostrarInactivos, setMostrarInactivos] = useState(false)
 
+  // --- Helper para construir la caché inicial de productos precargados por el servidor ---
+  const buildInitialProductsMap = (famList: FamiliaResumen[]): Record<string, ProductListItem[]> => {
+    const map: Record<string, ProductListItem[]> = {}
+    for (const f of famList) {
+      const famKey = f.familia || 'F000-000C'
+      if (f.skus && f.skus.length > 0) {
+        map[famKey] = f.skus.map(s => ({
+          id: s.id,
+          sku_base: s.sku_base,
+          nombre: null,
+          descripcion: s.descripcion,
+          familia: f.familia,
+          precio_ec: null,
+          pz_en_caja: null,
+          activo: s.activo ?? true,
+          imagen_principal: s.imagen_principal ?? null,
+        }))
+      }
+    }
+    return map
+  }
+
   // --- Bandeja de Trabajo (Bandeja Izquierda) ---
   const [pinnedFamilies, setPinnedFamilies] = useState<string[]>(['F000-000C'])
-  const [loadedProducts, setLoadedProducts] = useState<Record<string, ProductListItem[]>>({})
+  const [loadedProducts, setLoadedProducts] = useState<Record<string, ProductListItem[]>>(() => buildInitialProductsMap(initialFamilias))
   const [loadingProducts, setLoadingProducts] = useState<Record<string, boolean>>({})
+
+  // --- Modal de Crear / Agregar Producto Directo en Familias ---
+  const [isCreateProductModalOpen, setIsCreateProductModalOpen] = useState(false)
+  const [newProductSku, setNewProductSku] = useState('')
+  const [newProductNombre, setNewProductNombre] = useState('')
+  const [newProductDescripcion, setNewProductDescripcion] = useState('')
+  const [newProductFamilia, setNewProductFamilia] = useState('')
+  const [newProductPzCaja, setNewProductPzCaja] = useState('1')
+  const [newProductPrecio, setNewProductPrecio] = useState('')
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false)
+  const [skuChecking, setSkuChecking] = useState(false)
+  const [skuValidationError, setSkuValidationError] = useState<string | null>(null)
+
+  const handleOpenCreateProductModal = (defaultFamily?: string) => {
+    setNewProductSku('')
+    setNewProductNombre('')
+    setNewProductDescripcion('')
+    setNewProductFamilia(defaultFamily || highlightedFamily || 'F000-000C')
+    setNewProductPzCaja('1')
+    setNewProductPrecio('')
+    setSkuValidationError(null)
+    setIsCreateProductModalOpen(true)
+  }
+
+  const handleValidateSku = async (sku: string) => {
+    const cleanSku = sku.trim().toUpperCase()
+    if (!cleanSku) {
+      setSkuValidationError(null)
+      return
+    }
+    setSkuChecking(true)
+    try {
+      const exists = await checkSkuExistsAction(cleanSku)
+      if (exists) {
+        setSkuValidationError('Este SKU ya existe en el catálogo.')
+      } else {
+        setSkuValidationError(null)
+      }
+    } catch {
+      setSkuValidationError(null)
+    } finally {
+      setSkuChecking(false)
+    }
+  }
+
+  const handleCreateProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const cleanSku = newProductSku.trim().toUpperCase()
+    if (!cleanSku) {
+      toast.warning('Ingresa un SKU base válido')
+      return
+    }
+    if (skuValidationError) {
+      toast.error('El SKU ya existe. Elige otro.')
+      return
+    }
+
+    setIsCreatingProduct(true)
+    try {
+      const formData = new FormData()
+      formData.append('sku_base', cleanSku)
+      formData.append('nombre', newProductNombre.trim())
+      formData.append('descripcion', newProductDescripcion.trim())
+      formData.append('familia', newProductFamilia.trim() || 'F000-000C')
+      formData.append('pz_en_caja', newProductPzCaja || '1')
+      if (newProductPrecio) {
+        formData.append('precio_ec', newProductPrecio)
+      }
+
+      const res = await createProductAction(formData)
+      if (!res.success || !res.id) {
+        toast.error(res.error || 'Error al crear el producto')
+        return
+      }
+
+      toast.success(`Producto ${cleanSku} creado exitosamente`)
+      setIsCreateProductModalOpen(false)
+
+      const targetFam = newProductFamilia.trim() || 'F000-000C'
+      const newSkuItem: FamiliaResumenSku = {
+        id: res.id,
+        sku_base: cleanSku,
+        descripcion: newProductDescripcion.trim() || newProductNombre.trim() || null,
+        activo: true,
+        imagen_principal: null,
+      }
+
+      const newListItem: ProductListItem = {
+        id: res.id,
+        sku_base: cleanSku,
+        nombre: newProductNombre.trim() || null,
+        descripcion: newProductDescripcion.trim() || null,
+        familia: targetFam,
+        precio_ec: newProductPrecio ? parseFloat(newProductPrecio) : null,
+        pz_en_caja: parseInt(newProductPzCaja, 10) || 1,
+        activo: true,
+        imagen_principal: null,
+      }
+
+      // Actualizar loadedProducts y familias en memoria
+      setLoadedProducts(prev => {
+        const list = [...(prev[targetFam] || [])]
+        return { ...prev, [targetFam]: [newListItem, ...list] }
+      })
+
+      setFamilias(prev => {
+        let famExists = false
+        const nextFamilias = prev.map(f => {
+          if (f.familia === targetFam) {
+            famExists = true
+            return {
+              ...f,
+              total_productos: f.total_productos + 1,
+              skus: [newSkuItem, ...(f.skus || [])],
+            }
+          }
+          return f
+        })
+
+        if (!famExists) {
+          nextFamilias.push({
+            familia: targetFam,
+            total_productos: 1,
+            es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(targetFam),
+            descripcion: newProductDescripcion.trim() || null,
+            skus: [newSkuItem],
+          })
+        }
+        return nextFamilias
+      })
+    } catch (err: any) {
+      toast.error(err.message || 'Error al crear producto')
+    } finally {
+      setIsCreatingProduct(false)
+    }
+  }
 
   // --- Selección de productos ---
   const [selectedProductIds, setSelectedProductIds] = useState<Record<number, boolean>>({})
@@ -145,26 +305,39 @@ export function FamiliasOrganizerClient({
   const [loadingInspection, setLoadingInspection] = useState(false)
 
   const handleInspectProduct = async (productId: number, skuBase: string, description: string | null) => {
-    setLoadingInspection(true)
-    
-    // 1. Check if the product is already in our loadedProducts cache
-    let cachedProduct: ProductListItem | undefined
+    // 1. Buscar en loadedProducts precargado
     for (const prods of Object.values(loadedProducts)) {
       const found = prods.find(p => p.id === productId)
       if (found) {
-        cachedProduct = found
-        break
+        setInspectedProduct(found)
+        setIsRightPanelOpen(true)
+        return
       }
     }
 
-    if (cachedProduct) {
-      setInspectedProduct(cachedProduct)
-      setLoadingInspection(false)
-      setIsRightPanelOpen(true)
-      return
+    // 2. Buscar en familias precargadas por el servidor
+    for (const f of familias) {
+      const foundSku = f.skus?.find(s => s.id === productId)
+      if (foundSku) {
+        const item: ProductListItem = {
+          id: productId,
+          sku_base: skuBase,
+          nombre: null,
+          descripcion: description,
+          familia: f.familia,
+          precio_ec: null,
+          pz_en_caja: null,
+          activo: foundSku.activo ?? true,
+          imagen_principal: foundSku.imagen_principal ?? null
+        }
+        setInspectedProduct(item)
+        setIsRightPanelOpen(true)
+        return
+      }
     }
 
-    // 2. If not, fetch its image from Supabase
+    // 3. Fallback: Si no estuviera en memoria, consultar imagen en Supabase
+    setLoadingInspection(true)
     try {
       const { createClient } = await import('@/lib/supabase/client')
       const supabase = createClient()
@@ -307,15 +480,13 @@ export function FamiliasOrganizerClient({
     }
   }
 
-  // --- Efecto: Cargar F000-000C por defecto ---
-  useEffect(() => {
-    loadProductsForFamily('F000-000C', true)
-  }, [])
-
-  // --- Efecto: Sincronizar familias iniciales ---
+  // --- Efecto: Sincronizar familias iniciales si cambian los props ---
   useEffect(() => {
     setFamilias(initialFamilias)
-    loadProductsForFamily('F000-000C', true)
+    setLoadedProducts(prev => ({
+      ...buildInitialProductsMap(initialFamilias),
+      ...prev,
+    }))
   }, [initialFamilias])
 
   // --- Efecto: Ajustar layout para ocupar 100% de la pantalla (sin márgenes ni paddings) ---
@@ -1034,126 +1205,85 @@ export function FamiliasOrganizerClient({
     }
   }, [refFamilyName, loadedProducts])
 
-  // --- Exportar Familias Agrupadas a Excel con ExcelJS ---
+  // --- Exportar Familias Agrupadas a Excel con ExcelJS (2 Hojas con formato imprimible fiel a StockMatrix) ---
   const handleExportToExcel = async () => {
     const toastId = toast.loading('Generando reporte de Excel...')
     try {
       const { createClient } = await import('@/lib/supabase/client')
       const supabase = createClient()
 
-      // 1. Obtener todas las bodegas activas
-      const { data: bodegas, error: bodegasError } = await supabase
-        .from('bodegas')
-        .select('id, nombre, es_virtual, activa')
-        .eq('activa', true)
+      // 1. Obtener bodegas activas y existencias de stock en paralelo
+      const [bodegasRes, stockRes] = await Promise.all([
+        supabase
+          .from('bodegas')
+          .select('id, nombre, es_virtual, activa')
+          .eq('activa', true),
+        supabase
+          .from('inventario_stock')
+          .select('producto_id, bodega_id, cajas, piezas_sueltas')
+      ])
 
-      if (bodegasError) {
-        throw new Error(`Error al obtener bodegas: ${bodegasError.message}`)
+      if (bodegasRes.error) {
+        throw new Error(`Error al obtener bodegas: ${bodegasRes.error.message}`)
       }
 
       // Separar y ordenar bodegas: normales primero, virtuales al final
-      const normalBodegas = (bodegas || [])
+      const normalBodegas = (bodegasRes.data || [])
         .filter(b => !b.es_virtual)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
 
-      const virtualBodegas = (bodegas || [])
+      const virtualBodegas = (bodegasRes.data || [])
         .filter(b => b.es_virtual)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
 
       const sortedBodegas = [...normalBodegas, ...virtualBodegas]
 
-      // 2. Formato en blanco (sin consulta a base de datos de inventario)
+      // Mapear stock real por producto y bodega, y total general por producto
+      const stockPorProductoYBodega: Record<number, Record<number, number>> = {}
+      const totalStockPorProducto: Record<number, number> = {}
 
+      for (const st of stockRes.data || []) {
+        if (!stockPorProductoYBodega[st.producto_id]) {
+          stockPorProductoYBodega[st.producto_id] = {}
+        }
+        const cajas = st.cajas ?? 0
+        stockPorProductoYBodega[st.producto_id][st.bodega_id] = (stockPorProductoYBodega[st.producto_id][st.bodega_id] || 0) + cajas
+        totalStockPorProducto[st.producto_id] = (totalStockPorProducto[st.producto_id] || 0) + cajas
+      }
+
+      // Helper para detectar familias no asignadas
+      function isUnassignedFamily(fam: string | null | undefined): boolean {
+        if (!fam) return true
+        const norm = fam.trim().toUpperCase()
+        return (
+          norm === 'F000-000C' ||
+          norm === 'F000-000' ||
+          norm === 'SIN FAMILIA' ||
+          norm === 'SIN ASIGNAR' ||
+          norm === 'SIN CLASIFICAR' ||
+          norm === '—' ||
+          norm === '-' ||
+          norm === 'NULL' ||
+          norm === 'UNDEFINED'
+        )
+      }
+
+      // Ordenar familias alfabéticamente enviando F000-000 / F000-000C / Sin Familia al final
+      const sorted = [...familias].sort((a, b) => {
+        const famA = a.familia || 'SIN FAMILIA'
+        const famB = b.familia || 'SIN FAMILIA'
+        const aUn = isUnassignedFamily(famA)
+        const bUn = isUnassignedFamily(famB)
+        if (aUn && !bUn) return 1
+        if (!aUn && bUn) return -1
+        return famA.localeCompare(famB, 'es', { sensitivity: 'base' })
+      })
 
       const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Familias Agrupadas', {
-        views: [{ showGridLines: true }]
-      })
-
-      // Definir columnas y anchos de columnas
-      const columnsList = [
-        { header: 'DESCRIPCION', key: 'descripcion', width: 55 },
-        { header: 'ESTILO', key: 'estilo', width: 18 },
-        { header: 'FAMILIA', key: 'familia', width: 18 },
-      ]
-
-      sortedBodegas.forEach(b => {
-        columnsList.push({
-          header: b.nombre.toUpperCase(),
-          key: `b_${b.id}`,
-          width: 12
-        })
-      })
-
-      columnsList.push({
-        header: 'GLOBAL',
-        key: 'global',
-        width: 14
-      })
-
-      worksheet.columns = columnsList
 
       const thinStyle: ExcelJS.BorderStyle = 'thin'
       const mediumStyle: ExcelJS.BorderStyle = 'medium'
 
-      // Estilo para la fila de encabezados (Fila 1)
-      const headerRow = worksheet.getRow(1)
-      headerRow.height = 90
-      headerRow.eachCell((cell, colNumber) => {
-        if (colNumber <= 3) {
-          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } }
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFB4C6E7' }, // Fondo azul acero claro/celeste
-          }
-          cell.alignment = { horizontal: 'center', vertical: 'middle' }
-          cell.border = {
-            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
-            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
-          }
-        } else if (colNumber === 3 + sortedBodegas.length + 1) {
-          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFDC2626' } }
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFFEE2E2' }, // Rojo suave
-          }
-          cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'middle' }
-          cell.border = {
-            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
-            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
-          }
-        } else {
-          const b = sortedBodegas[colNumber - 4]
-          cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } }
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: b.es_virtual ? 'FFFCE4D6' : 'FFDDEBF7' }, // Durazno si es virtual, azul claro si es normal
-          }
-          cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'middle' }
-          cell.border = {
-            top: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            left: { style: thinStyle, color: { argb: 'FF8596B0' } },
-            bottom: { style: mediumStyle, color: { argb: 'FF8596B0' } },
-            right: { style: thinStyle, color: { argb: 'FF8596B0' } },
-          }
-        }
-      })
-
-      // Ordenar las familias de forma alfabética
-      const sorted = [...familias].sort((a, b) => {
-        const nameA = a.familia || ''
-        const nameB = b.familia || ''
-        return nameA.localeCompare(nameB, 'es', { sensitivity: 'base' })
-      })
-
-      let currentRow = 2
       const thinBorder: Partial<ExcelJS.Borders> = {
         top: { style: thinStyle, color: { argb: 'FFD3D3D3' } },
         left: { style: thinStyle, color: { argb: 'FFD3D3D3' } },
@@ -1161,7 +1291,13 @@ export function FamiliasOrganizerClient({
         right: { style: thinStyle, color: { argb: 'FFD3D3D3' } },
       }
 
-      // Función auxiliar local para obtener letras de columna
+      const borderHeader: Partial<ExcelJS.Borders> = {
+        top: { style: thinStyle, color: { argb: 'FF8596B0' } },
+        left: { style: thinStyle, color: { argb: 'FF8596B0' } },
+        bottom: { style: mediumStyle, color: { argb: 'FF475569' } },
+        right: { style: thinStyle, color: { argb: 'FF8596B0' } },
+      }
+
       function getColumnLetter(colIndex: number): string {
         let temp = colIndex
         let letter = ''
@@ -1173,198 +1309,405 @@ export function FamiliasOrganizerClient({
         return letter
       }
 
-      sorted.forEach((f) => {
-        const name = f.familia || 'Sin Clasificar'
-        const desc = f.descripcion || ''
-        
-        // Filtrar skus en base a mostrarInactivos
-        const skusList = (f.skus || []).filter(s => {
-          const currentDest = stagedMoves[s.id]
-          const isHere = currentDest !== undefined ? currentDest === f.familia : true
-          if (!isHere) return false
-          return mostrarInactivos || s.activo !== false
+      const mesActual = new Date().toLocaleDateString('es-MX', { month: 'long' }).toUpperCase()
+      const anioActual = new Date().getFullYear()
+
+      // ─── FUNCIÓN PARA CONSTRUIR CADA HOJA ─────────────────────────────────────
+      const buildSheet = (worksheet: ExcelJS.Worksheet, isBlanco: boolean) => {
+        // Configuración de página horizontal lista para impresión
+        worksheet.pageSetup = {
+          orientation: 'landscape',
+          paperSize: 9, // A4
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          margins: {
+            left: 0.2, right: 0.2,
+            top: 0.5, bottom: 0.5,
+            header: 0.2, footer: 0.2
+          },
+          printTitlesRow: '3:3'
+        }
+
+        // Estructura de Columnas idéntica al formato imprimible de StockMatrix:
+        // Col 1: DESCRIPCION
+        // Col 2: ESTILO (SKU)
+        // Col 3 a (2+N): BODEGAS
+        // Col (3+N): GLOBAL
+        // Col (4+N): FAMILIA (al final después de totales)
+        const columnsList = [
+          { header: 'DESCRIPCION', key: 'descripcion', width: 50 },
+          { header: 'ESTILO', key: 'estilo', width: 18 },
+        ]
+
+        sortedBodegas.forEach(b => {
+          columnsList.push({
+            header: b.nombre.toUpperCase(),
+            key: `b_${b.id}`,
+            width: 8.5
+          })
         })
 
-        // Agregar los staged moves que pertenecen a esta familia
-        Object.entries(stagedMoves).forEach(([prodIdStr, destFamily]) => {
-          if (destFamily === f.familia) {
-            const prodId = parseInt(prodIdStr, 10)
-            if (!skusList.some(s => s.id === prodId)) {
-              let foundSku: FamiliaResumenSku | undefined
-              for (const origFam of familias) {
-                const item = origFam.skus?.find(s => s.id === prodId)
-                if (item) {
-                  foundSku = item
-                  break
-                }
-              }
-              if (!foundSku) {
-                for (const prods of Object.values(loadedProducts)) {
-                  const item = prods.find(p => p.id === prodId)
+        columnsList.push({
+          header: 'GLOBAL',
+          key: 'global',
+          width: 12
+        })
+
+        columnsList.push({
+          header: 'FAMILIA',
+          key: 'familia',
+          width: 18
+        })
+
+        worksheet.columns = columnsList
+        const totalCols = columnsList.length
+        const startBodegaCol = 3
+        const globalCol = 3 + sortedBodegas.length
+        const famCol = globalCol + 1
+
+        // Fila 1: Título superior centrado
+        const row1 = worksheet.getRow(1)
+        row1.height = 40
+        worksheet.mergeCells(1, 1, 1, totalCols)
+        const titleCell = worksheet.getCell(1, 1)
+        titleCell.value = isBlanco
+          ? `INVENTARIO GLOBAL (FORMATO BLANCO)  ${mesActual} ${anioActual}`
+          : `INVENTARIO GLOBAL CON EXISTENCIAS  ${mesActual} ${anioActual}`
+        titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF0F172A' } }
+        titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFDF5' } }
+
+        // Fila 2: Separador
+        worksheet.getRow(2).height = 8
+
+        // Fila 3: Encabezados de Columna
+        const headerRow = worksheet.getRow(3)
+        headerRow.height = 92
+
+        // 1. DESCRIPCION
+        const cDesc = headerRow.getCell(1)
+        cDesc.value = 'DESCRIPCION'
+        cDesc.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } }
+        cDesc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB4C6E7' } }
+        cDesc.alignment = { horizontal: 'center', vertical: 'middle' }
+        cDesc.border = borderHeader
+
+        // 2. ESTILO
+        const cEstilo = headerRow.getCell(2)
+        cEstilo.value = 'ESTILO'
+        cEstilo.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } }
+        cEstilo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+        cEstilo.alignment = { horizontal: 'center', vertical: 'middle' }
+        cEstilo.border = borderHeader
+
+        // 3 a N: BODEGAS
+        sortedBodegas.forEach((b, idx) => {
+          const cell = headerRow.getCell(startBodegaCol + idx)
+          cell.value = b.nombre.toUpperCase()
+          cell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FF000000' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: b.es_virtual ? 'FFFCE4D6' : 'FFDDEBF7' }
+          }
+          cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+          cell.border = borderHeader
+        })
+
+        // GLOBAL (Total de cajas)
+        const cGlobal = headerRow.getCell(globalCol)
+        cGlobal.value = 'GLOBAL'
+        cGlobal.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFDC2626' } }
+        cGlobal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+        cGlobal.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+        cGlobal.border = borderHeader
+
+        // FAMILIA (Al final después de totales)
+        const cFam = headerRow.getCell(famCol)
+        cFam.value = 'FAMILIA'
+        cFam.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } }
+        cFam.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        cFam.alignment = { horizontal: 'center', vertical: 'middle' }
+        cFam.border = borderHeader
+
+        // Filas de datos
+        let currentRow = 4
+        let realFamiliesCount = 0
+
+        sorted.forEach((f) => {
+          const name = f.familia || 'Sin Clasificar'
+          const desc = f.descripcion || ''
+          const isUnassigned = isUnassignedFamily(f.familia)
+          if (!isUnassigned) realFamiliesCount++
+
+          // Filtrar skus según stagedMoves y mostrarInactivos
+          const skusList = (f.skus || []).filter(s => {
+            const currentDest = stagedMoves[s.id]
+            const isHere = currentDest !== undefined ? currentDest === f.familia : true
+            if (!isHere) return false
+            return mostrarInactivos || s.activo !== false
+          })
+
+          // Incorporar staged moves hacia esta familia
+          Object.entries(stagedMoves).forEach(([prodIdStr, destFamily]) => {
+            if (destFamily === f.familia) {
+              const prodId = parseInt(prodIdStr, 10)
+              if (!skusList.some(s => s.id === prodId)) {
+                let foundSku: FamiliaResumenSku | undefined
+                for (const origFam of familias) {
+                  const item = origFam.skus?.find(s => s.id === prodId)
                   if (item) {
-                    foundSku = {
-                      id: item.id,
-                      sku_base: item.sku_base,
-                      descripcion: item.descripcion || null,
-                      activo: item.activo
-                    }
+                    foundSku = item
                     break
                   }
                 }
+                if (!foundSku) {
+                  for (const prods of Object.values(loadedProducts)) {
+                    const item = prods.find(p => p.id === prodId)
+                    if (item) {
+                      foundSku = {
+                        id: item.id,
+                        sku_base: item.sku_base,
+                        descripcion: item.descripcion || null,
+                        activo: item.activo
+                      }
+                      break
+                    }
+                  }
+                }
+                if (foundSku && (mostrarInactivos || foundSku.activo !== false)) {
+                  skusList.push(foundSku)
+                }
               }
-              if (foundSku && (mostrarInactivos || foundSku.activo !== false)) {
-                skusList.push(foundSku)
+            }
+          })
+
+          if (skusList.length > 0) {
+            const startMerge = currentRow
+            const startColLetter = getColumnLetter(startBodegaCol)
+            const endColLetter = getColumnLetter(startBodegaCol + sortedBodegas.length - 1)
+
+            skusList.forEach((sku, idx) => {
+              const totalCajas = totalStockPorProducto[sku.id] ?? 0
+              const esStockCero = totalCajas === 0
+
+              const rowValues: any = {
+                descripcion: isUnassigned ? (sku.descripcion || desc).toUpperCase() : (idx === 0 ? desc.toUpperCase() : ''),
+                estilo: sku.sku_base,
+                familia: isUnassigned ? (sku.sku_base || 'F000-000C') : (idx === 0 ? name : ''),
+              }
+
+              // Existencias por bodega
+              sortedBodegas.forEach(b => {
+                if (isBlanco) {
+                  rowValues[`b_${b.id}`] = ''
+                } else {
+                  const val = stockPorProductoYBodega[sku.id]?.[b.id] ?? 0
+                  rowValues[`b_${b.id}`] = val > 0 ? val : ''
+                }
+              })
+
+              // Suma global horizontal
+              rowValues['global'] = { formula: `=SUM(${startColLetter}${currentRow}:${endColLetter}${currentRow})` }
+
+              const row = worksheet.addRow(rowValues)
+              row.height = 26
+
+              for (let c = 1; c <= totalCols; c++) {
+                const cell = row.getCell(c)
+                cell.font = { name: 'Calibri', size: 10 }
+                cell.border = thinBorder
+
+                if (c === 1) {
+                  // DESCRIPCION
+                  cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+                  cell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FF1E293B' } }
+                } else if (c === 2) {
+                  // ESTILO (SKU)
+                  cell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+                  // SEÑALAMIENTO VISUAL EN HOJA 2: ROJO CLARO PARA STOCK CERO
+                  if (!isBlanco && esStockCero) {
+                    cell.fill = {
+                      type: 'pattern',
+                      pattern: 'solid',
+                      fgColor: { argb: 'FFFEE2E2' } // Rojo claro suave
+                    }
+                    cell.font = {
+                      name: 'Calibri',
+                      size: 10.5,
+                      bold: true,
+                      color: { argb: 'FF991B1B' } // Texto rojo oscuro para legibilidad
+                    }
+                  } else {
+                    cell.font = {
+                      name: 'Calibri',
+                      size: 10.5,
+                      bold: true,
+                      color: { argb: sku.activo === false ? 'FFFF0000' : 'FF0F172A' }
+                    }
+                  }
+                } else if (c === globalCol) {
+                  // GLOBAL
+                  cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                  cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFDC2626' } }
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+                } else if (c === famCol) {
+                  // FAMILIA
+                  cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+                  cell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FF1E40AF' } }
+                } else {
+                  // BODEGAS
+                  cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                  cell.font = { name: 'Calibri', size: 10, bold: false, color: { argb: 'FF000000' } }
+                }
+              }
+
+              currentRow++
+            })
+
+            const endMerge = currentRow - 1
+
+            // Combinar verticalmente DESCRIPCION y FAMILIA solo para familias normales con > 1 estilo
+            if (!isUnassigned && endMerge > startMerge) {
+              worksheet.mergeCells(startMerge, 1, endMerge, 1)
+              const mergedDesc = worksheet.getCell(startMerge, 1)
+              mergedDesc.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+
+              worksheet.mergeCells(startMerge, famCol, endMerge, famCol)
+              const mergedFam = worksheet.getCell(startMerge, famCol)
+              mergedFam.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+              for (let r = startMerge; r <= endMerge; r++) {
+                worksheet.getCell(r, 1).border = thinBorder
+                worksheet.getCell(r, famCol).border = thinBorder
+              }
+            }
+
+            // Borde inferior separador de familia
+            const lastRow = worksheet.getRow(endMerge)
+            for (let c = 1; c <= totalCols; c++) {
+              lastRow.getCell(c).border = {
+                ...lastRow.getCell(c).border,
+                bottom: { style: 'medium', color: { argb: 'FF475569' } }
               }
             }
           }
         })
 
-        if (skusList.length > 0) {
-          const startMerge = currentRow
-          skusList.forEach((sku, idx) => {
-            const rowValues: any = {
-              descripcion: idx === 0 ? desc : '',
-              estilo: sku.sku_base, // SKU limpio
-              familia: name,
-            }
+        // Filas finales de Resumen (TOTAL CAJAS y BODEGAS)
+        currentRow++
+        const totalsRowIdx = currentRow
+        const namesRowIdx = currentRow + 1
 
-            // Existencias por bodega inicializadas vacías (en blanco)
-            sortedBodegas.forEach(b => {
-              rowValues[`b_${b.id}`] = ''
-            })
+        const totalsRow = worksheet.getRow(totalsRowIdx)
+        const namesRow = worksheet.getRow(namesRowIdx)
 
-            // Suma global horizontal
-            const startColLetter = getColumnLetter(4)
-            const endColLetter = getColumnLetter(4 + sortedBodegas.length - 1)
-            rowValues['global'] = { formula: `=SUM(${startColLetter}${currentRow}:${endColLetter}${currentRow})` }
+        totalsRow.height = 26
+        namesRow.height = 92
 
-            const row = worksheet.addRow(rowValues)
-            row.height = 24
+        // Etiquetas TOTAL CAJAS en Col 1 y 2
+        worksheet.mergeCells(totalsRowIdx, 1, totalsRowIdx, 2)
+        const cellTotalesLabel = worksheet.getCell(totalsRowIdx, 1)
+        cellTotalesLabel.value = 'TOTAL CAJAS'
+        cellTotalesLabel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } }
+        cellTotalesLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+        cellTotalesLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
 
-            const maxCols = 3 + sortedBodegas.length + 1
-            for (let c = 1; c <= maxCols; c++) {
-              const cell = row.getCell(c)
-              cell.font = { name: 'Calibri', size: 10.5 }
-              cell.border = thinBorder
-              
-              if (c === 1) {
-                cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
-              } else if (c === 2) {
-                cell.font = { 
-                  name: 'Calibri', 
-                  size: 10.5, 
-                  bold: true,
-                  color: { argb: sku.activo === false ? 'FFFF0000' : 'FF000000' } // Rojo si es inactivo
-                }
-                cell.alignment = { horizontal: 'center', vertical: 'middle' }
-              } else if (c === 3) {
-                cell.alignment = { horizontal: 'center', vertical: 'middle' }
-              } else if (c === maxCols) {
-                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFDC2626' } }
-                cell.alignment = { horizontal: 'center', vertical: 'middle' }
-              } else {
-                cell.alignment = { horizontal: 'center', vertical: 'middle' }
-                cell.font = {
-                  name: 'Calibri',
-                  size: 10.5,
-                  bold: false,
-                  color: { argb: 'FF000000' }
-                }
-              }
-            }
-            currentRow++
-          })
-          const endMerge = currentRow - 1
+        // Etiquetas BODEGAS en Col 1 y 2
+        worksheet.mergeCells(namesRowIdx, 1, namesRowIdx, 2)
+        const cellBodegasLabel = worksheet.getCell(namesRowIdx, 1)
+        cellBodegasLabel.value = 'BODEGAS'
+        cellBodegasLabel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } }
+        cellBodegasLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+        cellBodegasLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
 
-          if (endMerge > startMerge) {
-            // Combinar celdas de la descripción para el grupo familiar
-            worksheet.mergeCells(`A${startMerge}:A${endMerge}`)
-            const mergedCell = worksheet.getCell(`A${startMerge}`)
-            mergedCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
-
-            // Reaplicar bordes a las celdas combinadas de la columna A
-            for (let r = startMerge; r <= endMerge; r++) {
-              worksheet.getCell(`A${r}`).border = thinBorder
-            }
-          }
+        const borderResumen: Partial<ExcelJS.Borders> = {
+          top: { style: 'medium', color: { argb: 'FF475569' } },
+          bottom: { style: 'thin', color: { argb: 'FF94A3B8' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
         }
-      })
 
-      // 3. Bloque de Totales al final
-      // 1 espacio de fila vacío después del último producto
-      currentRow++
+        cellTotalesLabel.border = borderResumen
+        worksheet.getCell(totalsRowIdx, 2).border = borderResumen
 
-      const totalsRowIdx = currentRow
-      const namesRowIdx = currentRow + 1
+        const borderNamesBottom: Partial<ExcelJS.Borders> = {
+          top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+          bottom: { style: 'medium', color: { argb: 'FF475569' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        }
 
-      const totalsRow = worksheet.getRow(totalsRowIdx)
-      const namesRow = worksheet.getRow(namesRowIdx)
+        cellBodegasLabel.border = borderNamesBottom
+        worksheet.getCell(namesRowIdx, 2).border = borderNamesBottom
 
-      totalsRow.height = 24
-      namesRow.height = 24
+        // Fórmulas de suma por columna y repetición de nombres de bodega
+        sortedBodegas.forEach((b, idx) => {
+          const colNumber = startBodegaCol + idx
+          const colLetter = getColumnLetter(colNumber)
 
-      // Etiquetas en la columna C (FAMILIA)
-      const cellTotalesLabel = worksheet.getCell(totalsRowIdx, 3)
-      cellTotalesLabel.value = 'TOTALES:'
-      cellTotalesLabel.font = { name: 'Calibri', size: 11, bold: true }
-      cellTotalesLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+          // Fila TOTAL CAJAS
+          const sumCell = worksheet.getCell(totalsRowIdx, colNumber)
+          sumCell.value = { formula: `=SUM(${colLetter}4:${colLetter}${totalsRowIdx - 2})` }
+          sumCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } }
+          sumCell.alignment = { horizontal: 'center', vertical: 'middle' }
+          sumCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+          sumCell.border = borderResumen
 
-      const cellBodegasLabel = worksheet.getCell(namesRowIdx, 3)
-      cellBodegasLabel.value = 'BODEGAS:'
-      cellBodegasLabel.font = { name: 'Calibri', size: 11, bold: true }
-      cellBodegasLabel.alignment = { horizontal: 'right', vertical: 'middle' }
+          // Fila BODEGAS
+          const nameCell = worksheet.getCell(namesRowIdx, colNumber)
+          nameCell.value = b.nombre.toUpperCase()
+          nameCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } }
+          nameCell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom', wrapText: false }
+          nameCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+          nameCell.border = borderNamesBottom
+        })
 
-      // Bordes del bloque de etiquetas en A, B, C
-      for (let c = 1; c <= 3; c++) {
-        worksheet.getCell(totalsRowIdx, c).border = thinBorder
-        worksheet.getCell(namesRowIdx, c).border = thinBorder
+        // Suma global en columna GLOBAL
+        const globalColLetter = getColumnLetter(globalCol)
+        const globalSumCell = worksheet.getCell(totalsRowIdx, globalCol)
+        globalSumCell.value = { formula: `=SUM(${globalColLetter}4:${globalColLetter}${totalsRowIdx - 2})` }
+        globalSumCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFDC2626' } }
+        globalSumCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        globalSumCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }
+        globalSumCell.border = borderResumen
+
+        const globalNameCell = worksheet.getCell(namesRowIdx, globalCol)
+        globalNameCell.value = 'TOTAL'
+        globalNameCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFDC2626' } }
+        globalNameCell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+        globalNameCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        globalNameCell.border = borderNamesBottom
+
+        // Columna FAMILIA en totales
+        const cTotFam = worksheet.getCell(totalsRowIdx, famCol)
+        cTotFam.value = `${realFamiliesCount} FAMILIAS`
+        cTotFam.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E40AF' } }
+        cTotFam.alignment = { horizontal: 'center', vertical: 'middle' }
+        cTotFam.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        cTotFam.border = borderResumen
+
+        const cFootFam = worksheet.getCell(namesRowIdx, famCol)
+        cFootFam.value = 'FAMILIA'
+        cFootFam.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E40AF' } }
+        cFootFam.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+        cFootFam.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } }
+        cFootFam.border = borderNamesBottom
       }
 
-      // Fórmulas de suma por columna y repetición de nombres de bodega
-      sortedBodegas.forEach((b, idx) => {
-        const colNumber = 4 + idx
-        const colLetter = getColumnLetter(colNumber)
-
-        // Fila de suma (arriba)
-        const sumCell = worksheet.getCell(totalsRowIdx, colNumber)
-        sumCell.value = { formula: `=SUM(${colLetter}2:${colLetter}${totalsRowIdx - 2})` }
-        sumCell.font = { name: 'Calibri', size: 11, bold: true }
-        sumCell.alignment = { horizontal: 'center', vertical: 'middle' }
-        sumCell.border = thinBorder
-
-        // Fila de nombre (abajo)
-        const nameCell = worksheet.getCell(namesRowIdx, colNumber)
-        nameCell.value = b.nombre.toUpperCase()
-        nameCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF555555' } }
-        nameCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
-        nameCell.border = thinBorder
-        nameCell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFEAEAEA' }
-        }
+      // ── CONSTRUIR HOJA 1: FORMATO BLANCO (Impresión Física) ──
+      const sheetBlanco = workbook.addWorksheet('Formato Blanco', {
+        views: [{ showGridLines: true }]
       })
+      buildSheet(sheetBlanco, true)
 
-      // Suma global en columna GLOBAL
-      const globalColNumber = 4 + sortedBodegas.length
-      const globalColLetter = getColumnLetter(globalColNumber)
-
-      const globalSumCell = worksheet.getCell(totalsRowIdx, globalColNumber)
-      globalSumCell.value = { formula: `=SUM(${globalColLetter}2:${globalColLetter}${totalsRowIdx - 2})` }
-      globalSumCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFDC2626' } }
-      globalSumCell.alignment = { horizontal: 'center', vertical: 'middle' }
-      globalSumCell.border = thinBorder
-
-      const globalNameCell = worksheet.getCell(namesRowIdx, globalColNumber)
-      globalNameCell.value = 'TOTAL'
-      globalNameCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFDC2626' } }
-      globalNameCell.alignment = { horizontal: 'center', vertical: 'middle' }
-      globalNameCell.border = thinBorder
-      globalNameCell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFEE2E2' }
-      }
+      // ── CONSTRUIR HOJA 2: CON EXISTENCIAS Y SEÑALAMIENTO VISUAL ROJO CLARO ──
+      const sheetStock = workbook.addWorksheet('Stock con Señalamiento', {
+        views: [{ showGridLines: true }]
+      })
+      buildSheet(sheetStock, false)
 
       // Generar buffer y desencadenar descarga en el navegador
       const buffer = await workbook.xlsx.writeBuffer()
@@ -1378,7 +1721,7 @@ export function FamiliasOrganizerClient({
       anchor.click()
       window.URL.revokeObjectURL(url)
 
-      toast.success('¡Reporte exportado con éxito!', { id: toastId })
+      toast.success('¡Reporte exportado con éxito (2 hojas)!', { id: toastId })
     } catch (err: any) {
       console.error('Error al exportar reporte Excel:', err)
       toast.error(err.message || 'Ocurrió un error al exportar el reporte Excel', { id: toastId })
@@ -1652,9 +1995,14 @@ export function FamiliasOrganizerClient({
                               
                               {p.imagen_principal ? (
                                 <img
-                                  src={p.imagen_principal}
+                                  src={getSmartImagenUrl(p.imagen_principal, 'thumbnail')}
                                   alt={p.sku_base}
+                                  loading="lazy"
+                                  decoding="async"
                                   className="h-8 w-8 object-cover rounded bg-muted border shrink-0"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none'
+                                  }}
                                 />
                               ) : (
                                 <div className="h-8 w-8 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
@@ -1888,6 +2236,18 @@ export function FamiliasOrganizerClient({
             </div>
 
             <div className="flex items-center gap-2">
+              {puedeEditar && (
+                <Button
+                  onClick={() => handleOpenCreateProductModal()}
+                  variant="default"
+                  size="sm"
+                  className="h-8 gap-1.5 font-semibold bg-primary text-primary-foreground shadow-xs text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Agregar Producto</span>
+                </Button>
+              )}
+
               <Button
                 onClick={handleExportToExcel}
                 variant="outline"
@@ -2349,9 +2709,14 @@ export function FamiliasOrganizerClient({
                                           
                                           {p.imagen_principal ? (
                                             <img
-                                              src={p.imagen_principal}
+                                              src={getSmartImagenUrl(p.imagen_principal, 'thumbnail')}
                                               alt={p.sku_base}
+                                              loading="lazy"
+                                              decoding="async"
                                               className="h-7 w-7 object-cover rounded bg-muted border shrink-0"
+                                              onError={(e) => {
+                                                e.currentTarget.style.display = 'none'
+                                              }}
                                             />
                                           ) : (
                                             <div className="h-7 w-7 bg-muted border rounded flex items-center justify-center text-[9px] text-muted-foreground font-mono shrink-0">
@@ -2460,8 +2825,9 @@ export function FamiliasOrganizerClient({
                 {/* Imagen de Fondo */}
                 {inspectedProduct.imagen_principal ? (
                   <img
-                    src={inspectedProduct.imagen_principal}
+                    src={getSmartImagenUrl(inspectedProduct.imagen_principal, 'card_lg')}
                     alt={inspectedProduct.sku_base}
+                    decoding="async"
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 ) : (
@@ -2485,11 +2851,22 @@ export function FamiliasOrganizerClient({
 
                 {/* Contenido en Overlay (Top Left) */}
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start max-w-[85%] z-10 pointer-events-none">
-                  {/* Badge de SKU */}
-                  <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded px-2.5 py-1 shadow-md">
-                    <span className="font-mono text-xs font-bold text-white tracking-wider select-all pointer-events-auto">
+                  {/* Badge de SKU con botón de enlace a pestaña nueva */}
+                  <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded px-2.5 py-1 shadow-md flex items-center gap-1.5 pointer-events-auto">
+                    <span className="font-mono text-xs font-bold text-white tracking-wider select-all">
                       {inspectedProduct.sku_base}
                     </span>
+                    <a
+                      href={`/catalogo/${inspectedProduct.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      draggable={false}
+                      className="text-white/70 hover:text-white transition-colors p-0.5 rounded hover:bg-white/10 flex items-center justify-center cursor-pointer"
+                      title={`Abrir detalle de ${inspectedProduct.sku_base} en nueva pestaña`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
                   </div>
 
                   {/* Detalle / Descripción */}
@@ -2630,6 +3007,116 @@ export function FamiliasOrganizerClient({
           )}
         </aside>
       </div>
+
+      {/* ── DIALOG DE CREACIÓN / AGREGAR PRODUCTO DIRECTO EN FAMILIAS ── */}
+      <Dialog open={isCreateProductModalOpen} onOpenChange={setIsCreateProductModalOpen}>
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Agregar Producto a Familia
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateProductSubmit} className="space-y-4 py-2 text-xs">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                <span>SKU Base *</span>
+                {skuChecking && <span className="text-[10px] text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Verificando...</span>}
+              </label>
+              <Input
+                placeholder="Ej. K24, F320-001, etc."
+                value={newProductSku}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase()
+                  setNewProductSku(val)
+                }}
+                onBlur={(e) => handleValidateSku(e.target.value)}
+                className="h-9 font-mono text-xs uppercase"
+                required
+              />
+              {skuValidationError && (
+                <p className="text-[11px] text-destructive font-medium">{skuValidationError}</p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Nombre / Título (opcional)</label>
+              <Input
+                placeholder="Ej. Playera Básica Cuello Redondo"
+                value={newProductNombre}
+                onChange={(e) => setNewProductNombre(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Descripción (opcional)</label>
+              <Input
+                placeholder="Ej. Playera de algodón peinado manga corta"
+                value={newProductDescripcion}
+                onChange={(e) => setNewProductDescripcion(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground">Familia Asignada</label>
+              <Input
+                placeholder="Ej. F000-000C o nombre de familia"
+                value={newProductFamilia}
+                onChange={(e) => setNewProductFamilia(e.target.value)}
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">Piezas por Caja</label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={newProductPzCaja}
+                  onChange={(e) => setNewProductPzCaja(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">Precio EC ($)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={newProductPrecio}
+                  onChange={(e) => setNewProductPrecio(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCreateProductModalOpen(false)}
+                disabled={isCreatingProduct}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isCreatingProduct || skuChecking || !!skuValidationError}
+                className="bg-primary text-primary-foreground font-semibold"
+              >
+                {isCreatingProduct && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+                Crear Producto
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* ── DIALOG DE CREACIÓN DE FAMILIA INTERMEDIA ───────────────────── */}
       <Dialog open={isCreateIntermediateDialogOpen} onOpenChange={setIsCreateIntermediateDialogOpen}>
