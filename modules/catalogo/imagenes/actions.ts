@@ -5,6 +5,7 @@
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { resolverSkuParaArchivo, type MatchResult, type SkuCatalogProduct } from './sku-matcher'
 
 type ActionResult = { success: boolean; error?: string; message?: string }
 
@@ -544,5 +545,45 @@ export async function uploadSingleImagenConSkuAction(
   } catch (err: any) {
     console.warn('[uploadSingleImagenConSkuAction] Exception:', err)
     return { success: false, error: err.message }
+  }
+}
+
+/**
+ * Detecta y empareja los SKUs para un lote de nombres de archivo subidos.
+ * Utiliza el motor híbrido multicapa (reglas MOTI, canónicas, O/0, sufijos de fotos).
+ */
+export async function detectarSkusArchivosAction(
+  filenames: string[]
+): Promise<{ success: boolean; results: Record<string, MatchResult>; error?: string }> {
+  try {
+    if (!filenames || filenames.length === 0) {
+      return { success: true, results: {} }
+    }
+
+    const supabase = await createClient()
+    const { data: prods, error } = await (supabase.from('productos') as any)
+      .select('id, sku_base, nombre')
+      .eq('activo', true)
+
+    if (error || !prods) {
+      console.error('[detectarSkusArchivosAction] Error fetching catalog:', error)
+      return { success: false, results: {}, error: error?.message || 'Error al consultar catálogo' }
+    }
+
+    const catalog: SkuCatalogProduct[] = prods.map((p: any) => ({
+      id: Number(p.id),
+      sku_base: String(p.sku_base),
+      nombre: p.nombre ? String(p.nombre) : null,
+    }))
+
+    const results: Record<string, MatchResult> = {}
+    for (const filename of filenames) {
+      results[filename] = resolverSkuParaArchivo(filename, catalog)
+    }
+
+    return { success: true, results }
+  } catch (err: any) {
+    console.error('[detectarSkusArchivosAction] Exception:', err)
+    return { success: false, results: {}, error: err.message }
   }
 }
