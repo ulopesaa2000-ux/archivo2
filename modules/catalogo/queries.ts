@@ -740,11 +740,12 @@ export interface FamiliaResumen {
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
 
-  // Obtenemos productos e imágenes principales en paralelo para evitar peticiones cliente en cascada
+  // Obtenemos productos e imágenes principales en paralelo ordenados alfabéticamente por sku_base
   const [productosRes, imagenesRes] = await Promise.all([
     supabase.from('productos')
       .select('id, familia, descripcion, sku_base, activo')
-      .eq('cliente_b2b_id' as any, 27),
+      .eq('cliente_b2b_id' as any, 27)
+      .order('sku_base', { ascending: true }),
     supabase.from('producto_imagenes')
       .select('producto_id, url')
       .eq('es_principal', true)
@@ -763,7 +764,6 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   }
 
   const conteos: Record<string, number> = {}
-  const descripciones: Record<string, string | null> = {}
   const skusPorFamilia: Record<string, FamiliaResumenSku[]> = {}
   let countNull = 0
 
@@ -771,9 +771,6 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
     const imgUrl = imagenesMap.get(p.id) || null
     if (p.familia) {
       conteos[p.familia] = (conteos[p.familia] || 0) + 1
-      if (!descripciones[p.familia] && p.descripcion) {
-        descripciones[p.familia] = p.descripcion
-      }
       if (!skusPorFamilia[p.familia]) {
         skusPorFamilia[p.familia] = []
       }
@@ -791,6 +788,14 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
     }
   }
 
+  // Ordenar los modelos de cada familia alfabéticamente y tomar la descripción del primer SKU alfabético
+  const descripciones: Record<string, string | null> = {}
+  Object.keys(skusPorFamilia).forEach((fam) => {
+    skusPorFamilia[fam].sort((a, b) => a.sku_base.localeCompare(b.sku_base, 'es', { sensitivity: 'base' }))
+    const primerSkuConDesc = skusPorFamilia[fam].find((s) => s.descripcion && s.descripcion.trim()) || skusPorFamilia[fam][0]
+    descripciones[fam] = primerSkuConDesc?.descripcion || null
+  })
+
   const res: FamiliaResumen[] = Object.entries(conteos).map(([familia, count]) => {
     // Detectar si cumple el patrón F000-000A, F000-000B, etc.
     const es_codigo_raw = /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(familia)
@@ -804,20 +809,23 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   })
 
   if (countNull > 0) {
+    const unassignedSkus = (productosRes.data || [])
+      .filter((p: any) => !p.familia && p.sku_base)
+      .map((p: any) => ({
+        id: p.id,
+        sku_base: p.sku_base,
+        descripcion: p.descripcion || null,
+        activo: p.activo,
+        imagen_principal: imagenesMap.get(p.id) || null
+      }))
+      .sort((a, b) => a.sku_base.localeCompare(b.sku_base, 'es', { sensitivity: 'base' }))
+
     res.push({
       familia: null,
       total_productos: countNull,
       es_codigo_raw: false,
       descripcion: 'Productos sin familia asignada',
-      skus: (productosRes.data || [])
-        .filter((p: any) => !p.familia && p.sku_base)
-        .map((p: any) => ({
-          id: p.id,
-          sku_base: p.sku_base,
-          descripcion: p.descripcion || null,
-          activo: p.activo,
-          imagen_principal: imagenesMap.get(p.id) || null
-        })),
+      skus: unassignedSkus,
     })
   }
 
@@ -830,6 +838,30 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
     const nameB = b.familia || ''
     return nameA.localeCompare(nameB, 'es', { sensitivity: 'base' })
   })
+}
+
+/**
+ * Retorna un mapa canónico { [familia]: descripcion } obtenido a partir del primer
+ * SKU en orden alfabético de todo el catálogo, garantizando descripción idéntica sin importar stock.
+ */
+export async function fetchDescripcionesCanonicasFamilias(): Promise<Record<string, string>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('productos')
+    .select('familia, descripcion, nombre, sku_base')
+    .not('familia', 'is', null)
+    .order('sku_base', { ascending: true })
+
+  if (error || !data) return {}
+
+  const map: Record<string, string> = {}
+  for (const p of data) {
+    const desc = (p.descripcion || p.nombre || '').trim()
+    if (p.familia && !map[p.familia] && desc) {
+      map[p.familia] = desc
+    }
+  }
+  return map
 }
 
 export async function fetchProductosPorFamilia(

@@ -862,6 +862,15 @@ export async function fetchStockByBodega(
     }
   })
 
+  // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+  items.sort((a, b) => {
+    const famA = a.producto_familia || 'Sin Familia'
+    const famB = b.producto_familia || 'Sin Familia'
+    const famCmp = famA.localeCompare(famB)
+    if (famCmp !== 0) return famCmp
+    return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+  })
+
   return { items, total: count ?? 0, totalCajas, totalNotasPendientes: 0 }
 }
 
@@ -1251,11 +1260,14 @@ export async function fetchStockMatrix(
     }
   }
 
-  // Si no es pronóstico ni solo_afectados, usamos paginación directa de Supabase
+  // Si no es pronóstico ni solo_afectados, usamos paginación directa de Supabase ordenada por familia y sku_base
   if (!isPronostico) {
     const from = (page - 1) * limit
     const to = from + limit - 1
-    query = query.order('id').range(from, to)
+    query = query
+      .order('familia', { ascending: true, nullsFirst: false })
+      .order('sku_base', { ascending: true })
+      .range(from, to)
 
     const { data, count, error } = await query
 
@@ -1290,6 +1302,15 @@ export async function fetchStockMatrix(
         stock_por_bodega: dict,
         total_general: totalGeneral,
       }
+    })
+
+    // Ordenamiento: Ordenar por Familia -> Modelo (SKU)
+    items.sort((a, b) => {
+      const famA = a.producto_familia || 'Sin Familia'
+      const famB = b.producto_familia || 'Sin Familia'
+      const famCmp = famA.localeCompare(famB)
+      if (famCmp !== 0) return famCmp
+      return (a.producto_sku || '').localeCompare(b.producto_sku || '')
     })
 
     return { items: items as StockMatrixItem[], total: count ?? 0, totalNotasPendientes: 0 }

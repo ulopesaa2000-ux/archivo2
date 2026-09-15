@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from './permissions'
 import { fetchStockByBodegaAll, fetchStockMatrixAll } from './queries'
+import { fetchDescripcionesCanonicasFamilias } from '@/modules/catalogo/queries'
 import { fetchConfigInventario } from './config-queries'
 import { dateInputToMexicoUTC } from '@/lib/utils'
 import type {
@@ -1277,10 +1278,13 @@ export async function actualizarPropuestaOcrLineasAction(
 export async function exportStockByBodegaAction(
   bodegaId: number,
   filtros?: FiltrosStock
-): Promise<{ success: boolean; data?: StockListItem[]; error?: string }> {
+): Promise<{ success: boolean; data?: StockListItem[]; descripcionesCanonicas?: Record<string, string>; error?: string }> {
   try {
-    const items = await fetchStockByBodegaAll(bodegaId, filtros)
-    return { success: true, data: items }
+    const [items, descripcionesCanonicas] = await Promise.all([
+      fetchStockByBodegaAll(bodegaId, filtros),
+      fetchDescripcionesCanonicasFamilias(),
+    ])
+    return { success: true, data: items, descripcionesCanonicas }
   } catch (err: any) {
     return { success: false, error: err.message ?? 'Error al exportar stock' }
   }
@@ -1289,10 +1293,13 @@ export async function exportStockByBodegaAction(
 export async function exportStockMatrixAction(
   filtros: FiltrosStockMatrix,
   bodegas: BodegaRow[]
-): Promise<{ success: boolean; data?: StockMatrixItem[]; error?: string }> {
+): Promise<{ success: boolean; data?: StockMatrixItem[]; descripcionesCanonicas?: Record<string, string>; error?: string }> {
   try {
-    const items = await fetchStockMatrixAll(filtros, bodegas)
-    return { success: true, data: items }
+    const [items, descripcionesCanonicas] = await Promise.all([
+      fetchStockMatrixAll(filtros, bodegas),
+      fetchDescripcionesCanonicasFamilias(),
+    ])
+    return { success: true, data: items, descripcionesCanonicas }
   } catch (err: any) {
     return { success: false, error: err.message ?? 'Error al exportar matriz de stock' }
   }

@@ -20,11 +20,13 @@ export function StockTable({
   bodegaId,
   agruparPor,
   bodegaNombre,
+  descripcionesCanonicas,
 }: {
   items: StockListItem[]
   bodegaId: number
   agruparPor?: string
   bodegaNombre?: string
+  descripcionesCanonicas?: Record<string, string>
 }) {
   const searchParams = useSearchParams()
   const isPronostico = searchParams.get('modo') === 'pronostico'
@@ -117,17 +119,26 @@ export function StockTable({
     return { totalCajas: tc, totalPiezas: tp, totalDelta: td, totalPronosticado: tpron }
   }, [items])
 
-  // Mapear descripción general por familia para usar en subtotales
+  // Mapear descripción general por familia usando prioritariamente el diccionario canónico global
   const familyDescriptions = useMemo(() => {
-    const map: Record<string, string> = {}
-    items.forEach((item) => {
-      const family = item.producto_familia || 'Sin Familia'
-      if (!map[family]) {
-        map[family] = item.producto_nombre || item.producto_descripcion || ''
-      }
-    })
+    const map: Record<string, string> = { ...(descripcionesCanonicas || {}) }
+    if (groupedItems) {
+      groupedItems.forEach((group) => {
+        if (!map[group.familia]) {
+          const primerConDesc = group.items.find((i) => (i.producto_nombre || i.producto_descripcion)?.trim()) || group.items[0]
+          map[group.familia] = primerConDesc?.producto_nombre || primerConDesc?.producto_descripcion || ''
+        }
+      })
+    } else {
+      items.forEach((item) => {
+        const family = item.producto_familia || 'Sin Familia'
+        if (!map[family]) {
+          map[family] = item.producto_nombre || item.producto_descripcion || ''
+        }
+      })
+    }
     return map
-  }, [items])
+  }, [items, groupedItems, descripcionesCanonicas])
 
   const expandAll = () => {
     if (!groupedItems) return
@@ -182,6 +193,7 @@ export function StockTable({
         return
       }
 
+      const canonMap = res.descripcionesCanonicas || descripcionesCanonicas || {}
       const allItems = res.data
       allItems.sort((a, b) => {
         const famA = a.producto_familia || 'SIN FAMILIA'
@@ -215,9 +227,12 @@ export function StockTable({
             .map((n) => `${n.numero_nota} (${n.delta >= 0 ? '+' : ''}${n.delta} cjs)`)
             .join(', ')
 
+          const fam = item.producto_familia || 'SIN FAMILIA'
+          const isUn = isUnassignedFamily(fam)
+          const descGral = (!isUn && canonMap[fam]) ? canonMap[fam] : (item.producto_nombre || item.producto_descripcion || '')
           dataSheet.addRow({
-            familia: item.producto_familia || 'SIN FAMILIA',
-            desc_gral: item.producto_nombre || item.producto_descripcion || '',
+            familia: fam,
+            desc_gral: descGral,
             sku: item.producto_sku,
             marca: item.marca_nombre || '',
             cajas: item.cajas,
@@ -240,9 +255,12 @@ export function StockTable({
 
         allItems.forEach((item) => {
           const totalPz = (item.cajas * (item.producto_pz_en_caja ?? 0)) + item.piezas_sueltas
+          const fam = item.producto_familia || 'SIN FAMILIA'
+          const isUn = isUnassignedFamily(fam)
+          const descGral = (!isUn && canonMap[fam]) ? canonMap[fam] : (item.producto_nombre || item.producto_descripcion || '')
           dataSheet.addRow({
-            familia: item.producto_familia || 'SIN FAMILIA',
-            desc_gral: item.producto_nombre || item.producto_descripcion || '',
+            familia: fam,
+            desc_gral: descGral,
             sku: item.producto_sku,
             marca: item.marca_nombre || '',
             cajas: item.cajas,
