@@ -293,6 +293,41 @@ export function FamiliasOrganizerClient({
     }, 120)
   }
 
+  // --- Hacer scroll directo a la familia ubicada manteniendo o ajustando la vista ---
+  const handleScrollToHighlightedFamily = (familyName: string) => {
+    if (!familyName) return
+    
+    // Si estamos en vista tarjetas, expandirla y cargar sus productos
+    if (activeDirTab === 'cards') {
+      setExpandedFamilies(prev => ({ ...prev, [familyName]: true }))
+      loadProductsForFamily(familyName)
+    }
+
+    setTimeout(() => {
+      const el = activeDirTab === 'cards' 
+        ? document.getElementById(`family-item-card-${familyName}`)
+        : document.getElementById(`family-item-${familyName}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2')
+        setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2')
+        }, 1500)
+      } else {
+        toast.info(`Mostrando familia ${familyName}...`)
+        setSearchQuery('')
+        setTimeout(() => {
+          const retryEl = activeDirTab === 'cards' 
+            ? document.getElementById(`family-item-card-${familyName}`)
+            : document.getElementById(`family-item-${familyName}`)
+          if (retryEl) {
+            retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 150)
+      }
+    }, 100)
+  }
+
   // --- Estado ocultable de las secciones del sidebar ---
   const [isSinAsignarCollapsed, setIsSinAsignarCollapsed] = useState(false)
   const [isBandejaCollapsed, setIsBandejaCollapsed] = useState(false)
@@ -459,6 +494,11 @@ export function FamiliasOrganizerClient({
           }
         }
       }
+    })
+
+    // 3. Ordenar alfabéticamente los SKUs de cada familia por sku_base
+    Object.keys(netSkus).forEach(famKey => {
+      netSkus[famKey].sort((a, b) => (a.sku_base || '').localeCompare(b.sku_base || '', 'es', { sensitivity: 'base' }))
     })
 
     return netSkus
@@ -950,7 +990,7 @@ export function FamiliasOrganizerClient({
     )
   })
 
-  // --- Resolver familia y productos de forma combinada (incluyendo staged changes) ---
+  // --- Resolver familia y productos de forma combinada (incluyendo staged changes) ordenados por sku_base ---
   const getVisibleProductsInFamily = (familyCode: string): ProductListItem[] => {
     const originalProds = loadedProducts[familyCode] || []
     return originalProds
@@ -967,6 +1007,7 @@ export function FamiliasOrganizerClient({
         if (currentFam !== familyCode) return false
         return mostrarInactivos || p.activo !== false
       })
+      .sort((a, b) => (a.sku_base || '').localeCompare(b.sku_base || '', 'es', { sensitivity: 'base' }))
   }
 
   // --- Productos que pertenecen a la familia destino actual en el workspace ---
@@ -1437,7 +1478,6 @@ export function FamiliasOrganizerClient({
 
         sorted.forEach((f) => {
           const name = f.familia || 'Sin Clasificar'
-          const desc = f.descripcion || ''
           const isUnassigned = isUnassignedFamily(f.familia)
           if (!isUnassigned) realFamiliesCount++
 
@@ -1482,6 +1522,13 @@ export function FamiliasOrganizerClient({
               }
             }
           })
+
+          // Ordenar siempre los modelos alfabéticamente por SKU
+          skusList.sort((a, b) => (a.sku_base || '').localeCompare(b.sku_base || '', 'es', { sensitivity: 'base' }))
+
+          // Tomar la descripción de la familia a partir del primer SKU alfabético con descripción
+          const primerSkuConDesc = skusList.find(s => s.descripcion && s.descripcion.trim()) || skusList[0]
+          const desc = primerSkuConDesc?.descripcion || f.descripcion || ''
 
           if (skusList.length > 0) {
             const startMerge = currentRow
@@ -2156,14 +2203,15 @@ export function FamiliasOrganizerClient({
 
         {/* COLUMNA 2: ÁREA CENTRAL (Workspace Mapeador de Familias) */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-muted/10">
-          {/* Barra de Herramientas Superior del Workspace */}
-          <div className="p-3 bg-card border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="relative">
+          {/* Barra de Herramientas Superior del Workspace (3 Columnas de 2 Filas Máximo) */}
+          <div className="p-2.5 bg-card border-b border-zinc-200 dark:border-zinc-800 flex items-start justify-between gap-3 shrink-0">
+            {/* Columna 1: Buscador (Fila 1) + Ubicando (Fila 2) */}
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[150px] max-w-sm">
+              <div className="relative w-full">
                 <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   placeholder="Buscar familias, productos o SKUs..."
-                  className="pl-8 pr-7 h-8 w-72 text-xs"
+                  className="pl-8 pr-7 h-8 w-full text-xs"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -2180,40 +2228,40 @@ export function FamiliasOrganizerClient({
               </div>
 
               {highlightedFamily && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 animate-in fade-in duration-200 shrink-0">
-                  <span className="text-[11px]">Ubicando: <span className="font-mono font-bold text-blue-800 dark:text-blue-200">{highlightedFamily}</span></span>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-500/10 hover:bg-blue-500/15 border border-blue-500/30 text-blue-700 dark:text-blue-300 animate-in fade-in duration-200 self-start transition-colors group">
                   <button
                     type="button"
-                    onClick={() => setHighlightedFamily(null)}
-                    className="p-0.5 hover:bg-blue-500/20 rounded text-blue-600 dark:text-blue-400 transition-colors ml-0.5"
+                    onClick={() => handleScrollToHighlightedFamily(highlightedFamily)}
+                    className="flex items-center gap-1 text-[11px] truncate max-w-[180px] hover:underline cursor-pointer"
+                    title="Clic para ir y hacer scroll hasta esta familia"
+                  >
+                    <span>Ubicando:</span>
+                    <span className="font-mono font-bold text-blue-800 dark:text-blue-200">{highlightedFamily}</span>
+                    <ArrowRight className="h-3 w-3 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setHighlightedFamily(null)
+                    }}
+                    className="p-0.5 hover:bg-blue-500/30 rounded text-blue-600 dark:text-blue-400 transition-colors ml-0.5 cursor-pointer"
                     title="Quitar destacado de esta familia"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3 w-3 shrink-0" />
                   </button>
                 </div>
               )}
+            </div>
 
-              <div className="flex items-center gap-2 bg-muted/40 px-2 py-1 rounded-md border text-xs">
-                <Checkbox
-                  id="mostrar-inactivos"
-                  checked={mostrarInactivos}
-                  onCheckedChange={(checked) => setMostrarInactivos(!!checked)}
-                  className="h-3.5 w-3.5"
-                />
-                <label
-                  htmlFor="mostrar-inactivos"
-                  className="text-[11px] font-medium cursor-pointer text-muted-foreground select-none hover:text-foreground"
-                >
-                  Mostrar inactivos (Andrés Mendoza)
-                </label>
-              </div>
-
-              {/* Selector de Pestaña de Vista */}
-              <div className="flex bg-muted p-0.5 rounded-lg text-xs">
+            {/* Columna 2: Selector de Vistas (Fila 1) + Exportar Excel (Fila 2) */}
+            <div className="flex flex-col gap-1.5 items-stretch shrink-0 min-w-[180px]">
+              {/* Fila 1: Selector de Pestaña de Vista */}
+              <div className="flex bg-muted p-0.5 rounded-lg text-xs w-full">
                 <button
                   onClick={() => setActiveDirTab('cards')}
                   className={cn(
-                    "px-3 py-1 rounded-md transition-all font-medium",
+                    "flex-1 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
                     activeDirTab === 'cards'
                       ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
@@ -2224,7 +2272,7 @@ export function FamiliasOrganizerClient({
                 <button
                   onClick={() => setActiveDirTab('skus')}
                   className={cn(
-                    "px-3 py-1 rounded-md transition-all font-medium",
+                    "flex-1 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
                     activeDirTab === 'skus'
                       ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
@@ -2233,45 +2281,57 @@ export function FamiliasOrganizerClient({
                   Vista Puro SKU
                 </button>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2">
-              {puedeEditar && (
-                <Button
-                  onClick={() => handleOpenCreateProductModal()}
-                  variant="default"
-                  size="sm"
-                  className="h-8 gap-1.5 font-semibold bg-primary text-primary-foreground shadow-xs text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Agregar Producto</span>
-                </Button>
-              )}
-
+              {/* Fila 2: Botón Exportar Excel */}
               <Button
                 onClick={handleExportToExcel}
                 variant="outline"
-                className="h-8 border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 flex items-center gap-1.5"
+                className="h-8 border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 flex items-center justify-center gap-1.5 text-xs w-full"
                 size="sm"
               >
                 <FileSpreadsheet className="h-4 w-4 text-green-600 dark:text-green-400" />
-                Exportar Excel
+                <span>Exportar Excel</span>
               </Button>
+            </div>
 
+            {/* Columna 3: Cambios (Fila 1) + Mostrar Inactivos (Fila 2) */}
+            <div className="flex flex-col gap-1.5 items-end shrink-0">
+              {/* Fila 1: Botón de Cambios Adaptativo */}
               <Button
                 variant="ghost"
                 onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                className="h-8 text-xs flex items-center gap-1 bg-muted/40 hover:bg-muted"
+                className="h-8 text-xs flex items-center gap-1.5 bg-muted/40 hover:bg-muted"
                 size="sm"
+                title="Historial de cambios pendientes"
               >
-                <History className="h-4 w-4 text-muted-foreground" />
-                <span>Cambios ({Object.keys(stagedMoves).length})</span>
+                <History className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="hidden sm:inline">Cambios</span>
+                <span className="font-mono text-xs font-bold px-1.5 py-0.2 rounded bg-muted text-foreground">
+                  ({Object.keys(stagedMoves).length})
+                </span>
                 {isRightPanelOpen ? (
-                  <ChevronRight className="h-3 w-3 ml-1" />
+                  <ChevronRight className="h-3.5 w-3.5 ml-0.5 text-muted-foreground" />
                 ) : (
-                  <ChevronDown className="h-3 w-3 ml-1" />
+                  <ChevronDown className="h-3.5 w-3.5 ml-0.5 text-muted-foreground" />
                 )}
               </Button>
+
+              {/* Fila 2: Checkbox Mostrar Inactivos (ocultable si no cabe) */}
+              <div className="hidden sm:flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border text-xs self-end">
+                <Checkbox
+                  id="mostrar-inactivos"
+                  checked={mostrarInactivos}
+                  onCheckedChange={(checked) => setMostrarInactivos(!!checked)}
+                  className="h-3.5 w-3.5"
+                />
+                <label
+                  htmlFor="mostrar-inactivos"
+                  className="text-[11px] font-medium cursor-pointer text-muted-foreground select-none hover:text-foreground whitespace-nowrap"
+                >
+                  <span className="hidden lg:inline">Mostrar inactivos (Andrés Mendoza)</span>
+                  <span className="lg:hidden">Inactivos</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -2319,6 +2379,8 @@ export function FamiliasOrganizerClient({
                       const renombradoLocal = stagedRenames[name] || autoRenames[name]
                       const displayName = renombradoLocal ? `${name} → ${renombradoLocal}` : name
                       const skus = netSkusMap[name] || []
+                      const primerSkuConDesc = skus.find(s => s.descripcion && s.descripcion.trim()) || skus[0]
+                      const displayedFamilyDesc = primerSkuConDesc?.descripcion || f.descripcion
 
                       return (
                         <div key={name} id={`family-item-${name}`} className="space-y-2">
@@ -2409,9 +2471,9 @@ export function FamiliasOrganizerClient({
                                 </Badge>
                               </div>
                             </div>
-                            {f.descripcion && (
+                            {displayedFamilyDesc && (
                               <p className="text-xs text-muted-foreground italic">
-                                {f.descripcion}
+                                {displayedFamilyDesc}
                               </p>
                             )}
                             {skus.length > 0 ? (
@@ -2645,11 +2707,17 @@ export function FamiliasOrganizerClient({
                               </div>
                             </div>
 
-                            {f.descripcion && (
-                              <p className="text-xs text-muted-foreground italic mb-2 pl-6">
-                                Descripción genérica: {f.descripcion}
-                              </p>
-                            )}
+                            {(() => {
+                              const skusOfFam = netSkusMap[name] || []
+                              const primerConDesc = visibleInGroup.find(p => p.descripcion && p.descripcion.trim()) || skusOfFam.find(s => s.descripcion && s.descripcion.trim())
+                              const descToShow = primerConDesc?.descripcion || f.descripcion
+                              if (!descToShow) return null
+                              return (
+                                <p className="text-xs text-muted-foreground italic mb-2 pl-6">
+                                  Descripción genérica: {descToShow}
+                                </p>
+                              )
+                            })()}
 
                             {/* Grid de productos si está expandida */}
                             {isExpanded && (

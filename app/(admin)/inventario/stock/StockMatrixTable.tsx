@@ -50,9 +50,10 @@ type Props = {
   total: number
   agruparPor?: string
   totalesCajasRealesPorBodega?: Record<number, number>
+  descripcionesCanonicas?: Record<string, string>
 }
 
-export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, totalesCajasRealesPorBodega }: Props) {
+export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, totalesCajasRealesPorBodega, descripcionesCanonicas }: Props) {
   const searchParams = useSearchParams()
   const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -184,17 +185,26 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
     setExpandedGroups(allFamilias)
   }
 
-  // Mapear descripción general por familia para usar en subtotales
+  // Mapear descripción general por familia usando prioritariamente el diccionario canónico global
   const familyDescriptions = useMemo(() => {
-    const map: Record<string, string> = {}
-    items.forEach(item => {
-      const family = item.producto_familia || 'Sin Familia'
-      if (!map[family]) {
-        map[family] = item.producto_nombre || item.producto_descripcion || ''
-      }
-    })
+    const map: Record<string, string> = { ...(descripcionesCanonicas || {}) }
+    if (groupedItems) {
+      groupedItems.forEach((group) => {
+        if (!map[group.familia]) {
+          const primerConDesc = group.items.find(i => (i.producto_nombre || i.producto_descripcion)?.trim()) || group.items[0]
+          map[group.familia] = primerConDesc?.producto_nombre || primerConDesc?.producto_descripcion || ''
+        }
+      })
+    } else {
+      items.forEach((item) => {
+        const family = item.producto_familia || 'Sin Familia'
+        if (!map[family]) {
+          map[family] = item.producto_nombre || item.producto_descripcion || ''
+        }
+      })
+    }
     return map
-  }, [items])
+  }, [items, groupedItems, descripcionesCanonicas])
 
   const collapseAll = () => {
     setExpandedGroups(new Set())
@@ -234,8 +244,10 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       })
       const workbook = new ExcelJS.Workbook()
       
+      const canonMap = res.descripcionesCanonicas || descripcionesCanonicas || {}
+
       // Mapear descripción general por familia y calcular totales
-      const familyDescriptions: Record<string, string> = {}
+      const familyDescriptions: Record<string, string> = { ...canonMap }
       const itemsByFamily: Record<string, typeof allItems> = {}
       const expTotalsCajasPerBodega: Record<number, number> = {}
       const expTotalsPiezasPerBodega: Record<number, number> = {}
@@ -244,10 +256,6 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
       allItems.forEach(item => {
         const family = item.producto_familia || 'SIN FAMILIA'
-        if (!familyDescriptions[family]) {
-          familyDescriptions[family] = item.producto_nombre || item.producto_descripcion || ''
-        }
-
         if (!itemsByFamily[family]) itemsByFamily[family] = []
         itemsByFamily[family].push(item)
 
@@ -272,6 +280,15 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
         expGrandTotalCajas += itemTotalCajas
         expGrandTotalPiezas += itemTotalPiezas
+      })
+
+      // Mapear descripción general tomando del mapa canónico o el primer SKU alfabético con descripción
+      Object.keys(itemsByFamily).forEach(family => {
+        if (!familyDescriptions[family]) {
+          const famItems = itemsByFamily[family]
+          const primerConDesc = famItems.find(i => (i.producto_nombre || i.producto_descripcion)?.trim()) || famItems[0]
+          familyDescriptions[family] = primerConDesc?.producto_nombre || primerConDesc?.producto_descripcion || ''
+        }
       })
 
       // Filtrar únicamente las bodegas que tienen al menos 1 caja o existencia > 0
@@ -402,7 +419,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         const isUnassigned = isUnassignedFamily(family)
         const isEven = fIdx % 2 === 0
         const bgColor = isEven ? 'FFFFFFFF' : 'FFF9FAFB'
-        const descText = familyDescriptions[family] || familyItems[0]?.producto_nombre || familyItems[0]?.producto_descripcion || ''
+        const descText = (!isUnassigned && familyDescriptions[family]) ? familyDescriptions[family] : (familyItems[0]?.producto_nombre || familyItems[0]?.producto_descripcion || '')
 
         // Altura dinámica según extensión de descripción
         const itemsCount = familyItems.length
@@ -630,12 +647,13 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
       allItems.forEach(item => {
         const family = item.producto_familia || 'SIN FAMILIA'
+        const isUn = isUnassignedFamily(family)
         const pzCaja = item.pz_en_caja ?? 1
         let rowCajas = 0
         let rowPiezas = 0
 
         const rowValues: any = {
-          desc_gral: item.producto_nombre || item.producto_descripcion || familyDescriptions[family] || '',
+          desc_gral: isUn ? (item.producto_nombre || item.producto_descripcion || '') : (familyDescriptions[family] || item.producto_nombre || item.producto_descripcion || ''),
           sku: item.producto_sku,
           pz_caja: pzCaja,
           familia: family,

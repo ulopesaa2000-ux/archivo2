@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { fetchStockByBodega, fetchCatalogosInventario, fetchStockMatrix, fetchNotasPendientesPorBodega, fetchTotalesCajasPorBodegas } from '@/modules/inventario/queries'
+import { fetchDescripcionesCanonicasFamilias } from '@/modules/catalogo/queries'
 import { StockFilters } from '@/app/(admin)/inventario/stock/StockFilters'
 import { StockTable } from '@/app/(admin)/inventario/stock/StockTable'
 import { StockMatrixFilters } from '@/app/(admin)/inventario/stock/StockMatrixFilters'
@@ -77,9 +78,10 @@ async function StockMatrixTableData({
     ? Promise.resolve({} as Record<number, number>)
     : fetchTotalesCajasPorBodegas(bodegasColumnas.map((b) => b.id))
 
-  const [res, totalesCajasRealesPorBodega] = await Promise.all([
+  const [res, totalesCajasRealesPorBodega, descripcionesCanonicas] = await Promise.all([
     stockMatrixPromise,
     totalesCajasPromise,
+    fetchDescripcionesCanonicasFamilias(),
   ])
 
   const items = isNone ? [] : res.items
@@ -96,6 +98,7 @@ async function StockMatrixTableData({
         total={total}
         agruparPor={agruparPor}
         totalesCajasRealesPorBodega={totalesCajasRealesPorBodega}
+        descripcionesCanonicas={descripcionesCanonicas}
       />
       <Pagination total={total} pageSize={pageSize} />
     </div>
@@ -115,10 +118,10 @@ async function StockNormalTableData({
   agruparPor?: string
   pageSize?: number
 }) {
-  const { items, total } = await fetchStockByBodega(
-    bodegaActivaId,
-    filtros
-  )
+  const [{ items, total }, descripcionesCanonicas] = await Promise.all([
+    fetchStockByBodega(bodegaActivaId, filtros),
+    fetchDescripcionesCanonicasFamilias(),
+  ])
   const bodegaActiva = bodegas.find((b) => b.id === bodegaActivaId)
 
   return (
@@ -131,6 +134,7 @@ async function StockNormalTableData({
         bodegaId={bodegaActivaId}
         agruparPor={agruparPor}
         bodegaNombre={bodegaActiva?.nombre}
+        descripcionesCanonicas={descripcionesCanonicas}
       />
       <Pagination total={total} pageSize={pageSize} />
     </div>
