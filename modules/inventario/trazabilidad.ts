@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 // Helpers de ordenamiento de Familias (canónico: descendente, sin depender de stock)
 // Compatible con lógica de StockMatrixTable y fetchDescripcionesCanonicasFamilias
 // ─────────────────────────────────────────────────────────────────────────────
-export function isTrazabilidadFamiliaUnassigned(fam: string | null | undefined): boolean {
+function isTrazabilidadFamiliaUnassigned(fam: string | null | undefined): boolean {
   if (!fam) return true
   const norm = fam.trim().toUpperCase()
   return (
