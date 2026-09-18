@@ -3,6 +3,40 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers de ordenamiento de Familias (canónico: descendente, sin depender de stock)
+// Compatible con lógica de StockMatrixTable y fetchDescripcionesCanonicasFamilias
+// ─────────────────────────────────────────────────────────────────────────────
+export function isTrazabilidadFamiliaUnassigned(fam: string | null | undefined): boolean {
+  if (!fam) return true
+  const norm = fam.trim().toUpperCase()
+  return (
+    norm === 'F000-000C' ||
+    norm === 'F000-000' ||
+    norm === 'SIN_FAMILIA' ||
+    norm === 'SIN FAMILIA' ||
+    norm === 'SIN ASIGNAR' ||
+    norm === 'SIN CLASIFICAR' ||
+    norm === '—' ||
+    norm === '-' ||
+    norm === 'NULL' ||
+    norm === 'UNDEFINED'
+  )
+}
+
+function compareFamiliaDesc(a: string, b: string): number {
+  const aUn = isTrazabilidadFamiliaUnassigned(a)
+  const bUn = isTrazabilidadFamiliaUnassigned(b)
+  if (aUn && !bUn) return 1
+  if (!aUn && bUn) return -1
+  // Descendente alfabético Z → A (es locale)
+  return b.localeCompare(a, 'es', { sensitivity: 'base' })
+}
+
+function compareSkuAsc(a: string | undefined, b: string | undefined): number {
+  return (a || '').localeCompare(b || '', 'es', { sensitivity: 'base' })
+}
+
 export interface TrazabilidadFiltros {
   q?: string
   periodo?: 'mes_actual' | 'mes_anterior' | 'ultimo_mes' | 'rango' | 'todo'
@@ -175,6 +209,7 @@ export async function fetchTrazabilidadData(
     .select('id, sku_base, descripcion, familia, activo')
     .eq('activo', true)
     .order('sku_base')
+    .limit(10000)
 
   if (filtros.familia) {
     productosQuery = productosQuery.eq('familia', filtros.familia)
@@ -187,6 +222,28 @@ export async function fetchTrazabilidadData(
   const { data: productosRaw, error: prodError } = await productosQuery
   if (prodError) throw prodError
 
+  // 2b. Descripciones canónicas por familia (primera descripción alfabética sin importar stock)
+  // Se obtiene de todo el catálogo ordenado por sku_base asc, idéntico a fetchDescripcionesCanonicasFamilias
+  let familiaDescCanonMap = new Map<string, string>()
+  try {
+    const { data: canonRows } = await supabase
+      .from('productos')
+      .select('familia, descripcion, nombre, sku_base')
+      .not('familia', 'is', null)
+      .order('sku_base', { ascending: true })
+      .limit(5000)
+    if (canonRows) {
+      for (const p of canonRows as any[]) {
+        const fam = (p.familia || '').trim()
+        if (!fam || familiaDescCanonMap.has(fam)) continue
+        const desc = (p.descripcion || p.nombre || '').trim()
+        if (desc) familiaDescCanonMap.set(fam, desc)
+      }
+    }
+  } catch (_) {
+    // fallback silencioso; se usará el mapa local
+  }
+
   const productosMap = new Map<number, {
     id: number
     sku_base: string
@@ -196,13 +253,19 @@ export async function fetchTrazabilidadData(
   }>()
 
   const familiasSet = new Set<string>()
-  const familiaDescMap = new Map<string, string>()
+  // Mapa local (fallback) por si la familia no existe en el catálogo canónico (ej. SIN_FAMILIA)
+  const familiaDescLocalMap = new Map<string, string>()
 
-  ;(productosRaw || []).forEach((p) => {
+  // Ordenar productosRaw por sku_base asc para garantizar que la primera descripción coincida con el primer SKU alfabético
+  const productosRawOrdenados = [...(productosRaw || [])].sort((a: any, b: any) =>
+    (a.sku_base || '').localeCompare(b.sku_base || '', 'es', { sensitivity: 'base' })
+  )
+
+  ;(productosRawOrdenados || []).forEach((p) => {
     const fam = (p.familia || 'SIN_FAMILIA').trim()
     const desc = (p.descripcion || '').trim()
-    if (desc && !familiaDescMap.has(fam)) {
-      familiaDescMap.set(fam, desc)
+    if (desc && !familiaDescLocalMap.has(fam)) {
+      familiaDescLocalMap.set(fam, desc)
     }
 
     productosMap.set(p.id, {
@@ -215,10 +278,20 @@ export async function fetchTrazabilidadData(
     familiasSet.add(fam)
   })
 
-  const familiasDisponibles = Array.from(familiasSet).sort().map((fam) => ({
-    codigo: fam,
-    descripcion: familiaDescMap.get(fam) || null,
-  }))
+  // Combinar: priorizar canónico global, fallback a local
+  const familiaDescMap = new Map<string, string>()
+  familiasSet.forEach((fam) => {
+    const canon = familiaDescCanonMap.get(fam)
+    if (canon) familiaDescMap.set(fam, canon)
+    else if (familiaDescLocalMap.has(fam)) familiaDescMap.set(fam, familiaDescLocalMap.get(fam)!)
+  })
+
+  const familiasDisponibles = Array.from(familiasSet)
+    .sort((a, b) => compareFamiliaDesc(a, b))
+    .map((fam) => ({
+      codigo: fam,
+      descripcion: familiaDescMap.get(fam) || null,
+    }))
   const productosIds = Array.from(productosMap.keys())
 
   // 3. Obtener stock actual de esos productos
@@ -479,32 +552,41 @@ export async function fetchTrazabilidadData(
       fGroup.traspasos_flujo.push(...p.traspasos_flujo)
     })
 
-    matriz = Object.values(familiasAgrupadas).sort((a, b) => {
-      return (b.total_salidas + b.stock_actual) - (a.total_salidas + a.stock_actual)
+    // Ordenamiento canónico: familias descendentes (Z→A) con SIN_FAMILIA al final,
+    // SKUs dentro de cada familia en ascendente alfabético (respeta descripción canónica)
+    Object.values(familiasAgrupadas).forEach((fg) => {
+      fg.skus?.sort((a, b) => compareSkuAsc(a.sku_base, b.sku_base))
     })
+    matriz = Object.values(familiasAgrupadas).sort((a, b) => compareFamiliaDesc(a.familia, b.familia))
   } else {
-    matriz = Array.from(prodAcumulados.values()).map((p) => {
-      const stockInfo = stockActualPorProducto.get(p.producto_id) || { total: 0, por_ciudad: {} }
-      const stockActual = stockInfo.total
-      const stockInicial = Math.max(0, stockActual - p.entradas + p.salidas)
+    matriz = Array.from(prodAcumulados.values())
+      .map((p) => {
+        const stockInfo = stockActualPorProducto.get(p.producto_id) || { total: 0, por_ciudad: {} }
+        const stockActual = stockInfo.total
+        const stockInicial = Math.max(0, stockActual - p.entradas + p.salidas)
 
-      return {
-        id: `p-${p.producto_id}`,
-        familia: p.familia,
-        producto_id: p.producto_id,
-        sku_base: p.sku_base,
-        descripcion: p.descripcion || '',
-        foto_url: p.foto_url,
-        stock_inicial: stockInicial,
-        total_entradas: p.entradas,
-        total_salidas: p.salidas,
-        total_traspasos: p.traspasos,
-        stock_actual: stockActual,
-        salidas_por_ciudad: p.salidas_por_ciudad,
-        stock_por_ciudad: stockInfo.por_ciudad,
-        traspasos_flujo: p.traspasos_flujo,
-      }
-    }).sort((a, b) => (b.total_salidas + b.stock_actual) - (a.total_salidas + a.stock_actual))
+        return {
+          id: `p-${p.producto_id}`,
+          familia: p.familia,
+          producto_id: p.producto_id,
+          sku_base: p.sku_base,
+          descripcion: p.descripcion || '',
+          foto_url: p.foto_url,
+          stock_inicial: stockInicial,
+          total_entradas: p.entradas,
+          total_salidas: p.salidas,
+          total_traspasos: p.traspasos,
+          stock_actual: stockActual,
+          salidas_por_ciudad: p.salidas_por_ciudad,
+          stock_por_ciudad: stockInfo.por_ciudad,
+          traspasos_flujo: p.traspasos_flujo,
+        }
+      })
+      .sort((a, b) => {
+        const famCmp = compareFamiliaDesc(a.familia, b.familia)
+        if (famCmp !== 0) return famCmp
+        return compareSkuAsc(a.sku_base, b.sku_base)
+      })
   }
 
   return {

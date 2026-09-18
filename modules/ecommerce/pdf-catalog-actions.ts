@@ -99,22 +99,26 @@ export async function fetchProductosParaCatalogoPdfAction(
       return { productos: [], total: 0 }
     }
 
-    // 3. Obtener imágenes principales
+    // 3. Obtener imágenes principales por chunks para evitar límites de URL o de filas (1000)
     const prodIds = (prods || []).map((p: any) => p.id)
     let imgMap: Record<number, string> = {}
 
     if (prodIds.length > 0) {
-      const { data: imgData } = await (supabase
-        .from('producto_imagenes') as any)
-        .select('producto_id, url, es_principal, orden, uso_imagen')
-        .in('producto_id', prodIds)
-        .not('uso_imagen', 'in', '("oculta","oculto","ficha_tecnica","etiqueta_logistica")')
-        .order('es_principal', { ascending: false })
-        .order('orden', { ascending: true })
+      const CHUNK_SIZE = 150
+      for (let i = 0; i < prodIds.length; i += CHUNK_SIZE) {
+        const chunk = prodIds.slice(i, i + CHUNK_SIZE)
+        const { data: imgData } = await (supabase
+          .from('producto_imagenes') as any)
+          .select('producto_id, url, es_principal, orden, uso_imagen')
+          .in('producto_id', chunk)
+          .not('uso_imagen', 'in', '("oculta","oculto","ficha_tecnica","etiqueta_logistica")')
+          .order('es_principal', { ascending: false })
+          .order('orden', { ascending: true })
 
-      for (const img of imgData || []) {
-        if (!imgMap[img.producto_id] && img.url) {
-          imgMap[img.producto_id] = img.url
+        for (const img of imgData || []) {
+          if (!imgMap[img.producto_id] && img.url) {
+            imgMap[img.producto_id] = img.url
+          }
         }
       }
     }
@@ -168,3 +172,109 @@ export async function fetchProductosParaCatalogoPdfAction(
     return { productos: [], total: 0 }
   }
 }
+
+export interface ImagenOptimizadaPdf {
+  base64: string
+  width: number
+  height: number
+  aspectRatio: number
+}
+
+/**
+ * Optimiza una imagen individual en el servidor con Sharp, resolviendo problemas de CORS,
+ * formatos WebP/AVIF y URLs con caracteres especiales de Odoo 18, WordPress y Supabase.
+ */
+export async function optimizarImagenParaPdfAction(
+  url: string,
+  maxW: number = 500,
+  quality: number = 80
+): Promise<ImagenOptimizadaPdf | null> {
+  if (!url || typeof url !== 'string' || !url.trim()) return null
+
+  try {
+    let targetUrl = url.trim()
+    if (targetUrl.startsWith('//')) targetUrl = `https:${targetUrl}`
+
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(targetUrl)
+    } catch {
+      parsedUrl = new URL(encodeURI(targetUrl))
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 12000)
+
+    let response: Response
+    try {
+      response = await fetch(parsedUrl.toString(), {
+        signal: controller.signal,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        },
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    if (!response.ok) return null
+
+    const arrayBuffer = await response.arrayBuffer()
+    const inputBuffer = Buffer.from(arrayBuffer)
+    if (inputBuffer.length === 0) return null
+
+    // Cargar sharp dinámicamente o directo en Server Action
+    const sharp = (await import('sharp')).default
+    const image = sharp(inputBuffer)
+    const metadata = await image.metadata()
+
+    const origW = metadata.width || 480
+    const origH = metadata.height || 640
+
+    let targetW = origW
+    let targetH = origH
+
+    if (origW > maxW) {
+      targetH = Math.round(maxW * (origH / origW))
+      targetW = maxW
+    }
+
+    const outputBuffer = await image
+      .resize(targetW, targetH, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality, mozjpeg: false })
+      .toBuffer()
+
+    const base64 = `data:image/jpeg;base64,${outputBuffer.toString('base64')}`
+
+    return {
+      base64,
+      width: targetW,
+      height: targetH,
+      aspectRatio: targetW / targetH,
+    }
+  } catch (err) {
+    console.warn(`[optimizarImagenParaPdfAction] Error procesando imagen ${url}:`, err)
+    return null
+  }
+}
+
+/**
+ * Optimiza un lote de URLs de imágenes en paralelo desde el servidor Node.js
+ */
+export async function optimizarImagenesLoteParaPdfAction(
+  urls: string[]
+): Promise<Record<string, ImagenOptimizadaPdf | null>> {
+  const results: Record<string, ImagenOptimizadaPdf | null> = {}
+  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)))
+
+  await Promise.all(
+    uniqueUrls.map(async (url) => {
+      results[url] = await optimizarImagenParaPdfAction(url)
+    })
+  )
+
+  return results
+}
+
