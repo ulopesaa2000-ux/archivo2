@@ -2,7 +2,12 @@
 'use client'
 
 import jsPDF from 'jspdf'
-import type { ProductoPdfCatalog } from '@/modules/ecommerce/pdf-catalog-actions'
+import {
+  type ProductoPdfCatalog,
+  optimizarImagenesLoteParaPdfAction,
+  optimizarImagenParaPdfAction,
+  type ImagenOptimizadaPdf,
+} from '@/modules/ecommerce/pdf-catalog-actions'
 
 export interface OpcionesGeneracionPdf {
   tituloCatalogo: string
@@ -95,12 +100,65 @@ interface LoadedImageInfo {
   aspectRatio: number
 }
 
+// Caché en memoria para evitar descargar y procesar dos veces la misma URL durante la generación
+const imageMemoryCache = new Map<string, LoadedImageInfo | null>()
+
 /**
- * Carga una imagen remota y la optimiza al DPI ideal para visualización fluida sin lag en PDF viewers
+ * Carga una imagen remota y la optimiza al DPI ideal para visualización fluida sin lag en PDF viewers.
+ * Utiliza Server Actions y el proxy de servidor para resolver restricciones CORS de
+ * Odoo 18 (moda.sistemaindumentaria.com), WordPress y Supabase, con fallback local.
  */
 async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null> {
+  if (!url || !url.trim()) return null
+
+  const trimmedUrl = url.trim()
+
+  // 1. Verificar si ya fue procesada en memoria
+  if (imageMemoryCache.has(trimmedUrl)) {
+    return imageMemoryCache.get(trimmedUrl) || null
+  }
+
+  // 2. Intentar optimizar a través de Server Action directo
   try {
-    return await new Promise((resolve) => {
+    const saResult = await optimizarImagenParaPdfAction(trimmedUrl)
+    if (saResult && saResult.base64) {
+      imageMemoryCache.set(trimmedUrl, saResult)
+      return saResult
+    }
+  } catch (saErr) {
+    console.warn('Fallo Server Action individual para imagen, probando API route:', trimmedUrl, saErr)
+  }
+
+  // 3. Intentar descargar y optimizar a través del endpoint proxy de la app
+  try {
+    const proxyUrl = `/api/ecommerce/catalog-image?url=${encodeURIComponent(trimmedUrl)}&format=json&maxW=500&quality=80`
+    const res = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      if (data.success && data.base64) {
+        const info: LoadedImageInfo = {
+          base64: data.base64,
+          width: data.width || 500,
+          height: data.height || 640,
+          aspectRatio: data.aspectRatio || (data.width && data.height ? data.width / data.height : 0.75),
+        }
+        imageMemoryCache.set(trimmedUrl, info)
+        return info
+      }
+    }
+  } catch (proxyErr) {
+    console.warn('Fallo proxy de imagen para PDF, intentando fallback cliente:', trimmedUrl, proxyErr)
+  }
+
+  // 4. Fallback directo en cliente (para URLs del mismo origen o con CORS habilitado)
+  try {
+    const fallbackInfo = await new Promise<LoadedImageInfo | null>((resolve) => {
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => {
@@ -108,7 +166,6 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
           const w = img.naturalWidth || img.width || 480
           const h = img.naturalHeight || img.height || 640
 
-          // Resolución óptima (180-200 DPI para visualización retina y móvil instantánea sin lag de renderizado)
           const maxW = 500
           let targetW = w
           let targetH = h
@@ -132,7 +189,6 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
           ctx.imageSmoothingQuality = 'high'
           ctx.drawImage(img, 0, 0, targetW, targetH)
 
-          // Calidad 0.80: visualmente perfecta, decodificación ultrarrápida en GPU y scroll 100% fluido
           const base64 = canvas.toDataURL('image/jpeg', 0.80)
           resolve({
             base64,
@@ -145,10 +201,14 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
         }
       }
       img.onerror = () => resolve(null)
-      img.src = url
+      img.src = trimmedUrl
     })
+
+    imageMemoryCache.set(trimmedUrl, fallbackInfo)
+    return fallbackInfo
   } catch (err) {
-    console.warn('Error cargando imagen para PDF:', url, err)
+    console.warn('Error definitivo cargando imagen para PDF:', trimmedUrl, err)
+    imageMemoryCache.set(trimmedUrl, null)
     return null
   }
 }
@@ -225,18 +285,40 @@ export async function generarCatalogoPdf(
 
   onProgress?.(5, 'Iniciando carga optimizada de imágenes...')
 
-  // Precarga paralela en bloques de 5 para máxima velocidad
+  // Precarga paralela en bloques de 6 usando Server Action por lotes y fallback a proxy/cliente
   const itemsConImagen: { producto: ProductoPdfCatalog; imgInfo: LoadedImageInfo | null }[] = new Array(productosEntrada.length)
-  const batchSize = 5
+  const batchSize = 6
   let completados = 0
 
   for (let i = 0; i < productosEntrada.length; i += batchSize) {
     const batch = productosEntrada.slice(i, i + batchSize)
+    const urlsToFetch = batch
+      .map((p) => p.imagen_url?.trim())
+      .filter((u): u is string => !!u && !imageMemoryCache.has(u))
+
+    // Descarga y optimización en paralelo por Server Action
+    let batchMap: Record<string, ImagenOptimizadaPdf | null> = {}
+    if (urlsToFetch.length > 0) {
+      try {
+        batchMap = await optimizarImagenesLoteParaPdfAction(urlsToFetch)
+      } catch (err) {
+        console.warn('Fallo optimización por lote de imágenes en Server Action, usando fallback:', err)
+      }
+    }
+
     await Promise.all(
       batch.map(async (prod, bIdx) => {
         const globalIdx = i + bIdx
-        if (prod.imagen_url) {
-          const imgInfo = await cargarImagenOriginal(prod.imagen_url)
+        if (prod.imagen_url && prod.imagen_url.trim()) {
+          const trimmed = prod.imagen_url.trim()
+          let imgInfo: LoadedImageInfo | null = batchMap[trimmed] || imageMemoryCache.get(trimmed) || null
+
+          if (!imgInfo) {
+            imgInfo = await cargarImagenOriginal(trimmed)
+          } else {
+            imageMemoryCache.set(trimmed, imgInfo)
+          }
+
           itemsConImagen[globalIdx] = { producto: prod, imgInfo }
         } else {
           itemsConImagen[globalIdx] = { producto: prod, imgInfo: null }
