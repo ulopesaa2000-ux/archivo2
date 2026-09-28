@@ -49,6 +49,7 @@ async function StockMatrixTableData({
   bodegas,
   bodegaActivaId,
   agruparPor,
+  ordenCiudades,
   pageSize = 20,
 }: {
   filtros: FiltrosStockMatrix
@@ -56,6 +57,7 @@ async function StockMatrixTableData({
   bodegas: BodegaRow[]
   bodegaActivaId: number
   agruparPor?: string
+  ordenCiudades?: string[]
   pageSize?: number
 }) {
   let bodegasColumnas = bodegas
@@ -99,6 +101,8 @@ async function StockMatrixTableData({
         agruparPor={agruparPor}
         totalesCajasRealesPorBodega={totalesCajasRealesPorBodega}
         descripcionesCanonicas={descripcionesCanonicas}
+        ciudadesFiltro={filtros.ciudades || []}
+        ordenCiudades={ordenCiudades || []}
       />
       <Pagination total={total} pageSize={pageSize} />
     </div>
@@ -135,6 +139,7 @@ async function StockNormalTableData({
         agruparPor={agruparPor}
         bodegaNombre={bodegaActiva?.nombre}
         descripcionesCanonicas={descripcionesCanonicas}
+        bodegas={bodegaActiva ? [bodegaActiva] : []}
       />
       <Pagination total={total} pageSize={pageSize} />
     </div>
@@ -308,6 +313,7 @@ async function StockPageContent({
         <StockMatrixFilters
           bodegas={bodegasPermitidas}
           defaultAgrupacion={configuredDefaultAgrupacion}
+          ordenCiudades={config.orden_ciudades || []}
         />
 
         {/* ── Solo la tabla se suspende dinámicamente ── */}
@@ -318,6 +324,7 @@ async function StockPageContent({
             bodegas={bodegasPermitidas} 
             bodegaActivaId={bodegaActivaId} 
             agruparPor={defaultAgrupacion}
+            ordenCiudades={config.orden_ciudades || []}
             pageSize={pageSize}
           />
         </Suspense>

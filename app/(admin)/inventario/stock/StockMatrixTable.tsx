@@ -14,6 +14,8 @@ import {
   ChevronRight,
   ChevronDown,
   Loader2,
+  Route,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,21 +29,11 @@ import ExcelJS from 'exceljs'
 import { exportStockMatrixAction } from '@/modules/inventario/actions'
 import type { StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
+import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon, normalizeCiudad, ciudadLabel, sortCiudadesWithConfig } from '@/lib/inventario/familias-orden'
+import { StockAuditoriaDrawer } from './StockAuditoriaDrawer'
 
 export function isUnassignedFamily(fam: string | null | undefined): boolean {
-  if (!fam) return true
-  const norm = fam.trim().toUpperCase()
-  return (
-    norm === 'F000-000C' ||
-    norm === 'F000-000' ||
-    norm === 'SIN FAMILIA' ||
-    norm === 'SIN ASIGNAR' ||
-    norm === 'SIN CLASIFICAR' ||
-    norm === '—' ||
-    norm === '-' ||
-    norm === 'NULL' ||
-    norm === 'UNDEFINED'
-  )
+  return isUnassignedFamilyCanon(fam)
 }
 
 type Props = {
@@ -51,12 +43,15 @@ type Props = {
   agruparPor?: string
   totalesCajasRealesPorBodega?: Record<number, number>
   descripcionesCanonicas?: Record<string, string>
+  ciudadesFiltro?: string[]
+  ordenCiudades?: string[]
 }
 
-export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, totalesCajasRealesPorBodega, descripcionesCanonicas }: Props) {
+export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, totalesCajasRealesPorBodega, descripcionesCanonicas, ciudadesFiltro = [], ordenCiudades = [] }: Props) {
   const searchParams = useSearchParams()
   const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [auditoria, setAuditoria] = useState<{ modo: 'producto' | 'familia'; productoId?: number; familia?: string; sku?: string; descripcion?: string | null } | null>(null)
 
   const modo = searchParams.get('modo') === 'pronostico' ? 'pronostico' : 'fisico'
   const isPronostico = modo === 'pronostico'
@@ -135,16 +130,10 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       })
     })
 
-    // Ordenar grupos alfabéticamente enviando F000-000C / Sin Familia al final
-    const sortedGroups = Object.values(groups).sort((a, b) => {
-      const aUnassigned = isUnassignedFamily(a.familia)
-      const bUnassigned = isUnassignedFamily(b.familia)
-      if (aUnassigned && !bUnassigned) return 1
-      if (!aUnassigned && bUnassigned) return -1
-      return a.familia.localeCompare(b.familia)
-    })
+    // Orden clásico: alfabético A→Z enviando F000-000C / Sin Familia al final
+    const sortedGroups = Object.values(groups).sort((a, b) => compareFamiliaAsc(a.familia, b.familia))
     sortedGroups.forEach((g) => {
-      g.items.sort((a, b) => (a.producto_sku || '').localeCompare(b.producto_sku || ''))
+      g.items.sort((a, b) => compareSkuAsc(a.producto_sku, b.producto_sku))
     })
     return sortedGroups
   }, [items, agruparPor, bodegasColumnas])
@@ -174,6 +163,21 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
     }
     return grandTotal
   }, [totalesCajasRealesPorBodega, bodegasColumnas, grandTotal])
+
+  // ── Panel general por ciudad: agrupa columnas visibles por ciudad con subtotales ──
+  const ciudadesGrupos = useMemo(() => {
+    const map = new Map<string, { ciudadKey: string; label: string; bodegas: BodegaRow[]; subtotal: number }>()
+    bodegasColumnas.forEach((b) => {
+      const key = normalizeCiudad(b.ciudad)
+      if (!map.has(key)) map.set(key, { ciudadKey: key, label: ciudadLabel(b.ciudad), bodegas: [], subtotal: 0 })
+      map.get(key)!.bodegas.push(b)
+    })
+    map.forEach((g) => {
+      g.subtotal = g.bodegas.reduce((s, b) => s + (totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0), 0)
+    })
+    const keys = sortCiudadesWithConfig(Array.from(map.keys()), ordenCiudades)
+    return keys.map((k) => map.get(k)!)
+  }, [bodegasColumnas, totalesCajasRealesPorBodega, totalsPerBodega, ordenCiudades])
 
   const expandAll = () => {
     if (!groupedItems) return
@@ -232,15 +236,9 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
       const allItems = res.data
       allItems.sort((a, b) => {
-        const famA = a.producto_familia || 'SIN FAMILIA'
-        const famB = b.producto_familia || 'SIN FAMILIA'
-        const aUn = isUnassignedFamily(famA)
-        const bUn = isUnassignedFamily(famB)
-        if (aUn && !bUn) return 1
-        if (!aUn && bUn) return -1
-        const famCmp = famA.localeCompare(famB)
+        const famCmp = compareFamiliaAsc(a.producto_familia || 'SIN FAMILIA', b.producto_familia || 'SIN FAMILIA')
         if (famCmp !== 0) return famCmp
-        return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+        return compareSkuAsc(a.producto_sku, b.producto_sku)
       })
       const workbook = new ExcelJS.Workbook()
       
@@ -298,14 +296,8 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       // Si por alguna razón ninguna tiene stock, mantener bodegasColumnas
       const bodegasActivas = bodegasConStock.length > 0 ? bodegasConStock : bodegasColumnas
 
-      // Ordenar las llaves de familias poniendo F000-000C / Sin Familia al final
-      const sortedFamilyKeys = Object.keys(itemsByFamily).sort((a, b) => {
-        const aUn = isUnassignedFamily(a)
-        const bUn = isUnassignedFamily(b)
-        if (aUn && !bUn) return 1
-        if (!aUn && bUn) return -1
-        return a.localeCompare(b)
-      })
+      // Orden clásico: A→Z con F000-000C / Sin Familia al final
+      const sortedFamilyKeys = Object.keys(itemsByFamily).sort((a, b) => compareFamiliaAsc(a, b))
 
       const realFamiliesCount = sortedFamilyKeys.filter(f => !isUnassignedFamily(f)).length
 
@@ -413,7 +405,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
       sortedFamilyKeys.forEach((family, fIdx) => {
         const familyItems = itemsByFamily[family]
-        familyItems.sort((a, b) => (a.producto_sku || '').localeCompare(b.producto_sku || ''))
+        familyItems.sort((a, b) => compareSkuAsc(a.producto_sku, b.producto_sku))
 
         const startRow = currentRowIdx
         const isUnassigned = isUnassignedFamily(family)
@@ -831,19 +823,29 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
       </div>
 
       <div className="rounded-lg border overflow-x-auto shadow-sm">
+        {/* Panel general por ciudad */}
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-muted/40 border-b text-xs">
+          <span className="font-bold text-muted-foreground uppercase tracking-wide">General por ciudad:</span>
+          {ciudadesGrupos.map((g) => (
+            <span key={g.ciudadKey} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-background font-semibold">
+              {g.label} · {g.bodegas.length} bod · <span className="font-mono tabular-nums">{g.subtotal.toLocaleString('es-MX')} cjs</span>
+            </span>
+          ))}
+          <span className="ml-auto font-mono tabular-nums font-bold">Gran total: {grandTotalReal.toLocaleString('es-MX')} cjs</span>
+        </div>
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-muted/50 border-b font-semibold text-muted-foreground">
-              <th className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] align-bottom">
+              <th rowSpan={2} className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] align-bottom">
                 Familia
               </th>
-              <th className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[160px] min-w-[160px] border-l align-bottom">
+              <th rowSpan={2} className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[160px] min-w-[160px] border-l align-bottom">
                 SKU
               </th>
-              <th className="px-4 py-3 text-left border-l min-w-[250px] align-bottom">
+              <th rowSpan={2} className="px-4 py-3 text-left border-l min-w-[250px] align-bottom">
                 Descripción
               </th>
-              <th className="px-3 py-2.5 text-center border-l bg-primary/5 align-bottom" title="Total general de cajas en todas las bodegas">
+              <th rowSpan={2} className="px-3 py-2.5 text-center border-l bg-primary/5 align-bottom" title="Total general de cajas en todas las bodegas">
                 <div className="flex flex-col items-center gap-1 min-w-[85px]">
                   <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-2xs tabular-nums">
                     {grandTotalReal.toLocaleString('es-MX')} {grandTotalReal === 1 ? 'caja' : 'cajas'}
@@ -851,21 +853,30 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                   <span className="font-bold text-primary text-xs uppercase tracking-wider">TOTAL</span>
                 </div>
               </th>
-              {bodegasColumnas.map((b) => {
-                const totalCajasBodega = totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0
-                return (
-                  <th key={b.id} className="px-3 py-2.5 text-center border-l whitespace-nowrap align-bottom">
-                    <div className="flex flex-col items-center gap-1 min-w-[90px]">
-                      <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-100/90 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-300/70 dark:border-blue-700/50 shadow-2xs tabular-nums">
-                        {totalCajasBodega.toLocaleString('es-MX')} {totalCajasBodega === 1 ? 'caja' : 'cajas'}
+              {ciudadesGrupos.map((g) => (
+                <th key={g.ciudadKey} colSpan={g.bodegas.length} className="px-3 py-1.5 text-center border-l bg-muted/70 text-[11px] uppercase tracking-wide">
+                  {g.label} · {g.subtotal.toLocaleString('es-MX')} cjs
+                </th>
+              ))}
+            </tr>
+            <tr className="bg-muted/50 border-b font-semibold text-muted-foreground">
+              {ciudadesGrupos.flatMap((g) =>
+                g.bodegas.map((b) => {
+                  const totalCajasBodega = totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0
+                  return (
+                    <th key={b.id} className="px-3 py-2.5 text-center border-l whitespace-nowrap align-bottom">
+                      <div className="flex flex-col items-center gap-1 min-w-[90px]">
+                        <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-100/90 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-300/70 dark:border-blue-700/50 shadow-2xs tabular-nums">
+                          {totalCajasBodega.toLocaleString('es-MX')} {totalCajasBodega === 1 ? 'caja' : 'cajas'}
+                        </div>
+                        <span className="block truncate max-w-[125px] font-bold text-foreground text-xs" title={`${b.nombre} · ${g.label}`}>
+                          {b.nombre}
+                        </span>
                       </div>
-                      <span className="block truncate max-w-[125px] font-bold text-foreground text-xs" title={b.nombre}>
-                        {b.nombre}
-                      </span>
-                    </div>
-                  </th>
-                )
-              })}
+                    </th>
+                  )
+                })
+              )}
             </tr>
           </thead>
           <tbody>
@@ -895,6 +906,20 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                               ? 'Productos sin familia asignada'
                               : (familyDescriptions[group.familia] || '—')}
                           </span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-[11px] text-primary hover:bg-primary/10"
+                              title={`Rastrear movimientos CONF de ${group.familia}${ciudadesFiltro.length > 0 ? ` en ${ciudadesFiltro.join(', ')}` : ''}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setAuditoria({ modo: 'familia', familia: group.familia, descripcion: familyDescriptions[group.familia] || '' })
+                              }}
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              Rastrear
+                            </Button>
                           {isPronostico && (
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border shadow-2xs shrink-0 ${
@@ -912,6 +937,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                               <span className="font-extrabold">{group.total_pronosticado} cjs</span>
                             </span>
                           )}
+                          </span>
                         </div>
                       </td>
                       <td className={`px-4 py-3 text-center tabular-nums font-bold border-l border-r ${
@@ -973,7 +999,20 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                             {group.familia}
                           </td>
                           <td className={`px-4 py-2 sticky left-[140px] backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] font-mono text-xs border-l w-[160px] min-w-[160px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
-                            {item.producto_sku}
+                            <span className="inline-flex items-center gap-1">
+                              {item.producto_sku}
+                              <button
+                                type="button"
+                                className="text-primary/60 hover:text-primary"
+                                title={`Auditoría CONF de ${item.producto_sku}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setAuditoria({ modo: 'producto', productoId: item.producto_id, familia: item.producto_familia || '', sku: item.producto_sku, descripcion: item.producto_nombre || item.producto_descripcion })
+                                }}
+                              >
+                                <Route className="h-3 w-3" />
+                              </button>
+                            </span>
                           </td>
                           <td className="px-4 py-2 text-xs border-l truncate max-w-[300px] min-w-[250px]" title={item.producto_descripcion || item.producto_nombre || ''}>
                             {item.producto_nombre || item.producto_descripcion}
@@ -1051,7 +1090,17 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                       {item.producto_familia || '—'}
                     </td>
                     <td className="px-4 py-3 font-mono font-medium text-sm border-l">
-                      {item.producto_sku}
+                      <span className="inline-flex items-center gap-1">
+                        {item.producto_sku}
+                        <button
+                          type="button"
+                          className="text-primary/60 hover:text-primary"
+                          title={`Auditoría CONF de ${item.producto_sku}`}
+                          onClick={() => setAuditoria({ modo: 'producto', productoId: item.producto_id, familia: item.producto_familia || '', sku: item.producto_sku, descripcion: item.producto_nombre || item.producto_descripcion })}
+                        >
+                          <Route className="h-3 w-3" />
+                        </button>
+                      </span>
                     </td>
                     <td
                       className="px-4 py-3 text-xs border-l truncate max-w-[300px]"
@@ -1128,6 +1177,19 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           </tfoot>
         </table>
       </div>
+      {auditoria && (
+        <StockAuditoriaDrawer
+          open={!!auditoria}
+          onOpenChange={(v) => { if (!v) setAuditoria(null) }}
+          modo={auditoria.modo}
+          productoId={auditoria.productoId}
+          familia={auditoria.familia}
+          productoSku={auditoria.sku}
+          bodegas={bodegasColumnas}
+          ciudadesFiltro={ciudadesFiltro.length > 0 ? ciudadesFiltro : bodegasColumnas.map((b) => b.ciudad || 'sin_asignar').filter((v, i, a) => a.indexOf(v) === i)}
+          descripcion={auditoria.descripcion}
+        />
+      )}
     </div>
   )
 }
