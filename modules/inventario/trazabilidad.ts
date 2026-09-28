@@ -4,8 +4,8 @@
 import { createClient } from '@/lib/supabase/server'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers de ordenamiento de Familias (canónico: descendente, sin depender de stock)
-// Compatible con lógica de StockMatrixTable y fetchDescripcionesCanonicasFamilias
+// Helpers de ordenamiento de Familias (canónico clásico: ascendente A→Z, F000-000C al final)
+// Unificado con lib/inventario/familias-orden.ts y StockMatrixTable.
 // ─────────────────────────────────────────────────────────────────────────────
 function isTrazabilidadFamiliaUnassigned(fam: string | null | undefined): boolean {
   if (!fam) return true
@@ -29,8 +29,8 @@ function compareFamiliaDesc(a: string, b: string): number {
   const bUn = isTrazabilidadFamiliaUnassigned(b)
   if (aUn && !bUn) return 1
   if (!aUn && bUn) return -1
-  // Descendente alfabético Z → A (es locale)
-  return b.localeCompare(a, 'es', { sensitivity: 'base' })
+  // Clásico ascendente alfabético A → Z (es locale)
+  return a.localeCompare(b, 'es', { sensitivity: 'base' })
 }
 
 function compareSkuAsc(a: string | undefined, b: string | undefined): number {
@@ -222,13 +222,14 @@ export async function fetchTrazabilidadData(
   const { data: productosRaw, error: prodError } = await productosQuery
   if (prodError) throw prodError
 
-  // 2b. Descripciones canónicas por familia (primera descripción alfabética sin importar stock)
+  // 2b. Descripciones canónicas por familia (primera descripción alfabética de productos ACTIVOS)
   // Se obtiene de todo el catálogo ordenado por sku_base asc, idéntico a fetchDescripcionesCanonicasFamilias
   let familiaDescCanonMap = new Map<string, string>()
   try {
     const { data: canonRows } = await supabase
       .from('productos')
       .select('familia, descripcion, nombre, sku_base')
+      .eq('activo', true)
       .not('familia', 'is', null)
       .order('sku_base', { ascending: true })
       .limit(5000)

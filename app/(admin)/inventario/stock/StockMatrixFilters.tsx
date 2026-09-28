@@ -23,17 +23,20 @@ import { Button } from '@/components/ui/button'
 import { ClearFilters } from '@/components/admin/ClearFilters'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { sortCiudadesWithConfig } from '@/lib/inventario/familias-orden'
 
 type Props = {
   bodegas: BodegaRow[]
   defaultAgrupacion?: string
   totalNotasPendientes?: number
+  ordenCiudades?: string[]
 }
 
 export function StockMatrixFilters({
   bodegas,
   defaultAgrupacion = 'ninguno',
   totalNotasPendientes = 0,
+  ordenCiudades = [],
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -72,7 +75,10 @@ export function StockMatrixFilters({
     [searchParams, pathname, router, isPronostico]
   )
 
-  const ciudadesUnicas = Array.from(new Set(bodegas.map((b) => b.ciudad || 'sin_asignar'))).sort()
+  const ciudadesUnicas = sortCiudadesWithConfig(
+    Array.from(new Set(bodegas.map((b) => b.ciudad || 'sin_asignar'))),
+    ordenCiudades
+  )
   const currentCiudades = searchParams.getAll('ciudades').filter((c) => c !== 'none')
   const isNoneCiudades = searchParams.get('ciudades') === 'none'
   const isTodasCiudades = !isNoneCiudades && currentCiudades.length === 0
@@ -281,16 +287,19 @@ export function StockMatrixFilters({
                 Todas las ciudades
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              {ciudadesUnicas.map((c) => (
-                <DropdownMenuCheckboxItem
-                  key={c}
-                  checked={currentCiudades.includes(c)}
-                  onCheckedChange={() => toggleCiudad(c)}
-                  className="capitalize"
-                >
-                  {c === 'sin_asignar' ? 'Sin Asignar' : c}
-                </DropdownMenuCheckboxItem>
-              ))}
+              {ciudadesUnicas.map((c) => {
+                const nBodegas = bodegas.filter((b) => (b.ciudad || 'sin_asignar') === c).length
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={c}
+                    checked={currentCiudades.includes(c)}
+                    onCheckedChange={() => toggleCiudad(c)}
+                    className="capitalize"
+                  >
+                    {c === 'sin_asignar' ? 'Sin Asignar' : c} ({nBodegas})
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>

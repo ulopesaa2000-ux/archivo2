@@ -788,11 +788,14 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
     }
   }
 
-  // Ordenar los modelos de cada familia alfabéticamente y tomar la descripción del primer SKU alfabético
+  // Ordenar los modelos de cada familia alfabéticamente y tomar la descripción del primer SKU ACTIVO alfabético
+  // Solo productos activos participan para la descripción canónica (evita que un SKU desactivado como F143-000A contamine la familia)
   const descripciones: Record<string, string | null> = {}
   Object.keys(skusPorFamilia).forEach((fam) => {
     skusPorFamilia[fam].sort((a, b) => a.sku_base.localeCompare(b.sku_base, 'es', { sensitivity: 'base' }))
-    const primerSkuConDesc = skusPorFamilia[fam].find((s) => s.descripcion && s.descripcion.trim()) || skusPorFamilia[fam][0]
+    const soloActivos = skusPorFamilia[fam].filter((s) => s.activo !== false)
+    const pool = soloActivos.length > 0 ? soloActivos : skusPorFamilia[fam]
+    const primerSkuConDesc = pool.find((s) => s.descripcion && s.descripcion.trim()) || pool[0]
     descripciones[fam] = primerSkuConDesc?.descripcion || null
   })
 
@@ -849,6 +852,7 @@ export async function fetchDescripcionesCanonicasFamilias(): Promise<Record<stri
   const { data, error } = await supabase
     .from('productos')
     .select('familia, descripcion, nombre, sku_base')
+    .eq('activo', true)
     .not('familia', 'is', null)
     .order('sku_base', { ascending: true })
 

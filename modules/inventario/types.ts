@@ -377,3 +377,57 @@ export type NavegacionNota = {
   bodega_filtro_nombre: string | null
 }
 
+// ── Auditoría inversa CONF (stock actual − movimientos aceptados = stock inicial) ──
+export type AuditoriaConfNota = {
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string | null
+  fecha_confirmacion: string | null
+  tipo_codigo: string
+  tipo_nombre: string
+  bodega_origen_id: number | null
+  bodega_origen_nombre: string | null
+  bodega_origen_ciudad: string | null
+  bodega_destino_id: number | null
+  bodega_destino_nombre: string | null
+  bodega_destino_ciudad: string | null
+  cajas: number
+  piezas_sueltas: number
+  efecto_cajas: number // +entra / −sale respecto a la bodega consultada
+  usuario_nombre: string | null
+  observaciones: string | null
+}
+
+export type AuditoriaInversaBodega = {
+  bodega_id: number
+  bodega_nombre: string
+  ciudad: string
+  stock_actual_cajas: number
+  entradas_conf: number
+  salidas_conf: number
+  stock_inicial_cajas: number
+  notas: AuditoriaConfNota[]
+}
+
+export type AuditoriaInversaProducto = {
+  producto_id: number
+  producto_sku: string
+  producto_familia: string | null
+  producto_nombre: string | null
+  bodegas: AuditoriaInversaBodega[]
+  total_actual: number
+  total_entradas: number
+  total_salidas: number
+  total_inicial: number
+}
+
+export type AuditoriaInversaFamilia = {
+  familia: string
+  productos: AuditoriaInversaProducto[]
+  total_actual: number
+  total_entradas: number
+  total_salidas: number
+  total_inicial: number
+  total_notas: number
+}
+

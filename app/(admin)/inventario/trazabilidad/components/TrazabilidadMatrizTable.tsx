@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
 import type { FilaTrazabilidadMatriz } from '@/modules/inventario/trazabilidad'
 import { TrazabilidadTimelineDrawer } from './TrazabilidadTimelineDrawer'
+import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon } from '@/lib/inventario/familias-orden'
 
 interface Props {
   filas: FilaTrazabilidadMatriz[]
@@ -41,20 +42,7 @@ interface Props {
 }
 
 function isUnassignedFamily(fam: string | null | undefined): boolean {
-  if (!fam) return true
-  const norm = fam.trim().toUpperCase()
-  return (
-    norm === 'F000-000C' ||
-    norm === 'F000-000' ||
-    norm === 'SIN_FAMILIA' ||
-    norm === 'SIN FAMILIA' ||
-    norm === 'SIN ASIGNAR' ||
-    norm === 'SIN CLASIFICAR' ||
-    norm === '—' ||
-    norm === '-' ||
-    norm === 'NULL' ||
-    norm === 'UNDEFINED'
-  )
+  return isUnassignedFamilyCanon(fam)
 }
 
 export function TrazabilidadMatrizTable({
@@ -124,7 +112,7 @@ export function TrazabilidadMatrizTable({
 
   // ─────────────────────────────────────────────────────────────────────────
   // Exportación Excel — Matriz + Resumen por Ciudad (misma lógica que la vista)
-  // Familias descendentes Z→A (SIN_FAMILIA al final), SKUs ascendente A→Z,
+  // Familias clásico A→Z (SIN_FAMILIA al final), SKUs ascendente A→Z,
   // descripción canónica de la primera SKU alfabética sin depender de stock.
   // ─────────────────────────────────────────────────────────────────────────
   const handleExportExcel = async (modo: 'matriz' | 'ciudades' | 'completo' = 'completo') => {
@@ -141,15 +129,8 @@ export function TrazabilidadMatrizTable({
       // Ciudades relevantes (mismo cálculo que la vista) para columnas dinámicas
       const ciudadesExp = ciudadesRelevantes.length > 0 ? ciudadesRelevantes : ciudades
 
-      // ── Ordenamiento garantizado para el reporte (idéntico al backend) ──
-      const compareFamiliaDesc = (a: string, b: string) => {
-        const aUn = isUnassignedFamily(a)
-        const bUn = isUnassignedFamily(b)
-        if (aUn && !bUn) return 1
-        if (!aUn && bUn) return -1
-        return b.localeCompare(a, 'es', { sensitivity: 'base' })
-      }
-      const compareSkuAsc = (a?: string, b?: string) => (a || '').localeCompare(b || '', 'es', { sensitivity: 'base' })
+      // ── Ordenamiento garantizado para el reporte (clásico A→Z, idéntico al backend) ──
+      const compareFamiliaDesc = (a: string, b: string) => compareFamiliaAsc(a, b)
 
       let filasOrdenadas = [...filas]
       if (agruparPor === 'familia') {

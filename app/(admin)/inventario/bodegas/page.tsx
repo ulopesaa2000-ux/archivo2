@@ -1,8 +1,11 @@
 // app/(admin)/inventario/bodegas/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { fetchBodegas, fetchUsuariosBodega, fetchUsuariosBodegasMap } from '@/modules/inventario/queries'
+import { fetchBodegas, fetchUsuariosBodega, fetchUsuariosBodegasMap, fetchTotalesCajasPorBodegas } from '@/modules/inventario/queries'
 import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { sortBodegasWithConfig } from '@/modules/inventario/config-types'
+import { sortCiudadesWithConfig } from '@/lib/inventario/familias-orden'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -131,12 +134,16 @@ async function BodegasList({
   canEdit = true,
   isEncargado = false,
   currentUserId,
+  totalesPorBodega = {},
+  ordenCiudades = [],
 }: {
   bodegas: BodegaRow[]
   agruparPorCiudad: boolean
   canEdit?: boolean
   isEncargado?: boolean
   currentUserId?: number
+  totalesPorBodega?: Record<number, number>
+  ordenCiudades?: string[]
 }) {
   const usuariosPorBodega = await fetchUsuariosBodegasMap(bodegas.map((bodega) => bodega.id))
 
@@ -150,23 +157,30 @@ async function BodegasList({
   }
 
   if (agruparPorCiudad) {
+    const grupos = bodegas.reduce((acc, bodega, index) => {
+      const city = bodega.ciudad || (bodega.es_virtual ? 'Virtuales' : 'Sin ciudad asignada')
+      if (!acc[city]) acc[city] = []
+      acc[city].push({ bodega, index })
+      return acc
+    }, {} as Record<string, { bodega: BodegaRow, index: number }[]>)
+    const ciudadesOrdenadas = sortCiudadesWithConfig(Object.keys(grupos), ordenCiudades)
     return (
       <div className="space-y-8">
-        {Object.entries(
-          bodegas.reduce((acc, bodega, index) => {
-            const city = bodega.ciudad || (bodega.es_virtual ? 'Virtuales' : 'Sin ciudad asignada')
-            if (!acc[city]) acc[city] = []
-            acc[city].push({ bodega, index })
-            return acc
-          }, {} as Record<string, { bodega: BodegaRow, index: number }[]>)
-        ).sort(([a], [b]) => a.localeCompare(b)).map(([city, items]) => (
+        {ciudadesOrdenadas.map((city) => {
+          const items = grupos[city]
+          const subtotal = items.reduce((s, { bodega }) => s + (totalesPorBodega[bodega.id] ?? 0), 0)
+          return (
           <div key={city} className="space-y-4">
             <h2 className="text-lg font-semibold border-b pb-2 flex items-center justify-between">
               <span>{city}</span>
-              <span className="text-xs font-normal text-muted-foreground">{items.length} bodega{items.length !== 1 ? 's' : ''}</span>
+              <span className="text-xs font-normal text-muted-foreground">{items.length} bodega{items.length !== 1 ? 's' : ''} · {subtotal.toLocaleString('es-MX')} cjs</span>
             </h2>
             <div className="grid gap-4">
               {items.map(({ bodega }) => (
+                <div key={bodega.id} className="space-y-1">
+                  <div className="flex justify-end">
+                    <span className="text-[11px] font-mono text-muted-foreground">{(totalesPorBodega[bodega.id] ?? 0).toLocaleString('es-MX')} cjs reales</span>
+                  </div>
                 <BodegaCard
                   key={bodega.id}
                   bodega={bodega}
@@ -175,10 +189,12 @@ async function BodegasList({
                   isEncargado={isEncargado}
                   currentUserId={currentUserId}
                 />
+                </div>
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     )
   }
@@ -234,9 +250,12 @@ export default async function BodegasPage(props: {
   }
 
   // Cargar bodegas permitidas: Admins ven todas; Encargados ven únicamente sus bodegas asignadas
-  const bodegas = isAdmin 
+  const bodegasRaw = isAdmin 
     ? await fetchBodegas() 
     : await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+  const config = await fetchConfigInventario()
+  const bodegas = sortBodegasWithConfig(bodegasRaw, config)
+  const totalesPorBodega = await fetchTotalesCajasPorBodegas(bodegas.map((b) => b.id))
 
   const ciudadesUnicas = Array.from(
     new Set(bodegas.map((b) => b.ciudad).filter(Boolean))
@@ -285,6 +304,8 @@ export default async function BodegasPage(props: {
           canEdit={isAdmin}
           isEncargado={isEncargado}
           currentUserId={user.id}
+          totalesPorBodega={totalesPorBodega}
+          ordenCiudades={config.orden_ciudades || []}
         />
       </Suspense>
     </div>

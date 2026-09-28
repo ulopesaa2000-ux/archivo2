@@ -13,7 +13,10 @@ import ExcelJS from 'exceljs'
 import { exportStockByBodegaAction } from '@/modules/inventario/actions'
 import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types'
 import { ADMIN_ROUTES } from '@/lib/constants'
-import { isUnassignedFamily } from './StockMatrixTable'
+import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily } from '@/lib/inventario/familias-orden'
+import type { BodegaRow } from '@/lib/types/tables'
+import { StockAuditoriaDrawer } from './StockAuditoriaDrawer'
+import { History } from 'lucide-react'
 
 export function StockTable({
   items,
@@ -21,12 +24,14 @@ export function StockTable({
   agruparPor,
   bodegaNombre,
   descripcionesCanonicas,
+  bodegas = [],
 }: {
   items: StockListItem[]
   bodegaId: number
   agruparPor?: string
   bodegaNombre?: string
   descripcionesCanonicas?: Record<string, string>
+  bodegas?: BodegaRow[]
 }) {
   const searchParams = useSearchParams()
   const isPronostico = searchParams.get('modo') === 'pronostico'
@@ -35,6 +40,8 @@ export function StockTable({
   const [expanded, setExpanded] = useState<Record<number, StockDetalleCaja[] | null>>({})
   const [loading, setLoading] = useState<Record<number, boolean>>({})
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [auditoria, setAuditoria] = useState<{ modo: 'producto' | 'familia'; productoId?: number; familia?: string; sku?: string } | null>(null)
+  const bodegasForDrawer: BodegaRow[] = bodegas.length > 0 ? bodegas : []
 
   const toggleGroup = (familia: string) => {
     setExpandedGroups((prev) => {
@@ -96,9 +103,9 @@ export function StockTable({
       }
     })
 
-    const sortedGroups = Object.values(groups).sort((a, b) => a.familia.localeCompare(b.familia))
+    const sortedGroups = Object.values(groups).sort((a, b) => compareFamiliaAsc(a.familia, b.familia))
     sortedGroups.forEach((g) => {
-      g.items.sort((a, b) => (a.producto_sku || '').localeCompare(b.producto_sku || ''))
+      g.items.sort((a, b) => compareSkuAsc(a.producto_sku, b.producto_sku))
     })
     return sortedGroups
   }, [items, agruparPor])
@@ -196,15 +203,9 @@ export function StockTable({
       const canonMap = res.descripcionesCanonicas || descripcionesCanonicas || {}
       const allItems = res.data
       allItems.sort((a, b) => {
-        const famA = a.producto_familia || 'SIN FAMILIA'
-        const famB = b.producto_familia || 'SIN FAMILIA'
-        const aUn = isUnassignedFamily(famA)
-        const bUn = isUnassignedFamily(famB)
-        if (aUn && !bUn) return 1
-        if (!aUn && bUn) return -1
-        const famCmp = famA.localeCompare(famB)
+        const famCmp = compareFamiliaAsc(a.producto_familia || 'SIN FAMILIA', b.producto_familia || 'SIN FAMILIA')
         if (famCmp !== 0) return famCmp
-        return (a.producto_sku || '').localeCompare(b.producto_sku || '')
+        return compareSkuAsc(a.producto_sku, b.producto_sku)
       })
       const workbook = new ExcelJS.Workbook()
 
@@ -414,6 +415,17 @@ export function StockTable({
                       >
                         <div className="flex items-center gap-2">
                           <span>{group.familia}</span>
+                          <button
+                            type="button"
+                            className="text-primary/60 hover:text-primary"
+                            title={`Rastrear movimientos CONF de ${group.familia} en ${bodegaNombre || 'bodega'}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setAuditoria({ modo: 'familia', familia: group.familia })
+                            }}
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                       <td
@@ -576,6 +588,17 @@ export function StockTable({
                                     {item.producto_sku}
                                     <ExternalLink className="h-2.5 w-2.5 opacity-40 hover:opacity-100" />
                                   </Link>
+                                  <button
+                                    type="button"
+                                    className="text-primary/50 hover:text-primary"
+                                    title={`Auditoría CONF de ${item.producto_sku}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setAuditoria({ modo: 'producto', productoId: item.producto_id, familia: item.producto_familia || '', sku: item.producto_sku })
+                                    }}
+                                  >
+                                    <History className="h-3 w-3" />
+                                  </button>
                                 </div>
                               </td>
                               <td
@@ -941,6 +964,18 @@ export function StockTable({
           </tfoot>
         </table>
       </div>
+      {auditoria && (
+        <StockAuditoriaDrawer
+          open={!!auditoria}
+          onOpenChange={(v) => { if (!v) setAuditoria(null) }}
+          modo={auditoria.modo}
+          productoId={auditoria.productoId}
+          familia={auditoria.familia}
+          productoSku={auditoria.sku}
+          bodegas={bodegasForDrawer}
+          ciudadesFiltro={bodegasForDrawer.map((b) => b.ciudad || 'sin_asignar').filter((v, i, a) => a.indexOf(v) === i)}
+        />
+      )}
     </div>
   )
 }
