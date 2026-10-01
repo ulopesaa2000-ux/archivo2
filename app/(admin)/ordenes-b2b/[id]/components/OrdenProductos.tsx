@@ -399,8 +399,8 @@ function ConfirmarCambioSkuDialog({
   cajas,
   surtido,
   cargandoPreview,
-  incluirCajas,
-  onIncluirCajasChange,
+  cajasSel,
+  onCajasSelChange,
   entiendo,
   onEntiendoChange,
   confirmando,
@@ -416,18 +416,30 @@ function ConfirmarCambioSkuDialog({
   cajas: CajaAfectadaPorCambioSku[]
   surtido: EstadoSurtidoOrden | null
   cargandoPreview: boolean
-  incluirCajas: boolean
-  onIncluirCajasChange: (v: boolean) => void
+  /** cajaIds marcados para reasignar (todo desactivado por defecto) */
+  cajasSel: number[]
+  onCajasSelChange: (ids: number[]) => void
   entiendo: boolean
   onEntiendoChange: (v: boolean) => void
   confirmando: boolean
   error: string | null
   onConfirm: () => void
 }) {
-  const divergentes = cajas.filter((c) => !c.coincide && !c.bloqueadaCompartida)
   const yaCorrectas = cajas.filter((c) => c.coincide)
   const bloqueadas = cajas.filter((c) => c.bloqueadaCompartida)
-  const reasignables = incluirCajas ? divergentes : []
+  // Solo las divergentes NO compartidas se pueden marcar
+  const reasignables = cajas.filter((c) => !c.coincide && !c.bloqueadaCompartida)
+  const todasMarcadas = reasignables.length > 0 && reasignables.every((c) => cajasSel.includes(c.cajaId))
+
+  const toggleCaja = (cajaId: number, checked: boolean) => {
+    onCajasSelChange(
+      checked ? [...cajasSel, cajaId] : cajasSel.filter((id) => id !== cajaId),
+    )
+  }
+
+  const toggleTodas = (checked: boolean) => {
+    onCajasSelChange(checked ? reasignables.map((c) => c.cajaId) : [])
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -494,13 +506,10 @@ function ConfirmarCambioSkuDialog({
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Cajas vinculadas de esta orden ({cajas.length})
                 </p>
-                {divergentes.length > 0 && (
+                {reasignables.length > 0 && (
                   <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                    <Checkbox
-                      checked={incluirCajas}
-                      onCheckedChange={(v) => onIncluirCajasChange(v === true)}
-                    />
-                    Cambiar también el SKU de las {divergentes.length} cajas divergentes
+                    <Checkbox checked={todasMarcadas} onCheckedChange={(v) => toggleTodas(v === true)} />
+                    Cambiar también el SKU de las {reasignables.length} cajas divergentes
                   </label>
                 )}
               </div>
@@ -512,6 +521,7 @@ function ConfirmarCambioSkuDialog({
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-muted/50 text-muted-foreground">
+                        <th className="px-2 py-1.5 w-8"></th>
                         <th className="px-2 py-1.5 text-left">Caja</th>
                         <th className="px-2 py-1.5 text-center">Cant</th>
                         <th className="px-2 py-1.5 text-left">SKU actual</th>
@@ -519,37 +529,50 @@ function ConfirmarCambioSkuDialog({
                       </tr>
                     </thead>
                     <tbody>
-                      {cajas.map((c) => (
-                        <tr key={c.ordenCajaId} className="border-t">
-                          <td className="px-2 py-1.5 font-mono">{c.codigoCaja || `Caja #${c.cajaId}`}</td>
-                          <td className="px-2 py-1.5 text-center tabular-nums">{c.cantidadCajas}</td>
-                          <td className="px-2 py-1.5 font-mono">{c.skuActual ?? '—'}</td>
-                          <td className="px-2 py-1.5">
-                            {c.coincide ? (
-                              <Badge variant="secondary" className="text-[10px]">Ya correcta — no se toca</Badge>
-                            ) : c.bloqueadaCompartida ? (
-                              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
-                                Bloqueada — usada en {c.usadaEnOtrasOrdenes + 1} órdenes
-                              </Badge>
-                            ) : incluirCajas ? (
-                              <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20" variant="outline">
-                                Cambiará a {nuevoProducto?.sku_base}
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[10px]">Se queda como está</Badge>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                      {cajas.map((c) => {
+                        const marcable = !c.coincide && !c.bloqueadaCompartida
+                        const marcada = cajasSel.includes(c.cajaId)
+                        return (
+                          <tr key={c.ordenCajaId} className="border-t">
+                            <td className="px-2 py-1.5 text-center">
+                              {marcable && (
+                                <Checkbox
+                                  checked={marcada}
+                                  onCheckedChange={(v) => toggleCaja(c.cajaId, v === true)}
+                                  aria-label={`Cambiar caja ${c.codigoCaja}`}
+                                />
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 font-mono">{c.codigoCaja || `Caja #${c.cajaId}`}</td>
+                            <td className="px-2 py-1.5 text-center tabular-nums">{c.cantidadCajas}</td>
+                            <td className="px-2 py-1.5 font-mono">{c.skuActual ?? '—'}</td>
+                            <td className="px-2 py-1.5">
+                              {c.coincide ? (
+                                <Badge variant="secondary" className="text-[10px]">Ya correcta — no se toca</Badge>
+                              ) : c.bloqueadaCompartida ? (
+                                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
+                                  Bloqueada — usada en {c.usadaEnOtrasOrdenes + 1} órdenes
+                                </Badge>
+                              ) : marcada ? (
+                                <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20" variant="outline">
+                                  Cambiará a {nuevoProducto?.sku_base}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px]">Se queda como está</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
 
-              {(yaCorrectas.length > 0 || bloqueadas.length > 0 || reasignables.length > 0) && (
+              {(yaCorrectas.length > 0 || bloqueadas.length > 0 || cajasSel.length > 0) && (
                 <p className="text-[11px] text-muted-foreground mt-2">
                   {yaCorrectas.length > 0 && `${yaCorrectas.length} ya correctas. `}
-                  {reasignables.length > 0 && `${reasignables.length} pasarán a ${nuevoProducto?.sku_base}. `}
+                  {cajasSel.length > 0 && `${cajasSel.length} pasarán a ${nuevoProducto?.sku_base}. `}
                   {bloqueadas.length > 0 && `${bloqueadas.length} bloqueadas por estar compartidas con otra orden (corrige esas cajas manual en el tab Cajas).`}
                 </p>
               )}
@@ -559,7 +582,7 @@ function ConfirmarCambioSkuDialog({
               <Checkbox checked={entiendo} onCheckedChange={(v) => onEntiendoChange(v === true)} className="mt-0.5" />
               <span>
                 Entiendo que al guardar la fila cambiará la línea de este producto en la orden actual
-                {incluirCajas && divergentes.length > 0 ? ` y el SKU de ${divergentes.length} caja(s)` : ' (las cajas no se tocan)'}
+                {cajasSel.length > 0 ? ` y el SKU de ${cajasSel.length} caja(s)` : ' (las cajas no se tocan)'}
                 {surtido?.surtido ? ', y que el stock ya surtido solo se corrige con nota de ajuste' : ''}.
               </span>
             </label>
@@ -621,7 +644,7 @@ export function OrdenProductos({
   const [cajasPreview, setCajasPreview] = useState<CajaAfectadaPorCambioSku[]>([])
   const [surtidoInfo, setSurtidoInfo] = useState<EstadoSurtidoOrden | null>(null)
   const [cargandoPreview, setCargandoPreview] = useState(false)
-  const [incluirCajas, setIncluirCajas] = useState(false)
+  const [cajasSel, setCajasSel] = useState<number[]>([])
   const [entiendo, setEntiendo] = useState(false)
   const [confirmando, setConfirmando] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
@@ -670,7 +693,7 @@ export function OrdenProductos({
     setPendingNuevoProducto(nuevo)
     setConfirmError(null)
     setEntiendo(false)
-    setIncluirCajas(false)
+    setCajasSel([])
     setCajasPreview([])
     setSurtidoInfo(null)
     setCargandoPreview(true)
@@ -679,13 +702,13 @@ export function OrdenProductos({
     startTransition(async () => {
       try {
         const [cajas, surtido] = await Promise.all([
-          fetchCajasAfectadasPorCambioSku(ordenId, editProductoId),
+          fetchCajasAfectadasPorCambioSku(ordenId, editProductoId, nuevo.sku_base),
           fetchEstadoSurtidoOrden(ordenId),
         ])
         setCajasPreview(cajas)
         setSurtidoInfo(surtido)
-        // Default: marcar reasignación solo si hay divergentes reasignables
-        setIncluirCajas(cajas.some((c) => !c.coincide && !c.bloqueadaCompartida))
+        // Todo desactivado por defecto: el usuario marca las cajas que sí cambian.
+        setCajasSel([])
       } catch {
         setConfirmError('No se pudo cargar el preview de cajas.')
       } finally {
@@ -698,9 +721,11 @@ export function OrdenProductos({
     if (!pendingDetalle || !pendingNuevoProducto || !editProductoId) return
     setConfirmando(true)
     setConfirmError(null)
-    const divergentesIds = cajasPreview
-      .filter((c) => !c.coincide && !c.bloqueadaCompartida)
-      .map((c) => c.cajaId)
+    // Solo las cajas marcadas por el usuario (el servidor re-valida
+    // pertenencia y bloqueo por compartidas como red de seguridad).
+    const seleccionadas = cajasSel.filter((cajaId) =>
+      cajasPreview.some((c) => c.cajaId === cajaId && !c.coincide && !c.bloqueadaCompartida),
+    )
 
     startTransition(async () => {
       const result = await actualizarProductoLineaConCajasAction({
@@ -711,8 +736,8 @@ export function OrdenProductos({
         precio_unitario: editForm.precio_unitario === '' ? null : Number(editForm.precio_unitario),
         precio_yuan: editForm.precio_yuan === '' ? null : Number(editForm.precio_yuan),
         cbm_detalle: editForm.cbm_detalle === '' ? null : Number(editForm.cbm_detalle),
-        incluirCajas,
-        cajaIds: incluirCajas ? divergentesIds : [],
+        incluirCajas: seleccionadas.length > 0,
+        cajaIds: seleccionadas,
       })
       setConfirmando(false)
       if (!result.success) { setConfirmError(result.error ?? 'Error al cambiar el producto.'); return }
@@ -950,8 +975,8 @@ export function OrdenProductos({
         cajas={cajasPreview}
         surtido={surtidoInfo}
         cargandoPreview={cargandoPreview}
-        incluirCajas={incluirCajas}
-        onIncluirCajasChange={setIncluirCajas}
+        cajasSel={cajasSel}
+        onCajasSelChange={setCajasSel}
         entiendo={entiendo}
         onEntiendoChange={setEntiendo}
         confirmando={confirmando}

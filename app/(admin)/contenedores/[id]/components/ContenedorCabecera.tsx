@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -16,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  ArrowLeft, Pencil, Save, X, Loader2, AlertCircle, Warehouse, Check, FileCheck, FileX, DollarSign, Calendar
+  ArrowLeft, Pencil, Save, X, Loader2, AlertCircle, Warehouse, Check, FileCheck, FileX, DollarSign, Calendar, TriangleAlert, CheckCircle2
 } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { formatCurrency } from '@/lib/utils'
@@ -29,8 +30,9 @@ import {
   actualizarContenedorAction, cambiarEstadoContenedorAction,
   surtirContenedorAction,
 } from '@/modules/contenedores/actions'
+import { fetchSurtidoPreview } from '@/modules/contenedores/queries'
 import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
-import type { ContenedorResumen } from '@/modules/contenedores/types'
+import type { ContenedorResumen, SurtidoPreview } from '@/modules/contenedores/types'
 
 import { ResumenContenedorModal } from './ResumenContenedorModal'
 
@@ -58,10 +60,14 @@ export function ContenedorCabecera({
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  // Surtir dialog
+  // Surtir dialog (preview fresco en una sola solicitud al abrir)
   const [surtirOpen, setSurtirOpen] = useState(false)
   const [bodegaVirtualId, setBodegaVirtualId] = useState<number | null>(null)
   const [surtiendo, setSurtiendo] = useState(false)
+  const [preview, setPreview] = useState<SurtidoPreview | null>(null)
+  const [cargandoPreview, setCargandoPreview] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [entiendoSurtido, setEntiendoSurtido] = useState(false)
 
   // Estado del checklist de documentos
   const [docsChecklist, setDocsChecklist] = useState<Record<string, boolean>>(() => {
@@ -108,6 +114,27 @@ export function ContenedorCabecera({
       const result = await cambiarEstadoContenedorAction(contenedor.id, nuevoEstado)
       if (!result.success) { setError(result.error ?? 'Error.'); return }
       router.refresh()
+    })
+  }
+
+  const openSurtir = () => {
+    setBodegaVirtualId(bodegasVirtuales[0]?.id ?? null)
+    setPreview(null)
+    setPreviewError(null)
+    setEntiendoSurtido(false)
+    setCargandoPreview(true)
+    setSurtirOpen(true)
+
+    // Única solicitud a DB: exactamente lo que pasará a stock
+    startTransition(async () => {
+      try {
+        const data = await fetchSurtidoPreview(contenedor.id)
+        setPreview(data)
+      } catch {
+        setPreviewError('No se pudo cargar el resumen de líneas.')
+      } finally {
+        setCargandoPreview(false)
+      }
     })
   }
 
@@ -164,7 +191,7 @@ export function ContenedorCabecera({
           {canEdit && contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && (
             <Button
               variant="default" size="sm"
-              onClick={() => { setBodegaVirtualId(bodegasVirtuales[0]?.id ?? null); setSurtirOpen(true) }}
+              onClick={openSurtir}
               disabled={isPending}
             >
               <Warehouse className="h-3.5 w-3.5 mr-1" /> Surtir a bodega virtual
@@ -179,50 +206,151 @@ export function ContenedorCabecera({
         </div>
       </div>
 
-      {/* Dialog: Surtir a bodega virtual */}
+      {/* Dialog: Surtir a bodega virtual (con resumen de líneas) */}
       <Dialog open={surtirOpen} onOpenChange={setSurtirOpen}>
-        <DialogContent>
+        <DialogContent className="w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Surtir contenedor a bodega virtual</DialogTitle>
             <DialogDescription>
-              Se creará una nota de entrada para convertir las cajas del contenedor
-              en stock de la bodega virtual. Esta acción no se puede deshacer.
+              Esto es exactamente lo que pasará a stock real en la bodega virtual
+              (datos de líneas de producto). Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2">
-            <Label htmlFor="bodega-virtual" className="text-sm font-medium">
-              Bodega virtual destino
-            </Label>
-            <Select
-              value={bodegaVirtualId ? String(bodegaVirtualId) : ''}
-              onValueChange={(v) => setBodegaVirtualId(v ? parseInt(v) : null)}
-            >
-              <SelectTrigger id="bodega-virtual">
-                <SelectValue>
-                  {bodegaVirtualId
-                    ? (() => {
-                        const selected = bodegasVirtuales.find((b) => b.id === bodegaVirtualId)
-                        return selected ? `${selected.nombre} (${selected.codigo})` : 'Seleccionar bodega virtual...'
-                      })()
-                    : 'Seleccionar bodega virtual...'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {bodegasVirtuales.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.nombre} ({b.codigo})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div>
+              <Label htmlFor="bodega-virtual" className="text-sm font-medium">
+                Bodega virtual destino
+              </Label>
+              <Select
+                value={bodegaVirtualId ? String(bodegaVirtualId) : ''}
+                onValueChange={(v) => setBodegaVirtualId(v ? parseInt(v) : null)}
+              >
+                <SelectTrigger id="bodega-virtual" className="mt-1">
+                  <SelectValue>
+                    {bodegaVirtualId
+                      ? (() => {
+                          const selected = bodegasVirtuales.find((b) => b.id === bodegaVirtualId)
+                          return selected ? `${selected.nombre} (${selected.codigo})` : 'Seleccionar bodega virtual...'
+                        })()
+                      : 'Seleccionar bodega virtual...'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {bodegasVirtuales.map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.nombre} ({b.codigo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {cargandoPreview ? (
+              <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" /> Cargando líneas que pasarán a stock…
+              </div>
+            ) : previewError ? (
+              <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 rounded p-2">
+                <AlertCircle className="h-3 w-3 shrink-0" /><span>{previewError}</span>
+              </div>
+            ) : preview && preview.lineas.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                Sin líneas de producto para surtir.
+              </p>
+            ) : preview ? (
+              <div className="space-y-3">
+                {preview.conDiferencias && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                    <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Hay diferencias en cajas contra el físico. Se transferirán los datos de{' '}
+                      <strong>líneas</strong>; puedes corregir la orden antes de proseguir.
+                    </span>
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-purple-500/30 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-purple-500/10 font-semibold text-purple-900 dark:text-purple-200 border-b border-purple-500/20">
+                        <th className="px-3 py-2 text-left">SKU</th>
+                        <th className="px-3 py-2 text-left">Producto</th>
+                        <th className="px-3 py-2 text-center">Cajas</th>
+                        <th className="px-3 py-2 text-right">Pz a stock</th>
+                        <th className="px-3 py-2 text-right">Importe</th>
+                        <th className="px-3 py-2 text-left">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.lineas.map((l) => (
+                        <tr key={l.productoId} className="border-t">
+                          <td className="px-3 py-2 font-mono font-bold whitespace-nowrap">{l.skuBase ?? '—'}</td>
+                          <td className="px-3 py-2 max-w-[200px]">
+                            <div className="truncate" title={l.productoDescripcion ?? l.productoNombre ?? ''}>
+                              {l.productoDescripcion ?? l.productoNombre ?? '—'}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-center font-mono tabular-nums font-bold">
+                            {l.cajasLinea.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums font-bold">
+                            {l.piezasLinea.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums">
+                            {l.importeTotal ? formatCurrency(l.importeTotal, 'USD') : '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            {l.estado === 'OK' ? (
+                              <Badge variant="secondary" className="text-[10px] gap-1">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Cuadra
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-600">
+                                <TriangleAlert className="h-3 w-3" />
+                                {l.estado === 'SIN_CAJAS' ? 'Sin cajas' : `Dif ${l.difCajas > 0 ? '+' : ''}${l.difCajas} cajas`}
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t bg-purple-500/10 font-semibold">
+                        <td colSpan={2} className="px-3 py-2 text-purple-900 dark:text-purple-200">Total a stock virtual</td>
+                        <td className="px-3 py-2 text-center tabular-nums">{preview.totalCajasLinea.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">{preview.totalPiezasLinea.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(preview.importeTotal, 'USD')}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <label className="flex items-start gap-2 text-xs cursor-pointer">
+                  <Checkbox
+                    checked={entiendoSurtido}
+                    onCheckedChange={(v) => setEntiendoSurtido(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Entiendo que se transferirán los datos de líneas a stock real en la bodega virtual
+                    ({preview.totalProductos} productos, {preview.totalPiezasLinea.toLocaleString()} pz).
+                  </span>
+                </label>
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setSurtirOpen(false)} disabled={surtiendo}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={handleSurtir} disabled={!bodegaVirtualId || surtiendo}>
+            <Button
+              size="sm"
+              onClick={handleSurtir}
+              disabled={!bodegaVirtualId || surtiendo || cargandoPreview || !preview || preview.lineas.length === 0 || !entiendoSurtido}
+            >
               {surtiendo && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               <Check className="h-3.5 w-3.5 mr-1" /> Confirmar surtido
             </Button>

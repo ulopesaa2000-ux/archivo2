@@ -5,7 +5,7 @@ import type { Metadata } from 'next'
 import {
   fetchContenedorById, fetchContenedorResumen,
   fetchOrdenesDeContenedor, fetchContenedorPacking,
-  fetchCajasDeContenedor,
+  fetchCajasDeContenedor, fetchSurtidoPreview,
 } from '@/modules/contenedores/queries'
 import { fetchCatalogosB2B } from '@/modules/ordenes-b2b/queries'
 import { fetchBodegasVirtuales } from '@/modules/despachos/queries'
@@ -45,12 +45,13 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
   ])
   if (!contenedor) notFound()
 
-  const [ordenes, packing, cajas, catalogos, bodegasVirtuales] = await Promise.all([
+  const [ordenes, packing, cajas, catalogos, bodegasVirtuales, surtidoPreview] = await Promise.all([
     fetchOrdenesDeContenedor(id),
     fetchContenedorPacking(id),
     fetchCajasDeContenedor(id),
     fetchCatalogosB2B(),
     fetchBodegasVirtuales(),
+    fetchSurtidoPreview(id),
   ])
 
   return (
@@ -83,7 +84,7 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
           </Suspense>
         </TabsContent>
         <TabsContent value="packing">
-          <ContenedorPacking items={packing} />
+          <ContenedorPacking items={packing} surtidoPreview={surtidoPreview} />
         </TabsContent>
       </Tabs>
     </div>

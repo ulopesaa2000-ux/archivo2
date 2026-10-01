@@ -530,13 +530,19 @@ export async function actualizarProductoLineaConCajasAction(
     }
 
     if (permitidas.length > 0) {
+      // Comparar por SKU (no por id): puede haber filas de producto
+      // duplicadas con el mismo sku_base y no hay nada que cambiar.
+      const nuevoSkuNorm = String((nuevoProd as any).sku_base ?? '').trim().toUpperCase()
       const { data: cajasActuales } = await supabase
         .from('cajas_producto')
-        .select('id, producto_id')
+        .select('id, producto_id, producto:productos!cajas_producto_producto_id_fkey ( sku_base )')
         .in('id', permitidas)
 
       const porCambiar = (cajasActuales ?? [])
-        .filter((c: any) => c.producto_id !== nuevoProductoId)
+        .filter((c: any) => {
+          const prod = Array.isArray(c.producto) ? c.producto[0] : c.producto
+          return String(prod?.sku_base ?? '').trim().toUpperCase() !== nuevoSkuNorm
+        })
         .map((c: any) => c.id)
 
       if (porCambiar.length > 0) {

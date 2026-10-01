@@ -161,6 +161,39 @@ export type ResumenContenedorData = {
   fechaLlegadaAlmacen: string
 }
 
+export type SurtidoPreviewLinea = {
+  productoId: number
+  skuBase: string | null
+  productoNombre: string | null
+  productoDescripcion: string | null
+  /** Cajas según líneas de orden (fuente de verdad del surtido) */
+  cajasLinea: number
+  /** Piezas según líneas de orden = stock que entrará a la bodega virtual */
+  piezasLinea: number
+  /** Cajas físicas vinculadas (orden_cajas) */
+  cajasFisicas: number
+  piezasFisicas: number
+  /** Diferencia clave: cajasLinea - cajasFisicas */
+  difCajas: number
+  difPiezas: number
+  precioUnitario: number | null
+  importeTotal: number
+  estado: 'OK' | 'ADVERTENCIA' | 'SIN_CAJAS'
+  ordenIds: number[]
+}
+
+export type SurtidoPreview = {
+  contenedorId: number
+  totalProductos: number
+  totalCajasLinea: number
+  totalPiezasLinea: number
+  totalCajasFisicas: number
+  totalPiezasFisicas: number
+  importeTotal: number
+  conDiferencias: boolean
+  lineas: SurtidoPreviewLinea[]
+}
+
 export type ResumenEdicionPayload = {
   contenedorId: number
   numeroContenedor?: string
