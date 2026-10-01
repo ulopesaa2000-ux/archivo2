@@ -122,11 +122,19 @@ export function OcrLineasSyncModal({
                 producto_nombre: prod.descripcion ?? prod.nombre ?? '',
                 producto_pz_en_caja: prod.pz_en_caja ?? null,
                 encontrado: true,
+                es_propuesta: false,
+                propuesta_producto_id: null,
+                propuesta_producto_sku: null,
+                propuesta_producto_nombre: null,
+                propuesta_producto_pz_en_caja: null,
+                confianza: 1.0,
+                score: 1.0,
+                metodo: 'MANUAL',
               }
             : l
         )
       )
-      setSuccess(`Línea #${selectedIndex + 1} actualizada con ${prod.sku_base}`)
+      setSuccess(`Línea #${selectedIndex + 1} vinculada a ${prod.sku_base}`)
     } else {
       // Agregar como nueva línea
       setLineas((prev) => [
@@ -136,11 +144,14 @@ export function OcrLineasSyncModal({
           estilo_raw: prod.sku_base,
           cantidad_cajas: 1,
           confianza: 1.0,
+          score: 1.0,
+          metodo: 'MANUAL',
           producto_id: prod.id,
           producto_sku: prod.sku_base,
           producto_nombre: prod.descripcion ?? prod.nombre ?? '',
           producto_pz_en_caja: prod.pz_en_caja ?? null,
           encontrado: true,
+          es_propuesta: false,
         },
       ])
       setSuccess(`Se agregó ${prod.sku_base} a las líneas.`)
@@ -148,6 +159,54 @@ export function OcrLineasSyncModal({
 
     setSearchTerm('')
     setSearchResults([])
+  }
+
+  // Aceptar propuesta de SKU con 1 clic
+  const handleAcceptProposal = (index: number) => {
+    setLineas((prev) =>
+      prev.map((l, i) =>
+        i === index && l.propuesta_producto_id && l.propuesta_producto_sku
+          ? {
+              ...l,
+              producto_id: l.propuesta_producto_id,
+              producto_sku: l.propuesta_producto_sku,
+              producto_nombre: l.propuesta_producto_nombre ?? '',
+              producto_pz_en_caja: l.propuesta_producto_pz_en_caja ?? null,
+              encontrado: true,
+              es_propuesta: false,
+              confianza: 1.0,
+            }
+          : l
+      )
+    )
+    const target = lineas[index]
+    setSuccess(`Línea #${index + 1}: Propuesta ${target?.propuesta_producto_sku} aceptada.`)
+  }
+
+  // Desvincular / Limpiar producto asignado a una línea
+  const handleClearLineProduct = (index: number) => {
+    setLineas((prev) =>
+      prev.map((l, i) =>
+        i === index
+          ? {
+              ...l,
+              producto_id: null,
+              producto_sku: null,
+              producto_nombre: null,
+              producto_pz_en_caja: null,
+              encontrado: false,
+              es_propuesta: false,
+              propuesta_producto_id: null,
+              propuesta_producto_sku: null,
+              propuesta_producto_nombre: null,
+              propuesta_producto_pz_en_caja: null,
+              confianza: 0.5,
+              score: 0,
+            }
+          : l
+      )
+    )
+    setSuccess(`Línea #${index + 1}: Producto desvinculado.`)
   }
 
   // Cargar y sincronizar líneas iniciales al abrir
@@ -320,32 +379,44 @@ export function OcrLineasSyncModal({
     })
   }
 
-  const encontradosCount = lineas.filter((l) => l.encontrado).length
+  const exactosCount = lineas.filter((l) => l.encontrado && !l.es_propuesta).length
+  const propuestasCount = lineas.filter((l) => l.es_propuesta && !l.encontrado).length
+  const noEncontradosCount = lineas.filter((l) => !l.encontrado && !l.es_propuesta).length
   const totalCajas = lineas.reduce((sum, l) => sum + (l.cantidad_cajas || 0), 0)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[92vw] lg:max-w-[90vw] w-full h-[88vh] flex flex-col rounded-2xl p-5 gap-3">
+      <DialogContent className="sm:max-w-[94vw] lg:max-w-[92vw] w-full h-[90vh] flex flex-col rounded-2xl p-5 gap-3">
         {/* Encabezado */}
         <DialogHeader className="pb-2 border-b shrink-0">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
               <DialogTitle className="text-lg font-black uppercase tracking-tight">
                 Editor y Sincronizador de Líneas OCR
               </DialogTitle>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="font-mono text-xs font-bold py-1">
-                {encontradosCount} / {lineas.length} SKUs Encontrados
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline" className="font-mono text-xs font-bold py-1 bg-emerald-50 text-emerald-800 border-emerald-300">
+                🟢 {exactosCount} Confirmados
               </Badge>
+              {propuestasCount > 0 && (
+                <Badge variant="outline" className="font-mono text-xs font-bold py-1 bg-amber-50 text-amber-800 border-amber-300">
+                  🟡 {propuestasCount} Propuestas
+                </Badge>
+              )}
+              {noEncontradosCount > 0 && (
+                <Badge variant="outline" className="font-mono text-xs font-bold py-1 bg-destructive/10 text-destructive border-destructive/30">
+                  🔴 {noEncontradosCount} Sin Coincidencia
+                </Badge>
+              )}
               <Badge variant="secondary" className="font-mono text-xs font-bold py-1">
                 Total Cajas: {totalCajas}
               </Badge>
             </div>
           </div>
           <DialogDescription className="text-xs text-muted-foreground pt-0.5">
-            Inspecciona la foto de la nota física a la izquierda, busca productos similares e interactúa en tiempo real con la lista de renglones resueltos.
+            Inspecciona la foto de la nota física a la izquierda, revisa las propuestas inteligentes del segundo repaso y edita libremente los códigos como en el ajuste de inventario.
           </DialogDescription>
         </DialogHeader>
 
@@ -581,16 +652,16 @@ export function OcrLineasSyncModal({
               )}
             </div>
 
-            {/* Tabla interactiva scrollable */}
+            {/* Tabla interactiva scrollable con Semáforo Verde/Amarillo/Rojo */}
             <div className="flex-1 overflow-auto border rounded-xl shadow-inner min-h-0 bg-background">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-muted border-b text-[11px] font-black uppercase tracking-wider text-muted-foreground z-10">
                   <tr>
                     <th className="px-2.5 py-2 text-center w-[40px]">#</th>
-                    <th className="px-2.5 py-2 text-left">Texto OCR Detectado (`estilo_raw`)</th>
-                    <th className="px-2.5 py-2 text-center w-[85px]">Cajas</th>
-                    <th className="px-2.5 py-2 text-left">SKU Resuelto en BD</th>
-                    <th className="px-2.5 py-2 text-center w-[75px]">Conf.</th>
+                    <th className="px-2.5 py-2 text-left">Texto OCR (`estilo_raw`)</th>
+                    <th className="px-2.5 py-2 text-center w-[80px]">Cajas</th>
+                    <th className="px-2.5 py-2 text-left">Resolución en Catálogo</th>
+                    <th className="px-2.5 py-2 text-center w-[65px]">Score</th>
                     <th className="px-2.5 py-2 text-center w-[45px]"></th>
                   </tr>
                 </thead>
@@ -598,13 +669,11 @@ export function OcrLineasSyncModal({
                   {lineas.length > 0 ? (
                     lineas.map((line, idx) => {
                       const isSelected = selectedIndex === idx
-                      const confPct = Math.round((line.confianza || 0.8) * 100)
-                      const confBadgeColor =
-                        confPct >= 90
-                          ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300'
-                          : confPct >= 75
-                          ? 'bg-amber-500/10 text-amber-700 border-amber-300'
-                          : 'bg-destructive/10 text-destructive border-destructive/30'
+                      const isConfirmed = line.encontrado && !!line.producto_sku
+                      const isProposal = !line.encontrado && line.es_propuesta && !!line.propuesta_producto_sku
+                      const isNotFound = !isConfirmed && !isProposal
+
+                      const scorePct = Math.round((line.score || line.confianza || 0) * 100)
 
                       return (
                         <tr
@@ -613,7 +682,9 @@ export function OcrLineasSyncModal({
                           className={cn(
                             'transition-colors cursor-pointer hover:bg-muted/50',
                             isSelected ? 'bg-primary/10 border-l-4 border-l-primary font-semibold' : '',
-                            !line.encontrado && !isSelected ? 'bg-amber-500/5' : ''
+                            isConfirmed && !isSelected ? 'border-l-4 border-l-emerald-500 bg-emerald-500/[0.02]' : '',
+                            isProposal && !isSelected ? 'border-l-4 border-l-amber-500 bg-amber-500/5' : '',
+                            isNotFound && !isSelected ? 'border-l-4 border-l-destructive/50 bg-destructive/5' : ''
                           )}
                         >
                           <td className="px-2.5 py-1.5 text-center font-mono font-bold text-muted-foreground">
@@ -647,32 +718,104 @@ export function OcrLineasSyncModal({
                             />
                           </td>
 
-                          {/* Estado del SKU en Supabase */}
+                          {/* Estado y Resolución: Semáforo Verde / Amarillo / Rojo */}
                           <td className="px-2.5 py-1.5">
-                            {line.encontrado && line.producto_sku ? (
-                              <div className="flex items-center gap-1.5">
+                            {isConfirmed ? (
+                              /* 🟢 VERDE: Match Exacto Confirmado */
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <Badge
                                   variant="outline"
-                                  className="bg-emerald-50 border-emerald-200 text-emerald-800 font-mono font-bold text-xs py-0.5"
+                                  className="bg-emerald-50 border-emerald-300 text-emerald-800 font-mono font-bold text-xs py-0.5 flex items-center gap-1 shadow-2xs"
                                 >
-                                  ✓ {line.producto_sku}
+                                  <span>✓</span>
+                                  <span>{line.producto_sku}</span>
                                 </Badge>
                                 {line.producto_nombre && (
                                   <span
-                                    className="text-[10px] text-muted-foreground truncate max-w-[180px]"
+                                    className="text-[10px] text-muted-foreground truncate max-w-[150px]"
                                     title={line.producto_nombre}
                                   >
                                     {line.producto_nombre}
                                   </span>
                                 )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIndex(idx)
+                                    handleSearchChange(line.producto_sku || '')
+                                    searchInputRef.current?.focus()
+                                  }}
+                                  className="h-5 px-1.5 text-[9px] font-bold text-muted-foreground hover:text-primary hover:bg-primary/10 rounded"
+                                  title="Cambiar este producto por otro del catálogo"
+                                >
+                                  Cambiar
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleClearLineProduct(idx)
+                                  }}
+                                  className="h-5 px-1 text-[9px] text-muted-foreground hover:text-destructive rounded"
+                                  title="Desvincular producto"
+                                >
+                                  ✕
+                                </Button>
+                              </div>
+                            ) : isProposal ? (
+                              /* 🟡 AMARILLO: Propuesta Inteligente del Segundo Repaso */
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 border-amber-300 text-amber-900 font-mono font-bold text-[11px] py-0.5 flex items-center gap-1 shadow-2xs"
+                                >
+                                  <span>💡</span>
+                                  <span>Propuesta: {line.propuesta_producto_sku}</span>
+                                </Badge>
+                                <Button
+                                  type="button"
+                                  variant="default"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAcceptProposal(idx)
+                                  }}
+                                  className="h-5 px-2 text-[9px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded shadow-2xs flex items-center gap-1"
+                                  title="Aceptar esta propuesta y vincularla a la nota"
+                                >
+                                  <Check className="h-2.5 w-2.5" />
+                                  <span>Aceptar</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIndex(idx)
+                                    handleSearchChange(line.estilo_raw || '')
+                                    searchInputRef.current?.focus()
+                                  }}
+                                  className="h-5 px-1.5 text-[9px] font-bold text-muted-foreground hover:text-foreground rounded flex items-center gap-0.5"
+                                  title="Buscar manualmente otra opción en catálogo"
+                                >
+                                  <Search className="h-2.5 w-2.5" />
+                                  <span>Buscar</span>
+                                </Button>
                               </div>
                             ) : (
+                              /* 🔴 ROJO: Sin Coincidencia Confiable */
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <Badge
                                   variant="destructive"
                                   className="text-[9px] font-bold uppercase tracking-tight py-0.5 shrink-0"
                                 >
-                                  ⚠️ No Encontrado
+                                  ⚠️ Sin Coincidencia
                                 </Badge>
                                 <Button
                                   type="button"
@@ -694,13 +837,20 @@ export function OcrLineasSyncModal({
                             )}
                           </td>
 
-                          {/* Confianza OCR */}
+                          {/* Score de confianza */}
                           <td className="px-2.5 py-1.5 text-center">
                             <Badge
                               variant="outline"
-                              className={cn('font-mono font-bold text-[9px] py-0.5', confBadgeColor)}
+                              className={cn(
+                                'font-mono font-bold text-[9px] py-0.5',
+                                isConfirmed
+                                  ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300'
+                                  : isProposal
+                                  ? 'bg-amber-500/10 text-amber-800 border-amber-300'
+                                  : 'bg-destructive/10 text-destructive border-destructive/30'
+                              )}
                             >
-                              {confPct}%
+                              {scorePct}%
                             </Badge>
                           </td>
 

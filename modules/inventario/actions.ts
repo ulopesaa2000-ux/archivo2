@@ -1226,28 +1226,62 @@ export async function sincronizarLineasOcrAction(
       .filter((c: any) => c.linea_index === itemIndex || c.sku_buscado === rawText)
       .sort((a: any, b: any) => Number(b.score) - Number(a.score))
     const topCand = cands.length > 0 ? cands[0] : null
+    const topScore = topCand ? Number(topCand.score) : 0
 
-    if (topCand && Number(topCand.score) >= 0.60) {
+    if (topCand && topScore >= 0.95) {
+      // 🟢 Match Exacto Confirmado (100%)
       resultados.push({
         index: itemIndex,
         estilo_raw: rawText,
         cantidad_cajas: cajas,
         piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
-        confianza: Math.min(0.99, Number(topCand.score)),
+        confianza: 1.0,
         producto_id: topCand.producto_id,
         producto_sku: topCand.sku_base,
         producto_nombre: topCand.descripcion,
         producto_pz_en_caja: topCand.pz_en_caja,
         encontrado: true,
+        es_propuesta: false,
+        score: topScore,
+        metodo: topCand.metodo,
+      })
+    } else if (topCand && topScore >= 0.70) {
+      // 🟡 Propuesta Inteligente de Segundo Repaso (Género, Patrón OCR, Similitud)
+      resultados.push({
+        index: itemIndex,
+        estilo_raw: rawText,
+        cantidad_cajas: cajas,
+        piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
+        confianza: topScore,
+        producto_id: null,
+        producto_sku: null,
+        producto_nombre: null,
+        producto_pz_en_caja: null,
+        encontrado: false,
+        es_propuesta: true,
+        propuesta_producto_id: topCand.producto_id,
+        propuesta_producto_sku: topCand.sku_base,
+        propuesta_producto_nombre: topCand.descripcion,
+        propuesta_producto_pz_en_caja: topCand.pz_en_caja,
+        score: topScore,
+        metodo: topCand.metodo,
       })
     } else {
+      // 🔴 No Encontrado / Sin Coincidencia Confiable
       resultados.push({
         index: itemIndex,
         estilo_raw: rawText,
         cantidad_cajas: cajas,
         piezas_por_caja: item.piezas_por_caja ?? null,
         confianza: item.confianza ?? 0.5,
+        producto_id: null,
+        producto_sku: null,
+        producto_nombre: null,
+        producto_pz_en_caja: null,
         encontrado: false,
+        es_propuesta: false,
+        score: topScore,
+        metodo: null,
       })
     }
   }
