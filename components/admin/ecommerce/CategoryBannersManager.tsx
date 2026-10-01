@@ -177,7 +177,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                       <SelectValue placeholder="— Todos los géneros —" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Todos los géneros —</SelectItem>
+                      <SelectItem value="__none__">— Todos los géneros —</SelectItem>
                       {generos.map((g) => (
                         <SelectItem key={g.id} value={String(g.id)}>{g.nombre}</SelectItem>
                       ))}
@@ -192,7 +192,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                       <SelectValue placeholder="— Todos los tipos —" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Todos los tipos —</SelectItem>
+                      <SelectItem value="__none__">— Todos los tipos —</SelectItem>
                       {tiposPrenda.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
                       ))}
@@ -212,7 +212,7 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                     <SelectValue placeholder="— Seleccionar producto para ver en detalle —" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
-                    <SelectItem value="">— Ninguno (Solo informativo) —</SelectItem>
+                    <SelectItem value="__none__">— Ninguno (Solo informativo) —</SelectItem>
                     {productos.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         [{p.sku_base}] {p.nombre}
@@ -409,12 +409,12 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit_genero_id" className="text-xs font-semibold">Género de Categoría</Label>
-                  <Select name="genero_id" defaultValue={editingBanner.genero_id ? String(editingBanner.genero_id) : ''}>
+                  <Select name="genero_id" defaultValue={editingBanner.genero_id ? String(editingBanner.genero_id) : '__none__'}>
                     <SelectTrigger id="edit_genero_id">
                       <SelectValue placeholder="— Todos los géneros —" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Todos los géneros —</SelectItem>
+                      <SelectItem value="__none__">— Todos los géneros —</SelectItem>
                       {generos.map((g) => (
                         <SelectItem key={g.id} value={String(g.id)}>{g.nombre}</SelectItem>
                       ))}
@@ -424,12 +424,12 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
 
                 <div className="space-y-1.5">
                   <Label htmlFor="edit_tipo_prenda_id" className="text-xs font-semibold">Tipo de Prenda</Label>
-                  <Select name="tipo_prenda_id" defaultValue={editingBanner.tipo_prenda_id ? String(editingBanner.tipo_prenda_id) : ''}>
+                  <Select name="tipo_prenda_id" defaultValue={editingBanner.tipo_prenda_id ? String(editingBanner.tipo_prenda_id) : '__none__'}>
                     <SelectTrigger id="edit_tipo_prenda_id">
                       <SelectValue placeholder="— Todos los tipos —" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Todos los tipos —</SelectItem>
+                      <SelectItem value="__none__">— Todos los tipos —</SelectItem>
                       {tiposPrenda.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
                       ))}
@@ -444,12 +444,12 @@ export function CategoryBannersManager({ banners, generos, tiposPrenda, producto
                   <Package className="h-3.5 w-3.5 text-store-accent" />
                   Producto Promocionado / Asociado (Opcional)
                 </Label>
-                <Select name="producto_id" defaultValue={editingBanner.producto_id ? String(editingBanner.producto_id) : ''}>
+                <Select name="producto_id" defaultValue={editingBanner.producto_id ? String(editingBanner.producto_id) : '__none__'}>
                   <SelectTrigger id="edit_producto_id">
                     <SelectValue placeholder="— Seleccionar producto para ver en detalle —" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
-                    <SelectItem value="">— Ninguno (Solo informativo) —</SelectItem>
+                    <SelectItem value="__none__">— Ninguno (Solo informativo) —</SelectItem>
                     {productos.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         [{p.sku_base}] {p.nombre}

@@ -914,6 +914,48 @@ export async function fetchProductosPorFamilia(
   }))
 }
 
+export interface StockTotalProducto {
+  cajas: number
+  piezas: number
+}
+
+/**
+ * Stock TOTAL GLOBAL (todas las bodegas) por producto para el modo stock de
+ * /catalogo/familias. Agrega en servidor-cliente; ids sin fila = fuera del mapa
+ * (el consumidor los trata como 0). Soporta lotes grandes vía chunks.
+ */
+export async function fetchStockTotalesPorProducto(
+  productoIds: number[]
+): Promise<Record<number, StockTotalProducto>> {
+  const totales: Record<number, StockTotalProducto> = {}
+  const unicos = Array.from(new Set((productoIds || []).filter((n) => Number.isFinite(n))))
+  if (unicos.length === 0) return totales
+
+  const supabase = await createClient()
+  const CHUNK = 200
+  for (let i = 0; i < unicos.length; i += CHUNK) {
+    const chunk = unicos.slice(i, i + CHUNK)
+    const { data, error } = await supabase
+      .from('inventario_stock')
+      .select('producto_id, cajas, piezas_sueltas')
+      .in('producto_id', chunk)
+
+    if (error) {
+      console.error('Error fetchStockTotalesPorProducto:', error)
+      continue
+    }
+
+    for (const row of data || []) {
+      const pid = (row as any).producto_id as number
+      if (!totales[pid]) totales[pid] = { cajas: 0, piezas: 0 }
+      totales[pid].cajas += (row as any).cajas || 0
+      totales[pid].piezas += (row as any).piezas_sueltas || 0
+    }
+  }
+
+  return totales
+}
+
 // ═══════════════════════════════════════════════════════════════
 // STOCK DE PRODUCTO POR BODEGA Y PRONOSTICADO (TAB STOCK)
 // ═══════════════════════════════════════════════════════════════

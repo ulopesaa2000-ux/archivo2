@@ -5,6 +5,44 @@ import { revalidatePath } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 
+// ─── Storage de banners ─────────────────────────────────────────────────────
+// Bucket único de imágenes del proyecto (verificado en Supabase: solo existen
+// `product_images` y `comprobantes`). Las "carpetas" son prefijos de ruta y se
+// crean solas con el primer upload; las policies de `product_images` cubren
+// todo el bucket, por lo que `banners/categorias/*` no requiere policies nuevas.
+const BANNERS_BUCKET = 'product_images'
+const BANNERS_PREFIX = 'banners/categorias'
+const MAX_BANNER_BYTES = 8 * 1024 * 1024 // coherente con bodySizeLimit: '10mb' (next.config.ts)
+const ALLOWED_BANNER_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp'])
+
+// Valor sentinel del formulario para "Ninguno" (los Select no usan "" vacío)
+const NONE_VALUE = '__none__'
+
+function toNullableId(value: FormDataEntryValue | null): number | null {
+  if (value === null || value === '' || value === NONE_VALUE) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function buildBannerFileName(originalName: string): string | null {
+  const rawExt = originalName.split('.').pop()?.toLowerCase() || ''
+  if (!ALLOWED_BANNER_EXTS.has(rawExt)) return null
+  return `${BANNERS_PREFIX}/banner_${Date.now()}_${Math.random().toString(36).substring(7)}.${rawExt}`
+}
+
+function validateBannerFile(file: File): string | null {
+  if (!file.type.startsWith('image/')) {
+    return 'El archivo debe ser una imagen válida.'
+  }
+  if (file.size > MAX_BANNER_BYTES) {
+    return 'La imagen supera el límite de 8 MB.'
+  }
+  if (!buildBannerFileName(file.name)) {
+    return 'Formato de imagen no soportado. Usa JPG, PNG o WebP.'
+  }
+  return null
+}
+
 export interface CategoriaBannerRow {
   id: number
   nombre: string
@@ -372,9 +410,9 @@ export async function createBannerCategoriaAction(
     const supabase = await createClient()
 
     const nombre = formData.get('nombre') as string
-    const genero_id = formData.get('genero_id') ? Number(formData.get('genero_id')) : null
-    const tipo_prenda_id = formData.get('tipo_prenda_id') ? Number(formData.get('tipo_prenda_id')) : null
-    const producto_id = formData.get('producto_id') ? Number(formData.get('producto_id')) : null
+    const genero_id = toNullableId(formData.get('genero_id'))
+    const tipo_prenda_id = toNullableId(formData.get('tipo_prenda_id'))
+    const producto_id = toNullableId(formData.get('producto_id'))
     const titulo_banner = (formData.get('titulo_banner') as string) || null
     const subtitulo_banner = (formData.get('subtitulo_banner') as string) || null
     const link_destino = (formData.get('link_destino') as string) || null
@@ -389,14 +427,18 @@ export async function createBannerCategoriaAction(
 
     // Subir archivo a Supabase Storage si se adjuntó un archivo
     if (file && file.size > 0) {
-      const ext = file.name.split('.').pop() || 'jpg'
-      const fileName = `banners/categorias/banner_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`
-      
+      const fileError = validateBannerFile(file)
+      if (fileError) {
+        return { success: false, error: fileError }
+      }
+      // buildBannerFileName ya fue validado arriba; el "!"" es seguro aquí
+      const fileName = buildBannerFileName(file.name)!
+
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('productos')
+        .from(BANNERS_BUCKET)
         .upload(fileName, file, {
           contentType: file.type || 'image/jpeg',
-          upsert: true,
+          upsert: false,
         })
 
       if (uploadError) {
@@ -405,7 +447,7 @@ export async function createBannerCategoriaAction(
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('productos')
+        .from(BANNERS_BUCKET)
         .getPublicUrl(uploadData.path)
 
       imagen_url = publicUrlData.publicUrl
@@ -484,15 +526,13 @@ export async function updateBannerCategoriaAction(
     if (formData.has('subtitulo_banner')) updateData.subtitulo_banner = formData.get('subtitulo_banner') || null
     if (formData.has('link_destino')) updateData.link_destino = formData.get('link_destino') || null
     if (formData.has('genero_id')) {
-      const gVal = formData.get('genero_id')
-      updateData.genero_id = gVal && gVal !== '' ? Number(gVal) : null
+      updateData.genero_id = toNullableId(formData.get('genero_id'))
     }
     if (formData.has('tipo_prenda_id')) {
-      const tpVal = formData.get('tipo_prenda_id')
-      updateData.tipo_prenda_id = tpVal && tpVal !== '' ? Number(tpVal) : null
+      updateData.tipo_prenda_id = toNullableId(formData.get('tipo_prenda_id'))
     }
     if (formData.has('producto_id')) {
-      const pid = formData.get('producto_id') && formData.get('producto_id') !== '' ? Number(formData.get('producto_id')) : null
+      const pid = toNullableId(formData.get('producto_id'))
       updateData.producto_id = pid
       if (pid) {
         const { data: pw } = await supabase
@@ -509,14 +549,18 @@ export async function updateBannerCategoriaAction(
     // Si se subió un nuevo archivo de imagen
     const file = formData.get('file') as File | null
     if (file && file.size > 0) {
-      const ext = file.name.split('.').pop() || 'jpg'
-      const fileName = `banners/categorias/banner_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`
-      
+      const fileError = validateBannerFile(file)
+      if (fileError) {
+        return { success: false, error: fileError }
+      }
+      // buildBannerFileName ya fue validado arriba; el "!"" es seguro aquí
+      const fileName = buildBannerFileName(file.name)!
+
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('productos')
+        .from(BANNERS_BUCKET)
         .upload(fileName, file, {
           contentType: file.type || 'image/jpeg',
-          upsert: true,
+          upsert: false,
         })
 
       if (uploadError) {
@@ -525,7 +569,7 @@ export async function updateBannerCategoriaAction(
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('productos')
+        .from(BANNERS_BUCKET)
         .getPublicUrl(uploadData.path)
 
       updateData.imagen_url = publicUrlData.publicUrl
