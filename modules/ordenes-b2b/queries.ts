@@ -783,6 +783,170 @@ export async function fetchProductosBusqueda(
 }
 
 // ════════════════════════════════════════════════════════════
+// CAJAS AFECTADAS POR CAMBIO DE SKU + ESTADO SURTIDO
+// (preview para modal de confirmación de cambio de producto)
+// ════════════════════════════════════════════════════════════
+
+export type CajaAfectadaPorCambioSku = {
+  ordenCajaId: number
+  cajaId: number
+  codigoCaja: string
+  cantidadCajas: number
+  piezasPorCaja: number | null
+  productoActualId: number | null
+  skuActual: string | null
+  coincide: boolean
+  usadaEnOtrasOrdenes: number
+  bloqueadaCompartida: boolean
+}
+
+export async function fetchCajasAfectadasPorCambioSku(
+  ordenId: number,
+  nuevoProductoId: number,
+): Promise<CajaAfectadaPorCambioSku[]> {
+  const supabase = await createClient()
+
+  const { data: ordenCajas, error } = await supabase
+    .from('orden_cajas')
+    .select(`
+      id, orden_id, caja_id, cantidad_cajas,
+      caja:cajas_producto!orden_cajas_caja_id_fkey (
+        id, codigo_caja, piezas_por_caja, producto_id,
+        producto:productos!cajas_producto_producto_id_fkey ( sku_base )
+      )
+    `)
+    .eq('orden_id', ordenId)
+    .order('id')
+
+  if (error || !ordenCajas) return []
+
+  const cajaIds = Array.from(
+    new Set((ordenCajas as any[]).map((oc) => oc.caja_id).filter(Boolean)),
+  ) as number[]
+
+  let usosPorCaja = new Map<number, number>()
+  if (cajaIds.length > 0) {
+    const { data: usos } = await supabase
+      .from('orden_cajas')
+      .select('caja_id, orden_id')
+      .in('caja_id', cajaIds)
+
+    const ordenesPorCaja = new Map<number, Set<number>>()
+    for (const u of (usos ?? []) as any[]) {
+      if (!ordenesPorCaja.has(u.caja_id)) ordenesPorCaja.set(u.caja_id, new Set())
+      ordenesPorCaja.get(u.caja_id)!.add(u.orden_id)
+    }
+    for (const [cid, set] of ordenesPorCaja) {
+      const otras = Array.from(set).filter((oid) => oid !== ordenId).length
+      usosPorCaja.set(cid, otras)
+    }
+  }
+
+  return (ordenCajas as any[]).map((oc) => {
+    const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
+    const p = c?.producto
+      ? (Array.isArray(c.producto) ? c.producto[0] : c.producto)
+      : null
+    const productoActualId = (c?.producto_id as number | null) ?? null
+    const coincide = productoActualId === nuevoProductoId
+    const otras = usosPorCaja.get(oc.caja_id) ?? 0
+    return {
+      ordenCajaId: oc.id,
+      cajaId: oc.caja_id,
+      codigoCaja: c?.codigo_caja ?? '',
+      cantidadCajas: oc.cantidad_cajas ?? 0,
+      piezasPorCaja: c?.piezas_por_caja ?? null,
+      productoActualId,
+      skuActual: p?.sku_base ?? null,
+      coincide,
+      usadaEnOtrasOrdenes: otras,
+      // Divergente + compartida con otra orden → se bloquea su reasignación automática
+      bloqueadaCompartida: !coincide && otras > 0,
+    }
+  })
+}
+
+export type EstadoSurtidoOrden = {
+  ordenId: number
+  contenedorId: number | null
+  contenedorCodigo: string | null
+  contenedorEstado: string | null
+  surtido: boolean
+  bodegaVirtualId: number | null
+  bodegaVirtualNombre: string | null
+  bodegaVirtualCodigo: string | null
+}
+
+export async function fetchEstadoSurtidoOrden(
+  ordenId: number,
+): Promise<EstadoSurtidoOrden | null> {
+  const supabase = await createClient()
+
+  const { data: orden } = await supabase
+    .from('ordenes_b2b')
+    .select('id, contenedor_id')
+    .eq('id', ordenId)
+    .single()
+
+  if (!orden) return null
+
+  if (!orden.contenedor_id) {
+    return {
+      ordenId,
+      contenedorId: null,
+      contenedorCodigo: null,
+      contenedorEstado: null,
+      surtido: false,
+      bodegaVirtualId: null,
+      bodegaVirtualNombre: null,
+      bodegaVirtualCodigo: null,
+    }
+  }
+
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('id, codigo_contenedor, estado')
+    .eq('id', orden.contenedor_id)
+    .single()
+
+  const surtido = cont?.estado === 'surtido'
+  let bodegaVirtualId: number | null = null
+  let bodegaVirtualNombre: string | null = null
+  let bodegaVirtualCodigo: string | null = null
+
+  if (surtido && cont) {
+    const { data: nota } = await supabase
+      .from('notas_inventario')
+      .select(`
+        id, bodega_origen_id,
+        bodega:bodegas!notas_inventario_bodega_origen_id_fkey ( id, nombre, codigo )
+      `)
+      .ilike('nota_referencia', `%Surtido contenedor ${cont.codigo_contenedor}%`)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const b = (nota as any)?.bodega
+      ? (Array.isArray((nota as any).bodega) ? (nota as any).bodega[0] : (nota as any).bodega)
+      : null
+    bodegaVirtualId = (nota as any)?.bodega_origen_id ?? b?.id ?? null
+    bodegaVirtualNombre = b?.nombre ?? null
+    bodegaVirtualCodigo = b?.codigo ?? null
+  }
+
+  return {
+    ordenId,
+    contenedorId: cont?.id ?? orden.contenedor_id,
+    contenedorCodigo: cont?.codigo_contenedor ?? null,
+    contenedorEstado: cont?.estado ?? null,
+    surtido,
+    bodegaVirtualId,
+    bodegaVirtualNombre,
+    bodegaVirtualCodigo,
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 // CATÁLOGO TALLAS Y COLORES (para CajaCard edit)
 // ════════════════════════════════════════════════════════════
 

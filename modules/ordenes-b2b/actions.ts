@@ -364,6 +364,217 @@ export async function actualizarDetalleOrdenAction(
   return { success: true }
 }
 
+// ════════════════════════════════════════════════════════════
+// CAMBIAR SKU DE LÍNEA + REASIGNACIÓN OPCIONAL DE CAJAS
+// ════════════════════════════════════════════════════════════
+
+export type CambiarProductoLineaPayload = {
+  detalleId: number
+  nuevoProductoId: number
+  piezas_pedidas?: number | null
+  cajas_pedidas?: number | null
+  precio_unitario?: number | null
+  precio_yuan?: number | null
+  cbm_detalle?: number | null
+  peso_bruto_kg?: number | null
+  incluirCajas?: boolean
+  /** ids de cajas_producto a reasignar (solo las marcadas en el preview) */
+  cajaIds?: number[]
+}
+
+export type CambiarProductoLineaResult = ActionResult & {
+  cajasActualizadas?: number
+  cajasBloqueadas?: number
+  contenedorId?: number | null
+}
+
+/**
+ * Cambia el producto (SKU) de una línea de orden B2B.
+ * - Bloquea duplicados: no permite dos líneas con el mismo producto en la orden.
+ * - Opcionalmente reasigna el producto_id de las cajas vinculadas marcadas.
+ * - Las cajas divergentes compartidas con otra orden se bloquean (no se tocan).
+ * - No mueve stock: si la mercancía ya fue surtida a bodega virtual, el stock
+ *   debe corregirse con nota de AJUSTE (AJU) en inventario, no aquí.
+ */
+export async function actualizarProductoLineaConCajasAction(
+  payload: CambiarProductoLineaPayload,
+): Promise<CambiarProductoLineaResult> {
+  const denied = await requireB2BPermission('puede_editar')
+  if (denied) return denied
+
+  const { detalleId, nuevoProductoId } = payload
+  if (!detalleId || !nuevoProductoId) {
+    return { success: false, error: 'Detalle y producto nuevo requeridos.' }
+  }
+
+  const supabase = await createClient()
+  const access = await requireCommercialDetalleAccess(supabase, detalleId)
+  if ('success' in access) return access
+  const ordenId = access.ordenId
+
+  // 1. Detalle actual
+  const { data: actual, error: actualError } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('id, orden_id, producto_id, piezas_pedidas, cajas_pedidas, precio_unitario, precio_yuan, cbm_detalle, peso_bruto_kg')
+    .eq('id', detalleId)
+    .single()
+
+  if (actualError || !actual) {
+    return { success: false, error: 'No se encontró la línea de producto.' }
+  }
+
+  // 2. Producto destino existe
+  const { data: nuevoProd } = await supabase
+    .from('productos')
+    .select('id, sku_base')
+    .eq('id', nuevoProductoId)
+    .single()
+
+  if (!nuevoProd) {
+    return { success: false, error: 'El producto nuevo no existe.' }
+  }
+
+  // 3. Bloquear duplicados en la misma orden
+  if (nuevoProductoId !== actual.producto_id) {
+    const { data: duplicado } = await supabase
+      .from('ordenes_b2b_detalles')
+      .select('id')
+      .eq('orden_id', ordenId)
+      .eq('producto_id', nuevoProductoId)
+      .neq('id', detalleId)
+      .limit(1)
+
+    if (duplicado && duplicado.length > 0) {
+      return {
+        success: false,
+        error: 'Ya existe otra línea con ese SKU en esta orden. Edita esa línea en vez de duplicar.',
+      }
+    }
+  }
+
+  // 4. Resolver campos (los no enviados conservan su valor actual)
+  const piezas = payload.piezas_pedidas !== undefined
+    ? payload.piezas_pedidas
+    : (actual.piezas_pedidas as number | null)
+  const cajas = payload.cajas_pedidas !== undefined
+    ? payload.cajas_pedidas
+    : (actual.cajas_pedidas as number | null)
+  const precioUnit = payload.precio_unitario !== undefined
+    ? payload.precio_unitario
+    : (actual.precio_unitario as number | null)
+
+  const importeTotal = piezas != null && precioUnit != null
+    ? Number((Number(piezas) * Number(precioUnit)).toFixed(2))
+    : null
+
+  const { error: updError } = await supabase
+    .from('ordenes_b2b_detalles')
+    .update({
+      producto_id: nuevoProductoId,
+      piezas_pedidas: piezas ?? 0,
+      cajas_pedidas: cajas ?? 0,
+      precio_unitario: payload.precio_unitario !== undefined ? payload.precio_unitario : actual.precio_unitario,
+      precio_yuan: payload.precio_yuan !== undefined ? payload.precio_yuan : actual.precio_yuan,
+      cbm_detalle: payload.cbm_detalle !== undefined ? payload.cbm_detalle : actual.cbm_detalle,
+      peso_bruto_kg: payload.peso_bruto_kg !== undefined ? payload.peso_bruto_kg : actual.peso_bruto_kg,
+      importe_total: importeTotal,
+    })
+    .eq('id', detalleId)
+
+  if (updError) return { success: false, error: updError.message }
+
+  // 5. Reasignación opcional de cajas
+  let cajasActualizadas = 0
+  let cajasBloqueadas = 0
+
+  if (payload.incluirCajas && payload.cajaIds && payload.cajaIds.length > 0) {
+    const user = await getCurrentUser()
+    if (!user || !can(user, 'b2b_cajas', 'puede_editar')) {
+      return { success: false, error: 'No tienes permiso para reasignar cajas (b2b_cajas / puede_editar).' }
+    }
+
+    // Solo cajas vinculadas a ESTA orden
+    const { data: vinculos } = await supabase
+      .from('orden_cajas')
+      .select('caja_id')
+      .eq('orden_id', ordenId)
+      .in('caja_id', payload.cajaIds)
+
+    const vinculadas = new Set((vinculos ?? []).map((v: any) => v.caja_id))
+    const candidatas = payload.cajaIds.filter((id) => vinculadas.has(id))
+    if (candidatas.length === 0) {
+      return { success: false, error: 'Ninguna de las cajas marcadas pertenece a esta orden.' }
+    }
+
+    // Detectar compartidas con otras órdenes → bloquear
+    const { data: usos } = await supabase
+      .from('orden_cajas')
+      .select('caja_id, orden_id')
+      .in('caja_id', candidatas)
+
+    const ordenesPorCaja = new Map<number, Set<number>>()
+    for (const u of (usos ?? []) as any[]) {
+      if (!ordenesPorCaja.has(u.caja_id)) ordenesPorCaja.set(u.caja_id, new Set())
+      ordenesPorCaja.get(u.caja_id)!.add(u.orden_id)
+    }
+
+    const permitidas: number[] = []
+    for (const cid of candidatas) {
+      const ordenes = ordenesPorCaja.get(cid) ?? new Set<number>()
+      const otras = Array.from(ordenes).filter((oid) => oid !== ordenId).length
+      if (otras > 0) {
+        cajasBloqueadas += 1
+      } else {
+        permitidas.push(cid)
+      }
+    }
+
+    if (permitidas.length > 0) {
+      const { data: cajasActuales } = await supabase
+        .from('cajas_producto')
+        .select('id, producto_id')
+        .in('id', permitidas)
+
+      const porCambiar = (cajasActuales ?? [])
+        .filter((c: any) => c.producto_id !== nuevoProductoId)
+        .map((c: any) => c.id)
+
+      if (porCambiar.length > 0) {
+        const { error: cajasError } = await supabase
+          .from('cajas_producto')
+          .update({ producto_id: nuevoProductoId })
+          .in('id', porCambiar)
+
+        if (cajasError) return { success: false, error: `Línea actualizada, pero falló reasignar cajas: ${cajasError.message}` }
+        cajasActualizadas = porCambiar.length
+      }
+    }
+  }
+
+  await recalcularTotalesOrden(ordenId)
+
+  // Contenedor vinculado (para revalidar packing/surtido)
+  const { data: ordenRow } = await supabase
+    .from('ordenes_b2b')
+    .select('contenedor_id')
+    .eq('id', ordenId)
+    .single()
+
+  revalidatePath(`/ordenes-b2b/${ordenId}`)
+  revalidatePath('/ordenes-b2b')
+  revalidatePath('/contenedores')
+  if (ordenRow?.contenedor_id) {
+    revalidatePath(`/contenedores/${ordenRow.contenedor_id}`)
+  }
+
+  return {
+    success: true,
+    cajasActualizadas,
+    cajasBloqueadas,
+    contenedorId: ordenRow?.contenedor_id ?? null,
+  }
+}
+
 export async function crearComentarioDetalleOrdenAction(
   formData: FormData
 ): Promise<ActionResult> {

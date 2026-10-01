@@ -3,18 +3,21 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { Trash2, Loader2, Package, Plus, Pencil, Save, X, Search, AlertCircle, MessageSquare, Paperclip, CheckCircle2, Clock3 } from 'lucide-react'
+import { Trash2, Loader2, Package, Plus, Pencil, Save, X, Search, AlertCircle, AlertTriangle, ArrowRight, MessageSquare, Paperclip, CheckCircle2, Clock3 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { ESTADO_DETALLE_B2B_COLORS, ESTADOS_DETALLE_B2B } from '@/lib/constants'
-import { eliminarDetalleOrdenAction, agregarDetalleOrdenAction, actualizarDetalleOrdenAction, crearComentarioDetalleOrdenAction, registrarEventoDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
-import { fetchProductosBusqueda } from '@/modules/ordenes-b2b/queries'
+import { eliminarDetalleOrdenAction, agregarDetalleOrdenAction, actualizarDetalleOrdenAction, actualizarProductoLineaConCajasAction, crearComentarioDetalleOrdenAction, registrarEventoDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
+import { fetchProductosBusqueda, fetchCajasAfectadasPorCambioSku, fetchEstadoSurtidoOrden } from '@/modules/ordenes-b2b/queries'
+import type { CajaAfectadaPorCambioSku, EstadoSurtidoOrden } from '@/modules/ordenes-b2b/queries'
 import { useDebouncedCallback } from 'use-debounce'
 import { cn } from '@/lib/utils'
 import type { OrdenDetalleResuelto } from '@/modules/ordenes-b2b/types'
@@ -383,6 +386,207 @@ function DetalleConversationDialog({
 }
 
 // ════════════════════════════════════════════════════════════
+// C O N F I R M A R   C A M B I O   D E   S K U
+// ════════════════════════════════════════════════════════════
+
+function ConfirmarCambioSkuDialog({
+  open,
+  onOpenChange,
+  detalle,
+  ordenId,
+  nuevoProducto,
+  campos,
+  cajas,
+  surtido,
+  cargandoPreview,
+  incluirCajas,
+  onIncluirCajasChange,
+  entiendo,
+  onEntiendoChange,
+  confirmando,
+  error,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  detalle: OrdenDetalleResuelto | null
+  ordenId: number
+  nuevoProducto: { id: number; sku_base: string; nombre: string; descripcion: string | null } | null
+  campos: Record<string, string>
+  cajas: CajaAfectadaPorCambioSku[]
+  surtido: EstadoSurtidoOrden | null
+  cargandoPreview: boolean
+  incluirCajas: boolean
+  onIncluirCajasChange: (v: boolean) => void
+  entiendo: boolean
+  onEntiendoChange: (v: boolean) => void
+  confirmando: boolean
+  error: string | null
+  onConfirm: () => void
+}) {
+  const divergentes = cajas.filter((c) => !c.coincide && !c.bloqueadaCompartida)
+  const yaCorrectas = cajas.filter((c) => c.coincide)
+  const bloqueadas = cajas.filter((c) => c.bloqueadaCompartida)
+  const reasignables = incluirCajas ? divergentes : []
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Cambiar producto de la línea
+          </DialogTitle>
+          <DialogDescription>
+            Estás por cambiar el SKU de una línea de la orden #{ordenId}. Revisa el impacto antes de guardar la fila.
+          </DialogDescription>
+        </DialogHeader>
+
+        {cargandoPreview ? (
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" /> Calculando cajas afectadas…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* 1. Cambio de línea */}
+            <div className="rounded-lg border p-3 bg-muted/20">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Línea de la orden actual
+              </p>
+              <div className="flex items-center gap-2 text-sm flex-wrap">
+                <span className="font-mono font-bold">{detalle?.producto_sku ?? '—'}</span>
+                <ArrowRight className="h-3.5 w-3.5 text-primary" />
+                <span className="font-mono font-bold text-primary">{nuevoProducto?.sku_base ?? '—'}</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {nuevoProducto?.descripcion ?? nuevoProducto?.nombre ?? ''}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Este cambio modificará la línea de esta orden actual. Afectará el Packing List,
+                el resumen del contenedor y el futuro surtido a bodega virtual
+                (el stock se genera por <span className="font-mono">producto_id</span>).
+                No modifica inventario ya surtido. Se recalcularán los totales de la orden.
+              </p>
+            </div>
+
+            {/* 2. Aviso surtido */}
+            {surtido?.surtido && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                <p className="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4" /> Mercancía ya surtida en bodega virtual
+                </p>
+                <p className="text-xs mt-1 text-amber-700/90 dark:text-amber-300/90">
+                  El contenedor {surtido.contenedorCodigo ?? ''} ya está surtido
+                  {surtido.bodegaVirtualNombre ? ` en ${surtido.bodegaVirtualNombre}${surtido.bodegaVirtualCodigo ? ` (${surtido.bodegaVirtualCodigo})` : ''}` : ''}.
+                  Este cambio <strong>solo corrige la orden y el packing, NO mueve stock</strong>.
+                  Si quieres modificar el stock, genera una nota de ajuste (AJU) en la bodega virtual
+                  correspondiente: SAL del SKU erróneo + ENT del SKU correcto por {campos.piezas_pedidas || detalle?.piezas_pedidas || 0} pz.
+                </p>
+                <Button asChild variant="outline" size="sm" className="mt-2 h-8 text-xs">
+                  <Link href="/inventario/notas/nueva">Ir a nota de ajuste (AJU)</Link>
+                </Button>
+              </div>
+            )}
+
+            {/* 3. Cajas afectadas */}
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Cajas vinculadas de esta orden ({cajas.length})
+                </p>
+                {divergentes.length > 0 && (
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <Checkbox
+                      checked={incluirCajas}
+                      onCheckedChange={(v) => onIncluirCajasChange(v === true)}
+                    />
+                    Cambiar también el SKU de las {divergentes.length} cajas divergentes
+                  </label>
+                )}
+              </div>
+
+              {cajas.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Esta orden no tiene cajas vinculadas.</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-muted/50 text-muted-foreground">
+                        <th className="px-2 py-1.5 text-left">Caja</th>
+                        <th className="px-2 py-1.5 text-center">Cant</th>
+                        <th className="px-2 py-1.5 text-left">SKU actual</th>
+                        <th className="px-2 py-1.5 text-left">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cajas.map((c) => (
+                        <tr key={c.ordenCajaId} className="border-t">
+                          <td className="px-2 py-1.5 font-mono">{c.codigoCaja || `Caja #${c.cajaId}`}</td>
+                          <td className="px-2 py-1.5 text-center tabular-nums">{c.cantidadCajas}</td>
+                          <td className="px-2 py-1.5 font-mono">{c.skuActual ?? '—'}</td>
+                          <td className="px-2 py-1.5">
+                            {c.coincide ? (
+                              <Badge variant="secondary" className="text-[10px]">Ya correcta — no se toca</Badge>
+                            ) : c.bloqueadaCompartida ? (
+                              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
+                                Bloqueada — usada en {c.usadaEnOtrasOrdenes + 1} órdenes
+                              </Badge>
+                            ) : incluirCajas ? (
+                              <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20" variant="outline">
+                                Cambiará a {nuevoProducto?.sku_base}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">Se queda como está</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {(yaCorrectas.length > 0 || bloqueadas.length > 0 || reasignables.length > 0) && (
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  {yaCorrectas.length > 0 && `${yaCorrectas.length} ya correctas. `}
+                  {reasignables.length > 0 && `${reasignables.length} pasarán a ${nuevoProducto?.sku_base}. `}
+                  {bloqueadas.length > 0 && `${bloqueadas.length} bloqueadas por estar compartidas con otra orden (corrige esas cajas manual en el tab Cajas).`}
+                </p>
+              )}
+            </div>
+
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <Checkbox checked={entiendo} onCheckedChange={(v) => onEntiendoChange(v === true)} className="mt-0.5" />
+              <span>
+                Entiendo que al guardar la fila cambiará la línea de este producto en la orden actual
+                {incluirCajas && divergentes.length > 0 ? ` y el SKU de ${divergentes.length} caja(s)` : ' (las cajas no se tocan)'}
+                {surtido?.surtido ? ', y que el stock ya surtido solo se corrige con nota de ajuste' : ''}.
+              </span>
+            </label>
+
+            {error && (
+              <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 rounded p-2">
+                <AlertCircle className="h-3 w-3 shrink-0" /><span>{error}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={confirmando}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={onConfirm} disabled={cargandoPreview || confirmando || !entiendo || !nuevoProducto}>
+            {confirmando && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+            Confirmar cambio
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
 // O R D E N   P R O D U C T O S
 // ════════════════════════════════════════════════════════════
 
@@ -404,9 +608,38 @@ export function OrdenProductos({
   const [conversationDetail, setConversationDetail] = useState<OrdenDetalleResuelto | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [editProductoId, setEditProductoId] = useState<number | null>(null)
+  const [productoSearch, setProductoSearch] = useState('')
+  const [productoResults, setProductoResults] = useState<{ id: number; sku_base: string; nombre: string; descripcion: string | null }[]>([])
+  const [buscandoProducto, setBuscandoProducto] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  // Confirmación de cambio de SKU
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingDetalle, setPendingDetalle] = useState<OrdenDetalleResuelto | null>(null)
+  const [pendingNuevoProducto, setPendingNuevoProducto] = useState<{ id: number; sku_base: string; nombre: string; descripcion: string | null } | null>(null)
+  const [cajasPreview, setCajasPreview] = useState<CajaAfectadaPorCambioSku[]>([])
+  const [surtidoInfo, setSurtidoInfo] = useState<EstadoSurtidoOrden | null>(null)
+  const [cargandoPreview, setCargandoPreview] = useState(false)
+  const [incluirCajas, setIncluirCajas] = useState(false)
+  const [entiendo, setEntiendo] = useState(false)
+  const [confirmando, setConfirmando] = useState(false)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+
+  const debouncedProductoSearch = useDebouncedCallback(async (q: string) => {
+    setBuscandoProducto(true)
+    try {
+      const items = await fetchProductosBusqueda(q || undefined)
+      setProductoResults(items)
+    } catch { setProductoResults([]) } finally { setBuscandoProducto(false) }
+  }, 300)
 
   const startEdit = (d: OrdenDetalleResuelto) => {
     setEditingId(d.id)
+    setEditProductoId(d.producto_id)
+    setProductoSearch(d.producto_sku ?? '')
+    setProductoResults([])
+    setEditError(null)
     setEditForm({
       piezas_pedidas: String(d.piezas_pedidas ?? ''),
       cajas_pedidas: String(d.cajas_pedidas ?? ''),
@@ -416,11 +649,90 @@ export function OrdenProductos({
     })
   }
 
-  const handleSaveEdit = (detalleId: number) => {
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditProductoId(null)
+    setProductoSearch('')
+    setProductoResults([])
+    setEditError(null)
+  }
+
+  const openConfirmForSkuChange = (d: OrdenDetalleResuelto) => {
+    if (!editProductoId || editProductoId === d.producto_id) return
+    const sel = productoResults.find((p) => p.id === editProductoId)
+    const nuevo = sel ?? {
+      id: editProductoId,
+      sku_base: productoSearch.trim(),
+      nombre: d.producto_nombre ?? '',
+      descripcion: d.producto_descripcion ?? null,
+    }
+    setPendingDetalle(d)
+    setPendingNuevoProducto(nuevo)
+    setConfirmError(null)
+    setEntiendo(false)
+    setIncluirCajas(false)
+    setCajasPreview([])
+    setSurtidoInfo(null)
+    setCargandoPreview(true)
+    setConfirmOpen(true)
+
+    startTransition(async () => {
+      try {
+        const [cajas, surtido] = await Promise.all([
+          fetchCajasAfectadasPorCambioSku(ordenId, editProductoId),
+          fetchEstadoSurtidoOrden(ordenId),
+        ])
+        setCajasPreview(cajas)
+        setSurtidoInfo(surtido)
+        // Default: marcar reasignación solo si hay divergentes reasignables
+        setIncluirCajas(cajas.some((c) => !c.coincide && !c.bloqueadaCompartida))
+      } catch {
+        setConfirmError('No se pudo cargar el preview de cajas.')
+      } finally {
+        setCargandoPreview(false)
+      }
+    })
+  }
+
+  const handleConfirmSkuChange = () => {
+    if (!pendingDetalle || !pendingNuevoProducto || !editProductoId) return
+    setConfirmando(true)
+    setConfirmError(null)
+    const divergentesIds = cajasPreview
+      .filter((c) => !c.coincide && !c.bloqueadaCompartida)
+      .map((c) => c.cajaId)
+
+    startTransition(async () => {
+      const result = await actualizarProductoLineaConCajasAction({
+        detalleId: pendingDetalle.id,
+        nuevoProductoId: editProductoId,
+        piezas_pedidas: editForm.piezas_pedidas === '' ? null : Number(editForm.piezas_pedidas),
+        cajas_pedidas: editForm.cajas_pedidas === '' ? null : Number(editForm.cajas_pedidas),
+        precio_unitario: editForm.precio_unitario === '' ? null : Number(editForm.precio_unitario),
+        precio_yuan: editForm.precio_yuan === '' ? null : Number(editForm.precio_yuan),
+        cbm_detalle: editForm.cbm_detalle === '' ? null : Number(editForm.cbm_detalle),
+        incluirCajas,
+        cajaIds: incluirCajas ? divergentesIds : [],
+      })
+      setConfirmando(false)
+      if (!result.success) { setConfirmError(result.error ?? 'Error al cambiar el producto.'); return }
+      setConfirmOpen(false)
+      cancelEdit()
+      router.refresh()
+    })
+  }
+
+  const handleSaveEdit = (detalle: OrdenDetalleResuelto) => {
     if (!canEdit) return
+    setEditError(null)
+    // ¿Cambió el SKU? → va al modal de confirmación con preview
+    if (editProductoId && editProductoId !== detalle.producto_id) {
+      openConfirmForSkuChange(detalle)
+      return
+    }
     startTransition(async () => {
       const fd = new FormData()
-      fd.set('detalle_id', String(detalleId))
+      fd.set('detalle_id', String(detalle.id))
       fd.set('orden_id', String(ordenId))
       fd.set('piezas_pedidas', editForm.piezas_pedidas)
       fd.set('cajas_pedidas', editForm.cajas_pedidas)
@@ -428,7 +740,8 @@ export function OrdenProductos({
       fd.set('precio_yuan', editForm.precio_yuan)
       fd.set('cbm_detalle', editForm.cbm_detalle)
       const result = await actualizarDetalleOrdenAction(fd)
-      if (result.success) { setEditingId(null); router.refresh() }
+      if (result.success) { cancelEdit(); router.refresh() }
+      else { setEditError(result.error ?? 'Error al guardar.') }
     })
   }
 
@@ -498,15 +811,60 @@ export function OrdenProductos({
 
               return (
                 <tr key={d.id} className={cn('border-t', isEditing && 'bg-accent/20')}>
-                  <td className="px-3 py-2 font-mono">{d.producto_sku ?? '—'}</td>
-                  <td className="px-3 py-2 max-w-[200px]">
-                    <div className="text-xs font-medium truncate">{d.producto_descripcion ?? d.producto_nombre ?? '—'}</div>
-                    {d.producto_nombre && d.producto_descripcion && (
-                      <div className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
-                        {d.producto_nombre}
+                  {isEditing ? (
+                    <td className="px-1 py-1 min-w-[150px]" colSpan={2}>
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                          <Input
+                            className="h-7 pl-7 text-xs font-mono"
+                            placeholder="Buscar SKU…"
+                            value={productoSearch}
+                            onChange={(e) => { setProductoSearch(e.target.value); debouncedProductoSearch(e.target.value) }}
+                          />
+                        </div>
+                        {(buscandoProducto || productoResults.length > 0) && (
+                          <div className="absolute z-20 mt-1 max-h-44 w-64 overflow-y-auto rounded-md border bg-background shadow-lg">
+                            {buscandoProducto ? (
+                              <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                                Buscando…
+                              </p>
+                            ) : (
+                              productoResults.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => { setEditProductoId(p.id); setProductoSearch(p.sku_base); setProductoResults([]) }}
+                                  className={cn('flex w-full flex-col px-2 py-1.5 text-left hover:bg-muted/50',
+                                    editProductoId === p.id && 'bg-primary/5')}
+                                >
+                                  <span className="font-mono text-[11px] font-semibold text-primary">{p.sku_base}</span>
+                                  <span className="truncate text-[10px] text-muted-foreground">{p.descripcion ?? p.nombre}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                        {editProductoId !== d.producto_id && (
+                          <p className="mt-1 text-[10px] font-medium text-amber-600">
+                            Cambiará de {d.producto_sku} a {productoSearch || '…'} — pedirá confirmación.
+                          </p>
+                        )}
                       </div>
-                    )}
-                  </td>
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2 font-mono">{d.producto_sku ?? '—'}</td>
+                      <td className="px-3 py-2 max-w-[200px]">
+                        <div className="text-xs font-medium truncate">{d.producto_descripcion ?? d.producto_nombre ?? '—'}</div>
+                        {d.producto_nombre && d.producto_descripcion && (
+                          <div className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+                            {d.producto_nombre}
+                          </div>
+                        )}
+                      </td>
+                    </>
+                  )}
 
                   {isEditing ? (
                     <>
@@ -529,14 +887,19 @@ export function OrdenProductos({
                       <td className="px-2 py-1">
                         <div className="flex gap-0.5">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700"
-                            onClick={() => handleSaveEdit(d.id)} disabled={isPending}>
+                            onClick={() => handleSaveEdit(d)} disabled={isPending} title="Guardar fila">
                             {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                           </Button>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground"
-                            onClick={() => setEditingId(null)}>
+                            onClick={cancelEdit}>
                             <X className="h-3.5 w-3.5" />
                           </Button>
                         </div>
+                        {editError && (
+                          <p className="mt-1 flex items-center gap-1 text-[10px] text-destructive">
+                            <AlertCircle className="h-3 w-3 shrink-0" />{editError}
+                          </p>
+                        )}
                       </td>
                     </>
                   ) : (
@@ -576,6 +939,25 @@ export function OrdenProductos({
           </tbody>
         </table>
       </div>
+
+      <ConfirmarCambioSkuDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        detalle={pendingDetalle}
+        ordenId={ordenId}
+        nuevoProducto={pendingNuevoProducto}
+        campos={editForm}
+        cajas={cajasPreview}
+        surtido={surtidoInfo}
+        cargandoPreview={cargandoPreview}
+        incluirCajas={incluirCajas}
+        onIncluirCajasChange={setIncluirCajas}
+        entiendo={entiendo}
+        onEntiendoChange={setEntiendo}
+        confirmando={confirmando}
+        error={confirmError}
+        onConfirm={handleConfirmSkuChange}
+      />
     </div>
   )
 }
