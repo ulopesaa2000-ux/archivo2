@@ -2,7 +2,7 @@
 'use client'
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps, react/no-unescaped-entities, @next/next/no-img-element */
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -40,11 +40,14 @@ import {
   Info,
   ArrowRightLeft,
   ExternalLink,
+  Maximize2,
+  Minimize2,
+  Boxes,
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'motion/react'
-import { fetchProductosPorFamilia, type FamiliaResumen, type FamiliaResumenSku } from '@/modules/catalogo/queries'
+import { fetchProductosPorFamilia, fetchStockTotalesPorProducto, type FamiliaResumen, type FamiliaResumenSku, type StockTotalProducto } from '@/modules/catalogo/queries'
 import { moverProductosDeFamiliaAction, renombrarFamiliaAction, createProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { cn } from '@/lib/utils'
@@ -77,6 +80,13 @@ export function FamiliasOrganizerClient({
   const [familias, setFamilias] = useState<FamiliaResumen[]>(initialFamilias)
   const [searchQuery, setSearchQuery] = useState('')
   const [mostrarInactivos, setMostrarInactivos] = useState(false)
+
+  // --- Modo Stock: semáforo en cápsulas SKU + total global en inspector ---
+  // OFF por defecto (rendimiento): al activarse trae el stock global de lo cargado.
+  const [modoStock, setModoStock] = useState(false)
+  const [stockMap, setStockMap] = useState<Record<number, StockTotalProducto>>({})
+  const [loadingStock, setLoadingStock] = useState(false)
+  const stockCacheRef = useRef<Record<number, StockTotalProducto>>({})
 
   // --- Helper para construir la caché inicial de productos precargados por el servidor ---
   const buildInitialProductsMap = (famList: FamiliaResumen[]): Record<string, ProductListItem[]> => {
@@ -338,6 +348,8 @@ export function FamiliasOrganizerClient({
   // --- Estados de Inspección ---
   const [inspectedProduct, setInspectedProduct] = useState<ProductListItem | null>(null)
   const [loadingInspection, setLoadingInspection] = useState(false)
+  // --- Foto ampliada 3:4 en inspector (persiste al cambiar de SKU/modelo) ---
+  const [imagenExpandida, setImagenExpandida] = useState(false)
 
   const handleInspectProduct = async (productId: number, skuBase: string, description: string | null) => {
     // 1. Buscar en loadedProducts precargado
@@ -512,6 +524,10 @@ export function FamiliasOrganizerClient({
     try {
       const prods = await fetchProductosPorFamilia(familyCode)
       setLoadedProducts(prev => ({ ...prev, [familyCode]: prods }))
+      // Si el modo stock está activo, traer el stock de lo recién cargado
+      if (modoStock) {
+        void asegurarStock(prods.map(p => p.id))
+      }
     } catch (err) {
       console.error('Error al cargar productos de familia:', err)
       toast.error(`No se pudieron cargar los productos de la familia ${familyCode}`)
@@ -519,6 +535,128 @@ export function FamiliasOrganizerClient({
       setLoadingProducts(prev => ({ ...prev, [familyCode]: false }))
     }
   }
+
+  // --- Trae el stock global faltante para una lista de ids (con caché, sin refetch) ---
+  const asegurarStock = async (ids: number[]) => {
+    const faltantes = Array.from(new Set(ids.filter(n => Number.isFinite(n)))).filter(id => !(id in stockCacheRef.current))
+    if (faltantes.length === 0) return
+
+    setLoadingStock(true)
+    try {
+      const nuevos = await fetchStockTotalesPorProducto(faltantes)
+      // ids sin fila en inventario_stock = 0 explícito (para no volver a pedirlos)
+      const completos: Record<number, StockTotalProducto> = {}
+      for (const id of faltantes) completos[id] = nuevos[id] || { cajas: 0, piezas: 0 }
+      stockCacheRef.current = { ...stockCacheRef.current, ...completos }
+      setStockMap({ ...stockCacheRef.current })
+    } catch (err) {
+      console.error('Error al cargar stock:', err)
+      toast.error('No se pudo cargar el stock')
+    } finally {
+      setLoadingStock(false)
+    }
+  }
+
+  // --- Toggle modo stock: al activarse trae el stock de todo lo cargado en vista ---
+  const toggleModoStock = async (activo: boolean) => {
+    setModoStock(activo)
+    if (activo) {
+      const ids: number[] = []
+      for (const prods of Object.values(loadedProducts)) {
+        for (const p of prods) ids.push(p.id)
+      }
+      // La vista Puro SKU renderiza f.skus (puede incluir no cargados en loadedProducts)
+      for (const f of familias) {
+        for (const s of (f.skus || [])) ids.push(s.id)
+      }
+      await asegurarStock(ids)
+    }
+  }
+
+  // --- Clases del semáforo de stock para cápsulas SKU (solo lista de familia) ---
+  // Inactivo = rosa · 0 cajas = rojo · 1-4 cajas = amarillo · 5+ = normal. Retorna '' si normal.
+  const clasesSemaforoSku = (productoId: number): string => {
+    const st = stockMap[productoId]
+    if (!st) return ''
+    if (st.cajas <= 0) return 'bg-red-600 dark:bg-red-600 text-white border-red-700 dark:border-red-500 font-bold'
+    if (st.cajas < 5) return 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+    return ''
+  }
+
+  // --- Texto del SKU en vista tarjetas según semáforo (retorna '' si normal) ---
+  const claseTextoSku = (productoId: number): string => {
+    if (!modoStock) return ''
+    const st = stockMap[productoId]
+    if (!st) return ''
+    if (st.cajas <= 0) return 'text-red-600 dark:text-red-400'
+    if (st.cajas < 5) return 'text-amber-700 dark:text-amber-300'
+    return ''
+  }
+
+  // --- Texto corto de stock para tooltips de cápsulas ---
+  const tituloStockSku = (productoId: number): string | undefined => {
+    if (!modoStock) return undefined
+    const st = stockMap[productoId]
+    if (!st) return 'Stock: cargando…'
+    return `Stock total: ${st.cajas} cajas${st.piezas > 0 ? ` · ${st.piezas} pzs` : ''}`
+  }
+
+  // --- Fila de stock total global del inspector (solo con modo stock activo) ---
+  const renderFilaStockInspector = () => {
+    if (!modoStock || !inspectedProduct) return null
+    const st = stockMap[inspectedProduct.id]
+    const sinStock = !!st && st.cajas <= 0
+    const bajoStock = !!st && st.cajas > 0 && st.cajas < 5
+    return (
+      <div className={cn(
+        "mt-2 flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs bg-card",
+        sinStock
+          ? "border-red-500/50 bg-red-500/5"
+          : bajoStock
+            ? "border-amber-500/50 bg-amber-500/5"
+            : "border-zinc-200 dark:border-zinc-800"
+      )}>
+        <Boxes className={cn(
+          "h-4 w-4 shrink-0",
+          sinStock
+            ? "text-red-600 dark:text-red-400"
+            : bajoStock
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground"
+        )} />
+        {!st ? (
+          <span className="text-muted-foreground flex items-center gap-1.5">
+            {loadingStock && <Loader2 className="h-3 w-3 animate-spin" />}
+            {loadingStock ? 'Cargando stock…' : 'Sin dato de stock'}
+          </span>
+        ) : (
+          <span className="text-foreground">
+            Stock total:{' '}
+            <strong className={cn(
+              sinStock
+                ? "text-red-600 dark:text-red-400"
+                : bajoStock
+                  ? "text-amber-700 dark:text-amber-300"
+                  : "text-foreground"
+            )}>
+              {st.cajas} {st.cajas === 1 ? 'caja' : 'cajas'}
+            </strong>
+            {st.piezas > 0 && (
+              <span className="text-muted-foreground"> · {st.piezas} pzs sueltas</span>
+            )}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // --- Efecto: al cambiar el producto inspeccionado, traer su stock ---
+  // El modo amplio/retraído de la foto se conserva entre SKUs (no se resetea).
+  useEffect(() => {
+    if (modoStock && inspectedProduct) {
+      void asegurarStock([inspectedProduct.id])
+    }
+  }, [inspectedProduct?.id, modoStock])
 
   // --- Efecto: Sincronizar familias iniciales si cambian los props ---
   useEffect(() => {
@@ -2203,10 +2341,10 @@ export function FamiliasOrganizerClient({
 
         {/* COLUMNA 2: ÁREA CENTRAL (Workspace Mapeador de Familias) */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-muted/10">
-          {/* Barra de Herramientas Superior del Workspace (3 Columnas de 2 Filas Máximo) */}
-          <div className="p-2.5 bg-card border-b border-zinc-200 dark:border-zinc-800 flex items-start justify-between gap-3 shrink-0">
-            {/* Columna 1: Buscador (Fila 1) + Ubicando (Fila 2) */}
-            <div className="flex flex-col gap-1.5 flex-1 min-w-[150px] max-w-sm">
+          {/* Barra de Herramientas Superior del Workspace (flujo responsive automático) */}
+          <div className="p-2 bg-card border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center gap-x-2.5 gap-y-1 shrink-0">
+            {/* Grupo 1: Buscador (arriba) + Ubicando familia (abajo) — único bloque apilado */}
+            <div className="flex flex-col gap-1 flex-[1_1_220px] min-w-[200px] max-w-sm">
               <div className="relative w-full">
                 <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
@@ -2254,14 +2392,14 @@ export function FamiliasOrganizerClient({
               )}
             </div>
 
-            {/* Columna 2: Selector de Vistas (Fila 1) + Exportar Excel (Fila 2) */}
-            <div className="flex flex-col gap-1.5 items-stretch shrink-0 min-w-[180px]">
-              {/* Fila 1: Selector de Pestaña de Vista */}
-              <div className="flex bg-muted p-0.5 rounded-lg text-xs w-full">
+            {/* Grupo 2: Selector de Vistas + Exportar Excel (compacto, en fila) */}
+            <div className="flex flex-row flex-wrap items-center gap-1 shrink-0">
+              {/* Selector de Pestaña de Vista */}
+              <div className="flex bg-muted p-0.5 rounded-lg text-xs shrink-0">
                 <button
                   onClick={() => setActiveDirTab('cards')}
                   className={cn(
-                    "flex-1 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
+                    "px-2.5 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
                     activeDirTab === 'cards'
                       ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
@@ -2272,7 +2410,7 @@ export function FamiliasOrganizerClient({
                 <button
                   onClick={() => setActiveDirTab('skus')}
                   className={cn(
-                    "flex-1 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
+                    "px-2.5 py-1 rounded-md transition-all font-medium text-xs text-center whitespace-nowrap",
                     activeDirTab === 'skus'
                       ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
@@ -2282,11 +2420,11 @@ export function FamiliasOrganizerClient({
                 </button>
               </div>
 
-              {/* Fila 2: Botón Exportar Excel */}
+              {/* Botón Exportar Excel */}
               <Button
                 onClick={handleExportToExcel}
                 variant="outline"
-                className="h-8 border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 flex items-center justify-center gap-1.5 text-xs w-full"
+                className="h-8 border-green-600/30 hover:bg-green-500/10 text-green-700 dark:text-green-400 flex items-center justify-center gap-1.5 text-xs shrink-0"
                 size="sm"
               >
                 <FileSpreadsheet className="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -2294,9 +2432,9 @@ export function FamiliasOrganizerClient({
               </Button>
             </div>
 
-            {/* Columna 3: Cambios (Fila 1) + Mostrar Inactivos (Fila 2) */}
-            <div className="flex flex-col gap-1.5 items-end shrink-0">
-              {/* Fila 1: Botón de Cambios Adaptativo */}
+            {/* Grupo 3: Cambios + checks (compacto, en fila, arriba a la derecha) */}
+            <div className="flex flex-row flex-wrap items-center justify-end gap-1 shrink-0 ms-auto self-start">
+              {/* Botón de Cambios Adaptativo */}
               <Button
                 variant="ghost"
                 onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
@@ -2316,8 +2454,8 @@ export function FamiliasOrganizerClient({
                 )}
               </Button>
 
-              {/* Fila 2: Checkbox Mostrar Inactivos (ocultable si no cabe) */}
-              <div className="hidden sm:flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border text-xs self-end">
+              {/* Checkbox Mostrar Inactivos (ocultable si no cabe) */}
+              <div className="hidden sm:flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border text-xs shrink-0">
                 <Checkbox
                   id="mostrar-inactivos"
                   checked={mostrarInactivos}
@@ -2332,8 +2470,55 @@ export function FamiliasOrganizerClient({
                   <span className="lg:hidden">Inactivos</span>
                 </label>
               </div>
+
+              {/* Checkbox Modo Stock (semáforo en cápsulas + total en inspector) */}
+              <div className="hidden sm:flex items-center gap-1.5 bg-muted/30 px-2 py-1 rounded-md border text-xs shrink-0">
+                <Checkbox
+                  id="modo-stock"
+                  checked={modoStock}
+                  onCheckedChange={(checked) => toggleModoStock(!!checked)}
+                  className="h-3.5 w-3.5"
+                />
+                <label
+                  htmlFor="modo-stock"
+                  className="text-[11px] font-medium cursor-pointer text-muted-foreground select-none hover:text-foreground whitespace-nowrap"
+                >
+                  <span className="hidden lg:inline">Modo stock (semáforo)</span>
+                  <span className="lg:hidden">Stock</span>
+                </label>
+                {loadingStock && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+              </div>
             </div>
           </div>
+
+          {/* Leyenda del semáforo (visible con modo stock; advertencia si ambos modos activos) */}
+          {modoStock && (
+            <div className="px-6 pt-2">
+              <div className="max-w-4xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] rounded-lg border border-zinc-200 dark:border-zinc-800 bg-muted/40 px-3 py-2">
+                <span className="font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Info className="h-3 w-3" />
+                  Stock global:
+                </span>
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-600 inline-block" /> 0 cajas
+                </span>
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400 inline-block" /> 1–4 cajas
+                </span>
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-300 dark:bg-zinc-600 inline-block" /> 5+ cajas
+                </span>
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="h-2.5 w-2.5 rounded-full bg-pink-300 inline-block" /> Inactivo
+                </span>
+                {mostrarInactivos && (
+                  <span className="font-semibold text-amber-700 dark:text-amber-300">
+                    Ambos modos activos: el rosa marca inactivos y el semáforo aplica solo a activos.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Área Principal de Contenido */}
           <div className="flex-1 overflow-hidden">
@@ -2480,6 +2665,7 @@ export function FamiliasOrganizerClient({
                               <div className="flex flex-wrap gap-1.5 pt-1.5 border-t mt-1.5 border-dashed border-zinc-200 dark:border-zinc-800">
                                 {skus.map(sku => {
                                   const match = searchQuery && searchQuery.split(/\s+/).filter(Boolean).some(w => sku.sku_base.toLowerCase().includes(w.toLowerCase()))
+                                  const semaforo = sku.activo === false ? '' : (modoStock ? clasesSemaforoSku(sku.id) : '')
                                   return (
                                     <Badge
                                       key={sku.id}
@@ -2488,13 +2674,16 @@ export function FamiliasOrganizerClient({
                                       onDragStart={(e) => handleDragStart(e, sku.id, sku.sku_base)}
                                       onDragEnd={handleDragEnd}
                                       onClick={() => handleInspectProduct(sku.id, sku.sku_base, sku.descripcion)}
+                                      title={tituloStockSku(sku.id)}
                                       className={cn(
                                         "font-mono text-xs py-0.5 px-2 transition-colors border shadow-sm rounded-md tracking-wide cursor-grab active:cursor-grabbing hover:scale-105 active:scale-95 duration-75 select-none",
                                         sku.activo === false
-                                          ? "bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900"
-                                          : match 
-                                            ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
-                                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700/60 font-semibold"
+                                          ? "bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border-pink-200 dark:border-pink-900"
+                                          : semaforo !== ''
+                                            ? semaforo
+                                            : match 
+                                              ? "bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-750 dark:border-indigo-400 font-bold" 
+                                              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700/60 font-semibold"
                                       )}
                                     >
                                       {sku.sku_base}
@@ -2793,12 +2982,17 @@ export function FamiliasOrganizerClient({
                                           )}
 
                                           <div className="min-w-0 flex-1">
-                                            <div className={cn(
-                                              "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
-                                              p.activo === false && "text-red-500 dark:text-red-400"
-                                            )}>
+                                            <div
+                                              className={cn(
+                                                "font-mono text-xs font-bold truncate tracking-wide flex items-center gap-1",
+                                                p.activo === false
+                                                  ? "text-pink-600 dark:text-pink-400"
+                                                  : claseTextoSku(p.id)
+                                              )}
+                                              title={tituloStockSku(p.id)}
+                                            >
                                               {p.sku_base}
-                                              {p.activo === false && <span className="text-[8px] bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-red-200 dark:border-red-900">Inactivo</span>}
+                                              {p.activo === false && <span className="text-[8px] bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 px-1 py-0.2 rounded font-sans uppercase shrink-0 font-bold border border-pink-200 dark:border-pink-900">Inactivo</span>}
                                             </div>
                                             <p className="text-[11px] text-muted-foreground truncate leading-normal">
                                               {p.descripcion ?? 'Sin descripción'}
@@ -2884,11 +3078,15 @@ export function FamiliasOrganizerClient({
                 Cargando detalles...
               </div>
             ) : inspectedProduct ? (
+              <>
               <div 
                 draggable="true"
                 onDragStart={(e) => handleDragStart(e, inspectedProduct.id, inspectedProduct.sku_base)}
                 onDragEnd={handleDragEnd}
-                className="w-full aspect-[4/3] rounded-lg border border-zinc-200 dark:border-zinc-800 relative overflow-hidden group cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all duration-200 bg-zinc-950"
+                className={cn(
+                  "w-full rounded-lg border border-zinc-200 dark:border-zinc-800 relative overflow-hidden group cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all duration-200 bg-zinc-950",
+                  imagenExpandida ? "aspect-[3/4]" : "aspect-[4/3]"
+                )}
               >
                 {/* Imagen de Fondo */}
                 {inspectedProduct.imagen_principal ? (
@@ -2896,7 +3094,10 @@ export function FamiliasOrganizerClient({
                     src={getSmartImagenUrl(inspectedProduct.imagen_principal, 'card_lg')}
                     alt={inspectedProduct.sku_base}
                     decoding="async"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    className={cn(
+                      "w-full h-full transition-all duration-300",
+                      imagenExpandida ? "object-contain" : "object-cover group-hover:scale-105"
+                    )}
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2">
@@ -2906,7 +3107,19 @@ export function FamiliasOrganizerClient({
                 )}
 
                 {/* Gradiente oscuro superior e inferior para mejorar contraste */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/40 pointer-events-none" />
+                <div className={cn(
+                  "absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/40 pointer-events-none transition-opacity duration-200",
+                  imagenExpandida && "opacity-0"
+                )} />
+
+                {/* Botón Expandir / Retraer foto 3:4 (izquierda del cerrar) */}
+                <button
+                  onClick={() => setImagenExpandida(v => !v)}
+                  className="absolute top-3 right-12 bg-black/60 hover:bg-black/90 text-white rounded-full p-1.5 transition-colors z-20 backdrop-blur-xs shadow-md border border-white/10"
+                  title={imagenExpandida ? "Retraer foto a 4:3" : "Ampliar foto a 3:4"}
+                >
+                  {imagenExpandida ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
 
                 {/* Botón de Cerrar (Top Right) */}
                 <button
@@ -2918,7 +3131,10 @@ export function FamiliasOrganizerClient({
                 </button>
 
                 {/* Contenido en Overlay (Top Left) */}
-                <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start max-w-[85%] z-10 pointer-events-none">
+                <div className={cn(
+                  "absolute top-3 left-3 flex flex-col gap-1.5 items-start max-w-[85%] z-10 pointer-events-none transition-opacity duration-200",
+                  imagenExpandida && "opacity-0"
+                )}>
                   {/* Badge de SKU con botón de enlace a pestaña nueva */}
                   <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded px-2.5 py-1 shadow-md flex items-center gap-1.5 pointer-events-auto">
                     <span className="font-mono text-xs font-bold text-white tracking-wider select-all">
@@ -2963,6 +3179,10 @@ export function FamiliasOrganizerClient({
                   </Button>
                 </div>
               </div>
+
+              {/* Fila de stock total global (solo con modo stock activo) */}
+              {renderFilaStockInspector()}
+              </>
             ) : (
               <div className="text-center py-8 text-[11px] text-muted-foreground italic border border-dashed rounded border-zinc-200 dark:border-zinc-800 bg-muted/10">
                 Haz clic en un SKU para ver su imagen e info

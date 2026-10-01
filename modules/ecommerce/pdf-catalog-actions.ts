@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { compareFamiliaAsc } from '@/lib/inventario/familias-orden'
 
 export interface FiltrosPdfCatalog {
   generoId?: 'todos' | 'infantil' | number | string
@@ -10,6 +11,15 @@ export interface FiltrosPdfCatalog {
   soloPublicados?: boolean
   soloConFoto?: boolean
   busqueda?: string
+  /** Modo catálogo completo: trae todos los activos con y sin foto (el modal relaja los filtros). */
+  modoCompleto?: boolean
+  /** Orden canónico por familia (género → familia → SKU) para el catálogo completo. */
+  ordenarPorFamilia?: boolean
+  /**
+   * Dirección del orden en modo completo: 'familia' = solo familia A→Z sin
+   * importar género (igual que /catalogo/familias); 'genero' = línea → familia → SKU.
+   */
+  ordenFamilia?: 'familia' | 'genero'
 }
 
 export interface ProductoPdfCatalog {
@@ -19,6 +29,7 @@ export interface ProductoPdfCatalog {
   descripcion: string
   genero: string
   tipo_prenda: string
+  familia: string | null
   marca: string
   precio_publico: number | null
   precio_oferta: number | null
@@ -52,13 +63,14 @@ export async function fetchProductosParaCatalogoPdfAction(
       stockMap[s.producto_id].piezas += (s.piezas_sueltas || 0)
     }
 
-    // 2. Consulta de productos
+    // 2. Consulta de productos (solo activos: base del catálogo completo y selectivo)
     let query = (supabase.from('productos') as any)
       .select(`
         id,
         sku_base,
         nombre,
         descripcion,
+        familia,
         genero_id,
         tipo_prenda_id,
         marca_id,
@@ -124,10 +136,13 @@ export async function fetchProductosParaCatalogoPdfAction(
     }
 
     // 4. Filtrar y estructurar
+    // En modo completo se incluyen todos los activos con y sin foto/stock
+    // (el modal fuerza los flags a false, esto es doble seguridad).
     const resultados: ProductoPdfCatalog[] = []
-    const soloConStock = filtros.soloConStock ?? true
-    const soloPublicados = filtros.soloPublicados ?? false
-    const soloConFoto = filtros.soloConFoto ?? true
+    const modoCompleto = filtros.modoCompleto ?? false
+    const soloConStock = modoCompleto ? false : (filtros.soloConStock ?? true)
+    const soloPublicados = modoCompleto ? false : (filtros.soloPublicados ?? false)
+    const soloConFoto = modoCompleto ? false : (filtros.soloConFoto ?? true)
 
     for (const p of prods || []) {
       const stock = stockMap[p.id] || { cajas: 0, piezas: 0 }
@@ -146,6 +161,7 @@ export async function fetchProductosParaCatalogoPdfAction(
         descripcion: p.descripcion || p.nombre || '',
         genero: p.cat_generos?.nombre || 'General',
         tipo_prenda: p.cat_tipo_prenda?.nombre || '',
+        familia: p.familia || null,
         marca: p.cat_marcas?.nombre || 'IDOL NAVY',
         precio_publico: pw?.precio_publico ?? null,
         precio_oferta: pw?.precio_oferta ?? null,
@@ -156,12 +172,29 @@ export async function fetchProductosParaCatalogoPdfAction(
       })
     }
 
-    // Ordenar con foto primero y luego IDs más recientes
-    resultados.sort((a, b) => {
-      if (a.imagen_url && !b.imagen_url) return -1
-      if (!a.imagen_url && b.imagen_url) return 1
-      return b.id - a.id
-    })
+    // Orden: por familia en modo completo ('familia' = solo familia A→Z sin
+    // importar género; 'genero' = línea → familia → SKU), o con foto primero
+    // + recientes en modo selectivo.
+    const genOrder: Record<string, number> = { Dama: 1, Mujer: 1, Caballero: 2, Hombre: 2, 'Niño': 3, 'Niña': 3, Infantil: 3, Unisex: 4 }
+    const soloFamiliaAz = (filtros.ordenFamilia ?? 'genero') === 'familia'
+    if (filtros.ordenarPorFamilia || modoCompleto) {
+      resultados.sort((a, b) => {
+        if (!soloFamiliaAz) {
+          const gA = genOrder[a.genero] || 9
+          const gB = genOrder[b.genero] || 9
+          if (gA !== gB) return gA - gB
+        }
+        const fComp = compareFamiliaAsc(a.familia || '', b.familia || '')
+        if (fComp !== 0) return fComp
+        return (a.sku || '').localeCompare(b.sku || '', 'es', { sensitivity: 'base' })
+      })
+    } else {
+      resultados.sort((a, b) => {
+        if (a.imagen_url && !b.imagen_url) return -1
+        if (!a.imagen_url && b.imagen_url) return 1
+        return b.id - a.id
+      })
+    }
 
     return {
       productos: resultados,
@@ -183,6 +216,10 @@ export interface ImagenOptimizadaPdf {
 /**
  * Optimiza una imagen individual en el servidor con Sharp, resolviendo problemas de CORS,
  * formatos WebP/AVIF y URLs con caracteres especiales de Odoo 18, WordPress y Supabase.
+ *
+ * NOTA: Esta es la vía principal para imágenes de Odoo (moda.sistemaindumentaria.com),
+ * que NO envía `Access-Control-Allow-Origin` y por tanto nunca pueden leerse con
+ * canvas en el navegador. El fallback cliente solo funciona para hosts con CORS (*).
  */
 export async function optimizarImagenParaPdfAction(
   url: string,
@@ -203,7 +240,7 @@ export async function optimizarImagenParaPdfAction(
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 12000)
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
 
     let response: Response
     try {
@@ -220,6 +257,13 @@ export async function optimizarImagenParaPdfAction(
     }
 
     if (!response.ok) return null
+
+    // Odoo puede devolver HTML (login) en vez de imagen: validar antes de sharp.
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('image/')) {
+      console.warn(`[optimizarImagenParaPdfAction] Respuesta no-imagen para ${url}: ${contentType}`)
+      return null
+    }
 
     const arrayBuffer = await response.arrayBuffer()
     const inputBuffer = Buffer.from(arrayBuffer)
@@ -242,7 +286,9 @@ export async function optimizarImagenParaPdfAction(
     }
 
     const outputBuffer = await image
+      .rotate() // Respeta orientación EXIF
       .resize(targetW, targetH, { fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' }) // Transparencias -> fondo blanco
       .jpeg({ quality, mozjpeg: false })
       .toBuffer()
 
@@ -261,17 +307,21 @@ export async function optimizarImagenParaPdfAction(
 }
 
 /**
- * Optimiza un lote de URLs de imágenes en paralelo desde el servidor Node.js
+ * Optimiza un lote de URLs de imágenes en paralelo desde el servidor Node.js.
+ * `calidad` permite bajar resolución/peso en layouts densos (ej. 5×3 usa 400px).
  */
 export async function optimizarImagenesLoteParaPdfAction(
-  urls: string[]
+  urls: string[],
+  calidad?: { maxW?: number; quality?: number }
 ): Promise<Record<string, ImagenOptimizadaPdf | null>> {
   const results: Record<string, ImagenOptimizadaPdf | null> = {}
   const uniqueUrls = Array.from(new Set(urls.filter(Boolean)))
+  const maxW = calidad?.maxW ?? 500
+  const quality = calidad?.quality ?? 80
 
   await Promise.all(
     uniqueUrls.map(async (url) => {
-      results[url] = await optimizarImagenParaPdfAction(url)
+      results[url] = await optimizarImagenParaPdfAction(url, maxW, quality)
     })
   )
 

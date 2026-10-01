@@ -8,16 +8,38 @@ import {
   optimizarImagenParaPdfAction,
   type ImagenOptimizadaPdf,
 } from '@/modules/ecommerce/pdf-catalog-actions'
+import { compareFamiliaAsc, isUnassignedFamily } from '@/lib/inventario/familias-orden'
+
+export type LayoutCatalogoPdf = '3x3' | '4x3' | '3x2' | '5x3'
 
 export interface OpcionesGeneracionPdf {
   tituloCatalogo: string
   subtitulo?: string
-  layout: '3x3' | '4x3' | '3x2'
+  layout: LayoutCatalogoPdf
   mostrarPrecios: boolean
   mostrarStock: boolean
   mostrarMarca: boolean
   agruparPorCategoria?: boolean
+  /** 'categoria' (género × tipo de prenda) o 'familia' (familia → SKU). */
+  agruparPor?: 'categoria' | 'familia'
+  /**
+   * Orden dentro del modo familia: 'familia' = solo familia A→Z sin importar
+   * género (igual que /catalogo/familias); 'genero' = línea → familia → SKU.
+   */
+  ordenFamilia?: 'familia' | 'genero'
+  /** Calidad de imagen optimizada (5×3 usa valores más livianos por defecto). */
+  calidadImagen?: { maxW?: number; quality?: number }
+  /** La cola de generación lo usa para cancelar trabajos en segundo plano. */
+  shouldCancel?: () => boolean
   onProgress?: (progreso: number, texto: string) => void
+}
+
+export interface ResultadoCatalogoPdf {
+  total: number
+  conFoto: number
+  sinFoto: number
+  fallos: string[]
+  paginas: number
 }
 
 interface ColorTheme {
@@ -108,10 +130,15 @@ const imageMemoryCache = new Map<string, LoadedImageInfo | null>()
  * Utiliza Server Actions y el proxy de servidor para resolver restricciones CORS de
  * Odoo 18 (moda.sistemaindumentaria.com), WordPress y Supabase, con fallback local.
  */
-async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null> {
+async function cargarImagenOriginal(
+  url: string,
+  calidad?: { maxW?: number; quality?: number }
+): Promise<LoadedImageInfo | null> {
   if (!url || !url.trim()) return null
 
   const trimmedUrl = url.trim()
+  const maxW = calidad?.maxW ?? 500
+  const quality = calidad?.quality ?? 80
 
   // 1. Verificar si ya fue procesada en memoria
   if (imageMemoryCache.has(trimmedUrl)) {
@@ -120,7 +147,7 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
 
   // 2. Intentar optimizar a través de Server Action directo
   try {
-    const saResult = await optimizarImagenParaPdfAction(trimmedUrl)
+    const saResult = await optimizarImagenParaPdfAction(trimmedUrl, maxW, quality)
     if (saResult && saResult.base64) {
       imageMemoryCache.set(trimmedUrl, saResult)
       return saResult
@@ -131,7 +158,7 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
 
   // 3. Intentar descargar y optimizar a través del endpoint proxy de la app
   try {
-    const proxyUrl = `/api/ecommerce/catalog-image?url=${encodeURIComponent(trimmedUrl)}&format=json&maxW=500&quality=80`
+    const proxyUrl = `/api/ecommerce/catalog-image?url=${encodeURIComponent(trimmedUrl)}&format=json&maxW=${maxW}&quality=${quality}`
     const res = await fetch(proxyUrl, {
       method: 'GET',
       headers: {
@@ -156,7 +183,10 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
     console.warn('Fallo proxy de imagen para PDF, intentando fallback cliente:', trimmedUrl, proxyErr)
   }
 
-  // 4. Fallback directo en cliente (para URLs del mismo origen o con CORS habilitado)
+  // 4. Fallback directo en cliente (SOLO funciona para hosts con CORS habilitado,
+  // como Supabase Storage o WordPress con `Access-Control-Allow-Origin: *`.
+  // Odoo (moda.sistemaindumentaria.com) NO envía esa cabecera, así que sus
+  // imágenes dependen 100% de las vías servidor: Server Action o /api proxy.)
   try {
     const fallbackInfo = await new Promise<LoadedImageInfo | null>((resolve) => {
       const img = new Image()
@@ -166,7 +196,6 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
           const w = img.naturalWidth || img.width || 480
           const h = img.naturalHeight || img.height || 640
 
-          const maxW = 500
           let targetW = w
           let targetH = h
 
@@ -215,26 +244,41 @@ async function cargarImagenOriginal(url: string): Promise<LoadedImageInfo | null
 
 interface GrupoSeccion {
   titulo: string
+  subtitulo?: string
   genero: string
   tipoPrenda: string
+  familia?: string | null
   productos: { producto: ProductoPdfCatalog; imgInfo: LoadedImageInfo | null }[]
 }
 
 /**
- * Agrupa productos por género y tipo de prenda en orden lógico
+ * Agrupa productos por género y tipo de prenda en orden lógico,
+ * o por familia en modo catálogo completo (por familia A→Z sin importar
+ * género, o por línea → familia → SKU según `ordenFamilia`).
  */
 function agruparProductosPorSeccion(
-  items: { producto: ProductoPdfCatalog; imgInfo: LoadedImageInfo | null }[]
+  items: { producto: ProductoPdfCatalog; imgInfo: LoadedImageInfo | null }[],
+  agruparPor: 'categoria' | 'familia' = 'categoria',
+  ordenFamilia: 'familia' | 'genero' = 'genero'
 ): GrupoSeccion[] {
   const gruposMap = new Map<string, GrupoSeccion>()
+  const soloFamiliaAz = agruparPor === 'familia' && ordenFamilia === 'familia'
 
   // Orden previo de items
   const genOrder: Record<string, number> = { Dama: 1, Mujer: 1, Caballero: 2, Hombre: 2, Niño: 3, Niña: 3, Infantil: 3, Unisex: 4 }
 
   const sortedItems = [...items].sort((a, b) => {
-    const gA = genOrder[a.producto.genero] || 9
-    const gB = genOrder[b.producto.genero] || 9
-    if (gA !== gB) return gA - gB
+    if (!soloFamiliaAz) {
+      const gA = genOrder[a.producto.genero] || 9
+      const gB = genOrder[b.producto.genero] || 9
+      if (gA !== gB) return gA - gB
+    }
+
+    if (agruparPor === 'familia') {
+      const fComp = compareFamiliaAsc(a.producto.familia || '', b.producto.familia || '')
+      if (fComp !== 0) return fComp
+      return (a.producto.sku || '').localeCompare(b.producto.sku || '', 'es', { sensitivity: 'base' })
+    }
 
     const tComp = (a.producto.tipo_prenda || '').localeCompare(b.producto.tipo_prenda || '')
     if (tComp !== 0) return tComp
@@ -243,6 +287,29 @@ function agruparProductosPorSeccion(
   })
 
   for (const item of sortedItems) {
+    if (agruparPor === 'familia') {
+      const famRaw = (item.producto.familia || '').trim()
+      const famKey = famRaw !== '' ? famRaw.toUpperCase() : 'SIN FAMILIA'
+      const genero = (item.producto.genero || 'GENERAL').toUpperCase()
+      // Por familia A→Z la sección es solo la familia; por línea se separa por género.
+      const key = soloFamiliaAz ? `FAM__${famKey}` : `${genero}__FAM__${famKey}`
+
+      if (!gruposMap.has(key)) {
+        gruposMap.set(key, {
+          titulo: isUnassignedFamily(famRaw)
+            ? (soloFamiliaAz ? 'SIN FAMILIA' : `SIN FAMILIA · ${genero}`)
+            : (soloFamiliaAz ? `FAMILIA ${famKey}` : `FAMILIA ${famKey} · ${genero}`),
+          genero: item.producto.genero,
+          tipoPrenda: item.producto.tipo_prenda || '',
+          familia: famRaw || null,
+          productos: [],
+        })
+      }
+
+      gruposMap.get(key)!.productos.push(item)
+      continue
+    }
+
     const tipo = (item.producto.tipo_prenda || 'VARIOS').toUpperCase()
     const genero = (item.producto.genero || 'GENERAL').toUpperCase()
     const titulo = `${tipo} ${genero}`
@@ -260,22 +327,45 @@ function agruparProductosPorSeccion(
     gruposMap.get(key)!.productos.push(item)
   }
 
-  return Array.from(gruposMap.values())
+  const secciones = Array.from(gruposMap.values())
+
+  // Subtítulo de sección por familia: descripción representativa (primer SKU por código)
+  if (agruparPor === 'familia') {
+    for (const sec of secciones) {
+      const porSku = [...sec.productos].sort((a, b) =>
+        (a.producto.sku || '').localeCompare(b.producto.sku || '', 'es', { sensitivity: 'base' })
+      )
+      sec.productos = porSku
+      const primero = porSku[0]?.producto
+      const desc = (primero?.descripcion || primero?.nombre || '').trim()
+      if (desc && desc.toUpperCase() !== (primero?.sku || '').toUpperCase()) {
+        sec.subtitulo = desc.length > 90 ? `${desc.slice(0, 90)}…` : desc
+      }
+    }
+  }
+
+  return secciones
 }
 
 /**
- * Genera y descarga el catálogo PDF profesional con separación por títulos grandes subrayados
+ * Genera y descarga el catálogo PDF profesional con separación por títulos grandes subrayados.
+ * Retorna el conteo de fotos cargadas vs fallidas para que la UI pueda avisar al usuario.
+ * Lanza `Error('CANCELADO_POR_USUARIO')` si `opciones.shouldCancel()` se vuelve verdadero.
  */
 export async function generarCatalogoPdf(
   productosEntrada: ProductoPdfCatalog[],
   opciones: OpcionesGeneracionPdf
-): Promise<void> {
+): Promise<ResultadoCatalogoPdf> {
   const {
     tituloCatalogo = 'Catálogo de Productos',
     subtitulo = '',
     layout = '3x2', // Por defecto 6 productos por página como pidió el usuario
     mostrarPrecios = true,
     mostrarStock = true,
+    agruparPor = 'categoria',
+    ordenFamilia = 'genero',
+    calidadImagen,
+    shouldCancel,
     onProgress,
   } = opciones
 
@@ -283,14 +373,36 @@ export async function generarCatalogoPdf(
     throw new Error('No hay productos seleccionados para el catálogo.')
   }
 
+  const cancelado = () => shouldCancel?.() === true
+  const exigirActivo = (fase: string) => {
+    if (cancelado()) {
+      throw new Error('CANCELADO_POR_USUARIO')
+    }
+  }
+
+  // Layout 5×3: hoja horizontal (landscape) con tarjetas más pequeñas y livianas.
+  const esHorizontal = layout === '5x3'
+  const orientacion: 'portrait' | 'landscape' = esHorizontal ? 'landscape' : 'portrait'
+  const imgMaxW = calidadImagen?.maxW ?? (layout === '5x3' ? 400 : 500)
+  const imgQuality = calidadImagen?.quality ?? (layout === '5x3' ? 72 : 80)
+  const calidad = { maxW: imgMaxW, quality: imgQuality }
+
   onProgress?.(5, 'Iniciando carga optimizada de imágenes...')
+
+  // Las entradas nulas son fallos de una generación anterior: purgarlas para
+  // reintentar la descarga en esta generación (los éxitos sí se reutilizan).
+  for (const [key, value] of imageMemoryCache) {
+    if (!value) imageMemoryCache.delete(key)
+  }
 
   // Precarga paralela en bloques de 6 usando Server Action por lotes y fallback a proxy/cliente
   const itemsConImagen: { producto: ProductoPdfCatalog; imgInfo: LoadedImageInfo | null }[] = new Array(productosEntrada.length)
   const batchSize = 6
   let completados = 0
+  const fallos: string[] = []
 
   for (let i = 0; i < productosEntrada.length; i += batchSize) {
+    exigirActivo('lote-imagenes')
     const batch = productosEntrada.slice(i, i + batchSize)
     const urlsToFetch = batch
       .map((p) => p.imagen_url?.trim())
@@ -300,7 +412,7 @@ export async function generarCatalogoPdf(
     let batchMap: Record<string, ImagenOptimizadaPdf | null> = {}
     if (urlsToFetch.length > 0) {
       try {
-        batchMap = await optimizarImagenesLoteParaPdfAction(urlsToFetch)
+        batchMap = await optimizarImagenesLoteParaPdfAction(urlsToFetch, calidad)
       } catch (err) {
         console.warn('Fallo optimización por lote de imágenes en Server Action, usando fallback:', err)
       }
@@ -314,9 +426,15 @@ export async function generarCatalogoPdf(
           let imgInfo: LoadedImageInfo | null = batchMap[trimmed] || imageMemoryCache.get(trimmed) || null
 
           if (!imgInfo) {
-            imgInfo = await cargarImagenOriginal(trimmed)
+            imgInfo = await cargarImagenOriginal(trimmed, calidad)
           } else {
             imageMemoryCache.set(trimmed, imgInfo)
+          }
+
+          if (!imgInfo) {
+            // Registrar SKU para el reporte final (sirve para depurar con Odoo/CORS)
+            fallos.push(prod.sku)
+            console.warn('[CatalogoPDF] Sin foto tras optimizar:', prod.sku, trimmed)
           }
 
           itemsConImagen[globalIdx] = { producto: prod, imgInfo }
@@ -331,18 +449,19 @@ export async function generarCatalogoPdf(
   }
 
   onProgress?.(75, 'Organizando secciones y títulos...')
+  exigirActivo('organizar')
 
-  const secciones = agruparProductosPorSeccion(itemsConImagen)
+  const secciones = agruparProductosPorSeccion(itemsConImagen, agruparPor, ordenFamilia)
 
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: orientacion,
     unit: 'mm',
     format: 'letter',
     compress: true, // Compresión de flujos internos de PDF para navegación ultrarrápida
   })
 
-  const pageWidth = doc.internal.pageSize.getWidth() // 215.9 mm
-  const pageHeight = doc.internal.pageSize.getHeight() // 279.4 mm
+  const pageWidth = doc.internal.pageSize.getWidth() // 215.9 portrait · 279.4 landscape
+  const pageHeight = doc.internal.pageSize.getHeight() // 279.4 portrait · 215.9 landscape
 
   const marginX = 8.5
   const marginTop = 17.5
@@ -350,19 +469,21 @@ export async function generarCatalogoPdf(
   const usableWidth = pageWidth - marginX * 2
   const maxPageY = pageHeight - marginBottom
 
-  // Columnas fijas a 3 (o 4 si layout es 4x3)
-  const cols = layout === '4x3' ? 4 : 3
-  const gapX = 3.5
-  const gapY = 3.5
+  // Columnas: 3 fijas (4 en 4×3, 5 en 5×3 horizontal)
+  const cols = layout === '5x3' ? 5 : layout === '4x3' ? 4 : 3
+  const gapX = layout === '5x3' ? 3.0 : 3.5
+  const gapY = layout === '5x3' ? 3.0 : 3.5
   const cellWidth = (usableWidth - gapX * (cols - 1)) / cols
 
-  // Altura de tarjeta: para que quepan 6 por página (2 filas) con holgura para títulos
-  const cellHeight = layout === '3x3' ? 76.0 : (layout === '4x3' ? 76.0 : 104.0)
-  const textSpace = layout === '3x2' ? 16.0 : 13.5
+  // Altura de tarjeta: 3×3 y 4×3 → 3 filas; 3×2 → 2 filas grandes; 5×3 → 3 filas en horizontal
+  const cellHeight =
+    layout === '5x3' ? 56.0 : layout === '3x3' ? 76.0 : layout === '4x3' ? 76.0 : 104.0
+  const textSpace = layout === '3x2' ? 16.0 : layout === '5x3' ? 11.0 : 13.5
   const imgBoxHeight = cellHeight - textSpace
   const imgBoxWidth = cellWidth
 
   const titleHeight = 9.5 // Alto reservado para el título grande subrayado
+  const subtitleHeight = 4.0 // Línea extra cuando la sección trae subtítulo (modo familia)
 
   const dominantTheme = getDominantTheme(productosEntrada)
 
@@ -428,13 +549,15 @@ export async function generarCatalogoPdf(
   onProgress?.(85, 'Dibujando secciones y tarjetas...')
 
   for (let sIdx = 0; sIdx < secciones.length; sIdx++) {
+    exigirActivo('dibujar-secciones')
     const seccion = secciones[sIdx]
     const theme = getThemeForGenero(seccion.genero)
 
     // Verificar si el título + al menos 1 fila de productos cabe en la página actual
-    const espacioNecesario = titleHeight + cellHeight
+    const altoTituloSeccion = titleHeight + (seccion.subtitulo ? subtitleHeight : 0)
+    const espacioNecesario = altoTituloSeccion + cellHeight
     if (currentY + espacioNecesario > maxPageY) {
-      doc.addPage('letter', 'portrait')
+      doc.addPage('letter', orientacion)
       currentPage++
       currentTheme = theme
       drawHeader(currentPage, currentTheme)
@@ -467,6 +590,16 @@ export async function generarCatalogoPdf(
 
     currentY += titleHeight
 
+    // Subtítulo de familia: descripción representativa del primer SKU
+    if (seccion.subtitulo) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(7.5)
+      doc.setTextColor(100, 116, 139)
+      const subLineas = doc.splitTextToSize(seccion.subtitulo, usableWidth)
+      doc.text(subLineas.slice(0, 1), marginX, currentY + 2.5)
+      currentY += subtitleHeight
+    }
+
     // ─────────────────────────────────────────────────────────────
     // DIBUJAR PRODUCTOS DE LA SECCIÓN EN FILAS
     // ─────────────────────────────────────────────────────────────
@@ -474,7 +607,7 @@ export async function generarCatalogoPdf(
     for (let pIdx = 0; pIdx < prods.length; pIdx += cols) {
       // Verificar si cabe esta fila en la página
       if (currentY + cellHeight > maxPageY) {
-        doc.addPage('letter', 'portrait')
+        doc.addPage('letter', orientacion)
         currentPage++
         currentTheme = theme
         drawHeader(currentPage, currentTheme)
@@ -535,14 +668,14 @@ export async function generarCatalogoPdf(
         // Fila A: Marca a la izquierda, Precio a la derecha
         const row1Y = y + imgBoxHeight + 2.8
         doc.setFont('helvetica', 'bold')
-        doc.setFontSize(cols === 4 ? 5.2 : 5.8)
+        doc.setFontSize(cols >= 4 ? 5.2 : 5.8)
         doc.setTextColor(100, 116, 139)
         const marcaStr = (prod.marca || 'IDOL NAVY').toUpperCase()
         doc.text(marcaStr, textPadX, row1Y)
 
         if (mostrarPrecios && prod.precio_publico) {
           doc.setFont('helvetica', 'bold')
-          doc.setFontSize(cols === 4 ? 5.8 : 6.6)
+          doc.setFontSize(cols >= 4 ? 5.8 : 6.6)
           doc.setTextColor(185, 28, 28)
           const precioStr = `$${Number(prod.precio_publico).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
           const precioW = doc.getTextWidth(precioStr)
@@ -552,7 +685,7 @@ export async function generarCatalogoPdf(
         // Fila B: Nombre / Descripción del Producto
         const row2Y = row1Y + 3.0
         doc.setFont('helvetica', 'bold')
-        doc.setFontSize(cols === 4 ? 5.6 : 6.3)
+        doc.setFontSize(cols >= 4 ? 5.6 : 6.3)
         doc.setTextColor(15, 23, 42)
 
         const textoTitulo = (prod.descripcion && prod.descripcion.trim() !== prod.sku.trim())
@@ -560,25 +693,25 @@ export async function generarCatalogoPdf(
           : (prod.nombre || prod.sku)
 
         const lineas = doc.splitTextToSize(textoTitulo, textW)
-        const maxLines = cols === 4 ? 2 : (layout === '3x2' ? 3 : 2)
+        const maxLines = cols >= 4 ? 2 : (layout === '3x2' ? 3 : 2)
         const lineasAMostrar = lineas.slice(0, maxLines)
 
         let currentTextY = row2Y
         for (const linea of lineasAMostrar) {
           doc.text(linea, textPadX, currentTextY)
-          currentTextY += (cols === 4 ? 2.4 : 2.7)
+          currentTextY += (cols >= 4 ? 2.4 : 2.7)
         }
 
         // Fila C: SKU pegado abajo de la descripción + Stock
         const row3Y = currentTextY + 0.6
         doc.setFont('helvetica', 'bold')
-        doc.setFontSize(cols === 4 ? 5.4 : 6.2)
+        doc.setFontSize(cols >= 4 ? 5.4 : 6.2)
         doc.setTextColor(71, 85, 105)
         doc.text(prod.sku, textPadX, row3Y)
 
         if (mostrarStock && prod.cajas_stock > 0) {
           doc.setFont('helvetica', 'bold')
-          doc.setFontSize(cols === 4 ? 5.2 : 5.8)
+          doc.setFontSize(cols >= 4 ? 5.2 : 5.8)
           doc.setTextColor(4, 120, 87)
           const stockStr = `Stock: ${prod.cajas_stock} cjs`
           const stockW = doc.getTextWidth(stockStr)
@@ -617,4 +750,13 @@ export async function generarCatalogoPdf(
 
   doc.save(fileName)
   onProgress?.(100, '¡Catálogo descargado con éxito!')
+
+  const conFoto = itemsConImagen.filter((it) => it.imgInfo?.base64).length
+  return {
+    total: itemsConImagen.length,
+    conFoto,
+    sinFoto: itemsConImagen.length - conFoto,
+    fallos,
+    paginas: totalPages,
+  }
 }

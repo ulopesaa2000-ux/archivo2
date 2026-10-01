@@ -2,7 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
 
-export const dynamic = 'force-dynamic'
+// NOTA: No usar `export const dynamic = 'force-dynamic'` aquí: es incompatible
+// con `cacheComponents: true` de Next 16 y hace que la ruta falle con 500.
+// Este Route Handler ya es dinámico por naturaleza (lee `searchParams` y el
+// body del POST), así que no necesita configuración adicional.
+
+const FETCH_TIMEOUT_MS = 20000
 
 async function optimizeImageBuffer(
   inputBuffer: Buffer,
@@ -24,10 +29,12 @@ async function optimizeImageBuffer(
   }
 
   const outputBuffer = await image
+    .rotate() // Respeta orientación EXIF (fotos de celular de Odoo/WordPress)
     .resize(targetW, targetH, {
       fit: 'inside',
       withoutEnlargement: true,
     })
+    .flatten({ background: '#ffffff' }) // WebP/PNG con transparencia -> fondo blanco, no negro
     .jpeg({
       quality,
       mozjpeg: false,
@@ -67,7 +74,7 @@ async function fetchAndOptimize(
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 12000)
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
   let response: Response
   try {
@@ -85,6 +92,13 @@ async function fetchAndOptimize(
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} ${response.statusText}`)
+  }
+
+  // Odoo puede devolver la página de login (text/html) si la sesión expiró o
+  // la URL es inválida: detectarlo aquí en vez de fallar dentro de sharp.
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('image/')) {
+    throw new Error(`Respuesta no-imagen (${contentType || 'sin content-type'}).`)
   }
 
   const arrayBuffer = await response.arrayBuffer()
