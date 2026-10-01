@@ -803,8 +803,13 @@ export type CajaAfectadaPorCambioSku = {
 export async function fetchCajasAfectadasPorCambioSku(
   ordenId: number,
   nuevoProductoId: number,
+  nuevoSkuBase?: string,
 ): Promise<CajaAfectadaPorCambioSku[]> {
   const supabase = await createClient()
+  // La coincidencia se evalúa por SKU (texto normalizado), no por producto_id:
+  // pueden existir filas de producto duplicadas con el mismo sku_base.
+  const norm = (s: string | null | undefined) => (s ?? '').trim().toUpperCase()
+  const nuevoSkuNorm = norm(nuevoSkuBase)
 
   const { data: ordenCajas, error } = await supabase
     .from('orden_cajas')
@@ -848,7 +853,10 @@ export async function fetchCajasAfectadasPorCambioSku(
       ? (Array.isArray(c.producto) ? c.producto[0] : c.producto)
       : null
     const productoActualId = (c?.producto_id as number | null) ?? null
-    const coincide = productoActualId === nuevoProductoId
+    const skuActualNorm = norm(p?.sku_base)
+    const coincide = nuevoSkuNorm
+      ? (skuActualNorm !== '' && skuActualNorm === nuevoSkuNorm)
+      : productoActualId === nuevoProductoId
     const otras = usosPorCaja.get(oc.caja_id) ?? 0
     return {
       ordenCajaId: oc.id,

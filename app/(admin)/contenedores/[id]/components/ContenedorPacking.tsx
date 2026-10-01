@@ -2,12 +2,13 @@
 'use client'
 
 import { useState, Fragment } from 'react'
+import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Package, Layers, ListFilter, ChevronRight, ChevronDown, ChevronsUpDown } from 'lucide-react'
-import { ESTADO_ORDEN_B2B_COLORS } from '@/lib/constants'
-import type { ContenedorPackingItem } from '@/modules/contenedores/types'
+import { Package, Layers, ListFilter, ChevronRight, ChevronDown, ChevronsUpDown, Warehouse, TriangleAlert, CheckCircle2, PackageX } from 'lucide-react'
+import { ESTADO_ORDEN_B2B_COLORS, ADMIN_ROUTES } from '@/lib/constants'
+import type { ContenedorPackingItem, SurtidoPreview } from '@/modules/contenedores/types'
 
 type SubGrupoPack = {
   key: string
@@ -145,11 +146,11 @@ function agrupar(items: ContenedorPackingItem[]): GrupoOrden[] {
   return Array.from(map.values())
 }
 
-export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] }) {
-  const [modoVista, setModoVista] = useState<'agrupado' | 'extendido'>('agrupado')
+export function ContenedorPacking({ items, surtidoPreview }: { items: ContenedorPackingItem[]; surtidoPreview?: SurtidoPreview }) {
+  const [modoVista, setModoVista] = useState<'unificada' | 'agrupado' | 'extendido'>('unificada')
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({})
 
-  if (items.length === 0) {
+  if (items.length === 0 && (!surtidoPreview || surtidoPreview.lineas.length === 0)) {
     return (
       <div className="flex flex-col items-center py-12 text-muted-foreground mt-4">
         <Package className="h-8 w-8" /><p className="text-sm mt-2">Sin packing list.</p>
@@ -189,7 +190,16 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
     <div className="space-y-6 mt-4">
       {/* Selector de Modo de Vista y Controles */}
       <div className="flex items-center justify-between gap-3 flex-wrap bg-muted/20 p-3 rounded-lg border">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant={modoVista === 'unificada' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setModoVista('unificada')}
+            className="h-8 text-xs font-semibold"
+          >
+            <Warehouse className="h-3.5 w-3.5 mr-1.5" />
+            Vista Unificada (Stock virtual)
+          </Button>
           <Button
             variant={modoVista === 'agrupado' ? 'default' : 'outline'}
             size="sm"
@@ -223,6 +233,10 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
         )}
       </div>
 
+      {modoVista === 'unificada' ? (
+        <VistaUnificada preview={surtidoPreview} />
+      ) : (
+      <>
       {/* Lista de Órdenes */}
       {grupos.map((grupo) => (
         <div key={grupo.ordenId} className="rounded-lg border overflow-auto bg-card shadow-sm">
@@ -483,6 +497,157 @@ export function ContenedorPacking({ items }: { items: ContenedorPackingItem[] })
             <span className="text-primary text-base font-extrabold">{formatCurrency(granTotal.importe, 'USD')}</span>
           </div>
         </div>
+      </div>
+      </>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// VISTA UNIFICADA — líneas de producto (fuente de verdad del
+// surtido a bodega virtual) + advertencia de diferencia en cajas
+// ════════════════════════════════════════════════════════════
+
+function VistaUnificada({ preview }: { preview?: SurtidoPreview }) {
+  if (!preview || preview.lineas.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground rounded-lg border">
+        <PackageX className="h-8 w-8" />
+        <p className="text-sm mt-2">Sin líneas de producto en las órdenes.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Notificación: las líneas mandan */}
+      <div className="flex items-start gap-3 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 text-sm">
+        <Warehouse className="h-4 w-4 mt-0.5 shrink-0 text-purple-600 dark:text-purple-400" />
+        <p className="text-xs leading-relaxed text-foreground">
+          Para el traspaso a <strong>stock real en bodega virtual</strong> se tomarán los datos de{' '}
+          <strong>líneas de producto</strong> (sección morada). Si alguna fila marca diferencia en cajas,
+          corrige la orden antes de proseguir con el surtido.
+        </p>
+      </div>
+
+      {/* Totales de lo que entrará a stock */}
+      <div className="flex items-center gap-4 flex-wrap rounded-lg border border-purple-500/30 bg-purple-500/5 px-4 py-2.5 text-xs font-mono tabular-nums">
+        <span className="font-sans font-semibold text-purple-700 dark:text-purple-300">
+          Entrará a stock virtual:
+        </span>
+        <span><strong className="text-foreground">{preview.totalProductos}</strong> productos</span>
+        <span><strong className="text-foreground">{preview.totalCajasLinea.toLocaleString()}</strong> cajas</span>
+        <span><strong className="text-foreground">{preview.totalPiezasLinea.toLocaleString()}</strong> pz</span>
+        <span className="text-purple-700 dark:text-purple-300 font-bold">{formatCurrency(preview.importeTotal, 'USD')}</span>
+        {preview.conDiferencias && (
+          <span className="inline-flex items-center gap-1 font-sans font-semibold text-amber-600 dark:text-amber-400">
+            <TriangleAlert className="h-3.5 w-3.5" /> Hay diferencias por revisar
+          </span>
+        )}
+      </div>
+
+      {/* Tabla de líneas (fuente de verdad) */}
+      <div className="rounded-lg border border-purple-500/30 overflow-auto bg-card shadow-sm">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-purple-500/10 font-semibold text-purple-900 dark:text-purple-200 border-b border-purple-500/20">
+              <th className="px-3 py-2 text-left">SKU</th>
+              <th className="px-3 py-2 text-left">Producto</th>
+              <th className="px-3 py-2 text-center">Cajas línea</th>
+              <th className="px-3 py-2 text-center">Cajas físicas</th>
+              <th className="px-3 py-2 text-center">Dif cajas</th>
+              <th className="px-3 py-2 text-right">Pz a stock</th>
+              <th className="px-3 py-2 text-right">P.Unit</th>
+              <th className="px-3 py-2 text-right">Importe</th>
+              <th className="px-3 py-2 text-left">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {preview.lineas.map((l) => (
+              <tr
+                key={l.productoId}
+                className={cn(
+                  'border-t hover:bg-purple-500/5 transition-colors',
+                  l.estado !== 'OK' && 'bg-amber-500/5',
+                )}
+              >
+                <td className="px-3 py-2 font-mono font-bold text-foreground whitespace-nowrap">
+                  {l.skuBase ?? '—'}
+                </td>
+                <td className="px-3 py-2 max-w-[220px]">
+                  <div className="truncate text-xs font-medium" title={l.productoDescripcion ?? l.productoNombre ?? ''}>
+                    {l.productoDescripcion ?? l.productoNombre ?? '—'}
+                  </div>
+                  {l.ordenIds.length > 0 && (
+                    <Link
+                      href={ADMIN_ROUTES.ordenesB2B.detalle(l.ordenIds[0])}
+                      className="text-[10px] text-primary hover:underline font-mono"
+                    >
+                      Orden #{l.ordenIds[0]}{l.ordenIds.length > 1 ? ` +${l.ordenIds.length - 1}` : ''}
+                    </Link>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center font-mono font-bold tabular-nums">
+                  {l.cajasLinea.toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-center font-mono tabular-nums text-muted-foreground">
+                  {l.cajasFisicas.toLocaleString()}
+                </td>
+                <td className={cn(
+                  'px-3 py-2 text-center font-mono tabular-nums font-bold',
+                  l.difCajas !== 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
+                )}>
+                  {l.difCajas !== 0 ? (l.difCajas > 0 ? `+${l.difCajas}` : l.difCajas) : '0'}
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-bold tabular-nums text-foreground">
+                  {l.piezasLinea.toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  {l.precioUnitario ? formatCurrency(l.precioUnitario, 'USD') : '—'}
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">
+                  {l.importeTotal ? formatCurrency(l.importeTotal, 'USD') : '—'}
+                </td>
+                <td className="px-3 py-2">
+                  {l.estado === 'OK' ? (
+                    <Badge variant="secondary" className="text-[10px] gap-1">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Cuadra
+                    </Badge>
+                  ) : l.estado === 'SIN_CAJAS' ? (
+                    <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-600">
+                      <TriangleAlert className="h-3 w-3" /> Sin cajas vinculadas
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-600">
+                      <TriangleAlert className="h-3 w-3" /> Diferencia en cajas
+                    </Badge>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t bg-purple-500/10 font-semibold text-xs">
+              <td colSpan={2} className="px-3 py-2 text-purple-900 dark:text-purple-200">Total a stock virtual</td>
+              <td className="px-3 py-2 text-center tabular-nums">{preview.totalCajasLinea.toLocaleString()}</td>
+              <td className="px-3 py-2 text-center tabular-nums">{preview.totalCajasFisicas.toLocaleString()}</td>
+              <td className={cn(
+                'px-3 py-2 text-center tabular-nums font-bold',
+                preview.totalCajasLinea - preview.totalCajasFisicas !== 0 && 'text-amber-600 dark:text-amber-400',
+              )}>
+                {(() => {
+                  const d = preview.totalCajasLinea - preview.totalCajasFisicas
+                  return d !== 0 ? (d > 0 ? `+${d}` : d) : '0'
+                })()}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-bold">{preview.totalPiezasLinea.toLocaleString()}</td>
+              <td></td>
+              <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(preview.importeTotal, 'USD')}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   )

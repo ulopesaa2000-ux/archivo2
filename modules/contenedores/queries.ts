@@ -7,7 +7,7 @@ import type {
   FiltrosContenedores, ContenedorResumen,
   ContenedorPackingItem, OrdenEnContenedor, ContenedorSortBy,
   OrdenDisponible, CajaEnContenedor, ContenedorReporteItem,
-  ResumenContenedorData, ResumenItemData,
+  ResumenContenedorData, ResumenItemData, SurtidoPreview, SurtidoPreviewLinea,
 } from './types'
 import type { ContenedorRow } from '@/lib/types/tables'
 import { getCommercialScope } from '@/lib/dal'
@@ -237,6 +237,162 @@ export async function fetchContenedorPacking(
   if (!data) return []
 
   return data as unknown as ContenedorPackingItem[]
+}
+
+// ════════════════════════════════════════════════════════════
+// PREVIEW DE SURTIDO (lo que entrará a stock en bodega virtual)
+// Fuente de verdad: líneas de ordenes_b2b_detalles (igual que
+// surtirContenedorAction). Contraste: cajas físicas vinculadas.
+// ════════════════════════════════════════════════════════════
+
+export async function fetchSurtidoPreview(
+  contenedorId: number,
+): Promise<SurtidoPreview> {
+  const supabase = await createClient()
+  const scope = await getCommercialScope()
+
+  const vacio: SurtidoPreview = {
+    contenedorId,
+    totalProductos: 0,
+    totalCajasLinea: 0,
+    totalPiezasLinea: 0,
+    totalCajasFisicas: 0,
+    totalPiezasFisicas: 0,
+    importeTotal: 0,
+    conDiferencias: false,
+    lineas: [],
+  }
+
+  let ordenQuery: any = supabase
+    .from('ordenes_b2b')
+    .select('id')
+    .eq('contenedor_id', contenedorId)
+    .eq('activo', true)
+    .neq('estado', 'Cancelada')
+
+  if (!scope.is_super_admin) {
+    const orderFilter = buildCommercialOrderFilter(scope)
+    if (!orderFilter || orderFilter === '__no_access__.eq.true') return vacio
+    ordenQuery = ordenQuery.or(orderFilter)
+  }
+
+  const { data: ordenes } = await ordenQuery
+  const ordenIds = ((ordenes ?? []) as any[]).map((o) => o.id)
+  if (ordenIds.length === 0) return vacio
+
+  // 1. Líneas (fuente de verdad, igual que surtirContenedorAction)
+  const { data: detalles } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select(`
+      orden_id, producto_id, cajas_pedidas, piezas_pedidas,
+      precio_unitario, importe_total,
+      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+        sku_base, nombre, descripcion
+      )
+    `)
+    .in('orden_id', ordenIds)
+
+  // 2. Cajas físicas vinculadas
+  const { data: ordenCajas } = await supabase
+    .from('orden_cajas')
+    .select(`
+      orden_id, cantidad_cajas,
+      caja:cajas_producto!orden_cajas_caja_id_fkey (
+        producto_id, piezas_por_caja
+      )
+    `)
+    .in('orden_id', ordenIds)
+
+  type Agg = {
+    cajas: number; piezas: number; precio: number | null
+    importe: number; ordenIds: Set<number>
+    sku: string | null; nombre: string | null; descripcion: string | null
+  }
+  const lineasMap = new Map<number, Agg>()
+  for (const d of ((detalles ?? []) as any[])) {
+    const pid = d.producto_id as number | null
+    if (!pid) continue
+    const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+    const cajas = Number(d.cajas_pedidas ?? 0)
+    const piezas = Number(d.piezas_pedidas ?? 0)
+    const precio = d.precio_unitario != null ? Number(d.precio_unitario) : null
+    const prev = lineasMap.get(pid) ?? {
+      cajas: 0, piezas: 0, precio: null, importe: 0,
+      ordenIds: new Set<number>(), sku: null, nombre: null, descripcion: null,
+    }
+    prev.cajas += cajas
+    prev.piezas += piezas
+    if (precio != null && prev.precio == null) prev.precio = precio
+    prev.importe += Number((piezas * (precio ?? 0)).toFixed(2))
+    prev.ordenIds.add(d.orden_id)
+    if (!prev.sku) {
+      prev.sku = prod?.sku_base ?? null
+      prev.nombre = prod?.nombre ?? null
+      prev.descripcion = prod?.descripcion ?? null
+    }
+    lineasMap.set(pid, prev)
+  }
+
+  const fisicasMap = new Map<number, { cajas: number; piezas: number }>()
+  for (const oc of ((ordenCajas ?? []) as any[])) {
+    const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
+    const pid = c?.producto_id as number | null
+    if (!pid) continue
+    const cant = Number(oc.cantidad_cajas ?? 0)
+    const pz = Number(c?.piezas_por_caja ?? 0)
+    const prev = fisicasMap.get(pid) ?? { cajas: 0, piezas: 0 }
+    prev.cajas += cant
+    prev.piezas += cant * pz
+    fisicasMap.set(pid, prev)
+  }
+
+  const pids = new Set<number>([...lineasMap.keys(), ...fisicasMap.keys()])
+  const lineas: SurtidoPreviewLinea[] = []
+  for (const pid of pids) {
+    const lin = lineasMap.get(pid)
+    const fis = fisicasMap.get(pid) ?? { cajas: 0, piezas: 0 }
+    const cajasLinea = lin?.cajas ?? 0
+    const piezasLinea = lin?.piezas ?? 0
+    const difCajas = cajasLinea - fis.cajas
+    const difPiezas = piezasLinea - fis.piezas
+    const estado: SurtidoPreviewLinea['estado'] =
+      !lin || (fis.cajas === 0 && fis.piezas === 0 && (cajasLinea > 0 || piezasLinea > 0))
+        ? 'SIN_CAJAS'
+        : (difCajas !== 0 || difPiezas !== 0 ? 'ADVERTENCIA' : 'OK')
+    lineas.push({
+      productoId: pid,
+      skuBase: lin?.sku ?? null,
+      productoNombre: lin?.nombre ?? null,
+      productoDescripcion: lin?.descripcion ?? null,
+      cajasLinea,
+      piezasLinea,
+      cajasFisicas: fis.cajas,
+      piezasFisicas: fis.piezas,
+      difCajas,
+      difPiezas,
+      precioUnitario: lin?.precio ?? null,
+      importeTotal: lin?.importe ?? 0,
+      estado,
+      ordenIds: lin ? Array.from(lin.ordenIds) : [],
+    })
+  }
+
+  lineas.sort((a, b) => (a.skuBase ?? '').localeCompare(b.skuBase ?? ''))
+
+  const totalCajasLinea = lineas.reduce((s, l) => s + l.cajasLinea, 0)
+  const totalPiezasLinea = lineas.reduce((s, l) => s + l.piezasLinea, 0)
+
+  return {
+    contenedorId,
+    totalProductos: lineas.length,
+    totalCajasLinea,
+    totalPiezasLinea,
+    totalCajasFisicas: lineas.reduce((s, l) => s + l.cajasFisicas, 0),
+    totalPiezasFisicas: lineas.reduce((s, l) => s + l.piezasFisicas, 0),
+    importeTotal: lineas.reduce((s, l) => s + l.importeTotal, 0),
+    conDiferencias: lineas.some((l) => l.estado !== 'OK'),
+    lineas,
+  }
 }
 
 // ════════════════════════════════════════════════════════════
