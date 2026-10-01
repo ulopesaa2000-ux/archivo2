@@ -289,6 +289,13 @@ export type NotaOcrLineaSincronizada = {
   producto_nombre?: string | null
   producto_pz_en_caja?: number | null
   encontrado: boolean
+  es_propuesta?: boolean
+  propuesta_producto_id?: number | null
+  propuesta_producto_sku?: string | null
+  propuesta_producto_nombre?: string | null
+  propuesta_producto_pz_en_caja?: number | null
+  score?: number | null
+  metodo?: string | null
 }
 
 export type NotaOcrPropuestaLineConfirmed = {
