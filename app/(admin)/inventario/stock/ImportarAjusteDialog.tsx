@@ -110,6 +110,7 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
             fileName={fileName}
             bodegaDefaultId={bodegaDefaultId}
             bodegas={bodegas}
+            modo={modo}
             onValidar={handleValidar}
             onBack={() => setStep('upload')}
           />
