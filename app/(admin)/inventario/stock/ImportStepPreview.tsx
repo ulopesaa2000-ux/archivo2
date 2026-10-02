@@ -31,8 +31,10 @@ import {
   type ProductoMatch,
 } from '@/modules/inventario/import-queries'
 import type { BodegaRow } from '@/lib/types/tables'
-import type { ImportFilaValida } from '@/modules/inventario/import-actions'
+import type { ImportFilaValida, ModoAjuste } from '@/modules/inventario/import-actions'
 import { toast } from 'sonner'
+
+const formatCajasMsg = (n: number) => (n > 0 ? `+${n} cajas` : `${n} cajas`)
 
 export type FilaPreview = {
   rowNum: number
@@ -56,6 +58,7 @@ type Props = {
   fileName: string
   bodegaDefaultId: number
   bodegas: BodegaRow[]
+  modo?: ModoAjuste
   onValidar: (filasValidas: ImportFilaValida[]) => void
   onBack: () => void
 }
@@ -65,6 +68,7 @@ export function ImportStepPreview({
   fileName,
   bodegaDefaultId,
   bodegas,
+  modo = 'delta',
   onValidar,
   onBack,
 }: Props) {
@@ -146,6 +150,21 @@ export function ImportStepPreview({
             }
           }
 
+          if (modo !== 'delta' && cajasNum < 0) {
+            return {
+              ...f,
+              producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
+              producto_nombre: producto.nombre,
+              bodega_id: bodegaMatch?.id ?? null,
+              bodega_nombre: bodegaMatch?.nombre ?? null,
+              score: producto.score,
+              metodo: producto.metodo,
+              status: 'error',
+              message: 'Negativo no válido en modo total (stock final ≥ 0)',
+            }
+          }
+
           if (cajasNum === 0) {
             return {
               ...f,
@@ -157,7 +176,7 @@ export function ImportStepPreview({
               score: producto.score,
               metodo: producto.metodo,
               status: 'warning',
-              message: 'Cajas = 0, se omitirá',
+              message: modo === 'delta' ? 'Cajas = 0, se omitirá' : 'Stock final = 0',
             }
           }
 
@@ -186,7 +205,7 @@ export function ImportStepPreview({
             score: producto.score,
             metodo: producto.metodo,
             status: 'ok',
-            message: cajasNum > 0 ? `+${cajasNum} cajas` : `${cajasNum} cajas`,
+            message: modo === 'delta' ? formatCajasMsg(cajasNum) : `Stock final: ${cajasNum}`,
           }
         })
 
@@ -199,7 +218,7 @@ export function ImportStepPreview({
     }
 
     resolve()
-  }, [filas, bodegaDefaultId, bodegas, isTodasBodegas])
+  }, [filas, bodegaDefaultId, bodegas, isTodasBodegas, modo])
 
   // Re-sincronización de SKUs masiva
   const handleResyncSkus = () => {
@@ -221,10 +240,17 @@ export function ImportStepPreview({
           // Si fue asignado manualmente, conservar la asignación manual
           if (f.manualMatch && f.producto_id !== null) {
             const cajasNum = parseFloat(f.cajasRaw)
+            if (modo !== 'delta' && !isNaN(cajasNum) && cajasNum < 0) {
+              return {
+                ...f,
+                status: 'error' as const,
+                message: 'Negativo no válido en modo total',
+              }
+            }
             return {
               ...f,
               status: isNaN(cajasNum) || cajasNum === 0 ? ('error' as const) : ('ok' as const),
-              message: isNaN(cajasNum) ? 'Cajas no válidas' : cajasNum === 0 ? 'Cajas = 0' : `+${cajasNum} cajas`,
+              message: isNaN(cajasNum) ? 'Cajas no válidas' : cajasNum === 0 ? 'Cajas = 0' : modo === 'delta' ? formatCajasMsg(cajasNum) : `Stock final: ${cajasNum}`,
             }
           }
 
@@ -268,6 +294,21 @@ export function ImportStepPreview({
             }
           }
 
+          if (modo !== 'delta' && cajasNum < 0) {
+            return {
+              ...f,
+              producto_id: producto.producto_id,
+              producto_sku: producto.sku_base,
+              producto_nombre: producto.nombre,
+              bodega_id: bodegaMatch?.id ?? (bodegaDefault?.id ?? null),
+              bodega_nombre: bodegaMatch?.nombre ?? (bodegaDefault?.nombre ?? null),
+              score: producto.score,
+              metodo: producto.metodo,
+              status: 'error' as const,
+              message: 'Negativo no válido en modo total (stock final ≥ 0)',
+            }
+          }
+
           if (cajasNum === 0) {
             return {
               ...f,
@@ -279,7 +320,7 @@ export function ImportStepPreview({
               score: producto.score,
               metodo: producto.metodo,
               status: 'warning' as const,
-              message: 'Cajas = 0, se omitirá',
+              message: modo === 'delta' ? 'Cajas = 0, se omitirá' : 'Stock final = 0',
             }
           }
 
@@ -311,7 +352,7 @@ export function ImportStepPreview({
             score: producto.score,
             metodo: producto.metodo,
             status: 'ok' as const,
-            message: cajasNum > 0 ? `+${cajasNum} cajas` : `${cajasNum} cajas`,
+            message: modo === 'delta' ? formatCajasMsg(cajasNum) : `Stock final: ${cajasNum}`,
           }
         })
 
@@ -336,7 +377,7 @@ export function ImportStepPreview({
     })
   }
 
-  // Edición directa de celda Cajas
+  // Edición directa de celda Cajas (en delta se permiten negativos y decimales, ej. -2, -1.5)
   const handleEditCajas = (index: number, newCajas: string) => {
     setFilasPreview((prev) => {
       const copy = [...prev]
@@ -350,12 +391,15 @@ export function ImportStepPreview({
         if (isNaN(num)) {
           nextStatus = 'error'
           nextMsg = 'Cajas no válidas'
+        } else if (modo !== 'delta' && num < 0) {
+          nextStatus = 'error'
+          nextMsg = 'Negativo no válido en modo total'
         } else if (num === 0) {
           nextStatus = 'warning'
-          nextMsg = 'Cajas = 0'
+          nextMsg = modo === 'delta' ? 'Cajas = 0' : 'Stock final = 0'
         } else {
           nextStatus = 'ok'
-          nextMsg = num > 0 ? `+${num} cajas` : `${num} cajas`
+          nextMsg = modo === 'delta' ? formatCajasMsg(num) : `Stock final: ${num}`
         }
       }
 
@@ -443,8 +487,8 @@ export function ImportStepPreview({
         manualMatch: true,
         score: 1,
         metodo: 'MANUAL',
-        status: isNaN(cajasNum) || cajasNum === 0 ? 'warning' : 'ok',
-        message: isNaN(cajasNum) ? 'Cajas no válidas' : cajasNum === 0 ? 'Cajas = 0' : `+${cajasNum} cajas`,
+        status: isNaN(cajasNum) || cajasNum === 0 || (modo !== 'delta' && cajasNum < 0) ? (isNaN(cajasNum) || (modo !== 'delta' && cajasNum < 0) ? 'error' : 'warning') : 'ok',
+        message: isNaN(cajasNum) ? 'Cajas no válidas' : cajasNum === 0 ? 'Cajas = 0' : modo !== 'delta' && cajasNum < 0 ? 'Negativo no válido en modo total' : modo === 'delta' ? formatCajasMsg(cajasNum) : `Stock final: ${cajasNum}`,
       }
       return copy
     })
@@ -457,6 +501,15 @@ export function ImportStepPreview({
   const errorCount = filasPreview.filter((f) => f.status === 'error').length
   const warningCount = filasPreview.filter((f) => f.status === 'warning').length
   const canContinue = okCount > 0
+  // Totales +/- solo en modo delta para visualizar entradas vs salidas del ajuste
+  const totalPos = modo === 'delta'
+    ? filasPreview.filter((f) => f.status === 'ok').reduce((a, f) => { const n = parseFloat(f.cajasRaw); return a + (isNaN(n) || n < 0 ? 0 : n) }, 0)
+    : 0
+  const totalNeg = modo === 'delta'
+    ? filasPreview.filter((f) => f.status === 'ok').reduce((a, f) => { const n = parseFloat(f.cajasRaw); return a + (isNaN(n) || n >= 0 ? 0 : n) }, 0)
+    : 0
+  const countPos = modo === 'delta' ? filasPreview.filter((f) => f.status === 'ok' && parseFloat(f.cajasRaw) > 0).length : 0
+  const countNeg = modo === 'delta' ? filasPreview.filter((f) => f.status === 'ok' && parseFloat(f.cajasRaw) < 0).length : 0
 
   const bodegasInOk = [
     ...new Set(
@@ -598,7 +651,15 @@ export function ImportStepPreview({
           <h3 className="text-lg font-bold tracking-tight">2. Ajustar y Sincronizar SKUs</h3>
           <p className="text-xs text-muted-foreground">
             {fileName} — {filasPreview.length} filas procesadas
+            {modo === 'delta' ? ' · Modo delta: se permiten positivos (+) y negativos (−), decimales incluidos' : ' · Modo total: stock final ≥ 0'}
           </p>
+          {modo === 'delta' && (
+            <p className="text-xs mt-1 font-semibold">
+              <span className="text-emerald-600 dark:text-emerald-400">+{totalPos} cajas en {countPos} líneas</span>
+              <span className="text-muted-foreground"> · </span>
+              <span className="text-red-600 dark:text-red-400">{totalNeg} cajas en {countNeg} líneas</span>
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -750,13 +811,18 @@ export function ImportStepPreview({
                     />
                   </td>
 
-                  {/* Cajas Editable */}
+                  {/* Cajas Editable: en delta acepta negativos y decimales (ej. -2, -1.5) */}
                   <td className="px-3 py-2 text-center">
                     <Input
                       type="number"
+                      step="any"
+                      min={modo === 'delta' ? undefined : 0}
                       value={f.cajasRaw}
                       onChange={(e) => handleEditCajas(idx, e.target.value)}
-                      className="h-8 font-mono text-xs font-bold text-center bg-background border-muted/80 w-16 mx-auto focus-visible:ring-indigo-500"
+                      title={modo === 'delta' ? 'Delta: + suma, − resta (se permite negativo y decimal)' : 'Stock final deseado (≥ 0)'}
+                      className={`h-8 font-mono text-xs font-bold text-center bg-background border-muted/80 w-20 mx-auto focus-visible:ring-indigo-500 ${
+                        (() => { const n = parseFloat(f.cajasRaw); return modo === 'delta' && !isNaN(n) ? (n > 0 ? 'text-emerald-600 dark:text-emerald-400' : n < 0 ? 'text-red-600 dark:text-red-400' : '') : '' })()
+                      }`}
                     />
                   </td>
 

@@ -170,6 +170,22 @@ export function ImportStepUpload({ bodegas, bodegaActivaId, onFileParsed }: Prop
           }
         }
 
+        // Si el encabezado es plano (sku,cajas,bodega) NO es matriz aunque tenga SKU en col1.
+        // La matriz real es SKU x Bodegas (sin columna "cajas"/"cantidad").
+        if (matrixHeaderRowIndex !== -1) {
+          const headerRowProbe = sheet.getRow(matrixHeaderRowIndex)
+          const headerTexts: string[] = []
+          headerRowProbe.eachCell({ includeEmpty: true }, (cell) => {
+            headerTexts.push(String(cell.text || '').trim().toLowerCase())
+          })
+          const esPlano = headerTexts.some((h) =>
+            h === 'cajas' || h.includes('caja') || h.includes('cantidad') || h === 'qty' || h === 'bodega' || h.includes('warehouse')
+          )
+          if (esPlano) {
+            matrixHeaderRowIndex = -1
+          }
+        }
+
         const json: Record<string, string>[] = []
         let parsedModo: ModoAjuste = modo
 
@@ -207,7 +223,9 @@ export function ImportStepUpload({ bodegas, bodegaActivaId, onFileParsed }: Prop
                 else if ('text' in val) val = (val as any).text
               }
               const numVal = parseFloat(String(val ?? '').trim())
-              if (!isNaN(numVal) && numVal >= 1) {
+              // Matriz = inventario absoluto (stock final): se acepta 0 en adelante.
+              // Los negativos no tienen sentido como stock final y se omiten.
+              if (!isNaN(numVal) && numVal >= 0) {
                 json.push({ sku, cajas: String(numVal), bodega: b.name })
               }
             })
