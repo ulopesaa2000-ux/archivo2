@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction } from '@/modules/ordenes-b2b/actions'
+import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
 
 
@@ -845,6 +846,15 @@ export function OrdenRapidaWizard({
     open: boolean
     items: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }>
   } | null>(null)
+  // Bloqueo absoluto modo solo cajas: cajas esperadas vs cajas armadas (sin continuar)
+  const [cajasBlockModal, setCajasBlockModal] = useState<{
+    open: boolean
+    items: Array<{ sku: string; cajasEsperadas: number; cajasArmadas: number; diferencia: number }>
+  } | null>(null)
+  // Huecos rellenados desde físico (SKUs en mayúsculas) — indicadores
+  const [huecosRellenados, setHuecosRellenados] = useState<string[]>([])
+  // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
+  const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
 
   const resetParsedState = () => {
@@ -1407,6 +1417,18 @@ export function OrdenRapidaWizard({
   }
 
   const handleConfirmReview = () => {
+    // Bloqueo absoluto modo solo cajas: revalidar match de cajas (pudo editarse en paso 4)
+    const matchFinal = calcularMatchCajasOrdenRapida()
+    if (!matchFinal.ok) {
+      setCajasBlockModal({
+        open: true,
+        items: matchFinal.diffs
+          .filter((d) => d.estado !== 'OK')
+          .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
+      })
+      toast.error('Bloqueo modo cajas: hay líneas sin match con las cajas armadas.')
+      return
+    }
     startTransition(async () => {
       try {
         if (!selectedProveedor || !selectedCliente) {
@@ -1436,6 +1458,124 @@ export function OrdenRapidaWizard({
       }
     })
   }
+
+  // ── Match base modo solo cajas: cajas esperadas (línea) vs cajas armadas ──
+  // Bloqueo absoluto y exacto (sin tolerancia): las cajas son enteras.
+  // Solo se validan SKUs con esperado > 0 en el resumen del packing.
+  const calcularMatchCajasOrdenRapida = () => {
+    const buscarEsperadas = (skuBase: string): number => {
+      const direct = jsonTotalesPorSku.get(skuBase)?.cajas
+      if (typeof direct === 'number') return direct
+      const up = String(skuBase || '').trim().toUpperCase()
+      for (const [k, v] of jsonTotalesPorSku) {
+        if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
+      }
+      return 0
+    }
+    const lineas = editableProductos
+      .map((p) => ({ sku: String(p.sku_base || '').trim(), cajas: buscarEsperadas(String(p.sku_base || '')) }))
+      .filter((l) => l.sku && l.cajas > 0)
+    const fisicos = editableCajas
+      .filter((c) => c.tipo_caja !== 'padre_resumen')
+      .map((c) => ({ sku: String(c.sku_base || ''), cajas: Number(c.cantidad_cajas ?? 0) }))
+    return compararCajasLineasVsFisico(lineas, fisicos)
+  }
+
+  // ── Huecos: SKUs con cajas físicas pero sin línea esperada ──
+  // Misma normalización que el match. Propuesta = suma del físico.
+  const huecosFisico = useMemo(() => {
+    const buscarEsperadas = (skuBase: string): number => {
+      const direct = jsonTotalesPorSku.get(skuBase)?.cajas
+      if (typeof direct === 'number') return direct
+      const up = String(skuBase || '').trim().toUpperCase()
+      for (const [k, v] of jsonTotalesPorSku) {
+        if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
+      }
+      return 0
+    }
+    const porSku = new Map<string, { sku: string; cajas: number; piezas: number }>()
+    for (const c of editableCajas) {
+      if (c.tipo_caja === 'padre_resumen') continue
+      const up = String(c.sku_base || '').trim().toUpperCase()
+      if (!up) continue
+      const prev = porSku.get(up) ?? { sku: String(c.sku_base || '').trim(), cajas: 0, piezas: 0 }
+      prev.cajas += Number(c.cantidad_cajas ?? 0)
+      prev.piezas += Number(c.total_piezas || (c.piezas_por_caja || 0) * (c.cantidad_cajas || 0))
+      porSku.set(up, prev)
+    }
+    return Array.from(porSku.entries())
+      .filter(([up, g]) => g.cajas > 0 && buscarEsperadas(g.sku) <= 0 && !huecosRellenados.includes(up))
+      .map(([up, g]) => ({ key: up, ...g }))
+  }, [editableCajas, jsonTotalesPorSku, huecosRellenados])
+
+  const handleRellenarHuecos = () => {
+    if (huecosFisico.length === 0 || !parsedData) return
+    const nuevos = huecosFisico.map((h) => ({
+      sku: h.sku,
+      nombre: '',
+      marca: '',
+      cantidad_total: h.piezas,
+      numero_cajas_reales: h.cajas,
+      cbm_total: 0,
+      peso_bruto_total: 0,
+    }))
+    setParsedData((prev: any) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        orden: {
+          ...prev.orden,
+          orden_productos: [...(prev.orden?.orden_productos ?? []), ...nuevos],
+        },
+      }
+    })
+    setHuecosRellenados((prev) => [...prev, ...huecosFisico.map((h) => h.key)])
+    toast.success(`Se rellenaron ${huecosFisico.length} líneas desde el físico. Verifica el match antes de guardar.`)
+  }
+
+  // ── Caja principal por producto (default = mayor cantidad en la orden) ──
+  const cajaPrincipalDe = (skuUpper: string, cajas: WizardCaja[]): WizardCaja | null => {
+    const reales = (cajas || []).filter((c) => c.tipo_caja !== 'padre_resumen')
+    if (reales.length === 0) return null
+    const elegido = principalPorSku[skuUpper]
+    if (elegido) {
+      const found = reales.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === elegido)
+      if (found) return found
+    }
+    return [...reales].sort((a, b) => {
+      const qa = Number(a.cantidad_cajas ?? 0)
+      const qb = Number(b.cantidad_cajas ?? 0)
+      if (qb !== qa) return qb - qa
+      const pa = Number(a.total_piezas || (a.piezas_por_caja || 0) * (a.cantidad_cajas || 0))
+      const pb = Number(b.total_piezas || (b.piezas_por_caja || 0) * (b.cantidad_cajas || 0))
+      return pb - pa
+    })[0]
+  }
+
+  // ── Checklist de verificación pre-confirmación ──
+  const verificacionPrevia = useMemo(() => {
+    const match = calcularMatchCajasOrdenRapida()
+    const sinPz = editableCajas
+      .filter((c) => c.tipo_caja !== 'padre_resumen' && !(Number(c.piezas_por_caja ?? 0) > 0))
+      .map((c) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código'))
+    const conPrincipal = editableProductos.filter((p) => {
+      const up = String(p.sku_base || '').trim().toUpperCase()
+      const reales = editableCajas.filter(
+        (c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up
+      )
+      return reales.length > 0 && cajaPrincipalDe(up, reales) !== null
+    }).length
+    return {
+      matchOk: match.ok,
+      fallasMatch: match.diffs.filter((d) => d.estado !== 'OK').length,
+      sinPz,
+      conPrincipal,
+      totalProductos: editableProductos.length,
+      totalCajas: totalCajasCount,
+      todoOk: match.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editableProductos, editableCajas, jsonTotalesPorSku, principalPorSku, totalCajasCount])
 
   const handleNext = () => {
     if (step === 1) {
@@ -1489,6 +1629,18 @@ export function OrdenRapidaWizard({
 
       if (discrepancias.length > 0) {
         setDiscrepancyModal({ open: true, items: discrepancias })
+        return
+      }
+
+      // Bloqueo absoluto modo solo cajas: cajas esperadas vs cajas armadas (exacto)
+      const matchCajas = calcularMatchCajasOrdenRapida()
+      if (!matchCajas.ok) {
+        setCajasBlockModal({
+          open: true,
+          items: matchCajas.diffs
+            .filter((d) => d.estado !== 'OK')
+            .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
+        })
         return
       }
 
@@ -2529,6 +2681,30 @@ export function OrdenRapidaWizard({
               </div>
 
               <div className="space-y-4">
+                {/* Huecos: cajas físicas sin línea esperada */}
+                {huecosFisico.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-2">
+                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      {huecosFisico.length} producto(s) con cajas físicas sin línea (huecos)
+                    </p>
+                    <div className="space-y-1">
+                      {huecosFisico.map((h) => (
+                        <p key={h.key} className="text-xs font-mono text-amber-900 dark:text-amber-200">
+                          {h.sku}: línea 0 → propuesta <strong>{h.cajas} cajas</strong> ({h.piezas.toLocaleString()} pz)
+                        </p>
+                      ))}
+                    </div>
+                    <Button type="button" size="sm" onClick={handleRellenarHuecos} className="bg-amber-600 hover:bg-amber-700 text-white font-bold">
+                      Rellenar desde físico
+                    </Button>
+                  </div>
+                )}
+                {huecosRellenados.length > 0 && (
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                    ✓ {huecosRellenados.length} línea(s) rellenada(s) desde el físico — verifica el match antes de guardar.
+                  </p>
+                )}
                 <h3 className="flex items-center gap-1.5 text-sm font-semibold">
                   <ClipboardCheck className="h-4 w-4 text-primary" /> Cajas agrupadas por producto (editable)
                 </h3>
@@ -2586,6 +2762,9 @@ export function OrdenRapidaWizard({
                                 {producto.es_nuevo && (
                                   <Badge variant="default" className="bg-emerald-500 text-[10px]">NUEVO</Badge>
                                 )}
+                                {huecosRellenados.includes(String(producto.sku_base || '').trim().toUpperCase()) && (
+                                  <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-700 dark:text-emerald-300">Rellenado</Badge>
+                                )}
                               </div>
                               <p className="mt-0.5 text-xs text-muted-foreground">
                                 {producto.descripcion || producto.nombre || 'Sin descripcion'}
@@ -2610,6 +2789,36 @@ export function OrdenRapidaWizard({
                               Bruto: {grupoPesoBruto.toFixed(1)} kg
                               {jsonSku && <ComparisonBadge calculated={grupoPesoBruto} json={jsonSku.peso} label="P.Bruto" />}
                             </span>
+                            {(() => {
+                              const up = String(producto.sku_base || '').trim().toUpperCase()
+                              const principal = cajaPrincipalDe(up, cajasReales)
+                              if (!principal) return null
+                              const cod = (code: WizardCaja): string => String(code.codigo_caja || code.codigo_caja_temporal || '')
+                              return (
+                                <span className="flex items-center gap-1 normal-case" onClick={(e) => e.stopPropagation()}>
+                                  <span className="font-bold text-primary">
+                                    Principal: {cod(principal)} ({Number(principal.piezas_por_caja || 0)} pz/caja)
+                                  </span>
+                                  {cajasReales.length > 1 && (
+                                    <Select
+                                      value={cod(principal)}
+                                      onValueChange={(v: string | null) => { if (v) setPrincipalPorSku((prev: Record<string, string>) => ({ ...prev, [up]: v })) }}
+                                    >
+                                      <SelectTrigger className="h-6 w-[130px] text-[10px] font-mono">
+                                        <SelectValue placeholder="Cambiar caja" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {cajasReales.map((c) => (
+                                          <SelectItem key={cod(c)} value={cod(c)}>
+                                            {cod(c)} ({Number(c.cantidad_cajas || 0)} cjs · {Number(c.piezas_por_caja || 0)} pz)
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </span>
+                              )
+                            })()}
                             <Button
                               type="button"
                               variant="outline"
@@ -3049,6 +3258,44 @@ export function OrdenRapidaWizard({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Modal 3b: Bloqueo absoluto modo solo cajas (sin continuar) */}
+      <AlertDialog open={Boolean(cajasBlockModal?.open)} onOpenChange={(open) => !open && setCajasBlockModal(null)}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              Bloqueo modo cajas: líneas sin match con cajas armadas
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <p>
+                  Cada producto debe tener las mismas cajas en línea que en cajas armadas (exacto, sin tolerancia). Corrige la orden: no se puede continuar ni guardar así.
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                  {cajasBlockModal?.items.map((item) => (
+                    <div key={item.sku} className="flex flex-col border-b border-destructive/20 pb-1.5 last:border-0 last:pb-0">
+                      <span className="font-mono font-bold text-foreground">{item.sku}</span>
+                      <div className="flex justify-between text-[11px]">
+                        <span>Línea (esperadas): <strong>{item.cajasEsperadas}</strong> cjs</span>
+                        <span>Armadas: <strong>{item.cajasArmadas}</strong> cjs</span>
+                        <span className="font-bold text-destructive">
+                          ({item.diferencia > 0 ? `+${item.diferencia}` : item.diferencia} cjs)
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel onClick={() => setCajasBlockModal(null)}>
+              Revisar y corregir
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Modal 4: Corroborar Proveedor y Confirmación Definitiva de la Orden B2B */}
       <Dialog open={isConfirmFinalModalOpen} onOpenChange={setIsConfirmFinalModalOpen}>
         <DialogContent className="w-[98vw] sm:max-w-xl max-h-[90vh] overflow-y-auto">
@@ -3062,6 +3309,45 @@ export function OrdenRapidaWizard({
           </DialogHeader>
 
           <div className="space-y-4 py-2 text-xs">
+            {/* 0. Verificación pre-guardado: la orden sube correcta */}
+            <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                <ClipboardCheck className="h-4 w-4 text-primary" /> Verificación: cajas correctas y pz por caja
+              </p>
+              <div className="space-y-1.5">
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {verificacionPrevia.matchOk
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className={verificacionPrevia.matchOk ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
+                    Match líneas vs cajas armadas (exacto)
+                    {!verificacionPrevia.matchOk && ` — ${verificacionPrevia.fallasMatch} sin match`}
+                  </span>
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {verificacionPrevia.sinPz.length === 0
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className={verificacionPrevia.sinPz.length === 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
+                    Todas las cajas con pz por caja
+                    {verificacionPrevia.sinPz.length > 0 && ` — sin dato: ${verificacionPrevia.sinPz.slice(0, 5).join(', ')}${verificacionPrevia.sinPz.length > 5 ? ` +${verificacionPrevia.sinPz.length - 5}` : ''}`}
+                  </span>
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {verificacionPrevia.totalProductos > 0 && verificacionPrevia.totalCajas > 0
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className={verificacionPrevia.totalProductos > 0 && verificacionPrevia.totalCajas > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
+                    {verificacionPrevia.totalProductos} productos · {verificacionPrevia.totalCajas} cajas · principal en {verificacionPrevia.conPrincipal}
+                  </span>
+                </p>
+                {!verificacionPrevia.todoOk && (
+                  <p className="text-[11px] italic text-muted-foreground">
+                    Corrige lo marcado para habilitar el guardado. El match de cajas no admite diferencias.
+                  </p>
+                )}
+              </div>
+            </div>
             {/* 1. Selector/Confirmación de Proveedor Origen */}
             <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/30">
               <Label htmlFor="modal-proveedor" className="text-xs font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
@@ -3142,7 +3428,8 @@ export function OrdenRapidaWizard({
                 setIsConfirmFinalModalOpen(false)
                 handleConfirmReview()
               }}
-              disabled={isPending || !selectedProveedor || !selectedCliente}
+              disabled={isPending || !selectedProveedor || !selectedCliente || !verificacionPrevia.todoOk}
+              title={!verificacionPrevia.todoOk ? 'Completa la verificación: match exacto y pz por caja en todas las cajas' : undefined}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 shadow-sm"
             >
               {isPending ? (

@@ -12,6 +12,9 @@ import type {
 import type { ContenedorRow } from '@/lib/types/tables'
 import { getCommercialScope } from '@/lib/dal'
 import { buildCommercialOrderFilter } from '@/lib/auth/commercial-scope'
+import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { isModoSoloCajas } from '@/modules/inventario/config-types'
+import { compararCajasLineasVsFisico } from './match-cajas'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO (usa v_contenedor_resumen)
@@ -261,11 +264,14 @@ export async function fetchSurtidoPreview(
     importeTotal: 0,
     conDiferencias: false,
     lineas: [],
+    modoSoloCajas: false,
+    ordenesConDiferencias: [],
+    avisoPendiente: null,
   }
 
   let ordenQuery: any = supabase
     .from('ordenes_b2b')
-    .select('id')
+    .select('id, folio_proveedor')
     .eq('contenedor_id', contenedorId)
     .eq('activo', true)
     .neq('estado', 'Cancelada')
@@ -298,7 +304,8 @@ export async function fetchSurtidoPreview(
     .select(`
       orden_id, cantidad_cajas,
       caja:cajas_producto!orden_cajas_caja_id_fkey (
-        producto_id, piezas_por_caja
+        producto_id, piezas_por_caja,
+        producto:productos!cajas_producto_producto_id_fkey (sku_base)
       )
     `)
     .in('orden_id', ordenIds)
@@ -379,8 +386,87 @@ export async function fetchSurtidoPreview(
 
   lineas.sort((a, b) => (a.skuBase ?? '').localeCompare(b.skuBase ?? ''))
 
+  // ── Match base modo solo cajas: líneas (verdad) vs físico, por (orden, producto) ──
+  const config = await fetchConfigInventario().catch(() => null)
+  const modoSoloCajas = isModoSoloCajas(config)
+  const folioPorOrden = new Map<number, string | null>(
+    (((ordenes ?? []) as any[]) as { id: number; folio_proveedor?: string | null }[]).map((o) => [o.id, o.folio_proveedor ?? null])
+  )
+  const matchLineas = (((detalles ?? []) as any[]) as { orden_id: number; producto_id: number | null }[])
+    .filter((d) => d.producto_id != null)
+    .map((d: any) => ({
+      ordenId: d.orden_id as number,
+      productoId: d.producto_id as number,
+      sku: String((Array.isArray(d.producto) ? d.producto[0]?.sku_base : d.producto?.sku_base) ?? ''),
+      cajas: Number(d.cajas_pedidas ?? 0),
+    }))
+  const matchFisicos = (((ordenCajas ?? []) as any[])).map((oc: any) => {
+    const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
+    const prod = c?.producto ? (Array.isArray(c.producto) ? c.producto[0] : c.producto) : null
+    return {
+      ordenId: oc.orden_id as number,
+      productoId: (c?.producto_id ?? null) as number | null,
+      sku: String(prod?.sku_base ?? ''),
+      cajas: Number(oc.cantidad_cajas ?? 0),
+    }
+  })
+  const match = compararCajasLineasVsFisico(matchLineas, matchFisicos)
+  const ordenesConDiferencias: SurtidoPreview['ordenesConDiferencias'] = []
+  for (const d of match.diffs) {
+    if (d.estado === 'OK' || d.ordenId == null) continue
+    let grupo = ordenesConDiferencias.find((g) => g.ordenId === d.ordenId)
+    if (!grupo) {
+      grupo = { ordenId: d.ordenId as number, folio: folioPorOrden.get(d.ordenId as number) ?? null, items: [] }
+      ordenesConDiferencias.push(grupo)
+    }
+    grupo.items.push({
+      productoId: d.productoId ?? null,
+      sku: d.sku,
+      cajasLinea: d.cajasLinea,
+      cajasFisicas: d.cajasFisicas,
+      dif: d.dif,
+      estado: d.estado,
+    })
+  }
+
+  // ── Aviso de ingreso ya generado y pendiente (solo avisa, no mueve stock) ──
+  let avisoPendiente: SurtidoPreview['avisoPendiente'] = null
+  const { data: contCod } = await supabase
+    .from('contenedores')
+    .select('codigo_contenedor')
+    .eq('id', contenedorId)
+    .maybeSingle()
+  if (contCod?.codigo_contenedor) {
+    const { data: aviso } = await supabase
+      .from('notas_inventario')
+      .select(`
+        id, numero_nota,
+        estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo ),
+        bodega:bodegas!notas_inventario_bodega_origen_id_fkey ( nombre )
+      `)
+      .eq('nota_referencia', `Surtido contenedor ${contCod.codigo_contenedor}`)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const av: any = aviso
+    const estCod = Array.isArray(av?.estado) ? av.estado[0]?.codigo : av?.estado?.codigo
+    if (av && (estCod === 'PEND' || estCod === 'PROC')) {
+      const bod = Array.isArray(av?.bodega) ? av.bodega[0] : av?.bodega
+      avisoPendiente = { notaId: av.id, numeroNota: av.numero_nota, bodegaNombre: bod?.nombre ?? null }
+    }
+  }
+
   const totalCajasLinea = lineas.reduce((s, l) => s + l.cajasLinea, 0)
-  const totalPiezasLinea = lineas.reduce((s, l) => s + l.piezasLinea, 0)
+  const totalPiezasLinea = modoSoloCajas ? 0 : lineas.reduce((s, l) => s + l.piezasLinea, 0)
+
+  // En modo solo cajas el bloqueo lo dicta solo el match de cajas (se ignoran piezas)
+  const lineasSalida = modoSoloCajas
+    ? lineas.map((l) => ({
+        ...l,
+        piezasLinea: 0,
+        estado: (l.cajasLinea - l.cajasFisicas !== 0 || (l.cajasFisicas === 0 && l.cajasLinea > 0) ? 'ADVERTENCIA' : 'OK') as SurtidoPreviewLinea['estado'],
+      }))
+    : lineas
 
   return {
     contenedorId,
@@ -390,8 +476,11 @@ export async function fetchSurtidoPreview(
     totalCajasFisicas: lineas.reduce((s, l) => s + l.cajasFisicas, 0),
     totalPiezasFisicas: lineas.reduce((s, l) => s + l.piezasFisicas, 0),
     importeTotal: lineas.reduce((s, l) => s + l.importeTotal, 0),
-    conDiferencias: lineas.some((l) => l.estado !== 'OK'),
-    lineas,
+    conDiferencias: modoSoloCajas ? !match.ok : lineas.some((l) => l.estado !== 'OK'),
+    lineas: lineasSalida,
+    modoSoloCajas,
+    ordenesConDiferencias,
+    avisoPendiente,
   }
 }
 

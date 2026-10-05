@@ -56,6 +56,7 @@ const NO_CAJA_VALUE = '_none'
 import { OcrUploadModal } from '../propuestas/OcrUploadModal'
 
 import type { ConfigInventario } from '@/modules/inventario/config-types'
+import { isModoSoloCajas } from '@/modules/inventario/config-types'
 
 type Props = {
   catalogos: CatalogosInventario
@@ -783,14 +784,17 @@ export function NoteDraftBuilder({
   // ── Agregar producto al draft ───────────────────────────
   const esAjuste = tipoSeleccionado?.codigo === 'AJU'
 
+  // ── Modo solo cajas (paso 1): piezas sueltas siempre 0 ──────
+  const modoSoloCajas = isModoSoloCajas(config)
+
   const handleAddProduct = () => {
     if (!selectedProduct) return
 
     const cajasNum = parseFloat(addCajas) || 0
-    const piezasNum = parseInt(addPiezas) || 0
+    const piezasNum = modoSoloCajas ? 0 : (parseInt(addPiezas) || 0)
 
     if (cajasNum === 0 && piezasNum === 0) {
-      setError('Ingresa al menos una caja o pieza.')
+      setError(modoSoloCajas ? 'Ingresa al menos una caja.' : 'Ingresa al menos una caja o pieza.')
       return
     }
 
@@ -1890,12 +1894,12 @@ export function NoteDraftBuilder({
               {showExtraCols ? (
                 <>
                   <EyeOff className="h-3.5 w-3.5" />
-                  <span>Ocultar Caja / Piezas</span>
+                  <span>{modoSoloCajas ? 'Ocultar Caja' : 'Ocultar Caja / Piezas'}</span>
                 </>
               ) : (
                 <>
                   <Eye className="h-3.5 w-3.5" />
-                  <span>Mostrar Caja / Piezas</span>
+                  <span>{modoSoloCajas ? 'Mostrar Caja' : 'Mostrar Caja / Piezas'}</span>
                 </>
               )}
             </Button>
@@ -2045,7 +2049,8 @@ export function NoteDraftBuilder({
                   </div>
                 </div>
 
-                {/* Piezas Sueltas (Reduced / Smaller) */}
+                {/* Piezas Sueltas (Reduced / Smaller) — oculto en modo solo cajas */}
+                {!modoSoloCajas && (
                 <div className="flex-[1] min-w-[90px] space-y-1 w-full">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80 block truncate" title="Piezas sueltas">
                     Pz sueltas
@@ -2058,6 +2063,7 @@ export function NoteDraftBuilder({
                     className="h-11 rounded-xl font-mono text-center text-sm border bg-background/50 text-muted-foreground focus:text-foreground"
                   />
                 </div>
+                )}
 
                 {/* Caja física selector */}
                 <div className="flex-[1.8] min-w-[160px] space-y-1 w-full">
@@ -2096,6 +2102,13 @@ export function NoteDraftBuilder({
                   </Button>
                 </div>
               </div>
+
+              {/* Aviso modo solo cajas */}
+              {modoSoloCajas && (
+                <p className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                  <span aria-hidden>📦</span> Modo solo cajas activo: las piezas sueltas están bloqueadas (0).
+                </p>
+              )}
 
               {/* Proyecciones de stock e informaciones */}
               {selectedProductStock !== null && (
@@ -2167,7 +2180,7 @@ export function NoteDraftBuilder({
                     <th className="px-4 py-3 text-left">Producto</th>
                     {showExtraCols && <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>}
                     <th className="px-4 py-3 text-center min-w-[140px]">Cajas</th>
-                    {showExtraCols && <th className="px-4 py-3 text-center">Piezas</th>}
+                    {showExtraCols && !modoSoloCajas && <th className="px-4 py-3 text-center">Piezas</th>}
                     <th className="px-4 py-3 text-right">Total est.</th>
                     <th className="px-4 py-3 w-[50px]"></th>
                   </tr>
@@ -2380,8 +2393,8 @@ export function NoteDraftBuilder({
                           </div>
                         </td>
 
-                        {/* Columna Ocultable de Piezas */}
-                        {showExtraCols && (
+                        {/* Columna Ocultable de Piezas (oculta en modo solo cajas) */}
+                        {showExtraCols && !modoSoloCajas && (
                           <td className="px-4 py-3 text-center">
                             <Input
                               type="number"

@@ -5,23 +5,28 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { TRANSICIONES_CONTENEDOR } from '@/lib/constants'
+import { compararCajasLineasVsFisico } from './match-cajas'
+import { confirmarNotaAction } from '@/modules/inventario/actions'
 
 export type ActionResult = {
   success: boolean
   error?: string
   id?: number
+  nota_id?: number
+  numero_nota?: string
 }
 
 // ════════════════════════════════════════════════════════════
-// SURTIR CONTENEDOR → BODEGA VIRTUAL
+// SURTIR CONTENEDOR → BODEGA VIRTUAL (aviso, modo solo cajas)
 // ════════════════════════════════════════════════════════════
 
 /**
- * Convierte las cajas del contenedor en stock de la bodega virtual.
- * 1. Agrupa productos de todas las órdenes del contenedor
- * 2. Crea una NOTA de ENTRADA para la bodega virtual
- * 3. Confirma la nota → trigger suma stock en inventario_stock
- * 4. Cambia estado del contenedor a 'surtido'
+ * Genera el aviso de ingreso a la bodega virtual (solo avisa, NO mueve stock).
+ * 1. Revalida el match líneas-vs-físico por (orden, producto): cualquier
+ *    diferencia bloquea todo el contenedor (sin tolerancia, sin parciales).
+ * 2. Agrupa SOLO cajas_pedidas por producto_id de todas las órdenes.
+ * 3. Crea una NOTA de ENTRADA común en PEND con piezas = 0.
+ * 4. El stock se mueve después con confirmarIngresoVirtualAction (PEND → CONF).
  */
 export async function surtirContenedorAction(
   contenedorId: number,
@@ -44,10 +49,28 @@ export async function surtirContenedorAction(
     return { success: false, error: 'El contenedor debe estar en "En Bodega" para surtir.' }
   }
 
+  // 1b. Bloquear duplicados: aviso ya generado y pendiente
+  const referencia = `Surtido contenedor ${cont.codigo_contenedor}`
+  const { data: avisoExistente } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota,
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
+    `)
+    .eq('nota_referencia', referencia)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const avExist: any = avisoExistente
+  const estExist = Array.isArray(avExist?.estado) ? avExist.estado[0]?.codigo : avExist?.estado?.codigo
+  if (avExist && (estExist === 'PEND' || estExist === 'PROC')) {
+    return { success: false, error: `Ya existe un aviso pendiente (${avExist.numero_nota}). Confirma el ingreso a la bodega virtual antes de generar otro.` }
+  }
+
   // 2. Obtener órdenes del contenedor
   const { data: ordenes } = await supabase
     .from('ordenes_b2b')
-    .select('id')
+    .select('id, folio_proveedor')
     .eq('contenedor_id', contenedorId)
     .neq('estado', 'Cancelada')
 
@@ -56,25 +79,68 @@ export async function surtirContenedorAction(
   }
 
   const ordenIds = ordenes.map(o => o.id)
+  const folioPorOrden = new Map<number, string | null>(ordenes.map((o: any) => [o.id, o.folio_proveedor ?? null]))
 
-  // 3. Obtener detalles agrupados por producto_id
+  // 2b. Revalidar match líneas-vs-físico (bloqueo absoluto, sin tolerancia)
+  const { data: lineasMatch } = await supabase
+    .from('ordenes_b2b_detalles')
+    .select('orden_id, producto_id, cajas_pedidas')
+    .in('orden_id', ordenIds)
+  const { data: fisicoMatch } = await supabase
+    .from('orden_cajas')
+    .select(`
+      orden_id, cantidad_cajas,
+      caja:cajas_producto!orden_cajas_caja_id_fkey ( producto_id )
+    `)
+    .in('orden_id', ordenIds)
+  const matchLineas = ((lineasMatch ?? []) as any[])
+    .filter((d) => d.producto_id != null)
+    .map((d: any) => ({
+      ordenId: d.orden_id as number,
+      productoId: d.producto_id as number,
+      sku: '',
+      cajas: Number(d.cajas_pedidas ?? 0),
+    }))
+  const matchFisicos = ((fisicoMatch ?? []) as any[]).map((oc: any) => {
+    const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
+    return {
+      ordenId: oc.orden_id as number,
+      productoId: (c?.producto_id ?? null) as number | null,
+      sku: '',
+      cajas: Number(oc.cantidad_cajas ?? 0),
+    }
+  })
+  const match = compararCajasLineasVsFisico(matchLineas, matchFisicos)
+  if (!match.ok) {
+    const ordenesMal = Array.from(new Set(
+      match.diffs.filter((d) => d.estado !== 'OK' && d.ordenId != null).map((d) => d.ordenId as number)
+    ))
+    const detalle = ordenesMal.map((oid) => {
+      const folio = folioPorOrden.get(oid)
+      return folio ? `orden ${folio} (id ${oid})` : `orden id ${oid}`
+    }).join(', ')
+    return { success: false, error: `Bloqueo modo cajas: líneas sin match con cajas físicas en: ${detalle}. Corrige las órdenes antes de surtir.` }
+  }
+
+  // 3. Obtener detalles agrupados por producto_id — SOLO cajas_pedidas (verdad).
+  // Las piezas_pedidas se ignoran por diseño (modo solo cajas): son piezas
+  // totales, no resto suelto, y sumarlas duplicaría el stock.
   const { data: detalles } = await supabase
     .from('ordenes_b2b_detalles')
-    .select('producto_id, cajas_pedidas, piezas_pedidas')
+    .select('producto_id, cajas_pedidas')
     .in('orden_id', ordenIds)
 
   if (!detalles || detalles.length === 0) {
     return { success: false, error: 'No se encontraron productos en las órdenes.' }
   }
 
-  const productosMap = new Map<number, { cajas: number; piezas: number }>()
+  const productosMap = new Map<number, { cajas: number }>()
   for (const det of detalles) {
     const pid = det.producto_id
     if (!pid) continue
-    const prev = productosMap.get(pid) ?? { cajas: 0, piezas: 0 }
+    const prev = productosMap.get(pid) ?? { cajas: 0 }
     productosMap.set(pid, {
       cajas: prev.cajas + Number(det.cajas_pedidas ?? 0),
-      piezas: prev.piezas + Number(det.piezas_pedidas ?? 0),
     })
   }
 
@@ -89,15 +155,16 @@ export async function surtirContenedorAction(
     return { success: false, error: 'No se encontró el tipo de movimiento ENT en catálogo.' }
   }
 
-  // 5. Crear nota ENTRADA
+  // 5. Crear nota ENTRADA común y corriente en PEND (aviso: no mueve stock).
+  // Una línea por producto: "tantas cajas de tal estilo", piezas siempre 0.
   const fechaRef = new Date().toISOString().slice(0, 10)
   const { data: notaData, error: notaError } = await supabase.rpc('sp_crear_nota', {
     p_tipo_movimiento_id: tipoEnt.id,
     p_bodega_origen_id: bodegaVirtualId,
     p_bodega_destino_id: null as any,
     p_usuario_id: user.id,
-    p_nota_referencia: `Surtido contenedor ${cont.codigo_contenedor}`,
-    p_observaciones: `Surtido automático. ${productosMap.size} productos, ${fechaRef}`,
+    p_nota_referencia: referencia,
+    p_observaciones: `Aviso de ingreso a bodega virtual (solo cajas, piezas 0). ${productosMap.size} productos, ${fechaRef}. El stock se mueve al confirmar el ingreso.`,
   }) as { data: any; error: any }
 
   if (notaError) {
@@ -106,19 +173,21 @@ export async function surtirContenedorAction(
 
   const resultado = Array.isArray(notaData) ? notaData[0] : notaData
   const notaId = resultado?.nota_id
+  const numeroNota = resultado?.numero_nota ?? null
 
   if (!notaId) {
     return { success: false, error: 'No se pudo crear la nota de entrada.' }
   }
 
-  // 6. Agregar productos
+  // 6. Agregar productos (solo cajas, piezas 0)
   for (const [productoId, prod] of productosMap) {
+    if (prod.cajas <= 0) continue
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
       p_nota_id: notaId,
       p_cajas: prod.cajas,
       p_producto_id: productoId,
       p_variante_id: undefined,
-      p_piezas_sueltas: prod.piezas,
+      p_piezas_sueltas: 0,
       p_caja_id: undefined,
     })
     if (prodError) {
@@ -126,25 +195,68 @@ export async function surtirContenedorAction(
     }
   }
 
-  // 7. Confirmar nota (CONF) → trigger suma stock
-  const { data: estadoConf } = await supabase
-    .from('cat_estados_nota')
-    .select('id')
-    .eq('codigo', 'CONF')
+  // 7. La nota queda en PEND como aviso (NO se confirma aquí).
+  // El contenedor conserva estado 'en_bodega' hasta confirmarIngresoVirtualAction.
+  revalidatePath('/contenedores')
+  revalidatePath(`/contenedores/${contenedorId}`)
+  revalidatePath('/inventario/notas')
+  revalidatePath('/inventario/stock')
+
+  return { success: true, id: contenedorId, nota_id: notaId, numero_nota: numeroNota }
+}
+
+// ════════════════════════════════════════════════════════════
+// CONFIRMAR INGRESO A BODEGA VIRTUAL (PEND → CONF)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Segundo paso del surtido: confirma el aviso de ingreso (PEND → CONF).
+ * Solo entonces el trigger suma las cajas al stock de la bodega virtual.
+ * Requiere permiso de confirmar notas en la bodega virtual destino.
+ */
+export async function confirmarIngresoVirtualAction(
+  contenedorId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('estado, codigo_contenedor')
+    .eq('id', contenedorId)
     .single()
 
-  if (estadoConf) {
-    const { error: confError } = await supabase
-      .from('notas_inventario')
-      .update({ estado_id: estadoConf.id })
-      .eq('id', notaId)
-
-    if (confError) {
-      return { success: false, error: `Nota creada pero error al confirmar: ${confError.message}` }
-    }
+  if (!cont) return { success: false, error: 'Contenedor no encontrado.' }
+  if (cont.estado !== 'en_bodega') {
+    return { success: false, error: 'El contenedor debe estar en "En Bodega" para confirmar el ingreso.' }
   }
 
-  // 8. Cambiar estado del contenedor
+  const { data: aviso } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota,
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo )
+    `)
+    .eq('nota_referencia', `Surtido contenedor ${cont.codigo_contenedor}`)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const av: any = aviso
+  const estCod = Array.isArray(av?.estado) ? av.estado[0]?.codigo : av?.estado?.codigo
+  if (!av || (estCod !== 'PEND' && estCod !== 'PROC')) {
+    return { success: false, error: 'No hay aviso de ingreso pendiente para este contenedor.' }
+  }
+
+  // Confirmar nota (valida permisos sobre la bodega virtual y dispara el trigger)
+  const conf = await confirmarNotaAction(av.id)
+  if (!conf.success) {
+    return { success: false, error: conf.error ?? 'No se pudo confirmar el ingreso.' }
+  }
+
+  // 8. Cambiar estado del contenedor a surtido
   const { error: updError } = await supabase
     .from('contenedores')
     .update({ estado: 'surtido' })
@@ -159,7 +271,7 @@ export async function surtirContenedorAction(
   revalidatePath('/inventario/notas')
   revalidatePath('/inventario/stock')
 
-  return { success: true, id: contenedorId }
+  return { success: true, id: contenedorId, nota_id: av.id, numero_nota: av.numero_nota }
 }
 
 // ════════════════════════════════════════════════════════════

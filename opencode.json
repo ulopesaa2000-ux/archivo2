@@ -5,6 +5,14 @@
       "type": "local",
       "command": ["npx", "-y", "mcp-remote", "http://localhost:8080/mcp"],
       "enabled": true
+    },
+    "n8n-mcp": {
+      "type": "remote",
+      "url": "https://n8n.sistemaindumentaria.com/mcp-server/http",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:N8N_MCP_TOKEN}"
+      }
     }
   }
 }

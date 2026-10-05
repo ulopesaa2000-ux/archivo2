@@ -15,14 +15,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { 
-  FileText, 
-  ShieldAlert, 
-  Sparkles, 
-  SlidersHorizontal, 
-  CheckSquare, 
-  Layers, 
-  Warehouse, 
+import {
+  FileText,
+  ShieldAlert,
+  Sparkles,
+  SlidersHorizontal,
+  CheckSquare,
+  Layers,
+  Box,
+  Warehouse,
   CheckCircle2,
   ScanLine,
   Star,
@@ -159,7 +160,27 @@ export function NotasConfigTab({
               />
             </div>
 
-            {/* Switch: Visualización de piezas en notas */}
+            {/* Switch: Modo solo cajas (restricción a puras cajas) */}
+            <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <Box className="h-4 w-4 text-primary" />
+                  <Label className="font-medium text-sm">Modo solo cajas</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Restringe las notas a puras cajas: bloquea piezas sueltas (siempre 0). Al activarlo se desactiva piezas sueltas. Todo el stock se mueve por nota en cajas.
+                </p>
+              </div>
+              <Switch
+                checked={config.modo_solo_cajas === true}
+                onCheckedChange={(v) => {
+                  onChange('modo_solo_cajas', v)
+                  if (v) onChange('mostrar_piezas_en_notas', false)
+                }}
+              />
+            </div>
+
+            {/* Switch: Visualización de piezas en notas (anidado al modo solo cajas) */}
             <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-1.5">
@@ -167,12 +188,16 @@ export function NotasConfigTab({
                   <Label className="font-medium text-sm">Mostrar piezas en notas</Label>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Habilita el desglose de piezas sueltas además de bultos/cajas.
+                  {config.modo_solo_cajas === true
+                    ? 'Oculto (false) por el modo solo cajas. Solo visible en notas confirmadas e histórico.'
+                    : 'Habilita el desglose de piezas sueltas además de bultos/cajas.'}
                 </p>
               </div>
               <Switch
                 checked={config.mostrar_piezas_en_notas}
                 onCheckedChange={(v) => onChange('mostrar_piezas_en_notas', v)}
+                disabled={config.modo_solo_cajas === true}
+                title={config.modo_solo_cajas === true ? 'Controlado por el modo solo cajas' : undefined}
               />
             </div>
 

@@ -20,6 +20,7 @@ import type {
   StockMatrixItem,
 } from './types'
 import type { BodegaRow } from '@/lib/types/tables'
+import { isModoSoloCajas } from './config-types'
 
 export type ActionResult = {
   success: boolean
@@ -98,6 +99,13 @@ export async function guardarNotaAction(
     return { success: false, error: 'Agrega al menos un producto.' }
   }
 
+  // ── Modo solo cajas: bloquear piezas sueltas ──────────────
+  // Lee la columna real modo_solo_cajas (con fallback legacy).
+  const modoSoloCajas = isModoSoloCajas(config)
+  if (modoSoloCajas && draft.productos.some((p) => Number(p.piezas_sueltas ?? 0) !== 0)) {
+    return { success: false, error: 'El modo solo cajas está activo: las piezas sueltas deben ser 0 en todos los productos.' }
+  }
+
   if (user.rol && user.rol.nivel_acceso > 2) {
     if (tipoMov?.codigo === 'AJU' || tipoMov?.codigo === 'DEV') {
       return {
@@ -162,7 +170,7 @@ export async function guardarNotaAction(
       p_cajas: prod.cajas,
       p_variante_id: undefined,
       p_producto_id: prod.producto_id,
-      p_piezas_sueltas: prod.piezas_sueltas || 0,
+      p_piezas_sueltas: modoSoloCajas ? 0 : prod.piezas_sueltas || 0,
       p_caja_id: prod.caja_id || undefined,
       p_codigo_original: prod.codigo_original || undefined,
     })
@@ -332,6 +340,13 @@ export async function actualizarNotaAction(
     return { success: false, error: 'Agrega al menos un producto a la nota.' }
   }
 
+  // ── Modo solo cajas: bloquear piezas sueltas ──────────────
+  const configEdit = await fetchConfigInventario()
+  const modoSoloCajasEdit = isModoSoloCajas(configEdit)
+  if (modoSoloCajasEdit && draft.productos.some((p) => Number(p.piezas_sueltas ?? 0) !== 0)) {
+    return { success: false, error: 'El modo solo cajas está activo: las piezas sueltas deben ser 0 en todos los productos.' }
+  }
+
   // ── 1. Actualizar cabecera ──────────────────────────────
   const updateCabPayload: Record<string, any> = {
     nota_referencia: draft.nota_referencia || null,
@@ -377,7 +392,7 @@ export async function actualizarNotaAction(
       p_cajas: prod.cajas,
       p_variante_id: undefined,
       p_producto_id: prod.producto_id,
-      p_piezas_sueltas: prod.piezas_sueltas || 0,
+      p_piezas_sueltas: modoSoloCajasEdit ? 0 : prod.piezas_sueltas || 0,
       p_caja_id: prod.caja_id || undefined,
       p_codigo_original: prod.codigo_original || undefined,
     })
