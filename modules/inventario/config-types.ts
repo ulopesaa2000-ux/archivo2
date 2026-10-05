@@ -67,6 +67,8 @@ export interface ConfigInventario {
   bodega_principal_id: number | null
   permitir_stock_negativo: boolean
   permitir_bodegas_virtuales: boolean
+  /** Restringe las notas a puras cajas: bloquea piezas_sueltas != 0 y oculta piezas por defecto. */
+  modo_solo_cajas: boolean
   umbral_alerta_stock_minimo_cajas: number
 
   // ── 6. Notificaciones ──
@@ -81,6 +83,17 @@ export interface ConfigInventario {
 
 export type ConfigInventarioUpdate = Partial<Omit<ConfigInventario, 'id' | 'created_at'>>
 
+/**
+ * Modo solo cajas: restringe las notas a puras cajas (bloquea
+ * piezas_sueltas != 0 y oculta piezas por defecto en notas nuevas).
+ * Lee la columna real `modo_solo_cajas` con fallback legacy a
+ * `mostrar_piezas_en_notas === false` por si la migración aún no corre.
+ */
+export function isModoSoloCajas(config?: ConfigInventario | null): boolean {
+  if (typeof config?.modo_solo_cajas === 'boolean') return config.modo_solo_cajas
+  return config?.mostrar_piezas_en_notas === false
+}
+
 export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
   id: 1,
   limite_notas_pendientes_panel: 5,
@@ -92,7 +105,7 @@ export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
   requiere_aprobacion_salida: true,
   permitir_editar_bodega_origen: true,
   permitir_editar_tipo_movimiento: true,
-  mostrar_piezas_en_notas: true,
+  mostrar_piezas_en_notas: false,
   dias_limite_notas_pendientes_alerta: 7,
   auto_seleccionar_bodega_activa: true,
   auto_seleccionar_tipo_default: true,
@@ -154,6 +167,7 @@ export const DEFAULT_CONFIG_INVENTARIO: ConfigInventario = {
   bodega_principal_id: null,
   permitir_stock_negativo: false,
   permitir_bodegas_virtuales: true,
+  modo_solo_cajas: true,
   umbral_alerta_stock_minimo_cajas: 5,
 
   email_notificaciones_inventario: null,

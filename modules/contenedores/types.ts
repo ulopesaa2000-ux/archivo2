@@ -192,6 +192,27 @@ export type SurtidoPreview = {
   importeTotal: number
   conDiferencias: boolean
   lineas: SurtidoPreviewLinea[]
+  /** Modo solo cajas vigente al generar el preview */
+  modoSoloCajas: boolean
+  /** Órdenes con líneas sin match (bloquean el surtido) */
+  ordenesConDiferencias: {
+    ordenId: number
+    folio: string | null
+    items: {
+      productoId: number | null
+      sku: string
+      cajasLinea: number
+      cajasFisicas: number
+      dif: number
+      estado: 'DIF' | 'SIN_CAJAS' | 'SIN_LINEA'
+    }[]
+  }[]
+  /** Aviso de ingreso ya generado y pendiente de confirmación (solo avisa, no mueve stock) */
+  avisoPendiente: {
+    notaId: number
+    numeroNota: string
+    bodegaNombre: string | null
+  } | null
 }
 
 export type ResumenEdicionPayload = {

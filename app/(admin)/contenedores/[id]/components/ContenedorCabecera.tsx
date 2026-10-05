@@ -1,7 +1,7 @@
 // app/(admin)/contenedores/[id]/components/ContenedorCabecera.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
@@ -28,7 +28,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import {
   actualizarContenedorAction, cambiarEstadoContenedorAction,
-  surtirContenedorAction,
+  surtirContenedorAction, confirmarIngresoVirtualAction,
 } from '@/modules/contenedores/actions'
 import { fetchSurtidoPreview } from '@/modules/contenedores/queries'
 import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
@@ -64,10 +64,13 @@ export function ContenedorCabecera({
   const [surtirOpen, setSurtirOpen] = useState(false)
   const [bodegaVirtualId, setBodegaVirtualId] = useState<number | null>(null)
   const [surtiendo, setSurtiendo] = useState(false)
+  const [confirmandoIngreso, setConfirmandoIngreso] = useState(false)
   const [preview, setPreview] = useState<SurtidoPreview | null>(null)
   const [cargandoPreview, setCargandoPreview] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [entiendoSurtido, setEntiendoSurtido] = useState(false)
+  // Aviso de ingreso pendiente (ENT en PEND: solo avisa, aún no mueve stock)
+  const [avisoPendiente, setAvisoPendiente] = useState<SurtidoPreview['avisoPendiente']>(null)
 
   // Estado del checklist de documentos
   const [docsChecklist, setDocsChecklist] = useState<Record<string, boolean>>(() => {
@@ -82,6 +85,16 @@ export function ContenedorCabecera({
 
   const estadoColor = ESTADO_CONTENEDOR_COLORS[contenedor.estado ?? ''] ?? ''
   const transicionesPermitidas = TRANSICIONES_CONTENEDOR[contenedor.estado ?? ''] ?? []
+
+  // Detectar aviso de ingreso pendiente (ENT en PEND) para ofrecer el 2.º paso
+  useEffect(() => {
+    if (contenedor.estado !== 'en_bodega') return
+    let vivo = true
+    fetchSurtidoPreview(contenedor.id)
+      .then((data) => { if (vivo) setAvisoPendiente(data.avisoPendiente) })
+      .catch(() => {})
+    return () => { vivo = false }
+  }, [contenedor.id, contenedor.estado])
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -130,6 +143,7 @@ export function ContenedorCabecera({
       try {
         const data = await fetchSurtidoPreview(contenedor.id)
         setPreview(data)
+        setAvisoPendiente(data.avisoPendiente)
       } catch {
         setPreviewError('No se pudo cargar el resumen de líneas.')
       } finally {
@@ -146,9 +160,31 @@ export function ContenedorCabecera({
     startTransition(async () => {
       const result = await surtirContenedorAction(contenedor.id, bodegaVirtualId)
       setSurtiendo(false)
-      setSurtirOpen(false)
 
       if (!result.success) { setError(result.error ?? 'Error al surtir.'); return }
+      // El aviso queda en PEND (no mueve stock): refrescar preview sin cerrar
+      try {
+        const data = await fetchSurtidoPreview(contenedor.id)
+        setPreview(data)
+        setAvisoPendiente(data.avisoPendiente)
+      } catch {
+        // ignorar: el aviso ya se creó
+      }
+      router.refresh()
+    })
+  }
+
+  const handleConfirmarIngreso = () => {
+    setConfirmandoIngreso(true)
+    setError(null)
+
+    startTransition(async () => {
+      const result = await confirmarIngresoVirtualAction(contenedor.id)
+      setConfirmandoIngreso(false)
+
+      if (!result.success) { setError(result.error ?? 'Error al confirmar el ingreso.'); return }
+      setSurtirOpen(false)
+      setAvisoPendiente(null)
       router.refresh()
     })
   }
@@ -198,6 +234,20 @@ export function ContenedorCabecera({
             </Button>
           )}
 
+          {/* 2.º paso del surtido: el aviso PEND solo avisa; aquí mueve el stock */}
+          {canEdit && contenedor.estado === 'en_bodega' && avisoPendiente && (
+            <Button
+              variant="default" size="sm"
+              onClick={handleConfirmarIngreso}
+              disabled={isPending || confirmandoIngreso}
+              title={`Confirmar ingreso del aviso ${avisoPendiente.numeroNota} a ${avisoPendiente.bodegaNombre ?? 'bodega virtual'}`}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              <Check className="h-3.5 w-3.5 mr-1" /> Confirmar ingreso ({avisoPendiente.numeroNota})
+            </Button>
+          )}
+
           {canEdit && !isEditing && (
             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
               <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
@@ -212,8 +262,8 @@ export function ContenedorCabecera({
           <DialogHeader>
             <DialogTitle>Surtir contenedor a bodega virtual</DialogTitle>
             <DialogDescription>
-              Esto es exactamente lo que pasará a stock real en la bodega virtual
-              (datos de líneas de producto). Esta acción no se puede deshacer.
+              Aviso de ingreso con datos de líneas de producto (solo cajas, piezas 0).
+              No mueve stock: el ingreso se confirma en un segundo paso.
             </DialogDescription>
           </DialogHeader>
 
@@ -260,13 +310,44 @@ export function ContenedorCabecera({
               </p>
             ) : preview ? (
               <div className="space-y-3">
+                {preview.avisoPendiente && (
+                  <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Aviso <strong>{preview.avisoPendiente.numeroNota}</strong> generado
+                      {preview.avisoPendiente.bodegaNombre ? ` hacia ${preview.avisoPendiente.bodegaNombre}` : ''}:
+                      solo avisa, aún no mueve stock. Confirma el ingreso en el segundo paso.
+                    </span>
+                  </div>
+                )}
                 {preview.conDiferencias && (
                   <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
                     <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
-                      Hay diferencias en cajas contra el físico. Se transferirán los datos de{' '}
-                      <strong>líneas</strong>; puedes corregir la orden antes de proseguir.
+                      Hay diferencias en cajas contra el físico (bloqueo absoluto, sin tolerancia).
+                      Corrige las órdenes antes de proseguir; el surtido está bloqueado.
                     </span>
+                  </div>
+                )}
+                {(preview.ordenesConDiferencias?.length ?? 0) > 0 && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs space-y-2">
+                    <p className="font-bold text-destructive">Órdenes sin match línea-vs-físico:</p>
+                    {preview.ordenesConDiferencias.map((g) => (
+                      <div key={g.ordenId} className="space-y-1">
+                        <Link
+                          href={ADMIN_ROUTES.ordenesB2B.detalle(g.ordenId)}
+                          className="font-mono font-bold text-primary hover:underline"
+                        >
+                          {g.folio ? `${g.folio} (id ${g.ordenId})` : `Orden id ${g.ordenId}`} →
+                        </Link>
+                        {g.items.map((it) => (
+                          <div key={`${g.ordenId}-${it.productoId ?? it.sku}`} className="flex justify-between font-mono text-[11px] text-muted-foreground">
+                            <span>{it.sku || `prod ${it.productoId}`}</span>
+                            <span>línea {it.cajasLinea} / físico {it.cajasFisicas} ({it.dif > 0 ? `+${it.dif}` : it.dif})</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -334,8 +415,9 @@ export function ContenedorCabecera({
                     className="mt-0.5"
                   />
                   <span>
-                    Entiendo que se transferirán los datos de líneas a stock real en la bodega virtual
-                    ({preview.totalProductos} productos, {preview.totalPiezasLinea.toLocaleString()} pz).
+                    Entiendo que se generará un aviso con los datos de líneas a stock real en la bodega virtual
+                    ({preview.totalProductos} productos, {preview.totalCajasLinea.toLocaleString()} cajas, piezas 0).
+                    El stock se moverá al confirmar el ingreso.
                   </span>
                 </label>
               </div>
@@ -343,17 +425,31 @@ export function ContenedorCabecera({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setSurtirOpen(false)} disabled={surtiendo}>
+            <Button variant="outline" size="sm" onClick={() => setSurtirOpen(false)} disabled={surtiendo || confirmandoIngreso}>
               Cancelar
             </Button>
-            <Button
-              size="sm"
-              onClick={handleSurtir}
-              disabled={!bodegaVirtualId || surtiendo || cargandoPreview || !preview || preview.lineas.length === 0 || !entiendoSurtido}
-            >
-              {surtiendo && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              <Check className="h-3.5 w-3.5 mr-1" /> Confirmar surtido
-            </Button>
+            {preview?.avisoPendiente ? (
+              <Button
+                size="sm"
+                onClick={handleConfirmarIngreso}
+                disabled={confirmandoIngreso || preview.conDiferencias}
+                title={preview.conDiferencias ? 'Bloqueado: hay líneas sin match' : 'Confirmar ingreso (PEND → CONF): mueve el stock'}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              >
+                {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                <Check className="h-3.5 w-3.5 mr-1" /> Confirmar ingreso ({preview.avisoPendiente.numeroNota})
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleSurtir}
+                disabled={!bodegaVirtualId || surtiendo || cargandoPreview || !preview || preview.lineas.length === 0 || !entiendoSurtido || preview.conDiferencias}
+                title={preview?.conDiferencias ? 'Bloqueado: hay líneas sin match con cajas físicas' : undefined}
+              >
+                {surtiendo && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                <Check className="h-3.5 w-3.5 mr-1" /> Generar aviso
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

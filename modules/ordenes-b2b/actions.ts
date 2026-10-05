@@ -1249,6 +1249,24 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   const totalPiezas = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)), 0)
   const totalCbm = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.cbm_por_caja || c.cbm || 0)), 0)
 
+  // Bloqueo absoluto modo solo cajas: cada producto debe tener cajas físicas armadas.
+  // Solo cuentan filas físicas reales (se excluyen resúmenes padre).
+  const sinCajasArmadas: string[] = []
+  for (const p of (payload.productos || [])) {
+    const skuUpper = String(p.sku_base || '').trim().toUpperCase()
+    if (!skuUpper) continue
+    const armadas = (payload.cajas || [])
+      .filter((c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen')
+      .reduce((sum: number, c: any) => sum + (Number(c.cantidad_cajas ?? 0) || 0), 0)
+    if (armadas <= 0) sinCajasArmadas.push(String(p.sku_base))
+  }
+  if (sinCajasArmadas.length > 0) {
+    return { success: false, error: `Bloqueo modo cajas: productos sin cajas armadas: ${sinCajasArmadas.join(', ')}` }
+  }
+  if (totalCajas <= 0) {
+    return { success: false, error: 'Bloqueo modo cajas: la orden no tiene cajas.' }
+  }
+
   const { data: newOrder, error: orderErr } = await supabase
     .from('ordenes_b2b')
     .insert({
