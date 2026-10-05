@@ -2,18 +2,20 @@
 // Código fuente del nodo "Parser Jenny multicolor-pack" (referencia versionada).
 // Se incrusta en build_full_workflow_json.js para generar el workflow completo.
 // Formato Jenny (SHISHI BETERLON), reglas validadas contra TOTALES de hoja:
-// - Verdad = columna Style No. (nunca nombre de hoja; sin style = SIN_STYLE).
-// - PACK opcional/posicional; filas = color×pack; tallas entre Color y Pcs.
-// - Cajas por pack: UNION de cartones entre colores; por color vale etiqueta
-//   (共N箱) si existe; si no, union de rangos ("a-b" solo + Ctns, "a-b..c-d"
-//   expande min..max de primeros, resto union de primeros); sin rango y con
-//   Ctns = SUM(Ctns) + warning; sin nada = 0.
-// - Pcs/Ctn solo numérico plano (fórmulas/ttexto = null + warning).
-// - Resumen siempre del detalle; TOTAL de hoja solo contraste.
-// - Sin cajas remanente: descuadre = warning, nunca relleno fantasma.
+// - Verdad = columna Style No. con herencia (nunca nombre de hoja).
+// - Bloque fisico = Style + Pack + Color(etiqueta) + CtnNo.raw + Ctns.
+//   Las filas que comparten clave son el MISMO carton: Ctns y Ttl se cuentan
+//   una sola vez; los colores/tallas se suman como composicion del carton.
+// - Con etiqueta (共N箱) los cartones son por color; sin etiqueta se comparten
+//   entre colores del mismo (Style, Pack, CtnNo.raw).
+// - Pcs/Ctn solo numerico plano; expresiones tipo 6*11packs=66 multiplican las
+//   tallas de su fila y el total sale de Ttl (con warning, sin sustitucion).
+// - Tallas solo con whitelist CH|M|G|EG|EEG|numericas (huecos vacios se ignoran).
+// - CBM de celda es TOTAL del bloque; N.W/G.W son POR carton.
+// - TOTAL de hoja solo contraste, nunca se recalcula ni se sobrescribe.
 // NOTA String.raw: conserva escapes regex. Sin ${ ni backticks dentro.
 
-const JENNY_JS = String.raw`// Parser Jenny multicolor-pack v1.0 — SHISHI BETERLON / JENNY
+const JENNY_JS = String.raw`// Parser Jenny bloques v2.0 — SHISHI BETERLON / JENNY
 const T0 = Date.now();
 const NBSP = String.fromCharCode(160);
 function cleanText(v) {
@@ -40,31 +42,26 @@ function toNumJenny(v) {
   return Number.isFinite(n) ? n : null;
 }
 function normKey(v) { return cleanText(v).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function normalizaEncabezado(v) {
+  return cleanText(v).normalize('NFKC').toLowerCase().replace(/\s+/g, '').replace(/\./g, '');
+}
+function indiceEncabezado(headers, nombres) {
+  const normalizados = headers.map(normalizaEncabezado);
+  return normalizados.findIndex(function(h) { return nombres.indexOf(h) !== -1; });
+}
+function enteroPositivo(v) {
+  const n = toNumJenny(v);
+  return (typeof n === 'number' && isFinite(n) && Math.floor(n) === n && n > 0) ? n : null;
+}
 function etiquetaCajas(colorRaw) {
   const m = String(colorRaw || '').match(/[（(]\s*共\s*(\d+)\s*箱\s*[）)]/);
   return m ? Number(m[1]) : null;
 }
-function parseRangeJenny(s, ctns) {
+function parsePacksJenny(s) {
   const t = cleanText(s);
-  const pairs = [...t.matchAll(/(\d+)\s*[-~#]\s*(\d+)/g)].map(m => [Number(m[1]), Number(m[2])]);
-  if (!pairs.length) return { set: new Set(), cruda: t, modo: 'vacio' };
-  const firsts = pairs.map(p => p[0]);
-  if (pairs.length === 1) {
-    const a = pairs[0][0], b = pairs[0][1];
-    if ((ctns || 0) > 1 && b - a + 1 === ctns) {
-      const set = new Set();
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) set.add(i);
-      return { set: set, cruda: t, modo: 'rango' };
-    }
-    return { set: new Set([a]), cruda: t, modo: 'uno' };
-  }
-  if (t.indexOf('...') !== -1) {
-    const lo = Math.min(...firsts), hi = Math.max(...firsts);
-    const set = new Set();
-    for (let i = lo; i <= hi; i++) set.add(i);
-    return { set: set, cruda: t, modo: 'abreviado' };
-  }
-  return { set: new Set(firsts), cruda: t, modo: 'lista' };
+  const m = t.match(/(\d+)\s*[×*x]\s*(\d+)\s*packs?\s*=\s*(\d+)/i);
+  if (!m) return null;
+  return { porPack: Number(m[1]), packs: Number(m[2]), total: Number(m[3]) };
 }
 function rowValuesJenny(r) {
   if (Array.isArray(r)) return r;
@@ -89,8 +86,8 @@ const hojas = (Array.isArray(rawSheets) ? rawSheets : []).map((s, idx) => ({
   rows: (Array.isArray(s.rows) ? s.rows : (Array.isArray(s.data) ? s.data : [])).map(rowValuesJenny)
 }));
 const productos = new Map();
-const grupos = new Map();
-const detalles = [];
+const bloques = new Map();
+const ordenBloques = [];
 const parseMsPorHoja = [];
 function colIdx(headers, tests) {
   for (let i = 0; i < headers.length; i++) {
@@ -107,177 +104,222 @@ const H = {
   ctns: [/^ctns$/i],
   ttl: [/^ttl\.?qty$/i],
   precio: [/^precio$/i],
-  descr: [/^descripcion/],
+  descr: [/^descripcion/i],
+  comp: [/^composicion/i],
   nw: [/^n\.w$/i],
   gw: [/^g\.w$/i],
   cbm: [/cbm/i]
 };
 for (const hoja of hojas) {
   const tHoja = Date.now();
-  const filas = hoja.rows.filter(r => (r || []).some(v => cleanText(v) !== ''));
+  const rows = hoja.rows;
   let hIdx = -1;
-  for (let i = 0; i < Math.min(filas.length, 12); i++) {
-    const j = (filas[i] || []).map(cleanText).join(' ').toLowerCase();
-    if (j.indexOf('style') !== -1) { hIdx = i; break; }
-  }
-  if (hIdx < 0) { warnings.push({ tipo: 'hoja_sin_header', severidad: 'media', hoja: hoja.name, detalle: 'Sin fila Style: hoja omitida' }); continue; }
-  const headers = (filas[hIdx] || []).map(cleanText);
-  const ix = {
-    style: colIdx(headers, H.style), pack: colIdx(headers, H.pack), color: colIdx(headers, H.color),
-    pcs: colIdx(headers, H.pcs), ctnno: colIdx(headers, H.ctnno), ctns: colIdx(headers, H.ctns),
-    ttl: colIdx(headers, H.ttl), precio: colIdx(headers, H.precio), descr: colIdx(headers, H.descr),
-    nw: colIdx(headers, H.nw), gw: colIdx(headers, H.gw), cbm: colIdx(headers, H.cbm)
-  };
-  if (ix.style < 0) { warnings.push({ tipo: 'hoja_sin_style', severidad: 'alta', hoja: hoja.name, detalle: 'Sin columna Style No.' }); continue; }
-  const tallaIdx = [];
-  const finTallas = ix.pcs >= 0 ? ix.pcs : headers.length;
-  if (ix.color >= 0) {
-    for (let i = ix.color + 1; i < finTallas; i++) {
-      const h = cleanText(headers[i]);
-      if (h) tallaIdx.push({ i: i, nombre: h });
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const r = rows[i] || [];
+    for (let k = 0; k < r.length; k++) {
+      if (normalizaEncabezado(r[k]) === 'styleno') { hIdx = i; break; }
     }
+    if (hIdx >= 0) break;
+  }
+  if (hIdx < 0) { warnings.push({ tipo: 'hoja_sin_header', severidad: 'alta', hoja: hoja.name, detalle: 'Sin fila Style No.: hoja omitida' }); continue; }
+  const headers = rows[hIdx] || [];
+  const ix = {
+    style: indiceEncabezado(headers, ['styleno']),
+    color: indiceEncabezado(headers, ['color', 'colour']),
+    pack: indiceEncabezado(headers, ['pack']),
+    pcs: indiceEncabezado(headers, ['pcs/ctn', 'sets/ctn', 'pcs/bag', 'sets/bag']),
+    ctnno: indiceEncabezado(headers, ['ctnno', 'bagno']),
+    ctns: indiceEncabezado(headers, ['ctns']),
+    ttl: indiceEncabezado(headers, ['ttlqty']),
+    precio: indiceEncabezado(headers, ['precio']),
+    descr: indiceEncabezado(headers, ['descripcion', 'descripcionymarca']),
+    comp: indiceEncabezado(headers, ['composicion', 'composition']),
+    nw: indiceEncabezado(headers, ['nw']),
+    gw: indiceEncabezado(headers, ['gw']),
+    cbm: headers.findIndex(function(h) { return normalizaEncabezado(h).indexOf('cbm') === 0; })
+  };
+  if (ix.style < 0 || ix.color < 0 || ix.ctns < 0 || ix.ttl < 0) {
+    warnings.push({ tipo: 'columnas_obligatorias_ausentes', severidad: 'alta', hoja: hoja.name, detalle: 'Faltan Style/Color/Ctns/Ttl.QTY', columnas: ix });
+    continue;
+  }
+  const limite = ix.pcs >= 0 ? ix.pcs : headers.length;
+  const tallas = [];
+  if (ix.pcs >= 0) {
+    for (let i = ix.color + 1; i < limite; i++) {
+      const nombre = cleanText(headers[i]);
+      if (/^(CH|M|G|EG|EEG|\d{1,3})$/i.test(nombre)) tallas.push({ i: i, nombre: nombre });
+    }
+  } else {
+    warnings.push({ tipo: 'sin_columna_pcs', severidad: 'media', hoja: hoja.name, detalle: 'Sin Pcs/Sets por carton: no se extrae detalle de tallas' });
+  }
+  let hayEtiqueta = false;
+  for (let i = hIdx + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (/^total$/i.test(cleanText(r[ix.style]))) break;
+    if (etiquetaCajas(cleanText(r[ix.color])) !== null) { hayEtiqueta = true; break; }
   }
   let totalHoja = null;
-  for (let r = hIdx + 1; r < filas.length; r++) {
-    const row = filas[r] || [];
-    const styleRaw = cleanText(row[ix.style]);
-    if (/^total$/i.test(styleRaw)) {
-      totalHoja = { cajas: toNumJenny(row[ix.ctns]), piezas: toNumJenny(row[ix.ttl]) };
+  let style = null;
+  let pack = 'PACK UNICO';
+  let prodDescripcion = null;
+  let prodComposicion = null;
+  let prodPrecio = null;
+  let seqHoja = 0;
+  const valor = function(row, i) { return i >= 0 ? row[i] : undefined; };
+  for (let i = hIdx + 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const styleCelda = cleanText(valor(row, ix.style));
+    if (/^total$/i.test(styleCelda)) {
+      totalHoja = { cajas: toNumJenny(valor(row, ix.ctns)), piezas: toNumJenny(valor(row, ix.ttl)) };
+      break;
+    }
+    if (styleCelda) {
+      style = styleCelda;
+      pack = 'PACK UNICO';
+      prodDescripcion = cleanText(valor(row, ix.descr)) || null;
+      prodComposicion = cleanText(valor(row, ix.comp)) || null;
+      prodPrecio = toNumJenny(valor(row, ix.precio));
+      if (!productos.has(style)) {
+        productos.set(style, { sku_base: style, descripcion: prodDescripcion, composicion: prodComposicion, precio: prodPrecio, hoja: hoja.name });
+      } else {
+        const p = productos.get(style);
+        if (!p.descripcion && prodDescripcion) p.descripcion = prodDescripcion;
+        if (!p.composicion && prodComposicion) p.composicion = prodComposicion;
+        if (p.precio == null && prodPrecio != null) p.precio = prodPrecio;
+      }
+    }
+    if (!style) continue;
+    const packCelda = cleanText(valor(row, ix.pack));
+    if (packCelda) pack = packCelda;
+    const dCelda = cleanText(valor(row, ix.descr));
+    const cCelda = cleanText(valor(row, ix.comp));
+    const prCelda = toNumJenny(valor(row, ix.precio));
+    const pReg = productos.get(style);
+    if (pReg) {
+      if (!pReg.descripcion && dCelda) pReg.descripcion = dCelda;
+      if (!pReg.composicion && cCelda) pReg.composicion = cCelda;
+      if (pReg.precio == null && prCelda != null) pReg.precio = prCelda;
+    }
+    const colorRaw = cleanText(valor(row, ix.color));
+    const ctns = enteroPositivo(valor(row, ix.ctns));
+    if (ctns === null) {
+      let hayDato = false;
+      for (const t of tallas) { if (toNumJenny(row[t.i]) != null) { hayDato = true; break; } }
+      if (colorRaw && hayDato) {
+        warnings.push({ tipo: 'color_sin_bloque_ctns', severidad: 'alta', hoja: hoja.name, fila: i + 1, sku_base: style, color: colorRaw, detalle: 'Fila con color y tallas pero sin Ctns: no se asigna a bloque' });
+      }
       continue;
     }
-    if (!styleRaw) {
-      const conDatos = tallaIdx.some(t => toNumJenny(row[t.i]) != null) || toNumJenny(row[ix.ctns]) != null;
-      if (conDatos) warnings.push({ tipo: 'sin_style', severidad: 'alta', hoja: hoja.name, fila: r + 1, detalle: 'Fila con datos sin Style No.: omitida, no se inventa SKU' });
-      continue;
+    const ctnnoRaw = cleanText(valor(row, ix.ctnno));
+    const colorClave = hayEtiqueta ? colorRaw : '';
+    const clave = hoja.name + '||' + style + '||' + pack + '||' + colorClave + '||' + ctnnoRaw + '||' + String(ctns);
+    let b = bloques.get(clave);
+    if (!b) {
+      seqHoja++;
+      b = {
+        hoja: hoja.name, fila_excel: i + 1, sku_base: style, nombre_pack: pack,
+        descripcion: (productos.get(style) || {}).descripcion || null,
+        cantidad_cajas: ctns, carton_no_raw: ctnnoRaw || null,
+        total_piezas_declarado: toNumJenny(valor(row, ix.ttl)),
+        piezas_por_caja: null, pcs_raw_list: [], tiene_packs: false,
+        peso_neto_kg: toNumJenny(valor(row, ix.nw)),
+        peso_bruto_kg: toNumJenny(valor(row, ix.gw)),
+        cbm_total_declarado: toNumJenny(valor(row, ix.cbm)),
+        ttl_gw_declarado: null, detalles: [], seq: seqHoja
+      };
+      bloques.set(clave, b);
+      ordenBloques.push(b);
     }
-    const style = styleRaw;
-    if (!productos.has(style)) {
-      productos.set(style, { sku_base: style, descripcion: cleanText(row[ix.descr]) || null, composicion: null, precio: toNumJenny(row[ix.precio]), hoja: hoja.name });
-    } else {
-      const p = productos.get(style);
-      if (!p.descripcion && ix.descr >= 0) p.descripcion = cleanText(row[ix.descr]) || null;
-      if (p.precio == null && ix.precio >= 0) p.precio = toNumJenny(row[ix.precio]);
+    const pcsRaw = cleanText(valor(row, ix.pcs));
+    const pzcFila = toNumJenny(valor(row, ix.pcs));
+    if (pcsRaw) b.pcs_raw_list.push(pcsRaw);
+    if (pzcFila != null && b.piezas_por_caja == null && !b.tiene_packs) b.piezas_por_caja = pzcFila;
+    const pk = ix.pcs >= 0 ? parsePacksJenny(valor(row, ix.pcs)) : null;
+    if (pk) {
+      b.tiene_packs = true;
+      if (b.piezas_por_caja == null || true) {
+        if (b.total_piezas_declarado != null) b.piezas_por_caja = b.total_piezas_declarado / b.cantidad_cajas;
+      }
+      if (pcsRaw) warnings.push({ tipo: 'pcs_no_numerico', severidad: 'media', sku_base: style, hoja: hoja.name, fila: i + 1, detalle: 'Pcs/Ctn con packs (' + pcsRaw + '): tallas x' + pk.packs + ', total desde Ttl' });
+    } else if (pcsRaw && pzcFila == null) {
+      warnings.push({ tipo: 'pcs_no_numerico', severidad: 'media', sku_base: style, hoja: hoja.name, fila: i + 1, detalle: 'Pcs/Ctn no numerico (' + pcsRaw + '): total desde Ttl' });
     }
-    const pack = ix.pack >= 0 ? (cleanText(row[ix.pack]) || 'PACK UNICO') : 'PACK UNICO';
-    const color = ix.color >= 0 ? cleanText(row[ix.color]) : '';
-    const tallaCells = tallaIdx.map(t => ({ nombre: t.nombre, cantidad: toNumJenny(row[t.i]) }));
-    const sumaTallas = tallaCells.reduce((s, t) => s + (t.cantidad || 0), 0);
-    const pcsRaw = ix.pcs >= 0 ? cleanText(row[ix.pcs]) : '';
-    let pzc = toNumJenny(row[ix.pcs]);
-    if (pcsRaw && pzc == null) warnings.push({ tipo: 'pcs_no_numerico', severidad: 'media', sku_base: style, hoja: hoja.name, fila: r + 1, detalle: 'Pcs/Ctn no numérico: se usa suma de tallas' });
-    if (pzc == null) pzc = sumaTallas > 0 ? sumaTallas : null;
-    const ctns = toNumJenny(row[ix.ctns]);
-    const rango = parseRangeJenny(ix.ctnno >= 0 ? row[ix.ctnno] : '', ctns);
-    const gk = style + '||' + pack;
-    if (!grupos.has(gk)) grupos.set(gk, { style: style, pack: pack, colores: new Map(), piezas: [], tallas: new Set(), nw: null, gw: null, cbm: null, hoja: hoja.name, sinPzc: 0, mezclas: [], sub: new Map() });
-    const g = grupos.get(gk);
-    // Subgrupo por piezas/caja: cada tipo de caja homogéneo (evita modo con empate)
-    const sk = pzc == null ? 'null' : String(pzc);
-    if (!g.sub.has(sk)) g.sub.set(sk, { pzc: pzc, cartones: new Set(), setByColor: new Map(), colores: new Set(), tallas: new Set(), nw: null, gw: null, cbm: null, dets: [] });
-    const sb = g.sub.get(sk);
-    const ck = color || '_SIN_COLOR';
-    if (!g.colores.has(ck)) g.colores.set(ck, { set: new Set(), ctnsSuma: 0, etiqueta: null, etiquetas: new Set() });
-    const cb = g.colores.get(ck);
-    for (const n of rango.set) cb.set.add(n);
-    const et = etiquetaCajas(color);
-    // Cartones por (color, subgrupo) para no mezclar tipos de caja
-    const sbck = ck + '||' + sk;
-    if (!sb.setByColor.has(sbck)) sb.setByColor.set(sbck, { color: color, set: new Set(), ctnsSuma: 0, etiquetas: new Set() });
-    const sbc = sb.setByColor.get(sbck);
-    for (const n of rango.set) sbc.set.add(n);
-    sbc.ctnsSuma += ctns || 0;
-    if (et != null) { cb.etiquetas.add(et); sbc.etiquetas.add(et); }
-    if (pzc != null) g.piezas.push(pzc); else g.sinPzc++;
-    for (const t of tallaCells) if (t.nombre) g.tallas.add(t.nombre);
-    if (g.nw == null && ix.nw >= 0) g.nw = toNumJenny(row[ix.nw]);
-    if (g.gw == null && ix.gw >= 0) g.gw = toNumJenny(row[ix.gw]);
-    if (g.cbm == null && ix.cbm >= 0) g.cbm = toNumJenny(row[ix.cbm]);
-    for (const t of tallaCells) {
-      sb.dets.push({ color: color, talla: t.nombre, cantidad: t.cantidad || 0 });
-      if (t.nombre && !sb.tallas.has(t.nombre)) sb.tallas.add(t.nombre);
-      if (color) sb.colores.add(color);
+    if (b.total_piezas_declarado == null) b.total_piezas_declarado = toNumJenny(valor(row, ix.ttl));
+    if (b.peso_neto_kg == null) b.peso_neto_kg = toNumJenny(valor(row, ix.nw));
+    if (b.peso_bruto_kg == null) b.peso_bruto_kg = toNumJenny(valor(row, ix.gw));
+    if (b.cbm_total_declarado == null) b.cbm_total_declarado = toNumJenny(valor(row, ix.cbm));
+    let sumaFila = 0;
+    const filaTallas = [];
+    for (const t of tallas) {
+      const q = toNumJenny(row[t.i]);
+      if (q != null && q > 0) { filaTallas.push({ talla: t.nombre, cantidad: q }); sumaFila += q; }
+    }
+    let mult = 1;
+    if (pk && sumaFila === pk.porPack) mult = pk.packs;
+    if (colorRaw) {
+      for (const ft of filaTallas) {
+        b.detalles.push({ color_raw: colorRaw, talla_codigo: ft.talla, cantidad_por_caja: ft.cantidad * mult, fila_excel: i + 1 });
+      }
+    }
+  }
+  for (const b of ordenBloques) {
+    if (b.hoja !== hoja.name || b._validado) continue;
+    b._validado = true;
+    b.suma_detalle_por_caja = b.detalles.reduce(function(s, d) { return s + (d.cantidad_por_caja || 0); }, 0);
+    if (b.piezas_por_caja == null && b.total_piezas_declarado != null) {
+      b.piezas_por_caja = b.total_piezas_declarado / b.cantidad_cajas;
+      b.fuente_piezas = 'ttl_entre_ctns';
+    }
+    if (b.piezas_por_caja != null && b.suma_detalle_por_caja !== b.piezas_por_caja) {
+      let notaPack = '';
+      if (b.suma_detalle_por_caja > 0 && b.piezas_por_caja % b.suma_detalle_por_caja === 0) {
+        notaPack = ' Posible composicion por pack x' + (b.piezas_por_caja / b.suma_detalle_por_caja) + ' (no aplicado).';
+      }
+      warnings.push({ tipo: 'detalle_vs_piezas_por_caja', severidad: 'alta', hoja: b.hoja, fila: b.fila_excel, sku_base: b.sku_base, declarado: b.piezas_por_caja, detalle: b.suma_detalle_por_caja, nota: notaPack || undefined });
+    }
+    if (b.total_piezas_declarado != null && b.piezas_por_caja != null && b.piezas_por_caja * b.cantidad_cajas !== b.total_piezas_declarado) {
+      warnings.push({ tipo: 'ctns_por_piezas_vs_ttl', severidad: 'alta', hoja: b.hoja, fila: b.fila_excel, sku_base: b.sku_base, calculado: b.piezas_por_caja * b.cantidad_cajas, declarado: b.total_piezas_declarado });
+    }
+    if (b.piezas_por_caja == null) {
+      warnings.push({ tipo: 'sin_piezas_por_caja', severidad: 'alta', hoja: b.hoja, fila: b.fila_excel, sku_base: b.sku_base, detalle: 'Sin piezas por caja ni Ttl para derivar' });
+    }
+    if (b.cantidad_cajas > 10000) {
+      warnings.push({ tipo: 'cantidad_absurda', severidad: 'alta', hoja: b.hoja, fila: b.fila_excel, sku_base: b.sku_base, detalle: b.cantidad_cajas + ' cajas excede tope 10000' });
     }
   }
   parseMsPorHoja.push({ hoja: hoja.name, ms: Date.now() - tHoja, totalHoja: totalHoja });
 }
-function cajasColor(cb) {
-  if (cb.etiquetas.size > 0) {
-    const vals = [...cb.etiquetas];
-    if (vals.length > 1) return { n: Math.max(...vals), nota: 'etiquetas_mixtas' };
-    return { n: vals[0], nota: null };
-  }
-  if (cb.set.size > 0) return { n: cb.set.size, nota: null };
-  if (cb.ctnsSuma > 0) return { n: cb.ctnsSuma, nota: 'rango_ilegible' };
-  return { n: 0, nota: null };
-}
 const cajasFinales = [];
+const detalles = [];
 const totalesPorSku = {};
-for (const entry of grupos) {
-  const gk = entry[0], g = entry[1];
-  const hayEtiqueta = [...g.colores.values()].some(cb => cb.etiquetas.size > 0);
-  // Asignación: con etiquetas, cartones independientes por color (clave color#n);
-  // sin etiquetas, cartones compartidos (clave hoja#n).
-  const asignados = new Set();
-  const subKeys = [...g.sub.keys()];
-  const multiSub = subKeys.length > 1;
-  // Validar etiquetas contra rangos propios del color
-  if (hayEtiqueta) {
-    for (const cb of g.colores.values()) {
-      if (cb.etiquetas.size === 0) continue;
-      const vals = [...cb.etiquetas];
-      const n = vals.length > 1 ? Math.max(...vals) : vals[0];
-      if (cb.set.size !== n) {
-        warnings.push({ tipo: 'etiqueta_vs_rango', severidad: 'media', sku_base: g.style, detalle: 'Etiqueta ' + n + ' vs rangos ' + cb.set.size + ' en un color' });
-      }
-    }
+for (const b of ordenBloques) {
+  const codigo = b.sku_base.replace(/[^A-Z0-9]+/gi, '-') + '-' + b.nombre_pack.replace(/[^A-Z0-9]+/gi, '') + '-B' + String(b.seq).padStart(2, '0');
+  const pzc = b.piezas_por_caja;
+  const totalPiezas = b.total_piezas_declarado != null ? b.total_piezas_declarado : (pzc != null ? pzc * b.cantidad_cajas : null);
+  const tallasSet = [];
+  const coloresSet = [];
+  for (const d of b.detalles) {
+    detalles.push({ codigo_caja_temporal: codigo, sku_base: b.sku_base, nombre_pack: b.nombre_pack, color_raw: d.color_raw || null, color_id: null, talla_codigo: d.talla_codigo, talla_id: null, cantidad_por_caja: d.cantidad_por_caja || 0, estado_temporal: 'pendiente_match_color' });
+    if (d.talla_codigo && tallasSet.indexOf(d.talla_codigo) === -1) tallasSet.push(d.talla_codigo);
+    if (d.color_raw && coloresSet.indexOf(d.color_raw) === -1) coloresSet.push(d.color_raw);
   }
-  for (const sk of subKeys) {
-    const sb = g.sub.get(sk);
-    let cantidad = 0;
-    for (const sbc of sb.setByColor.values()) {
-      const r = cajasColor(sbc);
-      const color = sbc.color;
-      for (const n of sbc.set) {
-        const key = hayEtiqueta ? (color + '#' + n) : (g.hoja + '#' + n);
-        if (!asignados.has(key)) { asignados.add(key); cantidad++; }
-      }
-      if (r.nota === 'etiquetas_mixtas') warnings.push({ tipo: 'etiqueta_mixta', severidad: 'media', sku_base: g.style, detalle: 'Color con etiquetas distintas, se toma la mayor' });
-      if (r.nota === 'rango_ilegible') warnings.push({ tipo: 'rango_ilegible', severidad: 'media', sku_base: g.style, detalle: 'Rango ilegible: se usa suma de Ctns' });
-    }
-    const pzc = sb.pzc;
-    const tieneRangos = [...sb.setByColor.values()].some(sbc => sbc.set.size > 0);
-    if (cantidad === 0) {
-      // Cartones ya asignados a otro subgrupo (compartidos): se omite sin ruido.
-      // Solo se avisa si el subgrupo no trae ningún rango (filas sin Ctn no.).
-      if (!tieneRangos) {
-        warnings.push({ tipo: 'subgrupo_sin_cartones', severidad: 'media', sku_base: g.style, detalle: 'Subgrupo ' + g.pack + '/' + (pzc == null ? 's/pz' : pzc + 'pz') + ' sin cartones asignables' });
-      }
-      continue;
-    }
-    const codigoBase = g.style.replace(/[^A-Z0-9]+/gi, '-') + '-' + g.pack.replace(/[^A-Z0-9]+/gi, '') + '-GP';
-    const codigo = multiSub ? codigoBase + '-P' + (pzc == null ? 'X' : pzc) : codigoBase;
-    for (const dd of sb.dets) {
-      detalles.push({ codigo_caja_temporal: codigo, sku_base: g.style, nombre_pack: g.pack, color_raw: dd.color || null, color_id: null, talla_codigo: dd.talla, talla_id: null, cantidad_por_caja: dd.cantidad || 0, estado_temporal: 'pendiente_match_color' });
-    }
-    if (pzc == null) warnings.push({ tipo: 'sin_piezas_por_caja', severidad: 'alta', sku_base: g.style, codigo_caja_temporal: codigo, detalle: 'Sin piezas por caja en ' + codigo });
-    if (cantidad > 10000) warnings.push({ tipo: 'cantidad_absurda', severidad: 'alta', sku_base: g.style, codigo_caja_temporal: codigo, detalle: cantidad + ' cajas excede tope 10000' });
-    cajasFinales.push({
-      codigo_caja_temporal: codigo, sku_base: g.style, sku_raw: g.style, nombre_pack: g.pack,
-      producto_id: null, proveedor_id: null, tipo_caja: 'completa', es_resumen: false, es_principal: false,
-      piezas_por_caja: pzc, cantidad_cajas: cantidad, total_piezas: pzc != null ? pzc * cantidad : null,
-      carton_no_raw: null, carton_inicio: null, carton_fin: null,
-      peso_neto_kg: g.nw, peso_neto_total_kg: g.nw != null ? +(g.nw * cantidad).toFixed(2) : null,
-      peso_bruto_kg: g.gw, peso_bruto_total_kg: g.gw != null ? +(g.gw * cantidad).toFixed(2) : null,
-      largo_cm: null, ancho_cm: null, alto_cm: null, cbm_por_caja: g.cbm, cbm_total_linea: g.cbm != null ? +(g.cbm * cantidad).toFixed(4) : null,
-      estado_temporal: 'listo_para_revision', hoja_origen: g.hoja,
-      tallas: [...sb.tallas].join('|'), colores: [...sb.colores].join('|'),
-      validacion: { suma_detalle_por_caja: pzc }
-    });
-    const pid = g.style;
-    totalesPorSku[pid] = totalesPorSku[pid] || { cajas: 0, piezas: 0 };
-    totalesPorSku[pid].cajas += cantidad;
-    if (pzc != null) totalesPorSku[pid].piezas += pzc * cantidad;
-  }
+  const cbmTotal = b.cbm_total_declarado;
+  cajasFinales.push({
+    codigo_caja_temporal: codigo, sku_base: b.sku_base, sku_raw: b.sku_base, nombre_pack: b.nombre_pack,
+    producto_id: null, proveedor_id: null, tipo_caja: 'completa', es_resumen: false, es_principal: false,
+    piezas_por_caja: pzc, cantidad_cajas: b.cantidad_cajas, total_piezas: totalPiezas,
+    carton_no_raw: b.carton_no_raw, carton_inicio: null, carton_fin: null,
+    peso_neto_kg: b.peso_neto_kg, peso_neto_total_kg: b.peso_neto_kg != null ? +(b.peso_neto_kg * b.cantidad_cajas).toFixed(2) : null,
+    peso_bruto_kg: b.peso_bruto_kg, peso_bruto_total_kg: b.peso_bruto_kg != null ? +(b.peso_bruto_kg * b.cantidad_cajas).toFixed(2) : null,
+    largo_cm: null, ancho_cm: null, alto_cm: null, cbm_por_caja: cbmTotal != null ? +(cbmTotal / b.cantidad_cajas).toFixed(6) : null, cbm_total_linea: cbmTotal,
+    estado_temporal: 'listo_para_revision', hoja_origen: b.hoja,
+    tallas: tallasSet.join('|'), colores: coloresSet.join('|'),
+    validacion: { suma_detalle_por_caja: b.suma_detalle_por_caja, fila_excel: b.fila_excel }
+  });
+  const pid = b.sku_base;
+  totalesPorSku[pid] = totalesPorSku[pid] || { cajas: 0, piezas: 0 };
+  totalesPorSku[pid].cajas += b.cantidad_cajas;
+  if (totalPiezas != null) totalesPorSku[pid].piezas += totalPiezas;
 }
 for (const h of parseMsPorHoja) {
   if (!h.totalHoja || h.totalHoja.cajas == null) continue;
@@ -290,7 +332,7 @@ for (const h of parseMsPorHoja) {
 }
 const productosArr = [...productos.values()].map(p => ({
   sku_base: p.sku_base, sku_raw: p.sku_base, nombre: null, marca: null, descripcion: p.descripcion,
-  composicion: null, precio_usd: null, precio_yuan: null, precio_unitario_usd: p.precio, estado_temporal: 'pendiente_revision'
+  composicion: p.composicion, precio_usd: null, precio_yuan: null, precio_unitario_usd: p.precio, estado_temporal: 'pendiente_revision'
 }));
 const ordenProductos = Object.keys(totalesPorSku).map(sku => ({
   sku_base: sku, producto_id: null, piezas_pedidas: totalesPorSku[sku].piezas, cajas_pedidas: totalesPorSku[sku].cajas,
@@ -313,7 +355,7 @@ for (const sku of Object.keys(totalesPorSku)) { totCajas += totalesPorSku[sku].c
 const cfgOut = (() => { try { return $('Normalizar archivo + ruta').first().json.__config || {}; } catch (e) { return {}; } })();
 return [{ json: {
   ok: true,
-  version_parser: 'mvp-n8n-code-v1.0-jenny-multicolor-pack',
+  version_parser: 'mvp-n8n-code-v2.0-jenny-bloques',
   metadata: {
     cliente_b2b_id: cfgOut.cliente_b2b_id != null ? cfgOut.cliente_b2b_id : null, proveedor_id: cfgOut.proveedor_id != null ? cfgOut.proveedor_id : null, proveedor: 'JENNY / SHISHI BETERLON',
     orden_id: cfgOut.orden_id != null ? cfgOut.orden_id : null, formato_detectado: 'jenny_multicolor_pack', fecha_parseo: new Date().toISOString(),
@@ -321,7 +363,7 @@ return [{ json: {
     uso: 'JSON temporal para Next.js/staging. Revisar antes de insertar definitivo en Supabase.'
   },
   resumen: { total_productos: productosArr.length, total_cajas: totCajas, total_piezas: totPiezas, cbm_orden: null, peso_bruto_total_kg: null, total_warnings: warnings.length, estado: 'Requiere revision' },
-  totales_por_sku: Object.keys(totalesPorSku).map(sku => ({ sku_base: sku, total_cajas: totalesPorSku[sku].cajas, total_piezas: totalesPorSku[sku].piezas, cbm_total: null, peso_bruto_kg: null, peso_neto_kg: null, fuente_totales: 'sumatoria_cajas' })),
+  totales_por_sku: Object.keys(totalesPorSku).map(sku => ({ sku_base: sku, total_cajas: totalesPorSku[sku].cajas, total_piezas: totalesPorSku[sku].piezas, cbm_total: null, peso_bruto_kg: null, peso_neto_kg: null, fuente_totales: 'sumatoria_bloques' })),
   totales_calculados_desde_cajas: { total_cajas: totCajas, total_piezas: totPiezas, cbm_total: null, peso_bruto_total_kg: null, peso_neto_total_kg: null },
   productos_para_editar: productosArr,
   cajas_para_editar: cajasFinales,
