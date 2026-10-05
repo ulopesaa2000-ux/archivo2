@@ -7,14 +7,11 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Separator } from '@/components/ui/separator'
 import { Fecha } from '@/components/shared/Fecha'
-import { ADMIN_ROUTES } from '@/lib/constants'
+import { ADMIN_ROUTES, ESTADO_NOTA_COLORS } from '@/lib/constants'
 import {
-  ArrowLeft, AlertCircle, Check, X, Loader2, Truck,
+  ArrowLeft, AlertCircle, Check, X, Loader2, Truck, FileText,
 } from 'lucide-react'
 import {
   confirmarSalidaDespachoAction, recibirDespachoAction, cancelarDespachoAction,
@@ -33,45 +30,32 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const [cantidades, setCantidades] = useState<Record<number, number>>(() => {
-    const init: Record<number, number> = {}
-    for (const det of despacho.detalles ?? []) {
-      init[det.id] = det.cantidad_cajas_solicitadas ?? 0
-    }
-    return init
-  })
 
-  const handleConfirmarSalida = () => {
+  const nota = (despacho as { nota?: { id: number; numero_nota: string; estado_codigo: string; estado_nombre: string | null; fecha_confirmacion: string | null } | null }).nota ?? null
+  const notaPendiente = nota && (nota.estado_codigo === 'PEND' || nota.estado_codigo === 'PROC')
+  const notaColor = (nota && ESTADO_NOTA_COLORS[nota.estado_codigo]) ?? 'bg-gray-100 text-gray-800'
+
+  const runAction = (fn: (id: number) => Promise<{ success: boolean; error?: string }>) => {
     setError(null)
     startTransition(async () => {
-      const r = await confirmarSalidaDespachoAction(despacho.id)
+      const r = await fn(despacho.id)
       if (!r.success) { setError(r.error ?? 'Error.'); return }
       router.refresh()
     })
   }
 
   const handleRecibir = () => {
-    setError(null)
-    startTransition(async () => {
-      const r = await recibirDespachoAction(despacho.id, cantidades)
-      if (!r.success) { setError(r.error ?? 'Error.'); return }
-      router.refresh()
-    })
+    const destino = despacho.bodega_destino?.nombre ?? 'destino'
+    if (!confirm(`¿Confirmar el traslado ${nota?.numero_nota ?? ''}? Se moverá el stock a ${destino}.`)) return
+    runAction(recibirDespachoAction)
   }
 
   const handleCancelar = () => {
     if (!confirm('¿Cancelar este despacho?')) return
-    setError(null)
-    startTransition(async () => {
-      const r = await cancelarDespachoAction(despacho.id)
-      if (!r.success) { setError(r.error ?? 'Error.'); return }
-      router.refresh()
-    })
+    runAction(cancelarDespachoAction)
   }
 
-  const totalSolicitadas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_solicitadas ?? 0), 0) ?? 0
-  const totalCargadas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_cargadas ?? 0), 0) ?? 0
-  const totalRecibidas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_recibidas ?? 0), 0) ?? 0
+  const totalCajas = despacho.detalles?.reduce((a, d) => a + (d.cantidad_cajas_solicitadas ?? 0), 0) ?? 0
 
   return (
     <div className="space-y-6">
@@ -94,27 +78,22 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
         </div>
 
         <div className="flex items-center gap-2">
-          {despacho.estado === 'Programado' && (
-            <>
-              <Button variant="outline" size="sm" onClick={handleCancelar} disabled={isPending}>
-                <X className="h-3.5 w-3.5 mr-1" /> Cancelar
-              </Button>
-              <Button size="sm" onClick={handleConfirmarSalida} disabled={isPending}>
-                {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                <Truck className="h-3.5 w-3.5 mr-1" /> Confirmar salida
-              </Button>
-            </>
+          {despacho.estado !== 'Recibido' && despacho.estado !== 'Cancelado' && (
+            <Button variant="outline" size="sm" onClick={handleCancelar} disabled={isPending}>
+              <X className="h-3.5 w-3.5 mr-1" /> Cancelar
+            </Button>
           )}
-          {despacho.estado === 'En Tránsito' && (
-            <>
-              <Button variant="outline" size="sm" onClick={handleCancelar} disabled={isPending}>
-                <X className="h-3.5 w-3.5 mr-1" /> Cancelar
-              </Button>
-              <Button size="sm" onClick={handleRecibir} disabled={isPending}>
-                {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                <Check className="h-3.5 w-3.5 mr-1" /> Recibir en bodega
-              </Button>
-            </>
+          {despacho.estado === 'Programado' && (
+            <Button variant="outline" size="sm" onClick={() => runAction(confirmarSalidaDespachoAction)} disabled={isPending}>
+              {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              <Truck className="h-3.5 w-3.5 mr-1" /> Confirmar salida
+            </Button>
+          )}
+          {notaPendiente && despacho.estado !== 'Cancelado' && (
+            <Button size="sm" onClick={handleRecibir} disabled={isPending}>
+              {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              <Check className="h-3.5 w-3.5 mr-1" /> Confirmar traslado
+            </Button>
           )}
         </div>
       </div>
@@ -153,17 +132,61 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Cajas totales</span>
-              <p className="text-2xl font-black tabular-nums">{totalSolicitadas}</p>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Recibidas</span>
-              <p className="text-2xl font-black tabular-nums">{totalRecibidas}</p>
+              <p className="text-2xl font-black tabular-nums">{totalCajas}</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Detalles */}
+      {/* Nota vinculada (referencia permanente) */}
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <FileText className="h-4 w-4" /> Nota de traslado vinculada
+        </CardTitle></CardHeader>
+        <CardContent>
+          {!nota ? (
+            <p className="text-sm text-muted-foreground">
+              Sin nota vinculada (despacho histórico anterior al traslado único).
+            </p>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+              <div className="flex items-center gap-3">
+                <span className="font-mono font-bold">{nota.numero_nota}</span>
+                <Badge variant="secondary" className={`text-xs ${notaColor}`}>
+                  {nota.estado_nombre ?? nota.estado_codigo}
+                </Badge>
+                {nota.fecha_confirmacion && (
+                  <span className="text-xs text-muted-foreground">
+                    Confirmada: <Fecha valor={nota.fecha_confirmacion} formato="fecha-hora" />
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={ADMIN_ROUTES.inventario.notaDetalle(nota.id)}>
+                    Ver nota
+                  </Link>
+                </Button>
+                {notaPendiente && despacho.estado !== 'Cancelado' && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={ADMIN_ROUTES.inventario.notaDetalle(nota.id)}>
+                      Editar en notas
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {notaPendiente && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Nota creada en pendiente (borrador): revisa la mercancía en notas. Al confirmarla se moverá el stock
+              ({despacho.bodega_origen?.nombre ?? 'origen'} → {despacho.bodega_destino?.nombre ?? 'destino'}).
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Productos (solo lectura: se edita en la nota) */}
       <Card>
         <CardHeader><CardTitle className="text-base">Productos</CardTitle></CardHeader>
         <CardContent>
@@ -172,16 +195,13 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
               <TableRow>
                 <TableHead>SKU</TableHead>
                 <TableHead>Producto</TableHead>
-                <TableHead className="text-right">Solicitadas</TableHead>
-                <TableHead className="text-right">Cargadas</TableHead>
-                <TableHead className="text-right">Recibidas</TableHead>
-                {despacho.estado === 'En Tránsito' && <TableHead className="text-right w-24">Recibir</TableHead>}
+                <TableHead className="text-right">Cajas</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(!despacho.detalles || despacho.detalles.length === 0) ? (
                 <TableRow>
-                  <TableCell colSpan={despacho.estado === 'En Tránsito' ? 6 : 5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
                     Sin productos
                   </TableCell>
                 </TableRow>
@@ -189,25 +209,16 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
                 despacho.detalles.map((det: any) => (
                   <TableRow key={det.id}>
                     <TableCell className="font-mono text-xs">{det.producto_sku ?? '—'}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{det.producto_nombre ?? '—'}</TableCell>
+                    <TableCell className="max-w-[260px] truncate">{det.producto_nombre ?? '—'}</TableCell>
                     <TableCell className="text-right tabular-nums">{det.cantidad_cajas_solicitadas}</TableCell>
-                    <TableCell className="text-right tabular-nums">{det.cantidad_cajas_cargadas ?? '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{det.cantidad_cajas_recibidas ?? '—'}</TableCell>
-                    {despacho.estado === 'En Tránsito' && (
-                      <TableCell>
-                        <Input
-                          type="number" min={0} max={det.cantidad_cajas_solicitadas ?? 0}
-                          value={cantidades[det.id] ?? det.cantidad_cajas_solicitadas ?? 0}
-                          onChange={(e) => setCantidades(prev => ({ ...prev, [det.id]: parseInt(e.target.value) || 0 }))}
-                          className="w-20 h-8 text-right ml-auto"
-                        />
-                      </TableCell>
-                    )}
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
+          <p className="text-xs text-muted-foreground mt-3">
+            Solo lectura: las cantidades se editan en la nota vinculada.
+          </p>
         </CardContent>
       </Card>
     </div>

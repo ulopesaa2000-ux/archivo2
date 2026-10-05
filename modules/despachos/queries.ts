@@ -202,6 +202,8 @@ export async function fetchDespachos(
 
   const rows = (data ?? []) as unknown as DespachoQueryRow[]
 
+  const mapaNotas = await fetchMapaNotasDespacho(rows.map((d) => d.id))
+
   const items: DespachoListaItem[] = rows.map((d) => {
     const detalles = Array.isArray(d.detalles) ? d.detalles : []
     const totSolicitadas = detalles.reduce(
@@ -242,10 +244,141 @@ export async function fetchDespachos(
       total_cajas_cargadas: totCargadas,
       total_cajas_recibidas: totRecibidas,
       created_at: d.created_at,
+      nota_id: mapaNotas.get(d.id)?.id ?? null,
+      nota_numero: mapaNotas.get(d.id)?.numero_nota ?? null,
+      nota_estado_codigo: mapaNotas.get(d.id)?.estado_codigo ?? null,
     }
   })
 
   return { items, total: count ?? 0 }
+}
+
+// ════════════════════════════════════════════════════════════
+// DETALLE DE DESPACHO CON PRODUCTOS
+// ════════════════════════════════════════════════════════════
+
+export type NotaTraspasoDespacho = {
+  id: number
+  numero_nota: string
+  estado_codigo: string
+  estado_nombre: string | null
+  fecha_confirmacion: string | null
+  total_cajas: number | null
+} | null
+
+/**
+ * Nota TRF vinculada a un despacho por convención
+ * nota_referencia = 'Despacho <id>' (sin columnas nuevas en BD).
+ */
+export async function fetchNotaTraspasoDespacho(
+  despachoId: number
+): Promise<NotaTraspasoDespacho> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_confirmacion, total_cajas,
+      tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo, nombre )
+    `)
+    .eq('nota_referencia', `Despacho ${despachoId}`)
+    .order('id', { ascending: false })
+    .limit(10)
+
+  if (error || !data) return null
+
+  const rows = data as unknown as {
+    id: number
+    numero_nota: string
+    fecha_confirmacion: string | null
+    total_cajas: number | null
+    tipo: { codigo: string } | { codigo: string }[] | null
+    estado: { codigo: string; nombre: string | null } | { codigo: string; nombre: string | null }[] | null
+  }[]
+
+  const trf = rows.find((r) => {
+    const t = Array.isArray(r.tipo) ? r.tipo[0] : r.tipo
+    return t?.codigo === 'TRF'
+  })
+  // Fallback histórico: despachos viejos usaban par SAL/ENT
+  const row = trf ?? rows[0]
+  if (!row) return null
+
+  const est = Array.isArray(row.estado) ? row.estado[0] : row.estado
+  return {
+    id: row.id,
+    numero_nota: row.numero_nota,
+    estado_codigo: est?.codigo ?? '',
+    estado_nombre: est?.nombre ?? null,
+    fecha_confirmacion: row.fecha_confirmacion,
+    total_cajas: row.total_cajas,
+  }
+}
+
+/**
+ * Mapa despacho_id → nota vinculada (para el listado, una sola consulta).
+ */
+export async function fetchMapaNotasDespacho(
+  despachoIds: number[]
+): Promise<Map<number, NonNullable<NotaTraspasoDespacho>>> {
+  const mapa = new Map<number, NonNullable<NotaTraspasoDespacho>>()
+  if (despachoIds.length === 0) return mapa
+
+  const supabase = await createClient()
+  const referencias = despachoIds.map((id) => `Despacho ${id}`)
+
+  const { data, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, nota_referencia, fecha_confirmacion, total_cajas,
+      tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo, nombre )
+    `)
+    .in('nota_referencia', referencias)
+
+  if (error || !data) return mapa
+
+  const rows = data as unknown as {
+    id: number
+    numero_nota: string
+    nota_referencia: string | null
+    fecha_confirmacion: string | null
+    total_cajas: number | null
+    tipo: { codigo: string } | { codigo: string }[] | null
+    estado: { codigo: string; nombre: string | null } | { codigo: string; nombre: string | null }[] | null
+  }[]
+
+  // Preferir TRF; si no hay, la más reciente (histórico SAL/ENT)
+  const porDespacho = new Map<number, typeof rows>()
+  for (const r of rows) {
+    const match = /^Despacho (\d+)$/.exec(r.nota_referencia ?? '')
+    if (!match) continue
+    const did = Number(match[1])
+    const list = porDespacho.get(did) ?? []
+    list.push(r)
+    porDespacho.set(did, list)
+  }
+
+  for (const [did, list] of porDespacho) {
+    const trf = list.find((r) => {
+      const t = Array.isArray(r.tipo) ? r.tipo[0] : r.tipo
+      return t?.codigo === 'TRF'
+    })
+    const row = trf ?? list.sort((a, b) => b.id - a.id)[0]
+    if (!row) continue
+    const est = Array.isArray(row.estado) ? row.estado[0] : row.estado
+    mapa.set(did, {
+      id: row.id,
+      numero_nota: row.numero_nota,
+      estado_codigo: est?.codigo ?? '',
+      estado_nombre: est?.nombre ?? null,
+      fecha_confirmacion: row.fecha_confirmacion,
+      total_cajas: row.total_cajas,
+    })
+  }
+
+  return mapa
 }
 
 // ════════════════════════════════════════════════════════════
@@ -327,5 +460,6 @@ export async function fetchDespachoById(despachoId: number) {
         : typedData.bodega_destino
       : null,
     detalles: detallesProcesados,
+    nota: await fetchNotaTraspasoDespacho(despachoId),
   }
 }
