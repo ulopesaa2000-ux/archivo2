@@ -24,6 +24,9 @@ export type DespachoListaItem = {
   total_cajas_cargadas: number | null
   total_cajas_recibidas: number | null
   created_at: string | null
+  nota_id: number | null
+  nota_numero: string | null
+  nota_estado_codigo: string | null
 }
 
 // ── Para el formulario de creación ──────────────────────────

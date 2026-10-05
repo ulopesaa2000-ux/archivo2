@@ -4,6 +4,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { confirmarNotaAction, cancelarNotaAction } from '@/modules/inventario/actions'
+import { fetchNotaTraspasoDespacho } from './queries'
 import type { DespachoFormData } from './types'
 import type { CrearNotaResponse } from '@/lib/types/tables'
 
@@ -11,12 +13,19 @@ export type ActionResult = {
   success: boolean
   error?: string
   despacho_id?: number
+  nota_id?: number
+  numero_nota?: string
 }
 
 // ════════════════════════════════════════════════════════════
-// CREAR DESPACHO + NOTA SALIDA (virtual) + NOTA ENTRADA (física)
+// CREAR DESPACHO + NOTA TRASPASO ÚNICA (PEND, modo solo cajas)
 // ════════════════════════════════════════════════════════════
 
+/**
+ * Un despacho es UN solo traslado: nota TRF bodega virtual → física.
+ * La nota nace en PEND (borrador, como en notas): no mueve stock hasta
+ * confirmarse. La edición de líneas y la confirmación ocurren en la nota.
+ */
 export async function crearDespachoAction(
   data: DespachoFormData
 ): Promise<ActionResult> {
@@ -35,21 +44,41 @@ export async function crearDespachoAction(
   if (data.productos.length === 0) {
     return { success: false, error: 'Agrega al menos un producto al despacho.' }
   }
+  if (data.productos.some((p) => p.cantidad_cajas <= 0)) {
+    return { success: false, error: 'Todas las cantidades deben ser mayores a 0.' }
+  }
 
-  // Obtener tipo de movimiento SAL (Salida) y ENT (Entrada)
-  const { data: tipoSal } = await supabase
+  // Tipo de movimiento TRF (traslado único origen → destino)
+  const { data: tipoTrf } = await supabase
     .from('cat_tipos_movimiento')
     .select('id')
-    .eq('codigo', 'SAL')
-    .single()
-  const { data: tipoEnt } = await supabase
-    .from('cat_tipos_movimiento')
-    .select('id')
-    .eq('codigo', 'ENT')
+    .eq('codigo', 'TRF')
     .single()
 
-  if (!tipoSal || !tipoEnt) {
-    return { success: false, error: 'No se encontraron los tipos de movimiento SAL o ENT.' }
+  if (!tipoTrf) {
+    return { success: false, error: 'No se encontró el tipo de movimiento TRF.' }
+  }
+
+  // Pre-chequeo de disponible en origen (mensaje claro temprano;
+  // el trigger es la verdad final al confirmar)
+  const { data: stockOrigen } = await supabase
+    .from('inventario_stock')
+    .select('producto_id, cajas')
+    .eq('bodega_id', data.bodega_origen_id)
+    .in('producto_id', data.productos.map((p) => p.producto_id))
+
+  const disponible = new Map<number, number>()
+  for (const row of (stockOrigen ?? [])) {
+    disponible.set(row.producto_id, (disponible.get(row.producto_id) ?? 0) + Number(row.cajas ?? 0))
+  }
+  const faltantes = data.productos.filter(
+    (p) => (disponible.get(p.producto_id) ?? 0) < p.cantidad_cajas
+  )
+  if (faltantes.length > 0) {
+    return {
+      success: false,
+      error: `Stock insuficiente en bodega origen para ${faltantes.length} producto(s). Revisa las cantidades.`,
+    }
   }
 
   // ── 1. Crear despacho ───────────────────────────────────
@@ -87,34 +116,34 @@ export async function crearDespachoAction(
     }
   }
 
-  // ── 3. Crear nota SALIDA en bodega virtual (CONF automática) ──
-  const { data: notaSalData, error: notaSalError } = await supabase.rpc('sp_crear_nota', {
-    p_tipo_movimiento_id: tipoSal.id,
+  // ── 3. Crear nota TRASPASO única en PEND (borrador) ─────────
+  // No se confirma aquí: queda en "Por Confirmar" como en notas, hasta
+  // revisar la mercancía. Al confirmarse, el trigger descuenta origen y
+  // suma destino en un solo movimiento.
+  const { data: notaData, error: notaError } = await supabase.rpc('sp_crear_nota', {
+    p_tipo_movimiento_id: tipoTrf.id,
     p_bodega_origen_id: data.bodega_origen_id,
     p_bodega_destino_id: data.bodega_destino_id,
     p_usuario_id: user.id,
     p_nota_referencia: `Despacho ${despachoId}`,
-    p_observaciones: `Despacho desde bodega virtual a física. Despacho ID: ${despachoId}`,
+    p_observaciones: `Traslado de despacho ${despachoId} a bodega física. Solo cajas, piezas 0.`,
   })
 
-  if (notaSalError) {
-    return { success: false, error: `Error al crear nota de salida: ${notaSalError.message}` }
+  if (notaError) {
+    return { success: false, error: `Error al crear nota de traslado: ${notaError.message}` }
   }
 
-  const notaSalResult = (Array.isArray(notaSalData) ? notaSalData[0] : notaSalData) as CrearNotaResponse | null
-  const notaSalId = notaSalResult?.nota_id
+  const notaResult = (Array.isArray(notaData) ? notaData[0] : notaData) as CrearNotaResponse | null
+  const notaId = notaResult?.nota_id
 
-  if (!notaSalId) {
-    return { success: false, error: 'No se pudo obtener el ID de la nota de salida.' }
+  if (!notaId) {
+    return { success: false, error: 'No se pudo obtener el ID de la nota de traslado.' }
   }
 
-  // Agregar productos a nota SAL con cantidades negativas (salida)
-  // Espera... sp_agregar_producto_nota usa cajas como cantidad positiva
-  // pero como es SAL, el trigger fn_procesar_nota_inventario ya maneja la lógica
-  // del tipo de movimiento. Entonces pasamos cajas positivas.
+  // Solo cajas, piezas 0 (modo solo cajas)
   for (const prod of data.productos) {
     const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
-      p_nota_id: notaSalId,
+      p_nota_id: notaId,
       p_cajas: prod.cantidad_cajas,
       p_producto_id: prod.producto_id,
       p_variante_id: undefined,
@@ -122,70 +151,20 @@ export async function crearDespachoAction(
       p_caja_id: prod.caja_id || undefined,
     })
     if (prodError) {
-      return { success: false, error: `Error en nota de salida: ${prodError.message}` }
+      return { success: false, error: `Error en nota de traslado: ${prodError.message}` }
     }
   }
 
-  // Confirmar nota SAL inmediatamente (para descargar stock virtual)
-  const { data: estadoConf } = await supabase
-    .from('cat_estados_nota')
-    .select('id')
-    .eq('codigo', 'CONF')
-    .single()
-
-  if (estadoConf) {
-    await supabase
-      .from('notas_inventario')
-      .update({ estado_id: estadoConf.id })
-      .eq('id', notaSalId)
-  }
-
-  // ── 4. Crear nota ENTRADA en bodega física (PEND) ─────────
-  const { data: notaEntData, error: notaEntError } = await supabase.rpc('sp_crear_nota', {
-    p_tipo_movimiento_id: tipoEnt.id,
-    p_bodega_origen_id: data.bodega_destino_id,
-    p_bodega_destino_id: null as any,
-    p_usuario_id: user.id,
-    p_nota_referencia: `Despacho ${despachoId}`,
-    p_observaciones: `Recepción pendiente del despacho ${despachoId}. Confirmar al recibir físicamente.`,
-  })
-
-  if (notaEntError) {
-    return { success: false, error: `Error al crear nota de entrada: ${notaEntError.message}` }
-  }
-
-  const notaEntResult = (Array.isArray(notaEntData) ? notaEntData[0] : notaEntData) as CrearNotaResponse | null
-  const notaEntId = notaEntResult?.nota_id
-
-  if (!notaEntId) {
-    return { success: false, error: 'No se pudo obtener el ID de la nota de entrada.' }
-  }
-
-  for (const prod of data.productos) {
-    const { error: prodError } = await supabase.rpc('sp_agregar_producto_nota', {
-      p_nota_id: notaEntId,
-      p_cajas: prod.cantidad_cajas,
-      p_producto_id: prod.producto_id,
-      p_variante_id: undefined,
-      p_piezas_sueltas: 0,
-      p_caja_id: prod.caja_id || undefined,
-    })
-    if (prodError) {
-      return { success: false, error: `Error en nota de entrada: ${prodError.message}` }
-    }
-  }
-
-  // Nota ENT queda en PEND hasta que se reciba físicamente en bodega
-
+  // La nota queda en PEND (borrador). Revalidar para verla en "Por Confirmar".
   revalidatePath('/despachos')
   revalidatePath('/inventario/notas')
   revalidatePath('/inventario/stock')
 
-  return { success: true, despacho_id: despachoId }
+  return { success: true, despacho_id: despachoId, nota_id: notaId, numero_nota: notaResult?.numero_nota }
 }
 
 // ════════════════════════════════════════════════════════════
-// CONFIRMAR SALIDA (cambiar estado a "En Tránsito")
+// CONFIRMAR SALIDA (cambiar estado a "En Tránsito" — solo logístico)
 // ════════════════════════════════════════════════════════════
 
 export async function confirmarSalidaDespachoAction(
@@ -214,31 +193,38 @@ export async function confirmarSalidaDespachoAction(
 }
 
 // ════════════════════════════════════════════════════════════
-// RECIBIR EN BODEGA FÍSICA (confirmar nota ENT)
+// RECIBIR EN BODEGA FÍSICA (confirmar nota TRF vinculada)
 // ════════════════════════════════════════════════════════════
 
+/**
+ * La edición de cajas ocurre en la nota (como una nota normal).
+ * Aquí solo se confirma su traslado: PEND/PROC → CONF mueve el stock
+ * (descuenta virtual, suma física) en un solo movimiento.
+ */
 export async function recibirDespachoAction(
-  despachoId: number,
-  cantidadesRecibidas: Record<number, number> // detalle_id -> cantidad_recibida
+  despachoId: number
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
 
-  // 1. Actualizar cantidades recibidas en detalles
-  for (const [detalleId, cantidad] of Object.entries(cantidadesRecibidas)) {
-    const { error } = await supabase
-      .from('despachos_detalles')
-      .update({ cantidad_cajas_recibidas: cantidad })
-      .eq('id', parseInt(detalleId))
-
-    if (error) {
-      return { success: false, error: `Error al actualizar detalle: ${error.message}` }
-    }
+  const nota = await fetchNotaTraspasoDespacho(despachoId)
+  if (!nota) {
+    return { success: false, error: 'El despacho no tiene nota de traslado vinculada.' }
+  }
+  if (nota.estado_codigo === 'CANC') {
+    return { success: false, error: `La nota ${nota.numero_nota} está cancelada.` }
   }
 
-  // 2. Cambiar estado del despacho
+  if (nota.estado_codigo === 'PEND' || nota.estado_codigo === 'PROC') {
+    const conf = await confirmarNotaAction(nota.id)
+    if (!conf.success) {
+      return { success: false, error: conf.error ?? 'No se pudo confirmar el traslado.' }
+    }
+  }
+  // Si ya estaba CONF (confirmada desde notas), solo se alinea el despacho.
+
   const { error: updError } = await supabase
     .from('despachos')
     .update({
@@ -251,35 +237,6 @@ export async function recibirDespachoAction(
     return { success: false, error: updError.message }
   }
 
-  // 3. Buscar y confirmar la nota de entrada asociada
-  const { data: notaEnt } = await supabase
-    .from('notas_inventario')
-    .select('id')
-    .ilike('nota_referencia', `Despacho ${despachoId}`)
-    .eq('tipo_movimiento_id', 1) // ENT
-    .eq('estado_id', 1) // PEND
-    .single()
-
-  if (notaEnt) {
-    const { data: estadoConf } = await supabase
-      .from('cat_estados_nota')
-      .select('id')
-      .eq('codigo', 'CONF')
-      .single()
-
-    if (estadoConf) {
-      const { error: confError } = await supabase
-        .from('notas_inventario')
-        .update({ estado_id: estadoConf.id })
-        .eq('id', notaEnt.id)
-
-      if (confError) {
-        // No es crítico que falle, se puede confirmar manualmente
-        console.error('Error confirmando nota entrada:', confError)
-      }
-    }
-  }
-
   revalidatePath(`/despachos/${despachoId}`)
   revalidatePath('/despachos')
   revalidatePath('/inventario/notas')
@@ -289,7 +246,7 @@ export async function recibirDespachoAction(
 }
 
 // ════════════════════════════════════════════════════════════
-// CANCELAR DESPACHO
+// CANCELAR DESPACHO (cascada solo si la nota sigue pendiente)
 // ════════════════════════════════════════════════════════════
 
 export async function cancelarDespachoAction(
@@ -299,6 +256,19 @@ export async function cancelarDespachoAction(
   if (!user) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
+
+  const nota = await fetchNotaTraspasoDespacho(despachoId)
+  if (nota && (nota.estado_codigo === 'PEND' || nota.estado_codigo === 'PROC')) {
+    const canc = await cancelarNotaAction(nota.id, `Cancelación del despacho ${despachoId}`)
+    if (!canc.success) {
+      return { success: false, error: canc.error ?? 'No se pudo cancelar la nota de traslado.' }
+    }
+  } else if (nota && nota.estado_codigo !== 'CANC') {
+    return {
+      success: false,
+      error: `La nota ${nota.numero_nota} ya está confirmada y movió stock; no se puede cancelar el despacho.`,
+    }
+  }
 
   const { error } = await supabase
     .from('despachos')
@@ -311,5 +281,6 @@ export async function cancelarDespachoAction(
 
   revalidatePath(`/despachos/${despachoId}`)
   revalidatePath('/despachos')
+  revalidatePath('/inventario/notas')
   return { success: true }
 }

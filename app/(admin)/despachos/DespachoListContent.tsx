@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Fecha } from '@/components/shared/Fecha'
-import { ADMIN_ROUTES, PAGE_SIZE } from '@/lib/constants'
+import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, PAGE_SIZE } from '@/lib/constants'
 import { Plus, Search, ArrowRight, Loader2 } from 'lucide-react'
 import type { DespachoListaItem, FiltrosDespacho } from '@/modules/despachos/types'
 
@@ -95,6 +95,7 @@ export function DespachoListContent({
               <TableHead>Origen</TableHead>
               <TableHead>Destino</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Nota</TableHead>
               <TableHead className="text-right">Cajas</TableHead>
               <TableHead>Chofer</TableHead>
               <TableHead>Programado</TableHead>
@@ -104,7 +105,7 @@ export function DespachoListContent({
           <TableBody>
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   No hay despachos registrados
                 </TableCell>
               </TableRow>
@@ -118,6 +119,15 @@ export function DespachoListContent({
                     <Badge className={ESTADO_COLORS[d.estado ?? ''] ?? ''}>
                       {ESTADO_LABELS[d.estado ?? ''] ?? d.estado}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {d.nota_numero ? (
+                      <Badge variant="secondary" className={`text-[10px] font-mono ${ESTADO_NOTA_COLORS[d.nota_estado_codigo ?? ''] ?? ''}`}>
+                        {d.nota_numero}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {d.total_cajas_solicitadas}
