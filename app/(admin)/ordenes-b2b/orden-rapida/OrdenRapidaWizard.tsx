@@ -1,9 +1,9 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\orden-rapida\OrdenRapidaWizard.tsx
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, memo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -37,7 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
-import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction } from '@/modules/ordenes-b2b/actions'
+import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction } from '@/modules/ordenes-b2b/actions'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
@@ -751,6 +751,55 @@ function ComparisonBadge({
   )
 }
 
+// Celda de edición SKU con estado local: teclea letra por letra sin re-render
+// del wizard (el padre solo recibe el valor al confirmar con blur/Enter).
+const SkuEditCell = memo(function SkuEditCell({
+  value,
+  onCommit,
+  placeholder,
+  className,
+}: {
+  value: string
+  onCommit: (v: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  const [draft, setDraft] = useState(value)
+  const committedRef = useRef(value)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (inputRef.current && inputRef.current === document.activeElement) return
+    committedRef.current = value
+    setDraft(value)
+  }, [value])
+  return (
+    <Textarea
+      ref={inputRef}
+      rows={2}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== committedRef.current) {
+          committedRef.current = draft
+          onCommit(draft)
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault()
+          ;(e.target as HTMLTextAreaElement).blur()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          setDraft(committedRef.current)
+          ;(e.target as HTMLTextAreaElement).blur()
+        }
+      }}
+      placeholder={placeholder}
+      className={className}
+    />
+  )
+})
+
 export function OrdenRapidaWizard({
   proveedores,
   clientes,
@@ -889,6 +938,10 @@ export function OrdenRapidaWizard({
   // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
   const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
+  // Búsqueda BD bajo demanda por fila (lápiz 🔍): temp_id en curso
+  const [buscandoDb, setBuscandoDb] = useState<Set<string>>(new Set())
+  // Fila en modo edición de SKU aunque ya esté vinculada (temp_id o fallback índice)
+  const [editandoSku, setEditandoSku] = useState<string | null>(null)
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -906,6 +959,8 @@ export function OrdenRapidaWizard({
     setLineaEditadaPorSku({})
     setEditLineaSku(null)
     setPrincipalPorSku({})
+    setBuscandoDb(new Set())
+    setEditandoSku(null)
     setProgress(0)
     setProgressMsg('')
   }
@@ -944,6 +999,7 @@ export function OrdenRapidaWizard({
     }
 
     const newProd: WizardProducto = {
+      temp_id: `temp_manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       sku_base: cleanSku,
       sku_raw: cleanSku,
       nombre: newDesc.trim() || cleanSku,
@@ -963,7 +1019,7 @@ export function OrdenRapidaWizard({
     setNewPrecio('')
 
     const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
-    verificarSkusEnBDAction([cleanSku], proveedorActual?.nombre_completo).then((res) => {
+    verificarSkusEnBDAction([cleanSku], proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
       if (res.success && res.skusExistentes.length > 0) {
         setDbSkusSet((prev) => new Set([...Array.from(prev), cleanSku.toUpperCase()]))
         if (res.skuMap && res.skuMap[cleanSku.toUpperCase()]) {
@@ -1482,7 +1538,7 @@ export function OrdenRapidaWizard({
       const skusToCheck = enrichedProductos.map(p => p.sku_base)
       if (skusToCheck.length > 0) {
         setIsCheckingDbSkus(true)
-        verificarSkusEnBDAction(skusToCheck, proveedorActual?.nombre_completo).then((res) => {
+        verificarSkusEnBDAction(skusToCheck, proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
           if (res.success && res.skusExistentes) {
             const allMatched = new Set(res.skusExistentes.map(s => s.toUpperCase()))
             if (res.skuMap) {
@@ -1575,6 +1631,125 @@ export function OrdenRapidaWizard({
         String(p.sku_base || '').trim().toUpperCase() === up ? { ...p, es_nuevo: true } : p
       )
     )
+  }
+
+  // Commit de edición SKU (desde SkuEditCell): un solo update + cascada por temp_id.
+  const commitSkuEdit = (producto: WizardProducto, index: number, newSkuVal: string) => {
+    const oldSku = producto.sku_base
+    const targetTempId = producto.temp_id
+    setEditandoSku(null)
+    if (newSkuVal === oldSku) return
+    setEditableProductos((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, sku_base: newSkuVal } : item
+      )
+    )
+    setEditableCajas((prev) =>
+      prev.map((c) => {
+        if ((targetTempId && c.producto_temp_id === targetTempId) || (oldSku && c.sku_base === oldSku)) {
+          return { ...c, sku_base: newSkuVal, producto_temp_id: targetTempId || c.producto_temp_id }
+        }
+        return c
+      })
+    )
+    const oldUp = String(oldSku || '').trim().toUpperCase()
+    const newUp = String(newSkuVal || '').trim().toUpperCase()
+    if (oldUp === newUp || !newUp) return
+    setVinculosDb((prev) => {
+      if (!(oldUp in prev)) return prev
+      const next = { ...prev }
+      delete next[oldUp]
+      return next
+    })
+    // Re-verificación inmediata del SKU corregido (p.ej. H026/07HC -> HO26/07HC)
+    const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+    verificarSkusEnBDAction([newSkuVal], proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
+      if (!res.success) return
+      setDbSkusSet((prev) => {
+        const next = new Set(prev)
+        next.delete(oldUp)
+        for (const s of res.skusExistentes) next.add(String(s).toUpperCase())
+        if (res.skuMap) Object.values(res.skuMap).forEach((s) => next.add(String(s).toUpperCase()))
+        return next
+      })
+      setProbablesDb((prev) => {
+        const sin = new Set([oldUp, newUp])
+        const base = prev.filter((p) => !sin.has(String(p.inputSku).trim().toUpperCase()))
+        return [...base, ...(res.probables ?? [])]
+      })
+      if (res.skusExistentes.length > 0) {
+        toast.success(`"${newSkuVal}" encontrado en BD. Vinculado.`)
+      }
+    })
+  }
+
+  // Lápiz 🔍: búsqueda bajo demanda del SKU de la fila directo en BD.
+  const handleBuscarSkuEnBD = async (producto: WizardProducto, index: number) => {
+    void index
+    const rowKey = producto.temp_id || String(producto.sku_base || '').trim().toUpperCase() || `idx-${index}`
+    const skuActual = String(producto.sku_base || '').trim()
+    if (!skuActual || buscandoDb.has(rowKey)) return
+    setBuscandoDb((prev) => new Set(prev).add(rowKey))
+    try {
+      const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+      const res = await buscarSkuEnBDAction(
+        skuActual,
+        proveedorActual?.nombre_completo,
+        proveedorActual ? Number(proveedorActual.id) : null,
+      )
+      const up = skuActual.toUpperCase()
+      if (res.exacto) {
+        const ex = res.exacto
+        setDbSkusSet((prev) => new Set([...prev, up, String(ex.dbSku).toUpperCase()]))
+        setProbablesDb((prev) => prev.filter((p) => String(p.inputSku).trim().toUpperCase() !== up))
+        const marcaMatch = marcas.find((m) =>
+          (ex.marca_id && m.id === ex.marca_id) ||
+          (ex.marca_nombre && m.nombre.toUpperCase() === ex.marca_nombre.toUpperCase()),
+        )
+        setEditableProductos((prev) =>
+          prev.map((p) =>
+            (p.temp_id || String(p.sku_base || '')) === (producto.temp_id || String(producto.sku_base || ''))
+              ? {
+                ...p,
+                producto_id: ex.id,
+                descripcion: ex.descripcion || p.descripcion,
+                nombre: ex.nombre || p.nombre,
+                composicion: ex.composicion || p.composicion,
+                precio_unitario_usd: ex.precio_usd || p.precio_unitario_usd,
+                marca_id: marcaMatch ? marcaMatch.id : (ex.marca_id ?? p.marca_id),
+                marca: marcaMatch ? marcaMatch.nombre : (ex.marca_nombre || p.marca),
+                es_nuevo: false,
+                force_new: false,
+              }
+              : p,
+          ),
+        )
+        toast.success(
+          ex.mismaPersona === false
+            ? `"${skuActual}" existe en BD como ${ex.dbSku} (otro proveedor). Vinculado.`
+            : `"${skuActual}" encontrado en BD (${ex.metodo}). Vinculado.`,
+        )
+      } else if (res.probables.length > 0) {
+        setProbablesDb((prev) => {
+          const base = prev.filter((p) => String(p.inputSku).trim().toUpperCase() !== up)
+          const nuevos = res.probables.filter(
+            (r) => !base.some((b) => String(b.inputSku).trim().toUpperCase() === up && b.dbId === r.dbId),
+          )
+          return [...base, ...nuevos]
+        })
+        toast.info(`"${skuActual}" sin exacto: ${res.probables.length} parecido(s) en BD. Elige uno con Sincronizar.`)
+      } else {
+        toast.info(`Sin coincidencias en BD para "${skuActual}" (motivo: ${res.motivo ?? 'SIN_CANDIDATOS'}). Se guardará como nuevo.`)
+      }
+    } catch {
+      toast.error('Error al buscar el SKU en la base de datos.')
+    } finally {
+      setBuscandoDb((prev) => {
+        const next = new Set(prev)
+        next.delete(rowKey)
+        return next
+      })
+    }
   }
 
   const handleConfirmReview = () => {
@@ -2396,6 +2571,7 @@ export function OrdenRapidaWizard({
                     <tbody className="divide-y divide-border/60">
                       {editableProductos.map((producto, index) => {
                         const skuUp = String(producto.sku_base || '').trim().toUpperCase()
+                        const rowSkuKey = producto.temp_id || `idx-${index}`
                         const dbMatch = dbSkusSet.has(skuUp)
                         const isForcedNew = Boolean(producto.force_new)
                         const isMatch = dbMatch && !isForcedNew
@@ -2414,7 +2590,7 @@ export function OrdenRapidaWizard({
 
                         return (
                           <tr
-                            key={`${producto.sku_base}-${index}`}
+                            key={producto.temp_id || `idx-${index}`}
                             className={cn(
                               "transition-colors",
                               isMatch
@@ -2547,39 +2723,48 @@ export function OrdenRapidaWizard({
                               </div>
                             </td>
 
-                            {/* 2. SKU Base (Textarea de 2 filas para SKUs largos) */}
-                            <td className="p-3 font-mono text-xs font-bold align-top">
-                              {(!isMatch || isForcedNew) ? (
-                                <Textarea
-                                  rows={2}
-                                  value={producto.sku_base}
-                                  onChange={(e) => {
-                                    const newSkuVal = e.target.value
-                                    const targetTempId = producto.temp_id
-                                    const oldSku = producto.sku_base
-
-                                    setEditableProductos((prev) =>
-                                      prev.map((item, itemIndex) =>
-                                        itemIndex === index ? { ...item, sku_base: newSkuVal } : item
-                                      )
-                                    )
-
-                                    setEditableCajas((prev) =>
-                                      prev.map((c) => {
-                                        if ((targetTempId && c.producto_temp_id === targetTempId) || (oldSku && c.sku_base === oldSku)) {
-                                          return { ...c, sku_base: newSkuVal, producto_temp_id: targetTempId || c.producto_temp_id }
-                                        }
-                                        return c
-                                      })
-                                    )
-                                  }}
-                                  placeholder="SKU Base..."
-                                  className="min-h-[52px] w-full min-w-[130px] font-mono text-xs font-bold bg-background/80 resize-none py-1.5 leading-snug"
-                                />
-                              ) : (
-                                <span className="text-foreground block break-words">{producto.sku_base}</span>
-                              )}
-                            </td>
+                              {/* 2. SKU Base (Textarea de 2 filas para SKUs largos) */}
+                              <td className="p-3 font-mono text-xs font-bold align-top">
+                                {(!isMatch || isForcedNew || editandoSku === rowSkuKey) ? (
+                                  <div className="space-y-1.5">
+                                    <SkuEditCell
+                                      value={producto.sku_base}
+                                      onCommit={(v) => commitSkuEdit(producto, index, v)}
+                                      placeholder="SKU Base..."
+                                      className="min-h-[52px] w-full min-w-[130px] font-mono text-xs font-bold bg-background/80 resize-none py-1.5 leading-snug"
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-5 px-1.5 text-[10px] gap-1 text-primary hover:bg-primary/10 font-bold"
+                                      onClick={() => handleBuscarSkuEnBD(producto, index)}
+                                      disabled={buscandoDb.has(rowSkuKey)}
+                                      title="Buscar este código directamente en la base de datos"
+                                    >
+                                      {buscandoDb.has(rowSkuKey)
+                                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                                        : <Search className="h-3 w-3" />}
+                                      <span>{buscandoDb.has(rowSkuKey) ? 'Buscando...' : 'Buscar en BD'}</span>
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <span className="text-foreground block break-words">{producto.sku_base}</span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-5 px-1.5 text-[10px] gap-1 text-muted-foreground hover:text-foreground font-bold underline"
+                                      onClick={() => setEditandoSku(rowSkuKey)}
+                                      title="Editar SKU manualmente"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                      <span>Editar</span>
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
 
                             {/* 3. Descripción / Nombre con Botón Auto-detectar */}
                             <td className="p-3 align-top">
