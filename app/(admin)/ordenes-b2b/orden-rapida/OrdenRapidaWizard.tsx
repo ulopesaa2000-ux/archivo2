@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\(admin)\ordenes-b2b\orden-rapida\OrdenRapidaWizard.tsx
 'use client'
 
-import { useState, useTransition, useMemo, memo, useEffect, useRef } from 'react'
+import { useState, useTransition, useMemo, memo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
@@ -139,6 +139,14 @@ type OrdenProductoResumen = {
   peso_bruto_total: number
 }
 
+type OrdenProductoPack = {
+  sku_base: string
+  nombre_pack: string
+  cajas_pedidas: number
+  piezas_pedidas: number
+  fuente?: string
+}
+
 type WizardParsedData = {
   orden: {
     estado: string
@@ -155,6 +163,7 @@ type WizardParsedData = {
   cajas: WizardCaja[]
   detalles: Array<Record<string, unknown>>
   warnings: WizardWarning[]
+  orden_productos_pack: OrdenProductoPack[]
   raw: unknown
 }
 
@@ -572,6 +581,15 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
     cajas,
     detalles: detallesRaw,
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    orden_productos_pack: Array.isArray((data as any).orden_productos_pack)
+      ? (data as any).orden_productos_pack.map((op: Record<string, any>) => ({
+        sku_base: String(op.sku_base ?? op.sku ?? ''),
+        nombre_pack: String(op.nombre_pack ?? 'PACK UNICO'),
+        cajas_pedidas: toNumber(op.cajas_pedidas),
+        piezas_pedidas: toNumber(op.piezas_pedidas),
+        fuente: toText((op as any).fuente),
+      })).filter((op: OrdenProductoPack) => op.sku_base)
+      : [],
     raw: payload,
   }
 }
@@ -935,6 +953,10 @@ export function OrdenRapidaWizard({
   const [lineaEditadaPorSku, setLineaEditadaPorSku] = useState<Record<string, number>>({})
   const [editLineaSku, setEditLineaSku] = useState<string | null>(null)
   const [editLineaVal, setEditLineaVal] = useState('')
+  // Línea editada por pack (skuUpper||packUpper -> cajas esperadas del pack).
+  const [lineaEditadaPorPack, setLineaEditadaPorPack] = useState<Record<string, number>>({})
+  const [editPackSku, setEditPackSku] = useState<string | null>(null)
+  const [editPackVal, setEditPackVal] = useState('')
   // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
   const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
@@ -958,6 +980,9 @@ export function OrdenRapidaWizard({
     setHuecosRellenados([])
     setLineaEditadaPorSku({})
     setEditLineaSku(null)
+    setLineaEditadaPorPack({})
+    setEditPackSku(null)
+    setEditPackVal('')
     setPrincipalPorSku({})
     setBuscandoDb(new Set())
     setEditandoSku(null)
@@ -1263,6 +1288,25 @@ export function OrdenRapidaWizard({
           cbm: op.cbm_total,
           peso: op.peso_bruto_total,
           pesoNeto: (op as any).peso_neto_total || (op as any).peso_neto,
+        })
+      }
+    }
+    return map
+  }, [parsedData])
+
+  // Líneas esperadas por (SKU, pack) del parser (portada) para revisión pack a pack.
+  const jsonPackPorSkuPack = useMemo(() => {
+    const map = new Map<string, { cajas: number; piezas: number; fuente: string }>()
+    const arr = (parsedData as any)?.orden_productos_pack
+    if (Array.isArray(arr)) {
+      for (const op of arr) {
+        const up = String(op?.sku_base || '').trim().toUpperCase()
+        const pp = String(op?.nombre_pack || 'PACK UNICO').trim().toUpperCase() || 'PACK UNICO'
+        if (!up) continue
+        map.set(`${up}||${pp}`, {
+          cajas: Number(op?.cajas_pedidas) || 0,
+          piezas: Number(op?.piezas_pedidas) || 0,
+          fuente: String(op?.fuente || ''),
         })
       }
     }
@@ -1764,15 +1808,25 @@ export function OrdenRapidaWizard({
   const doGuardarOrden = () => {
     // Bloqueo absoluto modo solo cajas: revalidar match de cajas (pudo editarse en paso 4)
     const matchFinal = calcularMatchCajasOrdenRapida()
-    if (!matchFinal.ok) {
+    const matchPacksFinal = calcularMatchPacks()
+    const fallasPacksFinal = matchPacksFinal.diffs.filter((d) => d.estado !== 'OK')
+    if (!matchFinal.ok || !matchPacksFinal.ok) {
       setCajasBlockModal({
         open: true,
         blocking: true,
-        items: matchFinal.diffs
-          .filter((d) => d.estado !== 'OK')
-          .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
+        items: [
+          ...matchFinal.diffs
+            .filter((d) => d.estado !== 'OK')
+            .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
+          ...fallasPacksFinal.map((d) => ({
+            sku: `${d.sku} · ${d.pack}`,
+            cajasEsperadas: d.linea,
+            cajasArmadas: d.armadas,
+            diferencia: d.dif,
+          })),
+        ],
       })
-      toast.error('Bloqueo modo cajas: hay líneas sin match con las cajas armadas.')
+      toast.error('Bloqueo modo cajas: hay líneas sin match con las cajas armadas (SKU o pack).')
       return
     }
     startTransition(async () => {
@@ -1809,7 +1863,9 @@ export function OrdenRapidaWizard({
   }
 
   // ── Línea esperada efectiva: lo editado prevalece sobre el JSON ──
-  const buscarEsperadasJson = (skuBase: string): number => {
+  // useCallback para que los memos de verificación sean en tiempo real sin
+  // falsos positivos del linter (toda la cadena comparte las mismas deps).
+  const buscarEsperadasJson = useCallback((skuBase: string): number => {
     const direct = jsonTotalesPorSku.get(skuBase)?.cajas
     if (typeof direct === 'number') return direct
     const up = String(skuBase || '').trim().toUpperCase()
@@ -1817,17 +1873,70 @@ export function OrdenRapidaWizard({
       if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
     }
     return 0
-  }
-  const lineaEsperada = (skuBase: string): number => {
+  }, [jsonTotalesPorSku])
+  const lineaEsperada = useCallback((skuBase: string): number => {
     const up = String(skuBase || '').trim().toUpperCase()
     if (lineaEditadaPorSku[up] != null) return lineaEditadaPorSku[up]
     return buscarEsperadasJson(skuBase)
-  }
+  }, [lineaEditadaPorSku, buscarEsperadasJson])
+
+  // ── Líneas y match por (SKU, pack): una línea por SKU, packs separados ──
+  // Lo editado prevalece sobre el JSON; sin datos de pack en el JSON no se evalúa.
+  const packKeyOf = (skuBase: string, pack: string): string =>
+    `${String(skuBase || '').trim().toUpperCase()}||${String(pack || 'PACK UNICO').trim().toUpperCase() || 'PACK UNICO'}`
+  const lineaPackEsperada = useCallback((skuBase: string, pack: string): number => {
+    const k = packKeyOf(skuBase, pack)
+    if (lineaEditadaPorPack[k] != null) return lineaEditadaPorPack[k]
+    return jsonPackPorSkuPack.get(k)?.cajas ?? 0
+  }, [lineaEditadaPorPack, jsonPackPorSkuPack])
+  const jsonPackTieneSku = useCallback((skuBase: string): boolean => {
+    const up = String(skuBase || '').trim().toUpperCase() + '||'
+    for (const k of jsonPackPorSkuPack.keys()) if (k.startsWith(up)) return true
+    return false
+  }, [jsonPackPorSkuPack])
+  type PackMatchDif = { sku: string; pack: string; linea: number; armadas: number; piezas: number; dif: number; estado: 'OK' | 'DIF' | 'SIN_CAJAS' | 'SIN_LINEA' }
+  const calcularMatchPacks = useCallback((): { ok: boolean; diffs: PackMatchDif[] } => {
+    const armados = new Map<string, { sku: string; pack: string; cajas: number; piezas: number }>()
+    for (const c of editableCajas) {
+      if (c.tipo_caja === 'padre_resumen') continue
+      const sku = String(c.sku_base || '').trim()
+      if (!sku) continue
+      const pack = String(c.nombre_pack || 'PACK UNICO')
+      const k = packKeyOf(sku, pack)
+      const prev = armados.get(k) ?? { sku, pack, cajas: 0, piezas: 0 }
+      prev.cajas += Number(c.cantidad_cajas ?? 0) || 0
+      prev.piezas += Number(c.total_piezas || (c.piezas_por_caja || 0) * (c.cantidad_cajas || 0))
+      armados.set(k, prev)
+    }
+    const keys = new Set<string>([...armados.keys()])
+    for (const k of jsonPackPorSkuPack.keys()) keys.add(k)
+    for (const k of Object.keys(lineaEditadaPorPack)) keys.add(k)
+    const diffs: PackMatchDif[] = []
+    for (const k of keys) {
+      const sep = k.indexOf('||')
+      const up = k.slice(0, sep)
+      const packUp = k.slice(sep + 2)
+      const arm = armados.get(k)
+      const armadas = arm?.cajas ?? 0
+      const piezas = arm?.piezas ?? 0
+      const skuLabel = arm?.sku || up
+      const packLabel = arm?.pack || packUp
+      const linea = lineaPackEsperada(skuLabel, packLabel)
+      if (linea <= 0 && !jsonPackTieneSku(skuLabel)) continue
+      const dif = linea - armadas
+      diffs.push({
+        sku: skuLabel, pack: packLabel, linea, armadas, piezas, dif,
+        estado: dif === 0 ? 'OK' : armadas === 0 && linea > 0 ? 'SIN_CAJAS' : linea === 0 ? 'SIN_LINEA' : 'DIF',
+      })
+    }
+    diffs.sort((a, b) => (a.estado === 'OK' ? 1 : 0) - (b.estado === 'OK' ? 1 : 0) || String(a.sku).localeCompare(String(b.sku)))
+    return { ok: diffs.every((d) => d.estado === 'OK'), diffs }
+  }, [editableCajas, jsonPackPorSkuPack, lineaEditadaPorPack, lineaPackEsperada, jsonPackTieneSku])
 
   // ── Match base modo solo cajas: cajas esperadas (línea) vs cajas armadas ──
   // Bloqueo absoluto y exacto (sin tolerancia): las cajas son enteras.
   // La línea editada por el usuario es la verdad y prevalece sobre el JSON.
-  const calcularMatchCajasOrdenRapida = () => {
+  const calcularMatchCajasOrdenRapida = useCallback(() => {
     const lineas = editableProductos
       .map((p) => ({ sku: String(p.sku_base || '').trim(), cajas: lineaEsperada(String(p.sku_base || '')) }))
       .filter((l) => l.sku && l.cajas > 0)
@@ -1835,7 +1944,7 @@ export function OrdenRapidaWizard({
       .filter((c) => c.tipo_caja !== 'padre_resumen')
       .map((c) => ({ sku: String(c.sku_base || ''), cajas: Number(c.cantidad_cajas ?? 0) }))
     return compararCajasLineasVsFisico(lineas, fisicos)
-  }
+  }, [editableProductos, editableCajas, lineaEsperada])
 
   // ── Huecos: SKUs con cajas físicas pero sin línea esperada (ni editada) ──
   const huecosFisico = useMemo(() => {
@@ -1852,7 +1961,7 @@ export function OrdenRapidaWizard({
     return Array.from(porSku.entries())
       .filter(([up, g]) => g.cajas > 0 && lineaEsperada(g.sku) <= 0 && !huecosRellenados.includes(up))
       .map(([up, g]) => ({ key: up, ...g }))
-  }, [editableCajas, jsonTotalesPorSku, huecosRellenados, lineaEditadaPorSku])
+  }, [editableCajas, lineaEsperada, huecosRellenados])
 
   const handleRellenarHuecos = () => {
     if (huecosFisico.length === 0 || !parsedData) return
@@ -1880,7 +1989,7 @@ export function OrdenRapidaWizard({
   }
 
   // ── Caja principal por producto (default = mayor cantidad en la orden) ──
-  const cajaPrincipalDe = (skuUpper: string, cajas: WizardCaja[]): WizardCaja | null => {
+  const cajaPrincipalDe = useCallback((skuUpper: string, cajas: WizardCaja[]): WizardCaja | null => {
     const reales = (cajas || []).filter((c) => c.tipo_caja !== 'padre_resumen')
     if (reales.length === 0) return null
     const elegido = principalPorSku[skuUpper]
@@ -1896,7 +2005,7 @@ export function OrdenRapidaWizard({
       const pb = Number(b.total_piezas || (b.piezas_por_caja || 0) * (b.cantidad_cajas || 0))
       return pb - pa
     })[0]
-  }
+  }, [principalPorSku])
 
     // ── Alertas n8n por producto/caja + autocompletados de auditoría ──
   // Lee el JSON tal como llega: warnings tipificados y auditoria_n8n.
@@ -1949,8 +2058,14 @@ export function OrdenRapidaWizard({
     return map
   }, [parsedData])
 
-  // ── Checklist de verificación pre-confirmación ──
-  const verificacionPrevia = useMemo(() => {    const match = calcularMatchCajasOrdenRapida()
+  // ── Checklist de verificación pre-confirmación (TIEMPO REAL) ──
+  // Lee las líneas efectivas (lineaEditadaPorSku prevalece sobre el JSON),
+  // así que DEBE recalcularse al editar líneas: sin lineaEditadaPorSku en
+  // deps, el botón Confirmar quedaba bloqueado con el JSON viejo aunque el
+  // panel lateral ya cuadrara.
+  const verificacionPrevia = useMemo(() => {
+    const match = calcularMatchCajasOrdenRapida()
+    const matchPacks = calcularMatchPacks()
     const sinPz = editableCajas
       .filter((c) => c.tipo_caja !== 'padre_resumen' && !(Number(c.piezas_por_caja ?? 0) > 0))
       .map((c) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código'))
@@ -1961,17 +2076,20 @@ export function OrdenRapidaWizard({
       )
       return reales.length > 0 && cajaPrincipalDe(up, reales) !== null
     }).length
+    const fallasPacks = matchPacks.diffs.filter((d) => d.estado !== 'OK')
     return {
       matchOk: match.ok,
       fallasMatch: match.diffs.filter((d) => d.estado !== 'OK').length,
+      matchPacksOk: matchPacks.ok,
+      fallasPacks: fallasPacks.length,
       sinPz,
       conPrincipal,
       totalProductos: editableProductos.length,
       totalCajas: totalCajasCount,
-      todoOk: match.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0,
+      todoOk: match.ok && matchPacks.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0,
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editableProductos, editableCajas, jsonTotalesPorSku, principalPorSku, totalCajasCount])
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- agruparCajasPorProducto muta cajas en render (preexistente); las deps de arriba están completas y garantizan tiempo real
+  }, [editableProductos, editableCajas, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount])
 
   // Rellenar huecos desde el aviso (paso 3): completa líneas y revalida con
   // los valores recién rellenados (sin esperar el re-render). Si solo quedan
@@ -1998,6 +2116,7 @@ export function OrdenRapidaWizard({
 
   // ── Resumen por SKU para el panel lateral de confirmación ──
   // Misma fuente que el match: línea efectiva, suma armada y principal.
+  // Incluye desglose por pack (una línea por SKU, packs separados).
   const resumenSku = useMemo(() => {
     const filas = editableProductos.map((p) => {
       const sku = String(p.sku_base || '').trim()
@@ -2009,19 +2128,36 @@ export function OrdenRapidaWizard({
       const linea = lineaEsperada(sku)
       const principal = cajaPrincipalDe(up, reales)
       const pzc = principal ? Number(principal.piezas_por_caja ?? 0) : 0
+      const porPack = new Map<string, { pack: string; armadas: number; piezas: number }>()
+      for (const c of reales) {
+        const pack = String(c.nombre_pack || 'PACK UNICO')
+        const prev = porPack.get(pack) ?? { pack, armadas: 0, piezas: 0 }
+        prev.armadas += Number(c.cantidad_cajas ?? 0) || 0
+        prev.piezas += Number(c.total_piezas || (c.piezas_por_caja || 0) * (c.cantidad_cajas || 0))
+        porPack.set(pack, prev)
+      }
+      const packs = [...porPack.values()].map((g) => {
+        const lineaP = lineaPackEsperada(sku, g.pack)
+        const tieneLinea = lineaP > 0 || jsonPackTieneSku(sku)
+        return {
+          pack: g.pack, linea: lineaP, armadas: g.armadas, piezas: g.piezas,
+          dif: lineaP - g.armadas, ok: !tieneLinea || lineaP === g.armadas,
+          editada: lineaEditadaPorPack[packKeyOf(sku, g.pack)] != null,
+        }
+      })
       return {
         sku, pzc, linea, armadas,
         dif: linea - armadas,
         ok: linea === armadas,
         editada: lineaEditadaPorSku[up] != null,
         principalCodigo: principal ? String(principal.codigo_caja || principal.codigo_caja_temporal || '') : null,
+        packs,
       }
     })
     const totalCajas = filas.reduce((s, f) => s + f.armadas, 0)
     const todoOk = filas.length > 0 && filas.every((f) => f.ok)
     return { filas, totalCajas, todoOk }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editableProductos, editableCajas, jsonTotalesPorSku, lineaEditadaPorSku, principalPorSku])
+  }, [editableProductos, editableCajas, lineaEsperada, lineaEditadaPorSku, lineaPackEsperada, lineaEditadaPorPack, jsonPackTieneSku, cajaPrincipalDe])
 
   const handleNext = () => {
     if (step === 1) {
@@ -3523,8 +3659,110 @@ export function OrdenRapidaWizard({
                                   <Plus className="h-3 w-3" /> Agregar caja
                                 </Button>
                               </div>
-                              {cajasReales.map((caja) => {
-                                const cajaIndex = editableCajas.indexOf(caja)
+                              {(() => {
+                                const grupos = new Map<string, WizardCaja[]>()
+                                for (const c of cajasReales) {
+                                  const p = String(c.nombre_pack || 'PACK UNICO')
+                                  if (!grupos.has(p)) grupos.set(p, [])
+                                  grupos.get(p)!.push(c)
+                                }
+                                const listaGrupos = [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+                                const mostrarGrupo = listaGrupos.length > 1
+                                return listaGrupos.map(([pack, items]) => {
+                                  const pk = packKeyOf(producto.sku_base || '', pack)
+                                  const lineaP = lineaPackEsperada(producto.sku_base || '', pack)
+                                  const armP = items.reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
+                                  const piezasP = items.reduce((s, c) => s + Number(c.total_piezas || (c.piezas_por_caja || 0) * (c.cantidad_cajas || 0)), 0)
+                                  const tieneLineaP = lineaP > 0 || jsonPackTieneSku(producto.sku_base || '')
+                                  const okP = !tieneLineaP || lineaP === armP
+                                  const editadaP = lineaEditadaPorPack[pk] != null
+                                  const editandoP = editPackSku === pk
+                                  return (
+                                    <div key={pack} className="md:col-span-2 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                                      {(mostrarGrupo || !okP) && (
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+                                          <Badge variant="secondary" className="font-mono font-bold text-[10px] self-start">📦 {pack}</Badge>
+                                          <span className="tabular-nums">
+                                            Línea pack: <strong className="font-mono">{lineaP}</strong>
+                                            {editadaP && <Badge variant="outline" className="ml-1 text-[9px] border-primary/40 text-primary">editada</Badge>}
+                                          </span>
+                                          <span className="tabular-nums">
+                                            Suma: <strong className={`font-mono ${okP ? 'text-emerald-600' : 'text-destructive'}`}>{armP}</strong>
+                                            {okP
+                                              ? <span className="ml-1 font-bold text-emerald-600">✓ match</span>
+                                              : <span className="ml-1 font-bold text-destructive">dif {lineaP - armP > 0 ? `+${lineaP - armP}` : lineaP - armP}</span>}
+                                          </span>
+                                          <span className="text-muted-foreground tabular-nums">{items.length} caja(s) · {piezasP.toLocaleString()} pz</span>
+                                          <span className="sm:ml-auto flex items-center gap-1.5">
+                                            {editandoP ? (
+                                              <>
+                                                <Input
+                                                  type="number" min={0} step={1}
+                                                  value={editPackVal}
+                                                  onChange={(e) => setEditPackVal(e.target.value)}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="h-7 w-20 text-right font-mono text-xs"
+                                                  autoFocus
+                                                />
+                                                <Button
+                                                  type="button" size="sm" className="h-7 text-[11px] font-bold"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    const v = parseInt(editPackVal, 10)
+                                                    if (isNaN(v) || v < 0) { toast.error('Ingresa un número válido de cajas (0 o más).'); return }
+                                                    setLineaEditadaPorPack((prev) => ({ ...prev, [pk]: v }))
+                                                    setEditPackSku(null)
+                                                    toast.success(`Línea de ${producto.sku_base} · ${pack} fijada en ${v} cajas.`)
+                                                  }}
+                                                >
+                                                  Guardar
+                                                </Button>
+                                                <Button
+                                                  type="button" variant="ghost" size="sm" className="h-7 text-[11px]"
+                                                  onClick={(e) => { e.stopPropagation(); setEditPackSku(null) }}
+                                                >
+                                                  Cancelar
+                                                </Button>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Button
+                                                  type="button" variant="outline" size="sm"
+                                                  className="h-7 text-[11px] gap-1 font-bold"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setEditPackSku(pk)
+                                                    setEditPackVal(String(lineaP))
+                                                  }}
+                                                  title="Editar línea de este pack (la verdad es lo editado)"
+                                                >
+                                                  <Pencil className="h-3 w-3" /> Editar línea pack
+                                                </Button>
+                                                {editadaP && (
+                                                  <Button
+                                                    type="button" variant="ghost" size="sm" className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      setLineaEditadaPorPack((prev) => {
+                                                        const next = { ...prev }
+                                                        delete next[pk]
+                                                        return next
+                                                      })
+                                                      toast.info('Línea de pack revertida al valor del JSON.')
+                                                    }}
+                                                    title="Volver al valor del JSON"
+                                                  >
+                                                    Revertir
+                                                  </Button>
+                                                )}
+                                              </>
+                                            )}
+                                          </span>
+                                        </div>
+                                      )}
+                                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                        {items.map((caja) => {
+                                          const cajaIndex = editableCajas.indexOf(caja)
                                 const sharedCaja = wizardCajaToSharedCajaData(caja, cajaIndex)
                                 const tallasCatalogo = buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || []))
                                 const coloresCatalogo = buildCatalogoItemsFromStrings(cpColores.length > 0 ? cpColores : (caja.matriz?.colores || caja.colores || []))
@@ -3566,9 +3804,14 @@ export function OrdenRapidaWizard({
                                       onRemove={() => handleCajaRemove(cajaIndex)}
                                       isPending={false}
                                     />
-                                  </div>
-                                )
-                              })}
+                                    </div>
+                                  )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )
+                                })
+                              })()}
                             </div>
 
                             {cajasReales.length === 0 && (
@@ -3912,10 +4155,13 @@ export function OrdenRapidaWizard({
               Diferencia detectada en cantidades (Productos vs Cajas)
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <div className="space-y-3 text-xs text-muted-foreground pt-2">
-                <p>
+              Diferencias entre piezas del producto y físico en cajas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <div>
                   Se encontraron diferencias entre la cantidad total de piezas del producto y el total físico desglosado en las cajas:
-                </p>
+                </div>
                 <div className="max-h-48 overflow-y-auto rounded-md border border-amber-200/80 bg-amber-50/60 p-3 space-y-2">
                   {discrepancyModal?.items.map((item) => (
                     <div key={item.sku} className="flex flex-col border-b border-amber-200/60 pb-1.5 last:border-0 last:pb-0">
@@ -3930,12 +4176,10 @@ export function OrdenRapidaWizard({
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] italic">
+                <div className="text-[11px] italic">
                   ¿Deseas regresar a revisar los datos o continuar a la sección de cajas de todos modos?
-                </p>
+                </div>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
             <AlertDialogCancel onClick={() => setDiscrepancyModal(null)}>
               Revisar y corregir
@@ -3964,13 +4208,16 @@ export function OrdenRapidaWizard({
                 : 'Aviso modo cajas: líneas sin match con cajas armadas'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <div className="space-y-3 text-xs text-muted-foreground pt-2">
-                <p>
+              Líneas sin match con cajas armadas (modo solo cajas, exacto).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <div>
                   Cada producto debe tener las mismas cajas en línea que en cajas armadas (exacto, sin tolerancia).
                   {cajasBlockModal?.blocking
                     ? ' Corrige la orden: no se puede guardar así.'
                     : ' Las cajas y líneas se revisan en el paso 4: puedes rellenar huecos aquí o continuar a corregirlos.'}
-                </p>
+                </div>
                 <div className="max-h-48 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
                   {cajasBlockModal?.items.map((item) => (
                     <div key={item.sku} className="flex flex-col border-b border-destructive/20 pb-1.5 last:border-0 last:pb-0">
@@ -3986,8 +4233,6 @@ export function OrdenRapidaWizard({
                   ))}
                 </div>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
             {cajasBlockModal?.blocking ? (
               <AlertDialogCancel onClick={() => setCajasBlockModal(null)}>
@@ -4031,8 +4276,11 @@ export function OrdenRapidaWizard({
               {probablesSinResolver.length} código{probablesSinResolver.length !== 1 ? 's' : ''} probablemente ya {probablesSinResolver.length !== 1 ? 'están' : 'está'} en BD
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <div className="space-y-3 text-xs text-muted-foreground pt-2">
-                <p>Revísalos antes de continuar. Puedes sincronizar uno por uno o seguir y se guardarán como nuevos.</p>
+              Códigos probablemente existentes en BD (revisión ámbar).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <div>Revísalos antes de continuar. Puedes sincronizar uno por uno o seguir y se guardarán como nuevos.</div>
                 <div className="max-h-56 overflow-y-auto rounded-md border border-amber-200/80 bg-amber-50/60 p-3 space-y-2">
                   {probablesSinResolver.map((p) => (
                     <div key={p.inputSku} className="flex flex-col border-b border-amber-200/60 pb-1.5 last:border-0 last:pb-0 gap-1">
@@ -4053,8 +4301,6 @@ export function OrdenRapidaWizard({
                   ))}
                 </div>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
             <AlertDialogCancel onClick={() => setAlertaAmbarOpen(false)}>
               Revisar
@@ -4099,6 +4345,15 @@ export function OrdenRapidaWizard({
                   <span className={verificacionPrevia.matchOk ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
                     Match líneas vs cajas armadas (exacto)
                     {!verificacionPrevia.matchOk && ` — ${verificacionPrevia.fallasMatch} sin match`}
+                  </span>
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {verificacionPrevia.matchPacksOk
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className={verificacionPrevia.matchPacksOk ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
+                    Match por pack (PACK A/B del mismo SKU)
+                    {!verificacionPrevia.matchPacksOk && ` — ${verificacionPrevia.fallasPacks} sin match`}
                   </span>
                 </p>
                 <p className="flex items-center gap-2 text-[11px] font-semibold">
@@ -4234,6 +4489,19 @@ export function OrdenRapidaWizard({
                     <span>línea <strong className="text-foreground">{f.linea}</strong>{f.editada ? '*' : ''}</span>
                     <span>suma <strong className={f.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>{f.armadas}</strong></span>
                   </div>
+                  {f.packs.length > 1 && (
+                    <div className="mt-1.5 space-y-1 border-t border-border/50 pt-1.5">
+                      {f.packs.map((g) => (
+                        <div key={g.pack} className="flex items-center justify-between gap-2 text-[10px] tabular-nums">
+                          <Badge variant="outline" className="font-mono font-bold text-[9px] px-1.5 py-0 h-4">{g.pack}</Badge>
+                          <span className="text-muted-foreground">lín <strong className="text-foreground">{g.linea}</strong>{g.editada ? '*' : ''}</span>
+                          <span className={g.ok ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-destructive font-bold'}>
+                            Σ {g.armadas}{g.ok ? ' ✓' : ` (${g.dif > 0 ? `+${g.dif}` : g.dif})`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               {resumenSku.filas.length === 0 && (
