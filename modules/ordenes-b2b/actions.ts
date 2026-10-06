@@ -903,6 +903,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   detalles: any[]
   /** Vínculos manuales ámbar sincronizados por el usuario (skuUpper -> producto_id) */
   vinculosDb?: Record<string, number>
+  /** Caja principal seleccionada por producto (skuUpper -> codigo_caja) para pz_en_caja */
+  principalPorSku?: Record<string, string>
 }): Promise<ActionResult> {
   const denied = await requireB2BPermission('puede_crear')
   if (denied) return denied
@@ -973,9 +975,10 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
   const { data: existingProds } = await supabase
     .from('productos')
-    .select('id, sku_base')
+    .select('id, sku_base, nombre, descripcion, composicion, marca_id, tipo_prenda_id, genero_id, edad_id')
 
   const dbProductsList = (existingProds || []).map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
+  const dbProductsById = new Map<number, any>((existingProds || []).map((p: any) => [p.id, p]))
   const prodIdMap = new Map<string, number>()
   // Vínculos explícitos sincronizados por el usuario en ámbar (skuUpper -> producto_id)
   const vinculos = payload.vinculosDb ?? {}
@@ -1001,44 +1004,49 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     const sku = String(p.sku_base).trim()
     const skuUpper = sku.toUpperCase()
     let prodId = p.force_new ? null : prodIdMap.get(skuUpper)
+    // pz_en_caja desde la caja principal seleccionada (o la de mayor cantidad)
+    const pzPrincipal = resolverPiezasPrincipal(skuUpper, payload.cajas, payload.principalPorSku)
 
     if (prodId) {
-      // Actualizar descripción y atributos si ya existe
+      // Match en BD: prevalecen los valores actuales; el JSON solo rellena vacíos.
+      // pz_en_caja siempre desde la principal; persona_id se reasigna al proveedor.
+      const dbRow = dbProductsById.get(prodId) ?? null
+      const merged = mezclarProductoDbJson(dbRow, p)
+      const updPayload: any = {
+        ...merged,
+        nombre: merged.nombre ?? sku,
+        persona_id: p.persona_id || payload.proveedorId || null,
+      }
+      if (pzPrincipal != null) updPayload.pz_en_caja = pzPrincipal
       const { error: updErr } = await supabase
         .from('productos')
-        .update({
-          descripcion: p.descripcion || null,
-          composicion: p.composicion || null,
-          nombre: p.nombre || p.descripcion || sku,
-          marca_id: p.marca_id || null,
-          tipo_prenda_id: p.tipo_prenda_id || null,
-          genero_id: p.genero_id || null,
-          edad_id: p.edad_id || null,
-          persona_id: p.persona_id || payload.proveedorId || null,
-        })
+        .update(updPayload)
         .eq('id', prodId)
 
       if (updErr) {
         return { success: false, error: `Error al actualizar producto ${sku}: ${updErr.message}` }
       }
     } else {
+      // Producto nuevo: valores del JSON + pz_en_caja de su principal
+      const insertPayload: any = {
+        sku_base: sku,
+        nombre: p.nombre || p.descripcion || sku,
+        descripcion: p.descripcion || null,
+        composicion: p.composicion || null,
+        marca_id: p.marca_id || null,
+        tipo_prenda_id: p.tipo_prenda_id || null,
+        genero_id: p.genero_id || null,
+        edad_id: p.edad_id || null,
+        persona_id: p.persona_id || payload.proveedorId || null,
+        cliente_b2b_id: payload.clienteB2bId,
+        activo: true,
+        estado: 'pendiente'
+      }
+      if (pzPrincipal != null) insertPayload.pz_en_caja = pzPrincipal
       // Insertar nuevo producto con persona_id (proveedor seleccionado)
       const { data: newProd, error: insErr } = await supabase
         .from('productos')
-        .insert({
-          sku_base: sku,
-          nombre: p.nombre || p.descripcion || sku,
-          descripcion: p.descripcion || null,
-          composicion: p.composicion || null,
-          marca_id: p.marca_id || null,
-          tipo_prenda_id: p.tipo_prenda_id || null,
-          genero_id: p.genero_id || null,
-          edad_id: p.edad_id || null,
-          persona_id: p.persona_id || payload.proveedorId || null,
-          cliente_b2b_id: payload.clienteB2bId,
-          activo: true,
-          estado: 'pendiente'
-        })
+        .insert(insertPayload)
         .select('id')
         .single()
 
@@ -1169,6 +1177,16 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   }
 
   // 4. Crear/Actualizar Cajas y sus Detalles
+  // Defensa en fondo (el wizard ya bloquea sinPz): ninguna caja sin piezas.
+  const sinPzServidor = Array.from(new Set(
+    payload.cajas
+      .filter((c: any) => c.tipo_caja !== 'padre_resumen')
+      .filter((c: any) => !(Number(c.piezas_por_caja ?? 0) > 0))
+      .map((c: any) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código')),
+  ))
+  if (sinPzServidor.length > 0) {
+    return { success: false, error: `Bloqueo servidor: cajas sin piezas por caja: ${sinPzServidor.join(', ')}` }
+  }
   const cajaMap = new Map<string, number>()
   for (const c of payload.cajas) {
     const code = String(c.codigo_caja || c.codigo_caja_temporal).trim()
@@ -1404,6 +1422,55 @@ function extractMotiModelToken(s: string): string | null {
     if (match) return match[0].trim()
   }
   return null
+}
+
+/** Mezcla fila DB (prevalece si tiene valor) con JSON (rellena vacíos). */
+function mezclarProductoDbJson(
+  db: { nombre?: string | null; descripcion?: string | null; composicion?: string | null; marca_id?: number | null; tipo_prenda_id?: number | null; genero_id?: number | null; edad_id?: number | null } | null,
+  json: { nombre?: string | null; descripcion?: string | null; composicion?: string | null; marca_id?: number | null; tipo_prenda_id?: number | null; genero_id?: number | null; edad_id?: number | null },
+): { nombre: string | null; descripcion: string | null; composicion: string | null; marca_id: number | null; tipo_prenda_id: number | null; genero_id: number | null; edad_id: number | null } {
+  const texto = (dbV: unknown, jsonV: unknown): string | null => {
+    if (typeof dbV === 'string' && dbV.trim()) return dbV
+    if (dbV != null && typeof dbV !== 'string') return dbV as string
+    if (typeof jsonV === 'string' && jsonV.trim()) return jsonV
+    return null
+  }
+  const fk = (dbV: unknown, jsonV: unknown): number | null => {
+    if (typeof dbV === 'number' && Number.isInteger(dbV)) return dbV
+    if (typeof jsonV === 'number' && Number.isInteger(jsonV)) return jsonV
+    return null
+  }
+  return {
+    nombre: texto(db?.nombre, json?.nombre),
+    descripcion: texto(db?.descripcion, json?.descripcion),
+    composicion: texto(db?.composicion, json?.composicion),
+    marca_id: fk(db?.marca_id, json?.marca_id),
+    tipo_prenda_id: fk(db?.tipo_prenda_id, json?.tipo_prenda_id),
+    genero_id: fk(db?.genero_id, json?.genero_id),
+    edad_id: fk(db?.edad_id, json?.edad_id),
+  }
+}
+
+/** Piezas de la caja principal (selección explícita o mayor cantidad) para pz_en_caja. */
+function resolverPiezasPrincipal(
+  skuUpper: string,
+  cajas: any[],
+  principalPorSku?: Record<string, string>,
+): number | null {
+  const reales = (cajas || []).filter(
+    (c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen',
+  )
+  if (reales.length === 0) return null
+  const codigo = principalPorSku?.[skuUpper]
+  const elegida = (codigo
+    ? reales.find((c: any) => String(c.codigo_caja || c.codigo_caja_temporal || '') === codigo)
+    : undefined)
+    ?? [...reales].sort((a: any, b: any) =>
+      (Number(b.cantidad_cajas ?? 0) - Number(a.cantidad_cajas ?? 0))
+      || (Number(b.piezas_por_caja ?? 0) - Number(a.piezas_por_caja ?? 0)),
+    )[0]
+  const pz = Number(elegida?.piezas_por_caja ?? 0)
+  return pz > 0 ? pz : null
 }
 
 /** Extrae el prefijo de proveedor (ej: HO para Honor, JA para Jacky, TY para Tianyi) */
