@@ -1453,12 +1453,45 @@ export type SkuMatchResult = {
   score: number
   metodo: 'exacta' | 'normalizada' | 'and-moti' | 'token' | 'contiene' | 'similar'
   exacto: boolean
+  /** true = mismo proveedor, false = otro proveedor, null = sin contexto de proveedor */
+  mismaPersona: boolean | null
+}
+
+/** Rango de preferencia por proveedor: mismo (2) > sin proveedor (1) > otro (0). Sin contexto, todos valen 1. */
+function personaRank(personaIdRow: number | null | undefined, personaId?: number | null): number {
+  if (personaId == null) return 1
+  if (personaIdRow === personaId) return 2
+  if (personaIdRow == null) return 1
+  return 0
+}
+
+/**
+ * Patrones ilike dirigidos para un SKU (evita el escaneo total de la tabla,
+ * que se trunca a 1000 filas en la API REST). Incluye variantes de separador
+ * (- ↔ /) y tokens individuales para alias y tolerancia.
+ */
+function skuSearchPatterns(inputSku: string): string[] {
+  const clean = String(inputSku || '').trim().replace(/,/g, '')
+  if (!clean) return []
+  const set = new Set<string>()
+  set.add(`%${clean}%`)
+  const slash = clean.replace(/-/g, '/')
+  const hyphen = clean.replace(/\//g, '-')
+  if (slash !== clean) set.add(`%${slash}%`)
+  if (hyphen !== clean && hyphen !== slash) set.add(`%${hyphen}%`)
+  const tokens = extractSkuTokens(clean)
+  for (const t of tokens) {
+    if (t.length >= 3) set.add(`%${t}%`)
+  }
+  if (tokens.length >= 2 && tokens[0].length >= 2) set.add(`%${tokens[0]}%`)
+  return Array.from(set).slice(0, 10)
 }
 
 function findBestDbSkuMatch(
   inputSku: string,
   dbProducts: { id: number; sku_base: string; persona_id?: number | null }[],
   proveedorNombre?: string,
+  personaId?: number | null,
 ): SkuMatchResult | null {
   const inputClean = inputSku.trim()
   if (!inputClean) return null
@@ -1469,23 +1502,28 @@ function findBestDbSkuMatch(
   const inputTokens = extractSkuTokens(inputClean)
   const inputAndToken = extractAndToken(inputClean)
 
-  let bestMatch: SkuMatchResult | null = null
+  let bestMatch: (SkuMatchResult & { rank: number }) | null = null
   let highestScore = 0
+  // Exactos acumulados: mismo proveedor > sin proveedor > otro (nunca se ocultan).
+  const exactos: { dbSku: string; dbId: number; metodo: 'exacta' | 'normalizada'; rank: number; personaIdRow: number | null | undefined }[] = []
 
   for (const p of dbProducts) {
     const dbSku = p.sku_base
     const dbUpper = dbSku.toUpperCase()
     const dbNorm = normalizeSkuKey(dbSku)
     const dbAndToken = extractAndToken(dbSku)
+    const rank = personaRank(p.persona_id, personaId)
 
     // 1. Coincidencia exacta (100, auto-vínculo permitido)
     if (inputUpper === dbUpper) {
-      return { dbSku, dbId: p.id, score: 100, metodo: 'exacta', exacto: true }
+      exactos.push({ dbSku, dbId: p.id, metodo: 'exacta', rank, personaIdRow: p.persona_id })
+      continue
     }
 
     // 1b. Normalizada: mismo código insensible a separadores (100, auto-vínculo)
     if (inputNorm !== '' && inputNorm === dbNorm) {
-      return { dbSku, dbId: p.id, score: 100, metodo: 'normalizada', exacto: true }
+      exactos.push({ dbSku, dbId: p.id, metodo: 'normalizada', rank, personaIdRow: p.persona_id })
+      continue
     }
 
     let score = 0
@@ -1550,13 +1588,21 @@ function findBestDbSkuMatch(
       }
     }
 
-    if (score > highestScore) {
+    if (score > highestScore || (score === highestScore && bestMatch != null && rank > bestMatch.rank)) {
       highestScore = score
-      bestMatch = { dbSku, dbId: p.id, score, metodo, exacto: false }
+      bestMatch = { dbSku, dbId: p.id, score, metodo, exacto: false, mismaPersona: personaId != null ? p.persona_id === personaId : null, rank }
     }
   }
 
-  return highestScore >= 60 ? bestMatch : null
+  if (exactos.length > 0) {
+    exactos.sort((a, b) => b.rank - a.rank)
+    const e = exactos[0]
+    return { dbSku: e.dbSku, dbId: e.dbId, score: 100, metodo: e.metodo, exacto: true, mismaPersona: personaId != null ? e.personaIdRow === personaId : null }
+  }
+
+  if (bestMatch == null) return null
+  const { rank: _rank, ...out } = bestMatch
+  return highestScore >= 60 ? out : null
 }
 
 export type SkuProbable = {
@@ -1567,9 +1613,35 @@ export type SkuProbable = {
   metodo: SkuMatchResult['metodo']
 }
 
+type DbSkuRow = { id: number; sku_base: string; persona_id: number | null }
+
+/**
+ * Trae candidatos de productos por patrones ilike (una query por lote de
+ * patrones). Nunca escanea la tabla completa: evita el truncado a 1000 filas.
+ */
+async function fetchSkuCandidates(
+  supabase: any,
+  patterns: string[],
+  selectCols: string,
+): Promise<DbSkuRow[]> {
+  const out = new Map<number, DbSkuRow>()
+  const CHUNK = 30
+  for (let i = 0; i < patterns.length; i += CHUNK) {
+    const orExpr = patterns.slice(i, i + CHUNK).map((p) => `sku_base.ilike.${p}`).join(',')
+    if (!orExpr) continue
+    const { data, error } = await supabase.from('productos').select(selectCols).or(orExpr).limit(100)
+    if (error) throw error
+    for (const r of (data ?? []) as any[]) {
+      out.set(r.id, { id: r.id, sku_base: String(r.sku_base), persona_id: r.persona_id ?? null, ...r })
+    }
+  }
+  return Array.from(out.values())
+}
+
 export async function verificarSkusEnBDAction(
   skus: string[],
   proveedorNombre?: string,
+  personaId?: number | null,
 ): Promise<{
   success: boolean
   skusExistentes: string[]
@@ -1581,22 +1653,21 @@ export async function verificarSkusEnBDAction(
   const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
   if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [] }
 
-  const { data: dbData, error } = await supabase
-    .from('productos')
-    .select('id, sku_base, persona_id')
-
-  if (error || !dbData) {
+  let dbProducts: DbSkuRow[] = []
+  try {
+    const patterns = Array.from(new Set(cleanSkus.flatMap((s) => skuSearchPatterns(s)))).slice(0, 300)
+    dbProducts = await fetchSkuCandidates(supabase, patterns, 'id, sku_base, persona_id')
+  } catch (error) {
     console.error('Error al verificar SKUs en BD:', error)
     return { success: false, skusExistentes: [], skuMap: {}, probables: [] }
   }
 
-  const dbProducts = dbData.map((p: any) => ({ id: p.id, sku_base: String(p.sku_base), persona_id: p.persona_id }))
   const skusExistentes: string[] = []
   const skuMap: Record<string, string> = {}
   const probables: SkuProbable[] = []
 
   for (const inputSku of cleanSkus) {
-    const match = findBestDbSkuMatch(inputSku, dbProducts, proveedorNombre)
+    const match = findBestDbSkuMatch(inputSku, dbProducts, proveedorNombre, personaId)
     if (!match) continue
     if (match.exacto) {
       // Único caso con conexión automática (100 insensible a mayúsculas/separadores)
@@ -1615,6 +1686,92 @@ export async function verificarSkusEnBDAction(
   }
 
   return { success: true, skusExistentes, skuMap, probables }
+}
+
+export type SkuBusquedaMotivo = 'SIN_CANDIDATOS' | 'VACIO'
+
+/**
+ * Búsqueda bajo demanda de UN sku (lápiz 🔍 por fila). Usa el mismo algoritmo
+ * dirigido que verificarSkusEnBDAction: encuentra el código exista o no el
+ * proveedor, venga del proveedor que venga.
+ */
+export async function buscarSkuEnBDAction(
+  sku: string,
+  proveedorNombre?: string,
+  personaId?: number | null,
+): Promise<{
+  success: boolean
+  inputSku: string
+  exacto?: {
+    id: number
+    dbSku: string
+    metodo: 'exacta' | 'normalizada'
+    nombre?: string
+    descripcion?: string
+    composicion?: string
+    precio_usd?: number
+    marca_id?: number
+    marca_nombre?: string
+    persona_id?: number | null
+    mismaPersona: boolean | null
+  }
+  probables: SkuProbable[]
+  motivo?: SkuBusquedaMotivo
+  error?: string
+}> {
+  const inputSku = String(sku || '').trim()
+  if (!inputSku) return { success: true, inputSku, probables: [], motivo: 'VACIO' }
+  try {
+    const supabase = await createClient()
+    const patterns = skuSearchPatterns(inputSku)
+    const rows = await fetchSkuCandidates(
+      supabase,
+      patterns,
+      'id, sku_base, nombre, descripcion, composicion, precio_ec, marca_id, persona_id, cat_marcas ( id, nombre )',
+    )
+    if (rows.length === 0) return { success: true, inputSku, probables: [], motivo: 'SIN_CANDIDATOS' }
+
+    const match = findBestDbSkuMatch(inputSku, rows, proveedorNombre, personaId)
+    const probables: SkuProbable[] = []
+    for (const r of rows as any[]) {
+      if (match && r.id === match.dbId) continue
+      const m2 = findBestDbSkuMatch(inputSku, [r], proveedorNombre, personaId)
+      if (m2 && !m2.exacto && m2.score >= 60 && probables.length < 3) {
+        probables.push({ inputSku, dbSku: m2.dbSku, dbId: m2.dbId, score: m2.score, metodo: m2.metodo })
+      }
+    }
+    probables.sort((a, b) => b.score - a.score)
+
+    if (match && match.exacto) {
+      const row = (rows as any[]).find((r) => r.id === match.dbId) as any
+      const marcaObj = row?.cat_marcas as any
+      return {
+        success: true,
+        inputSku,
+        exacto: {
+          id: row.id,
+          dbSku: row.sku_base,
+          metodo: match.metodo as 'exacta' | 'normalizada',
+          nombre: row.nombre || '',
+          descripcion: row.descripcion || row.nombre || '',
+          composicion: row.composicion || '',
+          precio_usd: Number(row.precio_ec || 0),
+          marca_id: row.marca_id || (marcaObj ? marcaObj.id : undefined),
+          marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+          persona_id: row.persona_id ?? null,
+          mismaPersona: match.mismaPersona,
+        },
+        probables,
+      }
+    }
+    if (match && !match.exacto) {
+      probables.unshift({ inputSku, dbSku: match.dbSku, dbId: match.dbId, score: match.score, metodo: match.metodo })
+    }
+    return { success: true, inputSku, probables: probables.slice(0, 4) }
+  } catch (err: any) {
+    console.error('Error en buscarSkuEnBDAction:', err)
+    return { success: true, inputSku, probables: [], motivo: 'SIN_CANDIDATOS', error: err.message }
+  }
 }
 
 export async function obtenerDatosProductosDeBDAction(
@@ -1644,52 +1801,19 @@ export async function obtenerDatosProductosDeBDAction(
     const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
     if (cleanSkus.length === 0) return { success: true, productosMap: {} }
 
-    // Obtener catálogo de productos de Supabase
-    let query = supabase
-      .from('productos')
-      .select(`
-        id,
-        sku_base,
-        nombre,
-        descripcion,
-        composicion,
-        precio_ec,
-        marca_id,
-        persona_id,
-        cat_marcas (
-          id,
-          nombre
-        )
-      `)
-
-    if (personaId) {
-      query = query.eq('persona_id', personaId)
-    }
-
-    const { data: dbData, error } = await query
-
-    if (error) throw error
-
-    // Si no hubo resultados filtrando por persona_id, consultar productos generales como fallback
-    let allProducts = dbData || []
-    if (personaId && allProducts.length === 0) {
-      const { data: fallbackData } = await supabase
-        .from('productos')
-        .select(`
-          id,
-          sku_base,
-          nombre,
-          descripcion,
-          composicion,
-          precio_ec,
-          marca_id,
-          persona_id,
-          cat_marcas (
-            id,
-            nombre
-          )
-        `)
-      allProducts = fallbackData || []
+    // Candidatos dirigidos por patrones (sin escaneo total: evita el truncado
+    // a 1000 filas). La pertenencia al proveedor solo ordena, nunca filtra:
+    // un SKU global (persona_id null) u otro proveedor también matchea.
+    const patterns = Array.from(new Set(cleanSkus.flatMap((s) => skuSearchPatterns(s)))).slice(0, 300)
+    let allProducts: any[] = []
+    try {
+      allProducts = await fetchSkuCandidates(
+        supabase,
+        patterns,
+        `id, sku_base, nombre, descripcion, composicion, precio_ec, marca_id, persona_id, cat_marcas ( id, nombre )`,
+      )
+    } catch (e) {
+      throw e
     }
 
     const productosMap: Record<string, {
@@ -1710,8 +1834,9 @@ export async function obtenerDatosProductosDeBDAction(
     for (const inputSku of cleanSkus) {
       const inputUpper = inputSku.trim().toUpperCase()
 
-      // 1. Búsqueda exacta
-      const exactMatch = allProducts.find((p) => String(p.sku_base).trim().toUpperCase() === inputUpper)
+      // 1. Búsqueda exacta (mismo proveedor > sin proveedor > otro; nunca se oculta)
+      const best = findBestDbSkuMatch(inputSku, allProducts, proveedorNombre, personaId)
+      const exactMatch = best && best.exacto ? allProducts.find((p) => p.id === best.dbId) : undefined
       if (exactMatch) {
         const marcaObj = exactMatch.cat_marcas as any
         productosMap[inputUpper] = {
