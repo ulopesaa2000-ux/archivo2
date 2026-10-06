@@ -901,6 +901,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   productos: any[]
   cajas: any[]
   detalles: any[]
+  /** Vínculos manuales ámbar sincronizados por el usuario (skuUpper -> producto_id) */
+  vinculosDb?: Record<string, number>
 }): Promise<ActionResult> {
   const denied = await requireB2BPermission('puede_crear')
   if (denied) return denied
@@ -975,12 +977,21 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
   const dbProductsList = (existingProds || []).map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
   const prodIdMap = new Map<string, number>()
+  // Vínculos explícitos sincronizados por el usuario en ámbar (skuUpper -> producto_id)
+  const vinculos = payload.vinculosDb ?? {}
 
   for (const p of payload.productos) {
     const sku = String(p.sku_base).trim()
     if (p.force_new) continue
+    // 1. Vínculo explícito del usuario (sincronizado manualmente)
+    const vinculoId = vinculos[sku.toUpperCase()]
+    if (vinculoId != null && dbProductsList.some((d) => d.id === vinculoId)) {
+      prodIdMap.set(sku.toUpperCase(), vinculoId)
+      continue
+    }
+    // 2. Solo match 100 (exacto insensible a mayúsculas/separadores); lo demás nace nuevo
     const match = findBestDbSkuMatch(sku, dbProductsList, provNombre)
-    if (match) {
+    if (match && match.exacto) {
       prodIdMap.set(sku.toUpperCase(), match.dbId)
       prodIdMap.set(match.dbSku.toUpperCase(), match.dbId)
     }
@@ -1431,11 +1442,24 @@ function levenshteinDistance(a: string, b: string): number {
  * Para proveedor MOTI, respeta la identidad única del token AND#####.
  * Si viene un AND nuevo (ej. AND260021 3VT3423), evita falsos positivos con ítems viejos (AND230012 3VT3423).
  */
+/**
+ * Resultado rico de coincidencia SKU (cero falsos positivos en auto-vínculo).
+ * Solo `exacto === true` (100: idéntico insensible a mayúsculas y separadores)
+ * permite conexión automática. Lo demás es probable y requiere revisión humana.
+ */
+export type SkuMatchResult = {
+  dbSku: string
+  dbId: number
+  score: number
+  metodo: 'exacta' | 'normalizada' | 'and-moti' | 'token' | 'contiene' | 'similar'
+  exacto: boolean
+}
+
 function findBestDbSkuMatch(
   inputSku: string,
   dbProducts: { id: number; sku_base: string; persona_id?: number | null }[],
   proveedorNombre?: string,
-): { dbSku: string; dbId: number } | null {
+): SkuMatchResult | null {
   const inputClean = inputSku.trim()
   if (!inputClean) return null
 
@@ -1445,7 +1469,7 @@ function findBestDbSkuMatch(
   const inputTokens = extractSkuTokens(inputClean)
   const inputAndToken = extractAndToken(inputClean)
 
-  let bestMatch: { dbSku: string; dbId: number } | null = null
+  let bestMatch: SkuMatchResult | null = null
   let highestScore = 0
 
   for (const p of dbProducts) {
@@ -1454,12 +1478,18 @@ function findBestDbSkuMatch(
     const dbNorm = normalizeSkuKey(dbSku)
     const dbAndToken = extractAndToken(dbSku)
 
-    // 1. Coincidencia exacta
+    // 1. Coincidencia exacta (100, auto-vínculo permitido)
     if (inputUpper === dbUpper) {
-      return { dbSku, dbId: p.id }
+      return { dbSku, dbId: p.id, score: 100, metodo: 'exacta', exacto: true }
+    }
+
+    // 1b. Normalizada: mismo código insensible a separadores (100, auto-vínculo)
+    if (inputNorm !== '' && inputNorm === dbNorm) {
+      return { dbSku, dbId: p.id, score: 100, metodo: 'normalizada', exacto: true }
     }
 
     let score = 0
+    let metodo: SkuMatchResult['metodo'] = 'similar'
 
     if (isMoti) {
       // Regla MOTI 1: Si el SKU de entrada posee un patrón AND#####
@@ -1467,6 +1497,7 @@ function findBestDbSkuMatch(
         if (dbAndToken && inputAndToken === dbAndToken) {
           // El AND coincide exactamente (ej: AND230012 === AND230012)
           score = 98
+          metodo = 'and-moti'
         } else {
           // Si el input tiene AND y la entrada de la BD tiene un AND distinto,
           // se trata de un producto NUEVO de MOTI. Previene falso positivo con códigos secundarios (3VT/1AK/3JA).
@@ -1476,11 +1507,13 @@ function findBestDbSkuMatch(
         // Regla MOTI 2: El SKU de entrada no trae token AND (solo viene 3VT..., 1AK..., 3JA...)
         if (inputNorm === dbNorm) {
           score = 90
+          metodo = 'token'
         } else {
           const dbTokens = extractSkuTokens(dbSku)
           const hasMatchingToken = inputTokens.some((it) => dbTokens.includes(it))
           if (hasMatchingToken) {
             score = 85
+            metodo = 'token'
           }
         }
       }
@@ -1495,19 +1528,23 @@ function findBestDbSkuMatch(
 
       if (inputNorm === dbNorm) {
         score = 90
+        metodo = 'token'
       } else {
         const dbTokens = extractSkuTokens(dbSku)
         const hasMatchingToken = inputTokens.some((it) => dbTokens.includes(it))
         if (hasMatchingToken) {
           score = 80
-        } else if (inputNorm.length >= 4 && dbNorm.length >= 4) {
-          if (dbNorm.includes(inputNorm) || inputNorm.includes(dbNorm)) {
-            score = 70
-          }
+          metodo = 'token'
         } else if (inputNorm.length >= 5 && dbNorm.length >= 5) {
           const dist = levenshteinDistance(inputNorm, dbNorm)
           if (dist <= 2) {
             score = 60
+            metodo = 'similar'
+          }
+        } else if (inputNorm.length >= 4 && dbNorm.length >= 4) {
+          if (dbNorm.includes(inputNorm) || inputNorm.includes(dbNorm)) {
+            score = 70
+            metodo = 'contiene'
           }
         }
       }
@@ -1515,11 +1552,19 @@ function findBestDbSkuMatch(
 
     if (score > highestScore) {
       highestScore = score
-      bestMatch = { dbSku, dbId: p.id }
+      bestMatch = { dbSku, dbId: p.id, score, metodo, exacto: false }
     }
   }
 
   return highestScore >= 60 ? bestMatch : null
+}
+
+export type SkuProbable = {
+  inputSku: string
+  dbSku: string
+  dbId: number
+  score: number
+  metodo: SkuMatchResult['metodo']
 }
 
 export async function verificarSkusEnBDAction(
@@ -1529,11 +1574,12 @@ export async function verificarSkusEnBDAction(
   success: boolean
   skusExistentes: string[]
   skuMap: Record<string, string>
+  probables: SkuProbable[]
 }> {
-  if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {} }
+  if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [] }
   const supabase = await createClient()
   const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
-  if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {} }
+  if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [] }
 
   const { data: dbData, error } = await supabase
     .from('productos')
@@ -1541,22 +1587,34 @@ export async function verificarSkusEnBDAction(
 
   if (error || !dbData) {
     console.error('Error al verificar SKUs en BD:', error)
-    return { success: false, skusExistentes: [], skuMap: {} }
+    return { success: false, skusExistentes: [], skuMap: {}, probables: [] }
   }
 
   const dbProducts = dbData.map((p: any) => ({ id: p.id, sku_base: String(p.sku_base), persona_id: p.persona_id }))
   const skusExistentes: string[] = []
   const skuMap: Record<string, string> = {}
+  const probables: SkuProbable[] = []
 
   for (const inputSku of cleanSkus) {
     const match = findBestDbSkuMatch(inputSku, dbProducts, proveedorNombre)
-    if (match) {
+    if (!match) continue
+    if (match.exacto) {
+      // Único caso con conexión automática (100 insensible a mayúsculas/separadores)
       skusExistentes.push(inputSku)
       skuMap[inputSku.toUpperCase()] = match.dbSku
+    } else {
+      // Probable: nace como nuevo, con opción de sincronizar manualmente
+      probables.push({
+        inputSku,
+        dbSku: match.dbSku,
+        dbId: match.dbId,
+        score: match.score,
+        metodo: match.metodo,
+      })
     }
   }
 
-  return { success: true, skusExistentes, skuMap }
+  return { success: true, skusExistentes, skuMap, probables }
 }
 
 export async function obtenerDatosProductosDeBDAction(

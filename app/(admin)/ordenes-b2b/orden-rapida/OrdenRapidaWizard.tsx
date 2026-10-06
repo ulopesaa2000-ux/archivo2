@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction } from '@/modules/ordenes-b2b/actions'
+import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
 
@@ -280,6 +281,15 @@ export const PARSER_FORMATS: ParserFormatOption[] = [
     badgeColor: 'border-purple-300 bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300',
   },
   {
+    id: 'jenny',
+    label: '🧵 Formato Jenny / Beterlon',
+    shortDesc: 'Multi-hoja con Style No. como verdad, PACK opcional y cartones únicos por rango',
+    fullDesc: 'Para archivos SHISHI BETERLON con varias hojas: toma la columna Style No. (nunca el nombre de hoja), agrupa por pack y cuenta cartones únicos del rango. Sin cajas remanente.',
+    headerPreview: 'Style No. | PACK | Color | tallas... | Pcs/Ctn | Ctn no. | Ctns',
+    proveedoresEjemplo: 'Jenny, Shishi Beterlon',
+    badgeColor: 'border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800 dark:bg-fuchsia-950/40 dark:text-fuchsia-300',
+  },
+  {
     id: 'tianyi',
     label: '📊 Formato Tianyi Resumen',
     shortDesc: 'Tabla con cabecera de resumen consolidado superior',
@@ -304,6 +314,13 @@ function resolverParserSelector(proveedorNombre: string): string {
 
   if (normalized.includes('bonnie') || normalized.includes('tmb')) return 'bonnie'
   if (normalized.includes('moti')) return 'moti'
+  if (
+    normalized.includes('jenny') ||
+    normalized.includes('beterlon') ||
+    normalized.includes('shishi')
+  ) {
+    return 'jenny'
+  }
   if (
     normalized.includes('jackie') ||
     normalized.includes('jacky') ||
@@ -527,14 +544,16 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
 
   const resumen = data.orden_preview ?? data.resumen ?? {}
   const ordenProductosRaw = Array.isArray(resumen.orden_productos) ? resumen.orden_productos : []
+  // Tolerante a ambos shapes de n8n: {sku, cantidad_total, numero_cajas_reales, ...}
+  // y {sku_base, piezas_pedidas, cajas_pedidas, ...} (parser sku-style v1).
   const ordenProductos: OrdenProductoResumen[] = ordenProductosRaw.map((op: Record<string, any>) => ({
-    sku: String(op.sku ?? ''),
+    sku: String(op.sku ?? op.sku_base ?? ''),
     nombre: toText(op.nombre),
     marca: toText(op.marca),
-    cantidad_total: toNumber(op.cantidad_total),
-    numero_cajas_reales: toNumber(op.numero_cajas_reales),
-    cbm_total: toNumber(op.cbm_total),
-    peso_bruto_total: toNumber(op.peso_bruto_total),
+    cantidad_total: toNumber(op.cantidad_total ?? op.piezas_pedidas),
+    numero_cajas_reales: toNumber(op.numero_cajas_reales ?? op.cajas_pedidas),
+    cbm_total: toNumber(op.cbm_total ?? op.cbm_detalle),
+    peso_bruto_total: toNumber(op.peso_bruto_total ?? op.peso_bruto_kg),
   }))
 
   return {
@@ -819,6 +838,12 @@ export function OrdenRapidaWizard({
   const [dbSkusSet, setDbSkusSet] = useState<Set<string>>(new Set())
   const [isCheckingDbSkus, setIsCheckingDbSkus] = useState(false)
   const [isSyncingDbProducts, setIsSyncingDbProducts] = useState(false)
+  // Probables ámbar (sin auto-vínculo) + vínculos manuales uno por uno
+  const [probablesDb, setProbablesDb] = useState<SkuProbable[]>([])
+  const [vinculosDb, setVinculosDb] = useState<Record<string, { dbId: number; dbSku: string }>>({})
+  // Comparativa n8n vs sistema por SKU (string detectado por n8n)
+  const [skuN8nPorSku, setSkuN8nPorSku] = useState<Record<string, string>>({})
+  const [alertaAmbarOpen, setAlertaAmbarOpen] = useState(false)
 
   const [deleteProductModal, setDeleteProductModal] = useState<{ open: boolean; index: number; sku: string } | null>(null)
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
@@ -847,12 +872,20 @@ export function OrdenRapidaWizard({
     items: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }>
   } | null>(null)
   // Bloqueo absoluto modo solo cajas: cajas esperadas vs cajas armadas (sin continuar)
+  // En paso 3 actúa como AVISO (blocking=false): se puede continuar al paso 4
+  // a corregirlo. Solo al confirmar/guardar es bloqueo absoluto (blocking=true).
   const [cajasBlockModal, setCajasBlockModal] = useState<{
     open: boolean
+    blocking: boolean
     items: Array<{ sku: string; cajasEsperadas: number; cajasArmadas: number; diferencia: number }>
   } | null>(null)
   // Huecos rellenados desde físico (SKUs en mayúsculas) — indicadores
   const [huecosRellenados, setHuecosRellenados] = useState<string[]>([])
+  // Línea editada por producto (skuUpper -> cajas esperadas corregidas).
+  // La verdad es lo editado: prevalece sobre el JSON al validar el match.
+  const [lineaEditadaPorSku, setLineaEditadaPorSku] = useState<Record<string, number>>({})
+  const [editLineaSku, setEditLineaSku] = useState<string | null>(null)
+  const [editLineaVal, setEditLineaVal] = useState('')
   // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
   const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
@@ -866,8 +899,27 @@ export function OrdenRapidaWizard({
     setEditableCajas([])
     setExpandedProducts(new Set())
     setDbSkusSet(new Set())
+    setProbablesDb([])
+    setVinculosDb({})
+    setSkuN8nPorSku({})
+    setHuecosRellenados([])
+    setLineaEditadaPorSku({})
+    setEditLineaSku(null)
+    setPrincipalPorSku({})
     setProgress(0)
     setProgressMsg('')
+  }
+
+  // Reinicio total para una nueva orden (paso 5: solo botón Nueva orden)
+  const handleNuevaOrden = () => {
+    resetParsedState()
+    setSelectedFile(null)
+    setCajasBlockModal(null)
+    setDiscrepancyModal(null)
+    setAlertaAmbarOpen(false)
+    setIsConfirmFinalModalOpen(false)
+    setStep(1)
+    toast.info('Lista para una nueva orden: sube otro Packing List.')
   }
 
   const handleConfirmDeleteProduct = () => {
@@ -925,6 +977,14 @@ export function OrdenRapidaWizard({
             ),
           )
         }
+      }
+      // Probables del producto agregado (sin auto-vínculo)
+      if (res.success && (res.probables ?? []).length > 0) {
+        setProbablesDb((prev) => {
+          const sin = new Set(prev.map((p) => String(p.inputSku).trim().toUpperCase()))
+          const nuevos = (res.probables ?? []).filter((p) => !sin.has(String(p.inputSku).trim().toUpperCase()))
+          return [...prev, ...nuevos]
+        })
       }
     })
 
@@ -1220,6 +1280,50 @@ export function OrdenRapidaWizard({
     toast.success('Caja eliminada de la vista.')
   }
 
+  // Agregar caja manual a un producto (corrige packing cuando no se detectó una caja).
+  // Hereda piezas_por_caja de la caja principal del SKU; el usuario la edita en la tarjeta.
+  const handleCajaAdd = (producto: WizardProducto) => {
+    const sku = String(producto.sku_base || '').trim()
+    if (!sku) { toast.error('El producto no tiene SKU.'); return }
+    const up = sku.toUpperCase()
+    const hermanas = editableCajas.filter(
+      (c) => String(c.sku_base || '').trim().toUpperCase() === up && c.tipo_caja !== 'padre_resumen'
+    )
+    const principal = cajaPrincipalDe(up, hermanas)
+    const n = hermanas.length + 1
+    const codigo = `${sku.toUpperCase().replace(/[^A-Z0-9]+/g, '-')}-MANUAL-${n}`
+    const nueva: WizardCaja = {
+      producto_temp_id: producto.temp_id,
+      producto_id: producto.producto_id ?? null,
+      codigo_caja_temporal: codigo,
+      codigo_caja: codigo,
+      sku_base: sku,
+      sku_raw: sku,
+      nombre_pack: principal?.nombre_pack || 'PACK UNICO',
+      piezas_por_caja: principal?.piezas_por_caja ?? 0,
+      cantidad_cajas: 1,
+      total_piezas: principal?.piezas_por_caja ?? 0,
+      peso_bruto_kg: principal?.peso_bruto_kg ?? 0,
+      peso_bruto_total_kg: principal?.peso_bruto_kg ?? 0,
+      peso_neto_kg: principal?.peso_neto_kg ?? 0,
+      peso_neto_total_kg: principal?.peso_neto_kg ?? 0,
+      largo_cm: principal?.largo_cm ?? 0,
+      ancho_cm: principal?.ancho_cm ?? 0,
+      alto_cm: principal?.alto_cm ?? 0,
+      cbm: principal?.cbm ?? 0,
+      cbm_por_caja: principal?.cbm_por_caja ?? principal?.cbm ?? 0,
+      cbm_total_linea: principal?.cbm ?? 0,
+      tallas: principal?.tallas ? [...principal.tallas] : [],
+      colores: principal?.colores ? [...principal.colores] : [],
+      matriz: { tallas: principal?.tallas ? [...principal.tallas] : [], colores: principal?.colores ? [...principal.colores] : [], valores: {} },
+      estado_temporal: 'manual',
+      tipo_caja: 'completa',
+    }
+    setEditableCajas((prev) => [...prev, nueva])
+    setExpandedProducts((prev) => new Set(prev).add(sku))
+    toast.success(`Caja ${codigo} agregada a ${sku}. Edítala en su tarjeta.`)
+  }
+
   const procesarPackingList = async () => {
     if (!selectedFile) {
       toast.error('Selecciona un archivo Excel primero.')
@@ -1386,6 +1490,31 @@ export function OrdenRapidaWizard({
             }
             setDbSkusSet(allMatched)
 
+            // Probables ámbar (sin auto-vínculo): nacen como nuevos
+            const probs = res.probables ?? []
+            setProbablesDb(probs)
+            // Comparativa n8n vs sistema: string detectado por n8n (sku_raw) por SKU
+            setSkuN8nPorSku((prev) => {
+              const next = { ...prev }
+              for (const p of enrichedProductos) {
+                const up = String(p.sku_base || '').trim().toUpperCase()
+                if (up && p.sku_raw) next[up] = String(p.sku_raw)
+              }
+              return next
+            })
+            // Podar vínculos de SKUs que ya no son probables ni exactos
+            setVinculosDb((prev) => {
+              const validos = new Set([
+                ...probs.map((p) => String(p.inputSku).trim().toUpperCase()),
+                ...allMatched,
+              ])
+              const next: Record<string, { dbId: number; dbSku: string }> = {}
+              for (const [k, v] of Object.entries(prev)) {
+                if (validos.has(k)) next[k] = v
+              }
+              return next
+            })
+
             if (res.skuMap && Object.keys(res.skuMap).length > 0) {
               const skuMap = res.skuMap
               setEditableProductos(prev =>
@@ -1416,12 +1545,54 @@ export function OrdenRapidaWizard({
     }
   }
 
+  // ── Sincronización manual ámbar uno por uno (sin auto-vínculo) ──
+  const probablesSinResolver = probablesDb.filter(
+    (p) => !vinculosDb[String(p.inputSku).trim().toUpperCase()]
+  )
+
+  const handleSincronizarProbable = (prob: SkuProbable) => {
+    const up = String(prob.inputSku).trim().toUpperCase()
+    setVinculosDb((prev) => ({ ...prev, [up]: { dbId: prob.dbId, dbSku: prob.dbSku } }))
+    setEditableProductos((prev) =>
+      prev.map((p) =>
+        String(p.sku_base || '').trim().toUpperCase() === up
+          ? { ...p, es_nuevo: false, force_new: false }
+          : p
+      )
+    )
+    toast.success(`"${prob.inputSku}" sincronizado con ${prob.dbSku}.`)
+  }
+
+  const handleQuitarVinculo = (inputSku: string) => {
+    const up = String(inputSku).trim().toUpperCase()
+    setVinculosDb((prev) => {
+      const next = { ...prev }
+      delete next[up]
+      return next
+    })
+    setEditableProductos((prev) =>
+      prev.map((p) =>
+        String(p.sku_base || '').trim().toUpperCase() === up ? { ...p, es_nuevo: true } : p
+      )
+    )
+  }
+
   const handleConfirmReview = () => {
+    // Alerta saltable ámbar: probables sin resolver antes de guardar
+    if (probablesSinResolver.length > 0) {
+      setAlertaAmbarOpen(true)
+      return
+    }
+    doGuardarOrden()
+  }
+
+  const doGuardarOrden = () => {
     // Bloqueo absoluto modo solo cajas: revalidar match de cajas (pudo editarse en paso 4)
     const matchFinal = calcularMatchCajasOrdenRapida()
     if (!matchFinal.ok) {
       setCajasBlockModal({
         open: true,
+        blocking: true,
         items: matchFinal.diffs
           .filter((d) => d.estado !== 'OK')
           .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
@@ -1444,6 +1615,9 @@ export function OrdenRapidaWizard({
           productos: editableProductos,
           cajas: editableCajas,
           detalles: parsedData?.detalles || [],
+          vinculosDb: Object.fromEntries(
+            Object.entries(vinculosDb).map(([k, v]) => [k, v.dbId])
+          ),
         })
 
         if (!res.success) {
@@ -1459,21 +1633,28 @@ export function OrdenRapidaWizard({
     })
   }
 
+  // ── Línea esperada efectiva: lo editado prevalece sobre el JSON ──
+  const buscarEsperadasJson = (skuBase: string): number => {
+    const direct = jsonTotalesPorSku.get(skuBase)?.cajas
+    if (typeof direct === 'number') return direct
+    const up = String(skuBase || '').trim().toUpperCase()
+    for (const [k, v] of jsonTotalesPorSku) {
+      if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
+    }
+    return 0
+  }
+  const lineaEsperada = (skuBase: string): number => {
+    const up = String(skuBase || '').trim().toUpperCase()
+    if (lineaEditadaPorSku[up] != null) return lineaEditadaPorSku[up]
+    return buscarEsperadasJson(skuBase)
+  }
+
   // ── Match base modo solo cajas: cajas esperadas (línea) vs cajas armadas ──
   // Bloqueo absoluto y exacto (sin tolerancia): las cajas son enteras.
-  // Solo se validan SKUs con esperado > 0 en el resumen del packing.
+  // La línea editada por el usuario es la verdad y prevalece sobre el JSON.
   const calcularMatchCajasOrdenRapida = () => {
-    const buscarEsperadas = (skuBase: string): number => {
-      const direct = jsonTotalesPorSku.get(skuBase)?.cajas
-      if (typeof direct === 'number') return direct
-      const up = String(skuBase || '').trim().toUpperCase()
-      for (const [k, v] of jsonTotalesPorSku) {
-        if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
-      }
-      return 0
-    }
     const lineas = editableProductos
-      .map((p) => ({ sku: String(p.sku_base || '').trim(), cajas: buscarEsperadas(String(p.sku_base || '')) }))
+      .map((p) => ({ sku: String(p.sku_base || '').trim(), cajas: lineaEsperada(String(p.sku_base || '')) }))
       .filter((l) => l.sku && l.cajas > 0)
     const fisicos = editableCajas
       .filter((c) => c.tipo_caja !== 'padre_resumen')
@@ -1481,18 +1662,8 @@ export function OrdenRapidaWizard({
     return compararCajasLineasVsFisico(lineas, fisicos)
   }
 
-  // ── Huecos: SKUs con cajas físicas pero sin línea esperada ──
-  // Misma normalización que el match. Propuesta = suma del físico.
+  // ── Huecos: SKUs con cajas físicas pero sin línea esperada (ni editada) ──
   const huecosFisico = useMemo(() => {
-    const buscarEsperadas = (skuBase: string): number => {
-      const direct = jsonTotalesPorSku.get(skuBase)?.cajas
-      if (typeof direct === 'number') return direct
-      const up = String(skuBase || '').trim().toUpperCase()
-      for (const [k, v] of jsonTotalesPorSku) {
-        if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
-      }
-      return 0
-    }
     const porSku = new Map<string, { sku: string; cajas: number; piezas: number }>()
     for (const c of editableCajas) {
       if (c.tipo_caja === 'padre_resumen') continue
@@ -1504,9 +1675,9 @@ export function OrdenRapidaWizard({
       porSku.set(up, prev)
     }
     return Array.from(porSku.entries())
-      .filter(([up, g]) => g.cajas > 0 && buscarEsperadas(g.sku) <= 0 && !huecosRellenados.includes(up))
+      .filter(([up, g]) => g.cajas > 0 && lineaEsperada(g.sku) <= 0 && !huecosRellenados.includes(up))
       .map(([up, g]) => ({ key: up, ...g }))
-  }, [editableCajas, jsonTotalesPorSku, huecosRellenados])
+  }, [editableCajas, jsonTotalesPorSku, huecosRellenados, lineaEditadaPorSku])
 
   const handleRellenarHuecos = () => {
     if (huecosFisico.length === 0 || !parsedData) return
@@ -1552,9 +1723,59 @@ export function OrdenRapidaWizard({
     })[0]
   }
 
+    // ── Alertas n8n por producto/caja + autocompletados de auditoría ──
+  // Lee el JSON tal como llega: warnings tipificados y auditoria_n8n.
+  type AlertaN8nLocal = {
+    tipo?: string; severidad?: string; sku_base?: string | null
+    codigo_caja_temporal?: string | null; detalle?: string; issue?: string
+  }
+  const alertasN8n = useMemo<AlertaN8nLocal[]>(() => {
+    const raw = (parsedData as any)?.warnings
+    return Array.isArray(raw) ? (raw as AlertaN8nLocal[]) : []
+  }, [parsedData])
+  const alertasPorSku = useMemo(() => {
+    const map = new Map<string, AlertaN8nLocal[]>()
+    for (const a of alertasN8n) {
+      const up = String(a.sku_base || '').trim().toUpperCase()
+      if (!up) continue
+      const list = map.get(up) ?? []
+      list.push(a)
+      map.set(up, list)
+    }
+    return map
+  }, [alertasN8n])
+  const alertasPorCaja = useMemo(() => {
+    const map = new Map<string, AlertaN8nLocal[]>()
+    for (const a of alertasN8n) {
+      const cod = String(a.codigo_caja_temporal || '').trim()
+      if (!cod) continue
+      const list = map.get(cod) ?? []
+      list.push(a)
+      map.set(cod, list)
+    }
+    return map
+  }, [alertasN8n])
+  const auditoriaN8n = useMemo(() => (parsedData as any)?.auditoria_n8n ?? null, [parsedData])
+  const rellenadosN8n = useMemo(
+    () => new Set<string>((auditoriaN8n?.rellenados ?? []).map((r: any) => String(r.sku || '').trim().toUpperCase())),
+    [auditoriaN8n]
+  )
+  // Desglose talla/color por caja (parsedData.detalles) para señalar qué cajas tienen detalles
+  const detallesPorCaja = useMemo(() => {
+    const det = (parsedData as any)?.detalles
+    const map = new Map<string, number>()
+    if (Array.isArray(det)) {
+      for (const d of det) {
+        const cod = String(d?.codigo_caja_temporal || '').trim()
+        if (!cod) continue
+        map.set(cod, (map.get(cod) ?? 0) + 1)
+      }
+    }
+    return map
+  }, [parsedData])
+
   // ── Checklist de verificación pre-confirmación ──
-  const verificacionPrevia = useMemo(() => {
-    const match = calcularMatchCajasOrdenRapida()
+  const verificacionPrevia = useMemo(() => {    const match = calcularMatchCajasOrdenRapida()
     const sinPz = editableCajas
       .filter((c) => c.tipo_caja !== 'padre_resumen' && !(Number(c.piezas_por_caja ?? 0) > 0))
       .map((c) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código'))
@@ -1576,6 +1797,56 @@ export function OrdenRapidaWizard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editableProductos, editableCajas, jsonTotalesPorSku, principalPorSku, totalCajasCount])
+
+  // Rellenar huecos desde el aviso (paso 3): completa líneas y revalida con
+  // los valores recién rellenados (sin esperar el re-render). Si solo quedan
+  // DIF reales, actualiza la lista; si ya cuadra, avanza al paso 4.
+  const handleRellenarDesdeAviso = () => {
+    const ups = new Set(huecosFisico.map((h) => h.key))
+    if (ups.size === 0) return
+    handleRellenarHuecos()
+    const restantes = calcularMatchCajasOrdenRapida().diffs.filter(
+      (d) => d.estado !== 'OK' && !ups.has(d.sku.trim().toUpperCase())
+    )
+    if (restantes.length === 0) {
+      setCajasBlockModal(null)
+      setStep(4)
+    } else {
+      setCajasBlockModal({
+        open: true,
+        blocking: false,
+        items: restantes.map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
+      })
+      toast.error('Aún quedan diferencias reales: corrígelas en el paso 4.')
+    }
+  }
+
+  // ── Resumen por SKU para el panel lateral de confirmación ──
+  // Misma fuente que el match: línea efectiva, suma armada y principal.
+  const resumenSku = useMemo(() => {
+    const filas = editableProductos.map((p) => {
+      const sku = String(p.sku_base || '').trim()
+      const up = sku.toUpperCase()
+      const reales = editableCajas.filter(
+        (c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up
+      )
+      const armadas = reales.reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
+      const linea = lineaEsperada(sku)
+      const principal = cajaPrincipalDe(up, reales)
+      const pzc = principal ? Number(principal.piezas_por_caja ?? 0) : 0
+      return {
+        sku, pzc, linea, armadas,
+        dif: linea - armadas,
+        ok: linea === armadas,
+        editada: lineaEditadaPorSku[up] != null,
+        principalCodigo: principal ? String(principal.codigo_caja || principal.codigo_caja_temporal || '') : null,
+      }
+    })
+    const totalCajas = filas.reduce((s, f) => s + f.armadas, 0)
+    const todoOk = filas.length > 0 && filas.every((f) => f.ok)
+    return { filas, totalCajas, todoOk }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editableProductos, editableCajas, jsonTotalesPorSku, lineaEditadaPorSku, principalPorSku])
 
   const handleNext = () => {
     if (step === 1) {
@@ -1632,11 +1903,13 @@ export function OrdenRapidaWizard({
         return
       }
 
-      // Bloqueo absoluto modo solo cajas: cajas esperadas vs cajas armadas (exacto)
+      // Aviso modo solo cajas en paso 3: las cajas y líneas se revisan en el paso 4.
+      // No bloquea: permite continuar a Cajas para corregirlo o rellenar aquí mismo.
       const matchCajas = calcularMatchCajasOrdenRapida()
       if (!matchCajas.ok) {
         setCajasBlockModal({
           open: true,
+          blocking: false,
           items: matchCajas.diffs
             .filter((d) => d.estado !== 'OK')
             .map((d) => ({ sku: d.sku, cajasEsperadas: d.cajasLinea, cajasArmadas: d.cajasFisicas, diferencia: d.dif })),
@@ -2122,9 +2395,13 @@ export function OrdenRapidaWizard({
                     </thead>
                     <tbody className="divide-y divide-border/60">
                       {editableProductos.map((producto, index) => {
-                        const dbMatch = dbSkusSet.has(producto.sku_base.trim().toUpperCase())
+                        const skuUp = String(producto.sku_base || '').trim().toUpperCase()
+                        const dbMatch = dbSkusSet.has(skuUp)
                         const isForcedNew = Boolean(producto.force_new)
                         const isMatch = dbMatch && !isForcedNew
+                        const vinculo = vinculosDb[skuUp]
+                        const probable = probablesDb.find((p) => String(p.inputSku).trim().toUpperCase() === skuUp)
+                        const n8nStr = skuN8nPorSku[skuUp] || (producto as any).sku_raw || ''
 
                         const currentBrandObj = marcas.find(
                           (m) =>
@@ -2151,9 +2428,55 @@ export function OrdenRapidaWizard({
                             <td className="p-3 align-top">
                               <div className="flex flex-col gap-1.5 items-start">
                                 {isMatch ? (
-                                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] gap-1 shadow-sm">
-                                    <CheckCircle2 className="h-3 w-3" /> En Catálogo BD
-                                  </Badge>
+                                  <>
+                                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] gap-1 shadow-sm">
+                                      <CheckCircle2 className="h-3 w-3" /> En Catálogo BD
+                                    </Badge>
+                                    <span className="text-[10px] font-mono text-muted-foreground" title="Comparativa n8n vs sistema (match 100)">
+                                      n8n: <strong className="text-foreground">{n8nStr || producto.sku_base}</strong>
+                                      <br />BD: <strong className="text-foreground">{producto.sku_base}</strong>
+                                    </span>
+                                  </>
+                                ) : vinculo ? (
+                                  <>
+                                    <Badge className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-[10px] gap-1 shadow-sm">
+                                      <CheckCircle2 className="h-3 w-3" /> Sincronizado: {vinculo.dbSku}
+                                    </Badge>
+                                    <span className="text-[10px] font-mono text-muted-foreground" title="Vínculo manual del usuario">
+                                      n8n: <strong className="text-foreground">{n8nStr || producto.sku_base}</strong>
+                                      <br />BD: <strong className="text-foreground">{vinculo.dbSku}</strong>
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-5 text-[9px] px-1.5 font-bold text-muted-foreground hover:text-destructive underline"
+                                      onClick={() => handleQuitarVinculo(producto.sku_base)}
+                                      title="Quitar vínculo y volver a nuevo"
+                                    >
+                                      Quitar vínculo
+                                    </Button>
+                                  </>
+                                ) : probable ? (
+                                  <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/30 p-2 space-y-1.5 max-w-[220px]">
+                                    <Badge variant="outline" className="border-amber-500 text-amber-800 dark:text-amber-300 font-bold text-[10px] gap-1">
+                                      <AlertTriangle className="h-3 w-3" /> ¿Mismo código? ({probable.score})
+                                    </Badge>
+                                    <p className="text-[10px] font-mono leading-relaxed">
+                                      n8n: <strong>{n8nStr || probable.inputSku}</strong>
+                                      <br />BD: <strong>{probable.dbSku}</strong>
+                                      <br /><span className="text-muted-foreground">vía {probable.metodo}</span>
+                                    </p>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 text-[10px] font-bold border-teal-500/50 text-teal-700 hover:bg-teal-50 dark:text-teal-300"
+                                      onClick={() => handleSincronizarProbable(probable)}
+                                    >
+                                      🔗 Sincronizar con {probable.dbSku}
+                                    </Button>
+                                  </div>
                                 ) : isForcedNew ? (
                                   <Badge className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] gap-1 shadow-sm">
                                     <Sparkles className="h-3 w-3" /> Nuevo (Forzado)
@@ -2163,6 +2486,35 @@ export function OrdenRapidaWizard({
                                     Nuevo / No registrado
                                   </Badge>
                                 )}
+
+                                {(() => {
+                                  const up = String(producto.sku_base || '').trim().toUpperCase()
+                                  const alertas = alertasPorSku.get(up) ?? []
+                                  const rellenado = rellenadosN8n.has(up)
+                                  if (alertas.length === 0 && !rellenado) return null
+                                  const altas = alertas.filter((a) => a.severidad === 'alta').length
+                                  const title = [
+                                    ...alertas.map((a) => `• [${a.tipo ?? 'aviso'}${a.severidad ? `/${a.severidad}` : ''}] ${a.detalle || a.issue || ''}`),
+                                    ...(rellenado ? ['• Línea autocompletada por auditoría n8n desde el físico'] : []),
+                                  ].join('\n')
+                                  return (
+                                    <div className="flex flex-wrap gap-1" title={title}>
+                                      {alertas.length > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className={`font-bold text-[10px] ${altas > 0 ? 'border-red-400 bg-red-50 text-red-800' : 'border-amber-400 bg-amber-50 text-amber-800'}`}
+                                        >
+                                          <AlertTriangle className="h-3 w-3 mr-0.5" /> {alertas.length} alerta{alertas.length !== 1 ? 's' : ''} n8n
+                                        </Badge>
+                                      )}
+                                      {rellenado && (
+                                        <Badge variant="outline" className="border-emerald-500/50 text-emerald-700 dark:text-emerald-300 font-bold text-[10px]">
+                                          🤖 Corregido por n8n
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
 
                                 {dbMatch && (
                                   <Button
@@ -2745,7 +3097,7 @@ export function OrdenRapidaWizard({
                               toggleProduct(producto.sku_base || '__sin_sku__')
                             }
                           }}
-                          className="flex w-full items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50 cursor-pointer select-none"
+                          className="flex w-full flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50 cursor-pointer select-none"
                         >
                           <div className="flex items-center gap-3">
                             {isExpanded ? (
@@ -2765,13 +3117,37 @@ export function OrdenRapidaWizard({
                                 {huecosRellenados.includes(String(producto.sku_base || '').trim().toUpperCase()) && (
                                   <Badge variant="outline" className="text-[10px] border-emerald-500/50 text-emerald-700 dark:text-emerald-300">Rellenado</Badge>
                                 )}
+                                {(() => {
+                                  const up = String(producto.sku_base || '').trim().toUpperCase()
+                                  const alertas = alertasPorSku.get(up) ?? []
+                                  const nDetalles = cajasReales.reduce((s, c) => s + (detallesPorCaja.get(String(c.codigo_caja_temporal || '')) ?? 0), 0)
+                                  if (alertas.length === 0 && nDetalles === 0) return null
+                                  return (
+                                    <span className="flex items-center gap-1">
+                                      {nDetalles > 0 && (
+                                        <Badge variant="secondary" className="text-[10px]" title={`${nDetalles} renglones de desglose talla/color en sus cajas`}>
+                                          🧵 {nDetalles} detalles
+                                        </Badge>
+                                      )}
+                                      {alertas.length > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-300"
+                                          title={alertas.map((a) => `• [${a.tipo ?? 'aviso'}] ${a.detalle || a.issue || ''}`).join('\n')}
+                                        >
+                                          <AlertTriangle className="h-3 w-3 mr-0.5" /> {alertas.length} en n8n
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  )
+                                })()}
                               </div>
                               <p className="mt-0.5 text-xs text-muted-foreground">
                                 {producto.descripcion || producto.nombre || 'Sin descripcion'}
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 text-[10px] font-bold uppercase text-muted-foreground flex-wrap">
+                          <div className="flex items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-muted-foreground flex-wrap">
                             <span>{cajasReales.length} {cajasReales.length === 1 ? 'caja' : 'cajas'} ({grupoCajas} und)</span>
                             <span className="flex items-center gap-1">
                               {grupoPiezas.toLocaleString()} pz
@@ -2819,22 +3195,116 @@ export function OrdenRapidaWizard({
                                 </span>
                               )
                             })()}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-[10px] gap-1 border-primary/40 text-primary hover:bg-primary/10 font-bold bg-primary/5 ml-1"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                toast.success(`Recalculado SKU "${producto.sku_base}": ${cajasReales.length} cajas (${grupoCajas} und), ${grupoPiezas.toLocaleString()} pz, ${grupoCbm.toFixed(3)} m³, ${grupoPesoNeto.toFixed(1)} kg neto, ${grupoPesoBruto.toFixed(1)} kg bruto.`)
-                              }}
-                              title="Recalcular auditoría en vivo comparando cajas de este SKU vs Nota JSON"
-                            >
-                              <Calculator className="h-3 w-3" />
-                              Recalcular
-                            </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 text-[10px] gap-1 border-primary/40 text-primary hover:bg-primary/10 font-bold bg-primary/5 ml-1"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toast.success(`Recalculado SKU "${producto.sku_base}": ${cajasReales.length} cajas (${grupoCajas} und), ${grupoPiezas.toLocaleString()} pz, ${grupoCbm.toFixed(3)} m³, ${grupoPesoNeto.toFixed(1)} kg neto, ${grupoPesoBruto.toFixed(1)} kg bruto.`)
+                                }}
+                                title="Recalcular auditoría en vivo comparando cajas de este SKU vs Nota JSON"
+                              >
+                                <Calculator className="h-3 w-3" />
+                                Recalcular
+                              </Button>
+                            </div>
                           </div>
-                        </div>
+
+                          {/* Línea del producto en vivo: lo pedido vs lo armado */}
+                          {(() => {
+                            const up = String(producto.sku_base || '').trim().toUpperCase()
+                            const armadas = cajasReales.reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
+                            const linea = lineaEsperada(producto.sku_base || '')
+                            const editada = lineaEditadaPorSku[up] != null
+                            const nDetalles = cajasReales.reduce((s, c) => s + (detallesPorCaja.get(String(c.codigo_caja_temporal || '')) ?? 0), 0)
+                            const cuadra = linea === armadas
+                            const editando = editLineaSku === up
+                            return (
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 border-t border-border/60 bg-muted/20 px-4 py-2 text-xs">
+                                <span className="font-semibold">
+                                  Línea: <strong className="font-mono">{linea}</strong> cjs pedidas
+                                  {editada && <Badge variant="outline" className="ml-1.5 text-[10px] border-primary/40 text-primary">editada</Badge>}
+                                </span>
+                                <span className="tabular-nums">
+                                  Suma cajas: <strong className={`font-mono ${cuadra ? 'text-emerald-600' : 'text-destructive'}`}>{armadas}</strong>
+                                  {cuadra
+                                    ? <span className="ml-1.5 font-bold text-emerald-600">✓ match</span>
+                                    : <span className="ml-1.5 font-bold text-destructive">dif {linea - armadas > 0 ? `+${linea - armadas}` : linea - armadas}</span>}
+                                </span>
+                                <span className="text-muted-foreground tabular-nums">
+                                  {cajasReales.length} caja(s) · {nDetalles} detalle(s) · {grupoPiezas.toLocaleString()} pz
+                                </span>
+                                <span className="sm:ml-auto flex items-center gap-1.5">
+                                  {editando ? (
+                                    <>
+                                      <Input
+                                        type="number" min={0} step={1}
+                                        value={editLineaVal}
+                                        onChange={(e) => setEditLineaVal(e.target.value)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="h-7 w-20 text-right font-mono text-xs"
+                                        autoFocus
+                                      />
+                                      <Button
+                                        type="button" size="sm" className="h-7 text-[11px] font-bold"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          const v = parseInt(editLineaVal, 10)
+                                          if (isNaN(v) || v < 0) { toast.error('Ingresa un número válido de cajas (0 o más).'); return }
+                                          setLineaEditadaPorSku((prev) => ({ ...prev, [up]: v }))
+                                          setEditLineaSku(null)
+                                          toast.success(`Línea de ${producto.sku_base} fijada en ${v} cajas.`)
+                                        }}
+                                      >
+                                        Guardar
+                                      </Button>
+                                      <Button
+                                        type="button" variant="ghost" size="sm" className="h-7 text-[11px]"
+                                        onClick={(e) => { e.stopPropagation(); setEditLineaSku(null) }}
+                                      >
+                                        Cancelar
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        type="button" variant="outline" size="sm"
+                                        className="h-7 text-[11px] gap-1 font-bold"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setEditLineaSku(up)
+                                          setEditLineaVal(String(linea))
+                                        }}
+                                        title="Editar línea de producto (la verdad es lo editado)"
+                                      >
+                                        <Pencil className="h-3 w-3" /> Editar línea
+                                      </Button>
+                                      {editada && (
+                                        <Button
+                                          type="button" variant="ghost" size="sm"
+                                          className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setLineaEditadaPorSku((prev) => {
+                                              const next = { ...prev }
+                                              delete next[up]
+                                              return next
+                                            })
+                                            toast.info('Línea revertida al valor del JSON.')
+                                          }}
+                                          title="Volver al valor del JSON"
+                                        >
+                                          Revertir
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          })()}
 
                         {isExpanded && (
                           <div className="space-y-4 border-t bg-background p-4">
@@ -2856,34 +3326,81 @@ export function OrdenRapidaWizard({
                             )}
 
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                              <div className="md:col-span-2 flex justify-end">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-[11px] gap-1 border-dashed border-primary/50 text-primary hover:bg-primary/10 font-bold"
+                                  onClick={(e) => { e.stopPropagation(); handleCajaAdd(producto) }}
+                                  title="Agregar manualmente una caja no detectada a este producto"
+                                >
+                                  <Plus className="h-3 w-3" /> Agregar caja
+                                </Button>
+                              </div>
                               {cajasReales.map((caja) => {
                                 const cajaIndex = editableCajas.indexOf(caja)
                                 const sharedCaja = wizardCajaToSharedCajaData(caja, cajaIndex)
                                 const tallasCatalogo = buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || []))
                                 const coloresCatalogo = buildCatalogoItemsFromStrings(cpColores.length > 0 ? cpColores : (caja.matriz?.colores || caja.colores || []))
+                                const codTmp = String(caja.codigo_caja_temporal || '')
+                                const alertasCaja = alertasPorCaja.get(codTmp) ?? []
+                                const nDet = detallesPorCaja.get(codTmp) ?? 0
 
                                 return (
-                                  <CajaCard
-                                    key={caja.codigo_caja_temporal || caja.codigo_caja}
-                                    caja={sharedCaja}
-                                    layout="horizontal"
-                                    canEdit={true}
-                                    canDelete={true}
-                                    canEditOrden={true}
-                                    tallasDisponibles={tallasCatalogo}
-                                    coloresDisponibles={coloresCatalogo}
-                                    onEdit={async (id, data) => handleCajaEdit(cajaIndex, data)}
-                                    onRemove={() => handleCajaRemove(cajaIndex)}
-                                    isPending={false}
-                                  />
+                                  <div key={caja.codigo_caja_temporal || caja.codigo_caja} className="space-y-1.5">
+                                    {(alertasCaja.length > 0 || nDet > 0) && (
+                                      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                        {nDet > 0 && (
+                                          <Badge variant="secondary" title="Renglones de desglose talla/color en esta caja">
+                                            🧵 {nDet} detalle{nDet !== 1 ? 's' : ''}
+                                          </Badge>
+                                        )}
+                                        {alertasCaja.map((a, i) => (
+                                          <Badge
+                                            key={i}
+                                            variant="outline"
+                                            className={a.severidad === 'alta' ? 'border-red-400 bg-red-50 text-red-800' : 'border-amber-400 bg-amber-50 text-amber-800'}
+                                            title={a.detalle || a.issue || a.tipo || 'aviso n8n'}
+                                          >
+                                            <AlertTriangle className="h-3 w-3 mr-0.5" />
+                                            {a.tipo === 'ia_calidad' ? 'IA: ' : ''}{String(a.detalle || a.issue || a.tipo || '').slice(0, 90)}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <CajaCard
+                                      caja={sharedCaja}
+                                      layout="horizontal"
+                                      canEdit={true}
+                                      canDelete={true}
+                                      canEditOrden={true}
+                                      tallasDisponibles={tallasCatalogo}
+                                      coloresDisponibles={coloresCatalogo}
+                                      onEdit={async (id, data) => handleCajaEdit(cajaIndex, data)}
+                                      onRemove={() => handleCajaRemove(cajaIndex)}
+                                      isPending={false}
+                                    />
+                                  </div>
                                 )
                               })}
                             </div>
 
                             {cajasReales.length === 0 && (
-                              <p className="text-xs text-muted-foreground italic text-center py-4">
-                                No hay cajas reales (CC/CR) para este producto.
-                              </p>
+                              <div className="text-center py-4 space-y-3">
+                                <p className="text-xs text-muted-foreground italic">
+                                  No hay cajas reales (CC/CR) para este producto.
+                                </p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-[11px] gap-1 border-dashed border-primary/50 text-primary hover:bg-primary/10 font-bold"
+                                  onClick={(e) => { e.stopPropagation(); handleCajaAdd(producto) }}
+                                >
+                                  <Plus className="h-3 w-3" /> Agregar caja manual
+                                </Button>
+                              </div>
                             )}
                           </div>
                         )}
@@ -3056,25 +3573,18 @@ export function OrdenRapidaWizard({
               </div>
 
               <div className="mx-auto max-w-md space-y-2">
-                <h2 className="text-xl font-bold text-foreground">Revision completada</h2>
+                <h2 className="text-xl font-bold text-foreground">Orden guardada</h2>
                 <p className="text-sm text-muted-foreground">
-                  El Packing List ya fue procesado por n8n y la revision visual quedo lista. El guardado definitivo en Supabase se implementara en la siguiente fase.
+                  La orden B2B quedó registrada en Supabase con sus productos, cajas y detalles.
                 </p>
               </div>
 
               <div className="mx-auto flex max-w-sm flex-col justify-center gap-3 pt-4 sm:flex-row">
                 <Button
-                  variant="outline"
                   className="h-10 w-full gap-1.5"
-                  onClick={() => router.push(ADMIN_ROUTES.ordenesB2B.lista)}
+                  onClick={handleNuevaOrden}
                 >
-                  Ir a Ordenes B2B <ExternalLink className="h-4 w-4" />
-                </Button>
-                <Button
-                  className="h-10 w-full gap-1.5"
-                  onClick={() => router.push(ADMIN_ROUTES.contenedores.lista)}
-                >
-                  Ir a Contenedores <ExternalLink className="h-4 w-4" />
+                  <Plus className="h-4 w-4" /> Nueva orden
                 </Button>
               </div>
             </div>
@@ -3258,18 +3768,23 @@ export function OrdenRapidaWizard({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Modal 3b: Bloqueo absoluto modo solo cajas (sin continuar) */}
+      {/* Modal 3b: Aviso en paso 3 / Bloqueo absoluto al confirmar */}
       <AlertDialog open={Boolean(cajasBlockModal?.open)} onOpenChange={(open) => !open && setCajasBlockModal(null)}>
         <AlertDialogContent className="sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
-              Bloqueo modo cajas: líneas sin match con cajas armadas
+            <AlertDialogTitle className={`flex items-center gap-2 ${cajasBlockModal?.blocking ? 'text-destructive' : 'text-amber-600'}`}>
+              <AlertTriangle className={`h-5 w-5 shrink-0 ${cajasBlockModal?.blocking ? '' : 'text-amber-500'}`} />
+              {cajasBlockModal?.blocking
+                ? 'Bloqueo modo cajas: líneas sin match con cajas armadas'
+                : 'Aviso modo cajas: líneas sin match con cajas armadas'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               <div className="space-y-3 text-xs text-muted-foreground pt-2">
                 <p>
-                  Cada producto debe tener las mismas cajas en línea que en cajas armadas (exacto, sin tolerancia). Corrige la orden: no se puede continuar ni guardar así.
+                  Cada producto debe tener las mismas cajas en línea que en cajas armadas (exacto, sin tolerancia).
+                  {cajasBlockModal?.blocking
+                    ? ' Corrige la orden: no se puede guardar así.'
+                    : ' Las cajas y líneas se revisan en el paso 4: puedes rellenar huecos aquí o continuar a corregirlos.'}
                 </p>
                 <div className="max-h-48 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
                   {cajasBlockModal?.items.map((item) => (
@@ -3289,16 +3804,92 @@ export function OrdenRapidaWizard({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel onClick={() => setCajasBlockModal(null)}>
-              Revisar y corregir
+            {cajasBlockModal?.blocking ? (
+              <AlertDialogCancel onClick={() => setCajasBlockModal(null)}>
+                Revisar y corregir
+              </AlertDialogCancel>
+            ) : (
+              <>
+                <AlertDialogCancel onClick={() => setCajasBlockModal(null)}>
+                  Revisar
+                </AlertDialogCancel>
+                {huecosFisico.length > 0 && (
+                  <Button
+                    type="button"
+                    onClick={handleRellenarDesdeAviso}
+                    className="bg-amber-600 text-white hover:bg-amber-700 font-bold"
+                  >
+                    Rellenar desde físico
+                  </Button>
+                )}
+                <AlertDialogAction
+                  onClick={() => {
+                    setCajasBlockModal(null)
+                    setStep(4)
+                  }}
+                  className="font-bold"
+                >
+                  Continuar a Cajas
+                </AlertDialogAction>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal 3c: Alerta saltable ámbar (probables sin resolver) */}
+      <AlertDialog open={alertaAmbarOpen} onOpenChange={(open) => !open && setAlertaAmbarOpen(false)}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+              {probablesSinResolver.length} código{probablesSinResolver.length !== 1 ? 's' : ''} probablemente ya {probablesSinResolver.length !== 1 ? 'están' : 'está'} en BD
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-3 text-xs text-muted-foreground pt-2">
+                <p>Revísalos antes de continuar. Puedes sincronizar uno por uno o seguir y se guardarán como nuevos.</p>
+                <div className="max-h-56 overflow-y-auto rounded-md border border-amber-200/80 bg-amber-50/60 p-3 space-y-2">
+                  {probablesSinResolver.map((p) => (
+                    <div key={p.inputSku} className="flex flex-col border-b border-amber-200/60 pb-1.5 last:border-0 last:pb-0 gap-1">
+                      <span className="font-mono font-bold text-foreground">{p.inputSku}</span>
+                      <span className="text-[11px] text-amber-800">
+                        n8n: <strong>{p.inputSku}</strong> → BD: <strong>{p.dbSku}</strong> ({p.metodo}, {p.score})
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-[10px] font-bold self-start border-teal-500/50 text-teal-700"
+                        onClick={() => handleSincronizarProbable(p)}
+                      >
+                        🔗 Sincronizar con {p.dbSku}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel onClick={() => setAlertaAmbarOpen(false)}>
+              Revisar
             </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setAlertaAmbarOpen(false)
+                doGuardarOrden()
+              }}
+              className="font-bold"
+            >
+              Continuar de todos modos
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Modal 4: Corroborar Proveedor y Confirmación Definitiva de la Orden B2B */}
       <Dialog open={isConfirmFinalModalOpen} onOpenChange={setIsConfirmFinalModalOpen}>
-        <DialogContent className="w-[98vw] sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[98vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" /> Corroborar Proveedor y Guardar Orden B2B
@@ -3308,7 +3899,8 @@ export function OrdenRapidaWizard({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2 text-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 py-2 text-xs">
+          <div className="space-y-4 min-w-0">
             {/* 0. Verificación pre-guardado: la orden sube correcta */}
             <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
               <p className="text-xs font-black uppercase tracking-wider text-foreground flex items-center gap-1.5">
@@ -3331,6 +3923,16 @@ export function OrdenRapidaWizard({
                   <span className={verificacionPrevia.sinPz.length === 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
                     Todas las cajas con pz por caja
                     {verificacionPrevia.sinPz.length > 0 && ` — sin dato: ${verificacionPrevia.sinPz.slice(0, 5).join(', ')}${verificacionPrevia.sinPz.length > 5 ? ` +${verificacionPrevia.sinPz.length - 5}` : ''}`}
+                  </span>
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {alertasN8n.length === 0
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
+                  <span className={alertasN8n.length === 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>
+                    Alertas n8n: {alertasN8n.length === 0 ? 'ninguna' : `${alertasN8n.length} (informativas)`}
+                    {auditoriaN8n?.rellenados?.length > 0 && ` · 🤖 ${auditoriaN8n.rellenados.length} autocompletada(s) en origen`}
+                    {auditoriaN8n && ` · match origen ${auditoriaN8n.match_ok ? 'OK' : 'con diffs'}`}
                   </span>
                 </p>
                 <p className="flex items-center gap-2 text-[11px] font-semibold">
@@ -3411,6 +4013,53 @@ export function OrdenRapidaWizard({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Apartado lateral: resumen por SKU para detalles ordenes_b2b */}
+          <aside className={`rounded-xl border p-3 space-y-2 h-fit lg:sticky lg:top-0 ${resumenSku.todoOk ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border bg-muted/20'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                <Package className="h-3.5 w-3.5 text-primary" /> Resumen por SKU
+              </p>
+              {resumenSku.todoOk ? (
+                <Badge className="bg-emerald-600 text-white font-bold text-[10px] gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> Confirmado
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="font-bold text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-300">
+                  Por confirmar
+                </Badge>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground">Lo que irá a la tabla detalles: SKU y sus cajas.</p>
+            <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-0.5">
+              {resumenSku.filas.map((f) => (
+                <div
+                  key={f.sku}
+                  className={`rounded-lg border px-2.5 py-2 ${f.ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-destructive/40 bg-destructive/5'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] font-bold truncate" title={f.sku}>{f.sku}</span>
+                    {f.ok
+                      ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      : <span className="text-[10px] font-black text-destructive shrink-0">{f.dif > 0 ? `+${f.dif}` : f.dif}</span>}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                    <span>{f.pzc} pz/caja</span>
+                    <span>línea <strong className="text-foreground">{f.linea}</strong>{f.editada ? '*' : ''}</span>
+                    <span>suma <strong className={f.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>{f.armadas}</strong></span>
+                  </div>
+                </div>
+              ))}
+              {resumenSku.filas.length === 0 && (
+                <p className="text-[11px] text-muted-foreground italic">Sin productos.</p>
+              )}
+            </div>
+            <div className="border-t border-border/60 pt-2 text-[11px] font-bold flex items-center justify-between tabular-nums">
+              <span>{resumenSku.filas.length} productos</span>
+              <span>{resumenSku.totalCajas} cajas</span>
+            </div>
+          </aside>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
