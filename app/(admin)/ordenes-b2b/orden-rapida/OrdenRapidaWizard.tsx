@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useMemo, memo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, Database, FileSpreadsheet, FileUp, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, ChevronUp, Database, FileSpreadsheet, FileUp, GripVertical, Hand, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -551,6 +551,33 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
     }
   })
 
+  // Herencia de piezas: la caja sin valor la toma de su principal (SKU, pack)
+  // y se marca para badge visible. Sin principal con valor, queda en 0 y
+  // el bloqueo sinPz existente impide guardar.
+  const cajasPorSkuPackHeredar = new Map<string, WizardCaja[]>()
+  for (const c of cajas) {
+    if (c.tipo_caja === 'padre_resumen') continue
+    const k = `${String(c.sku_base || '').trim().toUpperCase()}||${String(c.nombre_pack || 'PACK UNICO').trim().toUpperCase()}`
+    if (!cajasPorSkuPackHeredar.has(k)) cajasPorSkuPackHeredar.set(k, [])
+    cajasPorSkuPackHeredar.get(k)!.push(c)
+  }
+  for (const [, grupo] of cajasPorSkuPackHeredar) {
+    const principal = [...grupo].sort((a, b) =>
+      (Number(b.cantidad_cajas ?? 0) - Number(a.cantidad_cajas ?? 0))
+      || (Number(b.piezas_por_caja ?? 0) - Number(a.piezas_por_caja ?? 0)),
+    )[0]
+    const pz = principal ? Number(principal.piezas_por_caja ?? 0) : 0
+    if (!(pz > 0)) continue
+    const codPrin = String(principal.codigo_caja || principal.codigo_caja_temporal || '')
+    for (const c of grupo) {
+      if (!(Number(c.piezas_por_caja ?? 0) > 0)) {
+        c.piezas_por_caja = pz
+        ;(c as unknown as Record<string, unknown>).piezas_heredadas = true
+        ;(c as unknown as Record<string, unknown>).piezas_heredadas_de = codPrin
+      }
+    }
+  }
+
   const resumen = data.orden_preview ?? data.resumen ?? {}
   const ordenProductosRaw = Array.isArray(resumen.orden_productos) ? resumen.orden_productos : []
   // Tolerante a ambos shapes de n8n: {sku, cantidad_total, numero_cajas_reales, ...}
@@ -962,8 +989,16 @@ export function OrdenRapidaWizard({
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
   // Búsqueda BD bajo demanda por fila (lápiz 🔍): temp_id en curso
   const [buscandoDb, setBuscandoDb] = useState<Set<string>>(new Set())
-  // Fila en modo edición de SKU aunque ya esté vinculada (temp_id o fallback índice)
   const [editandoSku, setEditandoSku] = useState<string | null>(null)
+  // Modo arrastre paso 4: grips visibles, tap-to-move en móvil, amarillos atenuados
+  const [modoArrastre, setModoArrastre] = useState(false)
+  // Caja seleccionada para mover (codigo_caja_temporal) en modo arrastre/tap
+  const [cajaArrastrada, setCajaArrastrada] = useState<string | null>(null)
+  // Producto resaltado como destino durante drag (skuUpper)
+  const [dragOverProducto, setDragOverProducto] = useState<string | null>(null)
+  // Amarillos colapsados: una fila + expandir
+  const [showWarnings, setShowWarnings] = useState(false)
+  const [showHuecos, setShowHuecos] = useState(false)
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -986,6 +1021,11 @@ export function OrdenRapidaWizard({
     setPrincipalPorSku({})
     setBuscandoDb(new Set())
     setEditandoSku(null)
+    setModoArrastre(false)
+    setCajaArrastrada(null)
+    setDragOverProducto(null)
+    setShowWarnings(false)
+    setShowHuecos(false)
     setProgress(0)
     setProgressMsg('')
   }
@@ -1378,6 +1418,84 @@ export function OrdenRapidaWizard({
   const handleCajaRemove = (cajaIndex: number) => {
     setEditableCajas((prev) => prev.filter((_, idx) => idx !== cajaIndex))
     toast.success('Caja eliminada de la vista.')
+  }
+
+  // Renombra el código al cambiar de SKU: conserva el sufijo (pack/contador)
+  // si el código empieza con el SKU origen; si no, lo prefija. Evita
+  // duplicados con (2), (3)... La referencia al SKU nunca se pierde.
+  const renombrarCodigoCaja = (
+    codigoViejo: string,
+    skuOrigen: string,
+    skuDestino: string,
+    usados: Set<string>,
+  ): string => {
+    const viejo = String(codigoViejo || '').trim()
+    const normDest = String(skuDestino || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    const prefOrigen = String(skuOrigen || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    let base: string
+    if (prefOrigen && viejo.toUpperCase().startsWith(prefOrigen)) {
+      base = normDest + viejo.slice(prefOrigen.length)
+    } else if (viejo) {
+      base = normDest ? `${normDest}--${viejo}` : viejo
+    } else {
+      base = normDest || 'CAJA'
+    }
+    base = base.replace(/\s*\(\d+\)$/, '')
+    let candidato = base
+    let n = 2
+    while (usados.has(candidato.toUpperCase())) { candidato = `${base} (${n})`; n++ }
+    return candidato
+  }
+
+  // Mover caja completa a otro producto (drag & drop o tap): reasigna SKU,
+  // renombra el código al nuevo SKU y remapea detalles/vínculos.
+  const handleMoverCaja = (codigoOrigen: string, skuDestino: string) => {
+    const upDest = String(skuDestino || '').trim().toUpperCase()
+    if (!codigoOrigen || !upDest) return
+    const caja = editableCajas.find((c) => String(c.codigo_caja_temporal || c.codigo_caja || '') === codigoOrigen)
+    if (!caja) { toast.error('Caja no encontrada.'); return }
+    const upOrigen = String(caja.sku_base || '').trim().toUpperCase()
+    if (upOrigen === upDest) { toast.info('La caja ya está en ese producto.'); return }
+    const prodDestino = editableProductos.find((p) => String(p.sku_base || '').trim().toUpperCase() === upDest)
+    if (!prodDestino) { toast.error('Producto destino no encontrado.'); return }
+    const usados = new Set(
+      editableCajas
+        .filter((c) => String(c.codigo_caja_temporal || c.codigo_caja || '') !== codigoOrigen)
+        .map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '').toUpperCase()),
+    )
+    const nuevoCodigo = renombrarCodigoCaja(codigoOrigen, caja.sku_base || '', prodDestino.sku_base || '', usados)
+    setEditableCajas((prev) => prev.map((c) => {
+      if (String(c.codigo_caja_temporal || c.codigo_caja || '') !== codigoOrigen) return c
+      return {
+        ...c,
+        sku_base: prodDestino.sku_base,
+        producto_temp_id: prodDestino.temp_id,
+        codigo_caja_temporal: nuevoCodigo,
+        codigo_caja: nuevoCodigo,
+      }
+    }))
+    setParsedData((prev: any) => {
+      if (!prev || !Array.isArray(prev.detalles)) return prev
+      return {
+        ...prev,
+        detalles: prev.detalles.map((d: any) => (
+          String(d?.codigo_caja_temporal || '') === codigoOrigen
+            ? { ...d, codigo_caja_temporal: nuevoCodigo }
+            : d
+        )),
+      }
+    })
+    setPrincipalPorSku((prev) => {
+      let changed = false
+      const next: Record<string, string> = {}
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === codigoOrigen) { next[k] = nuevoCodigo; changed = true } else next[k] = v
+      }
+      return changed ? next : prev
+    })
+    setCajaArrastrada(null)
+    setDragOverProducto(null)
+    toast.success(`Caja ${codigoOrigen} → ${nuevoCodigo} en ${prodDestino.sku_base}.`)
   }
 
   // Agregar caja manual a un producto (corrige packing cuando no se detectó una caja).
@@ -1847,6 +1965,7 @@ export function OrdenRapidaWizard({
           vinculosDb: Object.fromEntries(
             Object.entries(vinculosDb).map(([k, v]) => [k, v.dbId])
           ),
+          principalPorSku,
         })
 
         if (!res.success) {
@@ -3149,6 +3268,26 @@ export function OrdenRapidaWizard({
                   <h2 className="text-lg font-bold">4. Cajas, logistica y confirmacion</h2>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant={modoArrastre ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-[10px] gap-1 font-bold"
+                    onClick={() => {
+                      setModoArrastre((prev) => {
+                        if (!prev) {
+                          setShowWarnings(false)
+                          setShowHuecos(false)
+                          toast.info('Modo arrastre: usa el grip ✋ de cada caja o tócala y luego toca el producto destino.')
+                        }
+                        return !prev
+                      })
+                      setCajaArrastrada(null)
+                      setDragOverProducto(null)
+                    }}
+                    title="Modo arrastre: mover cajas entre productos (colapsa avisos)"
+                  >
+                    <Hand className="h-3.5 w-3.5" /> {modoArrastre ? 'Arrastre ON' : 'Arrastre'}
+                  </Button>
                   <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={expandAllProducts}>
                     Expandir todo
                   </Button>
@@ -3356,21 +3495,32 @@ export function OrdenRapidaWizard({
               <div className="space-y-4">
                 {/* Huecos: cajas físicas sin línea esperada */}
                 {huecosFisico.length > 0 && (
-                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-2">
-                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4" />
-                      {huecosFisico.length} producto(s) con cajas físicas sin línea (huecos)
-                    </p>
-                    <div className="space-y-1">
-                      {huecosFisico.map((h) => (
-                        <p key={h.key} className="text-xs font-mono text-amber-900 dark:text-amber-200">
-                          {h.sku}: línea 0 → propuesta <strong>{h.cajas} cajas</strong> ({h.piezas.toLocaleString()} pz)
-                        </p>
-                      ))}
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                        {huecosFisico.length} producto(s) con cajas físicas sin línea
+                      </span>
+                      <Button type="button" size="sm" onClick={handleRellenarHuecos} className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-6 text-[10px] ml-auto">
+                        Rellenar desde físico
+                      </Button>
+                      <Button
+                        type="button" variant="ghost" size="sm" className="h-6 w-6 p-0"
+                        onClick={() => setShowHuecos((prev) => !prev)}
+                        title={showHuecos ? 'Ocultar detalle' : 'Ver detalle'}
+                      >
+                        {showHuecos ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </Button>
                     </div>
-                    <Button type="button" size="sm" onClick={handleRellenarHuecos} className="bg-amber-600 hover:bg-amber-700 text-white font-bold">
-                      Rellenar desde físico
-                    </Button>
+                    {showHuecos && (
+                      <div className="space-y-1">
+                        {huecosFisico.map((h) => (
+                          <p key={h.key} className="text-xs font-mono text-amber-900 dark:text-amber-200">
+                            {h.sku}: línea 0 → propuesta <strong>{h.cajas} cajas</strong> ({h.piezas.toLocaleString()} pz)
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {huecosRellenados.length > 0 && (
@@ -3407,11 +3557,35 @@ export function OrdenRapidaWizard({
                     const jsonSku = jsonTotalesPorSku.get(producto.sku_base)
 
                     return (
-                      <div key={producto.sku_base} className="rounded-lg border border-border/80 overflow-hidden">
+                      <div
+                        key={producto.sku_base}
+                        className={`rounded-lg border border-border/80 overflow-hidden transition-shadow ${modoArrastre && dragOverProducto === String(producto.sku_base || '').trim().toUpperCase() ? 'ring-2 ring-primary shadow-lg' : ''}`}
+                        onDragOver={(e) => {
+                          if (!modoArrastre) return
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          const up = String(producto.sku_base || '').trim().toUpperCase()
+                          setDragOverProducto((prev) => (prev === up ? prev : up))
+                        }}
+                        onDragLeave={() => setDragOverProducto(null)}
+                        onDrop={(e) => {
+                          if (!modoArrastre) return
+                          e.preventDefault()
+                          const cod = e.dataTransfer.getData('text/plain')
+                          setDragOverProducto(null)
+                          if (cod) handleMoverCaja(cod, String(producto.sku_base || ''))
+                        }}
+                      >
                         <div
                           role="button"
                           tabIndex={0}
-                          onClick={() => toggleProduct(producto.sku_base || '__sin_sku__')}
+                          onClick={() => {
+                            if (modoArrastre && cajaArrastrada) {
+                              handleMoverCaja(cajaArrastrada, String(producto.sku_base || ''))
+                              return
+                            }
+                            toggleProduct(producto.sku_base || '__sin_sku__')
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
@@ -3419,6 +3593,7 @@ export function OrdenRapidaWizard({
                             }
                           }}
                           className="flex w-full flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50 cursor-pointer select-none"
+                          title={modoArrastre && cajaArrastrada ? `Soltar aquí la caja ${cajaArrastrada}` : undefined}
                         >
                           <div className="flex items-center gap-3">
                             {isExpanded ? (
@@ -3771,9 +3946,39 @@ export function OrdenRapidaWizard({
                                 const nDet = detallesPorCaja.get(codTmp) ?? 0
 
                                 return (
-                                  <div key={caja.codigo_caja_temporal || caja.codigo_caja} className="space-y-1.5">
-                                    {(alertasCaja.length > 0 || nDet > 0) && (
+                                  <div key={caja.codigo_caja_temporal || caja.codigo_caja} className={`space-y-1.5 rounded-md p-1 transition-colors ${modoArrastre && cajaArrastrada === codTmp ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
+                                    {modoArrastre && (
+                                      <span
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.setData('text/plain', codTmp)
+                                          e.dataTransfer.effectAllowed = 'move'
+                                          setCajaArrastrada(codTmp)
+                                        }}
+                                        onDragEnd={() => setCajaArrastrada(null)}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setCajaArrastrada((prev) => (prev === codTmp ? null : codTmp))
+                                          if (cajaArrastrada !== codTmp) toast.info(`Caja ${codTmp} lista: toca el producto destino.`)
+                                        }}
+                                        title="Arrastra a otro producto o tócala y luego toca el destino"
+                                        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold cursor-grab active:cursor-grabbing select-none ${cajaArrastrada === codTmp ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-muted/60 text-muted-foreground hover:text-foreground'}`}
+                                      >
+                                        <GripVertical className="h-3.5 w-3.5" />
+                                        {cajaArrastrada === codTmp ? 'Moviendo… toca destino' : 'Mover'}
+                                      </span>
+                                    )}
+                                    {((caja as any).piezas_heredadas || alertasCaja.length > 0 || nDet > 0) && (
                                       <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                        {(caja as any).piezas_heredadas && (
+                                          <Badge
+                                            variant="outline"
+                                            className="border-sky-400 bg-sky-50 text-sky-800 font-bold"
+                                            title={`Piezas por caja heredadas de ${(caja as any).piezas_heredadas_de || 'principal'}`}
+                                          >
+                                            ↩ {Number(caja.piezas_por_caja || 0)} pz heredadas
+                                          </Badge>
+                                        )}
                                         {nDet > 0 && (
                                           <Badge variant="secondary" title="Renglones de desglose talla/color en esta caja">
                                             🧵 {nDet} detalle{nDet !== 1 ? 's' : ''}
@@ -3978,15 +4183,34 @@ export function OrdenRapidaWizard({
               </div>
 
               {warnings.length > 0 && (
-                <div className="rounded-lg border border-yellow-200 bg-yellow-50/80 p-4">
-                  <p className="mb-2 text-sm font-semibold text-yellow-900">Warnings del sistema</p>
-                  <div className="space-y-1">
-                    {warnings.map((warning, index) => (
-                      <p key={`summary-warning-${index}`} className="text-xs text-yellow-900">
-                        {warning.mensaje ?? warning.detalle ?? 'n8n devolvio una advertencia sin detalle.'}
-                      </p>
-                    ))}
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50/80 p-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-700" />
+                    <span className="text-xs font-bold text-yellow-900">
+                      {warnings.length} aviso{warnings.length !== 1 ? 's' : ''} del sistema
+                      {warnings.filter((w) => (w as any).severidad === 'alta').length > 0 && (
+                        <span className="ml-1.5 text-destructive">
+                          ({warnings.filter((w) => (w as any).severidad === 'alta').length} altos)
+                        </span>
+                      )}
+                    </span>
+                    <Button
+                      type="button" variant="ghost" size="sm" className="h-6 w-6 p-0 ml-auto"
+                      onClick={() => setShowWarnings((prev) => !prev)}
+                      title={showWarnings ? 'Ocultar detalle' : 'Ver detalle'}
+                    >
+                      {showWarnings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
                   </div>
+                  {showWarnings && (
+                    <div className="space-y-1 mt-2">
+                      {warnings.map((warning, index) => (
+                        <p key={`summary-warning-${index}`} className="text-xs text-yellow-900">
+                          {warning.mensaje ?? warning.detalle ?? 'n8n devolvio una advertencia sin detalle.'}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
