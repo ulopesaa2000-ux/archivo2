@@ -16,9 +16,12 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 
+import type { BodegaDisponible } from '@/modules/inventario/trazabilidad'
+
 interface Props {
   ciudades: string[]
   familias: { codigo: string; descripcion: string | null }[]
+  bodegas: BodegaDisponible[]
   filtrosActuales: {
     periodo: string
     fechaDesde: string
@@ -28,14 +31,20 @@ interface Props {
     q?: string
     agruparPor: 'familia' | 'producto'
     incluirCanceladas?: boolean
+    bodegaId?: number
+    bodegaNombre?: string
   }
 }
 
 export function TrazabilidadHeaderControls({
   ciudades,
   familias,
+  bodegas,
   filtrosActuales,
 }: Props) {
+  const bodegasCiudad = filtrosActuales.ciudad
+    ? bodegas.filter((b) => b.ciudad === filtrosActuales.ciudad)
+    : []
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -107,15 +116,37 @@ export function TrazabilidadHeaderControls({
               <SelectItem value="mes_anterior">Mes Anterior</SelectItem>
               <SelectItem value="ultimo_mes">Últimos 30 días</SelectItem>
               <SelectItem value="todo">Todo el año 2026</SelectItem>
+              <SelectItem value="rango">Rango personalizado</SelectItem>
             </SelectContent>
           </Select>
         </div>
+
+        {/* 2b. Rango personalizado */}
+        {filtrosActuales.periodo === 'rango' && (
+          <div className="lg:col-span-3 flex items-center gap-2">
+            <Input
+              type="date"
+              defaultValue={filtrosActuales.fechaDesde.slice(0, 10)}
+              onChange={(e) => updateQuery({ periodo: 'rango', fecha_desde: e.target.value || undefined })}
+              className="h-9 text-xs"
+              aria-label="Fecha desde"
+            />
+            <span className="text-xs text-muted-foreground shrink-0">al</span>
+            <Input
+              type="date"
+              defaultValue={filtrosActuales.fechaHasta.slice(0, 10)}
+              onChange={(e) => updateQuery({ fecha_hasta: e.target.value || undefined })}
+              className="h-9 text-xs"
+              aria-label="Fecha hasta"
+            />
+          </div>
+        )}
 
         {/* 3. Selector de Ciudad */}
         <div className="lg:col-span-2">
           <Select
             value={filtrosActuales.ciudad || 'todas'}
-            onValueChange={(val) => updateQuery({ ciudad: val ?? undefined })}
+            onValueChange={(val) => updateQuery({ ciudad: val ?? undefined, bodega: undefined })}
           >
             <SelectTrigger className="h-9 text-xs">
               <div className="flex items-center gap-1.5 truncate">
@@ -128,6 +159,34 @@ export function TrazabilidadHeaderControls({
               {ciudades.map((c) => (
                 <SelectItem key={c} value={c}>
                   {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 3b. Selector de Bodega (cascada: solo stock>0 de la ciudad, incluye virtuales) */}
+        <div className="lg:col-span-2">
+          <Select
+            value={filtrosActuales.bodegaId ? String(filtrosActuales.bodegaId) : 'todas'}
+            onValueChange={(val) => updateQuery({ bodega: val ?? undefined })}
+            disabled={!filtrosActuales.ciudad}
+          >
+            <SelectTrigger className="h-9 text-xs">
+              <div className="flex items-center gap-1.5 truncate">
+                <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <SelectValue placeholder={filtrosActuales.ciudad ? 'Bodega' : 'Elige ciudad primero'} />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas las bodegas</SelectItem>
+              {bodegasCiudad.map((b) => (
+                <SelectItem key={b.id} value={String(b.id)}>
+                  <span className="font-bold">{b.nombre}</span>
+                  {b.es_virtual && (
+                    <span className="text-[10px] font-bold text-purple-600 ml-1.5">VIRTUAL</span>
+                  )}
+                  <span className="text-[11px] text-muted-foreground ml-1.5">({b.stock_cajas} cj)</span>
                 </SelectItem>
               ))}
             </SelectContent>

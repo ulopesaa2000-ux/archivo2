@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useMemo, memo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ClipboardCheck, ChevronDown, ChevronRight, ChevronUp, Database, FileSpreadsheet, FileUp, GripVertical, Hand, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronsUpDown, ClipboardCheck, ChevronDown, ChevronRight, ChevronUp, Database, FileSpreadsheet, FileUp, GripVertical, Hand, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import { Separator } from '@/components/ui/separator'
 import {
   AlertDialog,
@@ -906,6 +915,42 @@ export function OrdenRapidaWizard({
   const selectedContenedorObj = useMemo(
     () => sortedContenedores.find((c) => String(c.id) === selectedContenedor),
     [sortedContenedores, selectedContenedor],
+  )
+
+  // ── Selector de contenedor buscable + aviso de surtido ──────────────
+  // Estados que ya pasaron por surtido: se muestran en amarillo y con modal
+  // de advertencia, pero se permite seleccionarlos para trazabilidad.
+  const [contenedorPopoverOpen, setContenedorPopoverOpen] = useState(false)
+  const [contenedorSearch, setContenedorSearch] = useState('')
+  const [isSurtidoModalOpen, setIsSurtidoModalOpen] = useState(false)
+
+  const isContenedorSurtidoLike = useCallback((estado: string | null | undefined) => {
+    return estado === 'surtido' || estado === 'completo' || estado === 'cerrado'
+  }, [])
+
+  const selectedContenedorEsSurtido = isContenedorSurtidoLike(selectedContenedorObj?.estado)
+
+  const filteredContenedores = useMemo(() => {
+    const q = contenedorSearch.trim().toLowerCase()
+    if (!q) return sortedContenedores
+    return sortedContenedores.filter((c) =>
+      `${c.codigo_contenedor} ${c.numero_contenedor ?? ''} ${c.estado ?? ''}`.toLowerCase().includes(q),
+    )
+  }, [sortedContenedores, contenedorSearch])
+
+  const handleContenedorSelect = useCallback(
+    (value: string) => {
+      setSelectedContenedor(value)
+      setContenedorPopoverOpen(false)
+      setContenedorSearch('')
+      if (value !== 'new') {
+        const picked = sortedContenedores.find((c) => String(c.id) === value)
+        if (picked && isContenedorSurtidoLike(picked.estado)) {
+          setIsSurtidoModalOpen(true)
+        }
+      }
+    },
+    [sortedContenedores, isContenedorSurtidoLike],
   )
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -2465,25 +2510,107 @@ export function OrdenRapidaWizard({
                 <div className="grid grid-cols-1 items-end gap-6 rounded-lg border bg-muted/20 p-4 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-1">
                     <Label htmlFor="contenedor-sel" className="text-xs">Destino de carga</Label>
-                    <Select value={selectedContenedor} onValueChange={(value) => setSelectedContenedor(value || '')}>
-                      <SelectTrigger id="contenedor-sel" className="h-9">
-                        <SelectValue placeholder="Selecciona el contenedor...">
-                          {selectedContenedor === 'new'
-                            ? '+ Crear nuevo contenedor'
-                            : selectedContenedorObj
-                              ? `${selectedContenedorObj.codigo_contenedor} (${selectedContenedorObj.numero_contenedor ?? 'S/N'}) - ${selectedContenedorObj.estado}`
-                              : undefined}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new">+ Crear nuevo contenedor</SelectItem>
-                        {sortedContenedores.map((contenedor) => (
-                          <SelectItem key={contenedor.id} value={String(contenedor.id)}>
-                            {contenedor.codigo_contenedor} ({contenedor.numero_contenedor ?? 'S/N'}) - {contenedor.estado}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={contenedorPopoverOpen} onOpenChange={setContenedorPopoverOpen}>
+                      <PopoverTrigger
+                        render={
+                          <Button
+                            id="contenedor-sel"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={contenedorPopoverOpen}
+                            className={cn(
+                              'h-9 w-full justify-between truncate text-left font-normal',
+                              selectedContenedorEsSurtido &&
+                                'border-yellow-400 bg-yellow-100/70 text-yellow-950 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-100',
+                            )}
+                          />
+                        }
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+                          <Search className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                          {selectedContenedor === 'new' ? (
+                            <span className="truncate">+ Crear nuevo contenedor</span>
+                          ) : selectedContenedorObj ? (
+                            <span className="truncate font-mono text-xs">
+                              {selectedContenedorObj.codigo_contenedor} (
+                              {selectedContenedorObj.numero_contenedor ?? 'S/N'}) - {selectedContenedorObj.estado}
+                              {selectedContenedorEsSurtido ? ' (ya surtido)' : ''}
+                            </span>
+                          ) : (
+                            <span className="truncate text-muted-foreground">Buscar contenedor...</span>
+                          )}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[380px] max-w-[90vw] p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            placeholder="Buscar por 2026-XX o código..."
+                            value={contenedorSearch}
+                            onValueChange={setContenedorSearch}
+                          />
+                          <CommandList>
+                            <CommandEmpty className="py-4 text-center text-sm text-muted-foreground">
+                              Sin resultados para &quot;{contenedorSearch}&quot;.
+                            </CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                value="new"
+                                onSelect={() => handleContenedorSelect('new')}
+                                className="font-semibold"
+                              >
+                                <Check
+                                  className={cn(
+                                    'mr-2 h-4 w-4 shrink-0 text-primary',
+                                    selectedContenedor === 'new' ? 'opacity-100' : 'opacity-0',
+                                  )}
+                                />
+                                + Crear nuevo contenedor
+                              </CommandItem>
+                              {filteredContenedores.map((contenedor) => {
+                                const esSurtido = isContenedorSurtidoLike(contenedor.estado)
+                                const isSelected = String(contenedor.id) === selectedContenedor
+                                return (
+                                  <CommandItem
+                                    key={contenedor.id}
+                                    value={`${contenedor.codigo_contenedor} ${contenedor.numero_contenedor ?? ''}`}
+                                    onSelect={() => handleContenedorSelect(String(contenedor.id))}
+                                    className={cn(
+                                      esSurtido &&
+                                        'border-l-4 border-yellow-400 bg-yellow-100/70 text-yellow-950 data-[selected=true]:bg-yellow-200/80 dark:bg-yellow-900/30 dark:text-yellow-100',
+                                    )}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        'mr-2 h-4 w-4 shrink-0',
+                                        isSelected ? 'opacity-100' : 'opacity-0',
+                                        esSurtido ? 'text-yellow-700 dark:text-yellow-300' : 'text-primary',
+                                      )}
+                                    />
+                                    {esSurtido && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-300" />}
+                                    <span className="truncate font-mono text-xs">
+                                      {contenedor.codigo_contenedor} ({contenedor.numero_contenedor ?? 'S/N'}) -{' '}
+                                      {contenedor.estado}
+                                      {esSurtido ? ' · ya surtido' : ''}
+                                    </span>
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    {selectedContenedorEsSurtido && selectedContenedorObj && (
+                      <div className="flex items-start gap-2 rounded-md border border-yellow-300 bg-yellow-50 p-2 text-[11px] text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-100">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-300" />
+                        <span>
+                          El contenedor <strong className="font-mono">{selectedContenedorObj.codigo_contenedor}</strong>{' '}
+                          ya está surtido ({selectedContenedorObj.estado}). Se muestra en amarillo para ubicar los
+                          recientes; puedes usarlo igual o elegir otro.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {selectedContenedor === 'new' ? (
@@ -4053,6 +4180,14 @@ export function OrdenRapidaWizard({
                       ? `${newContainerCode} (Nuevo contenedor)`
                       : contenedores.find((item) => String(item.id) === selectedContenedor)?.codigo_contenedor}
                   </p>
+                  {selectedContenedorEsSurtido && selectedContenedorObj && (
+                    <Badge
+                      variant="outline"
+                      className="mt-1 border-yellow-400 bg-yellow-100 text-xs text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100"
+                    >
+                      <AlertTriangle className="mr-1 h-3 w-3" /> Ya surtido ({selectedContenedorObj.estado})
+                    </Badge>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <span className="block text-xs font-bold text-muted-foreground">Estado de la orden interpretada</span>
@@ -4299,6 +4434,50 @@ export function OrdenRapidaWizard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal: aviso de contenedor ya surtido */}
+      <Dialog open={isSurtidoModalOpen} onOpenChange={setIsSurtidoModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+              <AlertTriangle className="h-5 w-5 shrink-0" /> Este contenedor ya está surtido
+            </DialogTitle>
+            <DialogDescription>
+              {selectedContenedorObj ? (
+                <>
+                  El contenedor{' '}
+                  <strong className="font-mono text-foreground">
+                    {selectedContenedorObj.codigo_contenedor} ({selectedContenedorObj.numero_contenedor ?? 'S/N'})
+                  </strong>{' '}
+                  está en estado <strong className="text-foreground">{selectedContenedorObj.estado}</strong>. Se
+                  resalta en amarillo para que puedas ubicar los contenedores recientes, esten o no surtidos.
+                </>
+              ) : (
+                'El contenedor seleccionado ya fue surtido.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-yellow-300 bg-yellow-50 p-3 text-xs text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-100">
+            Si cargas otra orden sobre este contenedor se asociará al mismo destino. Si buscabas un contenedor libre,
+            elige otro de la lista.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsSurtidoModalOpen(false)
+                setSelectedContenedor('')
+                setContenedorPopoverOpen(true)
+              }}
+            >
+              Elegir otro contenedor
+            </Button>
+            <Button onClick={() => setIsSurtidoModalOpen(false)} className="gap-1 font-bold">
+              <Check className="h-4 w-4" /> Entendido, usarlo igual
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal 2: Agregar nuevo producto manualmente */}
       <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>

@@ -228,6 +228,11 @@ export function StockAuditoriaDrawer({
               <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 overflow-hidden">
                 <div className="px-3 py-2 border-b border-yellow-500/30">
                   <p className="text-xs font-bold text-yellow-800 dark:text-yellow-300">En trámite PEND/PROC (amarillo, no suma al real — alimenta el pronóstico)</p>
+                  <p className="font-mono font-black text-sm text-yellow-800 dark:text-yellow-300 mt-0.5">
+                    +{pendientes.filter((n) => n.delta > 0).reduce((a, n) => a + n.delta, 0)} ({pendientes.filter((n) => n.delta > 0).length} notas)
+                    {' / '}
+                    −{pendientes.filter((n) => n.delta < 0).reduce((a, n) => a + Math.abs(n.delta), 0)} ({pendientes.filter((n) => n.delta < 0).length} notas)
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-1.5 px-3 py-2">
                   {pendientes.map((n) => (

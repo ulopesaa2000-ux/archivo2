@@ -29,7 +29,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
-import type { FilaTrazabilidadMatriz, NotaCanceladaResumen } from '@/modules/inventario/trazabilidad'
+import Link from 'next/link'
+import type { FilaTrazabilidadMatriz, NotaCanceladaResumen, NotasCeldaRespuesta } from '@/modules/inventario/trazabilidad'
+import { fetchNotasCelda } from '@/modules/inventario/trazabilidad'
 import { TrazabilidadTimelineDrawer } from './TrazabilidadTimelineDrawer'
 import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon } from '@/lib/inventario/familias-orden'
 
@@ -41,6 +43,18 @@ interface Props {
   fechaHasta: string
   canceladas?: NotaCanceladaResumen[]
   verCanceladas?: boolean
+  /** Alcance a bodega: relabela columnas y fija el popover a esa bodega */
+  alcanceBodega?: string | null
+  ciudadFiltro?: string
+  bodegaId?: number
+}
+
+interface CeldaSel {
+  fila: FilaTrazabilidadMatriz
+  titulo: string
+  kind: 'salidas' | 'entradas' | 'todo'
+  x: number
+  y: number
 }
 
 function isUnassignedFamily(fam: string | null | undefined): boolean {
@@ -55,16 +69,62 @@ export function TrazabilidadMatrizTable({
   fechaHasta,
   canceladas = [],
   verCanceladas = false,
+  alcanceBodega = null,
+  ciudadFiltro,
+  bodegaId,
 }: Props) {
   const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set())
   const [isExporting, setIsExporting] = useState(false)
+  // Popover anclado de notas por celda
+  const [celda, setCelda] = useState<CeldaSel | null>(null)
+  const [celdaNotas, setCeldaNotas] = useState<NotasCeldaRespuesta | null>(null)
+  const [celdaLoading, setCeldaLoading] = useState(false)
+
+  const openCelda = (
+    e: React.MouseEvent<HTMLElement>,
+    fila: FilaTrazabilidadMatriz,
+    kind: CeldaSel['kind'],
+    ciudadScope: string | undefined,
+    titulo: string
+  ) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const w = 340
+    const x = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8))
+    const y = Math.min(rect.bottom + 8, window.innerHeight - 420)
+    setCelda({ fila, titulo, kind, x, y: Math.max(8, y) })
+    setCeldaNotas(null)
+    setCeldaLoading(true)
+    fetchNotasCelda({
+      productoId: fila.producto_id,
+      familia: fila.producto_id ? undefined : fila.familia,
+      ciudad: bodegaId ? undefined : ciudadScope,
+      bodegaId,
+      desde: fechaDesde,
+      hasta: fechaHasta,
+      incluirCanceladas: verCanceladas,
+      limite: 15,
+    })
+      .then(setCeldaNotas)
+      .catch(() => setCeldaNotas({ notas: [], pendientes: [], total: 0 }))
+      .finally(() => setCeldaLoading(false))
+  }
+
+  const tituloAlcance = alcanceBodega || ciudadFiltro || 'Todas las plazas'
+
+  React.useEffect(() => {
+    if (!celda) return
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setCelda(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [celda])
 
   // Estado para el modal de timeline individual
   const [timelineProduct, setTimelineProduct] = useState<{
-    id: number
+    id: number | null
     sku: string
     descripcion?: string
     familia?: string
+    modo: 'sku' | 'familia'
   } | null>(null)
 
   const toggleFamily = (famId: string) => {
@@ -87,23 +147,23 @@ export function TrazabilidadMatrizTable({
 
   const openTimeline = (item: FilaTrazabilidadMatriz) => {
     if (item.producto_id) {
+      // Fila de SKU individual → diagrama del SKU
       setTimelineProduct({
         id: item.producto_id,
         sku: item.sku_base || '',
         descripcion: item.descripcion,
         familia: item.familia,
+        modo: 'sku',
       })
     } else if (item.skus && item.skus.length > 0) {
-      // Si se hace clic en una familia, abre el primer SKU de la familia o el más representativo
-      const primerSku = item.skus[0]
-      if (primerSku.producto_id) {
-        setTimelineProduct({
-          id: primerSku.producto_id,
-          sku: primerSku.sku_base || item.familia,
-          descripcion: primerSku.descripcion,
-          familia: item.familia,
-        })
-      }
+      // Fila de familia → lista de SKUs con stock para elegir cuál rastrear
+      setTimelineProduct({
+        id: null,
+        sku: item.familia,
+        descripcion: item.descripcion,
+        familia: item.familia,
+        modo: 'familia',
+      })
     }
   }
 
@@ -642,10 +702,10 @@ export function TrazabilidadMatrizTable({
                   Entradas (+)
                 </th>
                 
-                {/* Columnas dinámicas de Salidas por Ciudad */}
+                {/* Columnas dinámicas de Salidas por Ciudad (o bodega en alcance) */}
                 {ciudadesRelevantes.map((cd) => (
-                  <th key={`head-sal-${cd}`} className="py-3 px-3 text-right min-w-[95px] text-red-600 dark:text-red-400">
-                    Ventas {cd}
+                  <th key={`head-sal-${cd}`} className="py-3 px-3 text-right min-w-[95px] text-red-600 dark:text-red-400" title={alcanceBodega ? `Alcance: bodega ${alcanceBodega}` : undefined}>
+                    Ventas {alcanceBodega || cd}
                   </th>
                 ))}
 
@@ -724,7 +784,7 @@ export function TrazabilidadMatrizTable({
                                     className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border border-yellow-500/40 font-bold"
                                     title={`En trámite (PEND/PROC): ${(fila.notas_pendientes || []).map(n => `${n.numero_nota} (${n.delta >= 0 ? '+' : ''}${n.delta})`).join(', ') || 'pendiente'}`}
                                   >
-                                    En trámite {(fila.delta_pendiente ?? 0) !== 0 ? `${(fila.delta_pendiente ?? 0) > 0 ? '+' : ''}${fila.delta_pendiente}` : ''}
+                                    +{fila.pend_entradas ?? 0} ({fila.pend_n_entradas ?? 0}) / −{fila.pend_salidas ?? 0} ({fila.pend_n_salidas ?? 0})
                                   </Badge>
                                 )}
                               </div>
@@ -744,7 +804,11 @@ export function TrazabilidadMatrizTable({
 
                         {/* Entradas */}
                         <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                          {fila.total_entradas > 0 ? `+${fila.total_entradas}` : '-'}
+                          {fila.total_entradas > 0 ? (
+                            <button type="button" onClick={(e) => openCelda(e, fila, 'entradas', ciudadFiltro, tituloAlcance)} className="hover:underline cursor-pointer" title={`Ver notas de entradas — ${tituloAlcance}`}>
+                              +{fila.total_entradas}
+                            </button>
+                          ) : '-'}
                         </td>
 
                         {/* Salidas por Ciudad Relevante */}
@@ -753,9 +817,9 @@ export function TrazabilidadMatrizTable({
                           return (
                             <td key={`cell-sal-${fila.id}-${cd}`} className="py-2.5 px-3 text-right font-mono text-xs">
                               {salCd > 0 ? (
-                                <span className="font-semibold text-red-600 dark:text-red-400">
+                                <button type="button" onClick={(e) => openCelda(e, fila, 'salidas', cd, alcanceBodega || cd)} className="font-semibold text-red-600 dark:text-red-400 hover:underline cursor-pointer" title={`Ver notas de ventas en ${alcanceBodega || cd}`}>
                                   -{salCd}
-                                </span>
+                                </button>
                               ) : (
                                 <span className="text-muted-foreground/50">-</span>
                               )}
@@ -765,7 +829,11 @@ export function TrazabilidadMatrizTable({
 
                         {/* Total Salidas */}
                         <td className="py-2.5 px-3 text-right font-mono font-black text-red-600 dark:text-red-400 bg-red-500/5">
-                          {fila.total_salidas > 0 ? `-${fila.total_salidas}` : '-'}
+                          {fila.total_salidas > 0 ? (
+                            <button type="button" onClick={(e) => openCelda(e, fila, 'salidas', ciudadFiltro, tituloAlcance)} className="hover:underline cursor-pointer" title={`Ver notas de salidas — ${tituloAlcance}`}>
+                              -{fila.total_salidas}
+                            </button>
+                          ) : '-'}
                         </td>
 
                         {/* Flujo de Traspasos Inter-Ciudad */}
@@ -811,8 +879,10 @@ export function TrazabilidadMatrizTable({
 
                         {/* Stock Actual */}
                         <td className="py-2.5 px-3 text-right font-mono font-black text-xs bg-muted/20">
-                          {fila.stock_actual > 0 ? (
-                            <span className="text-foreground">{fila.stock_actual} cj</span>
+                          {fila.stock_actual > 0 || fila.total_entradas > 0 || fila.total_salidas > 0 ? (
+                            <button type="button" onClick={(e) => openCelda(e, fila, 'todo', ciudadFiltro, tituloAlcance)} className="text-foreground hover:underline cursor-pointer" title={`Ver cómo se movió el stock — ${tituloAlcance}`}>
+                              {fila.stock_actual} cj
+                            </button>
                           ) : (
                             <span className="text-muted-foreground">0</span>
                           )}
@@ -865,7 +935,11 @@ export function TrazabilidadMatrizTable({
 
                           {/* Entradas */}
                           <td className="py-2 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
-                            {sku.total_entradas > 0 ? `+${sku.total_entradas}` : '-'}
+                            {sku.total_entradas > 0 ? (
+                              <button type="button" onClick={(e) => openCelda(e, sku, 'entradas', ciudadFiltro, tituloAlcance)} className="hover:underline cursor-pointer" title={`Ver notas de entradas — ${tituloAlcance}`}>
+                                +{sku.total_entradas}
+                              </button>
+                            ) : '-'}
                           </td>
 
                           {/* Salidas por Ciudad */}
@@ -874,9 +948,9 @@ export function TrazabilidadMatrizTable({
                             return (
                               <td key={`sub-sal-${sku.id}-${cd}`} className="py-2 px-3 text-right font-mono text-[11px]">
                                 {salCd > 0 ? (
-                                  <span className="text-red-600 dark:text-red-400 font-medium">
+                                  <button type="button" onClick={(e) => openCelda(e, sku, 'salidas', cd, alcanceBodega || cd)} className="text-red-600 dark:text-red-400 font-medium hover:underline cursor-pointer" title={`Ver notas de ventas en ${alcanceBodega || cd}`}>
                                     -{salCd}
-                                  </span>
+                                  </button>
                                 ) : (
                                   <span className="text-muted-foreground/30">-</span>
                                 )}
@@ -886,7 +960,11 @@ export function TrazabilidadMatrizTable({
 
                           {/* Total Salidas */}
                           <td className="py-2 px-3 text-right font-mono font-bold text-red-600 dark:text-red-400 bg-red-500/5">
-                            {sku.total_salidas > 0 ? `-${sku.total_salidas}` : '-'}
+                            {sku.total_salidas > 0 ? (
+                              <button type="button" onClick={(e) => openCelda(e, sku, 'salidas', ciudadFiltro, tituloAlcance)} className="hover:underline cursor-pointer" title={`Ver notas de salidas — ${tituloAlcance}`}>
+                                -{sku.total_salidas}
+                              </button>
+                            ) : '-'}
                           </td>
 
                           {/* Traspasos */}
@@ -896,7 +974,11 @@ export function TrazabilidadMatrizTable({
 
                           {/* Stock Actual */}
                           <td className="py-2 px-3 text-right font-mono font-semibold bg-muted/10">
-                            {sku.stock_actual > 0 ? `${sku.stock_actual} cj` : '0'}
+                            {sku.stock_actual > 0 || sku.total_entradas > 0 || sku.total_salidas > 0 ? (
+                              <button type="button" onClick={(e) => openCelda(e, sku, 'todo', ciudadFiltro, tituloAlcance)} className="hover:underline cursor-pointer" title={`Ver cómo se movió el stock — ${tituloAlcance}`}>
+                                {sku.stock_actual} cj
+                              </button>
+                            ) : '0'}
                           </td>
 
                           {/* Botón Kardex del SKU */}
@@ -935,6 +1017,86 @@ export function TrazabilidadMatrizTable({
           </span>
         </div>
       </div>
+
+      {/* Popover anclado de notas por celda */}
+      {celda && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setCelda(null)} />
+          <div
+            className="fixed z-50 w-[340px] max-w-[calc(100vw-16px)] max-h-[400px] overflow-y-auto bg-popover text-popover-foreground rounded-xl border border-border shadow-xl p-3 space-y-2.5"
+            style={{ left: celda.x, top: celda.y }}
+            role="dialog"
+            aria-label={`Notas de ${celda.titulo}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-black truncate">
+                  {celda.fila.sku_base || celda.fila.familia}
+                  <span className="font-normal text-muted-foreground"> · {celda.titulo}</span>
+                </p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+                  {celda.kind === 'salidas' ? 'Salidas' : celda.kind === 'entradas' ? 'Entradas' : 'Movimiento de stock'}
+                </p>
+              </div>
+              <button type="button" onClick={() => setCelda(null)} className="text-muted-foreground hover:text-foreground text-lg leading-none px-1" aria-label="Cerrar">×</button>
+            </div>
+
+            {celdaLoading ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 py-4 justify-center">
+                <Loader2 className="w-4 h-4 animate-spin" /> Cargando notas…
+              </p>
+            ) : (
+              <>
+                {(celda.fila.pend_n_entradas || celda.fila.pend_n_salidas) ? (
+                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-2.5 py-1.5">
+                    <p className="text-[10px] uppercase font-bold text-yellow-800 dark:text-yellow-300">En trámite (no suma al real)</p>
+                    <p className="font-mono font-black text-xs text-yellow-800 dark:text-yellow-300">
+                      +{celda.fila.pend_entradas ?? 0} ({celda.fila.pend_n_entradas ?? 0}) / −{celda.fila.pend_salidas ?? 0} ({celda.fila.pend_n_salidas ?? 0})
+                    </p>
+                  </div>
+                ) : null}
+                {celdaNotas && celdaNotas.notas.length === 0 && celdaNotas.pendientes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">Sin notas en este alcance y período.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {(celdaNotas?.notas || []).map((n) => (
+                      <div key={`${n.nota_id}-${n.producto_id}`} className={`flex items-center gap-2 text-xs rounded-md border px-2 py-1.5 ${n.estado_codigo === 'CANC' ? 'opacity-60' : 'border-border'}`}>
+                        <Link href={`/inventario/notas/${n.nota_id}`} target="_blank" rel="noopener noreferrer" className={`font-mono font-bold hover:underline ${n.estado_codigo === 'CANC' ? 'line-through text-gray-500' : 'text-primary'}`}>
+                          {n.numero_nota}
+                        </Link>
+                        <Badge variant="outline" className="text-[9px] px-1">{n.tipo_codigo}</Badge>
+                        <span className={`font-mono font-bold ml-auto ${n.firmado > 0 ? 'text-emerald-600' : n.firmado < 0 ? 'text-rose-600' : 'text-muted-foreground'}`}>
+                          {n.firmado > 0 ? `+${n.firmado}` : n.firmado}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground truncate max-w-[80px]" title={n.sku_base}>{n.sku_base}</span>
+                      </div>
+                    ))}
+                    {(celdaNotas?.pendientes || []).map((n) => (
+                      <div key={`pend-${n.nota_id}-${n.producto_id}`} className="flex items-center gap-2 text-xs rounded-md border border-yellow-500/40 bg-yellow-500/5 px-2 py-1.5">
+                        <Link href={`/inventario/notas/${n.nota_id}`} target="_blank" rel="noopener noreferrer" className="font-mono font-bold text-primary hover:underline">
+                          {n.numero_nota}
+                        </Link>
+                        <Badge className="text-[9px] px-1 bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border border-yellow-500/40">{n.tipo_codigo}</Badge>
+                        <span className={`font-mono font-bold ml-auto ${n.firmado > 0 ? 'text-emerald-600' : n.firmado < 0 ? 'text-rose-600' : 'text-muted-foreground'}`}>
+                          {n.firmado > 0 ? `+${n.firmado}` : n.firmado}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-7 text-[11px]"
+                  onClick={() => { openTimeline(celda.fila); setCelda(null) }}
+                >
+                  <Route className="w-3 h-3 mr-1" /> Abrir Kardex completo
+                </Button>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Sección gris de canceladas — solo visual cuando el toggle está ON, nunca suma */}
       {verCanceladas && canceladas.length > 0 && (
@@ -986,6 +1148,7 @@ export function TrazabilidadMatrizTable({
           fechaDesde={fechaDesde}
           fechaHasta={fechaHasta}
           verCanceladasInicial={verCanceladas}
+          modoInicial={timelineProduct.modo}
         />
       )}
 
