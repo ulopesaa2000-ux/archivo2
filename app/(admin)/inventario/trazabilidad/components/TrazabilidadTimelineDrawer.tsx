@@ -37,6 +37,8 @@ interface Props {
   familia?: string
   fechaDesde?: string
   fechaHasta?: string
+  /** Toggle "Ver canceladas" — OFF por defecto. Hereda el estado de la página. */
+  verCanceladasInicial?: boolean
 }
 
 export function TrazabilidadTimelineDrawer({
@@ -48,15 +50,21 @@ export function TrazabilidadTimelineDrawer({
   familia,
   fechaDesde,
   fechaHasta,
+  verCanceladasInicial = false,
 }: Props) {
   const [eventos, setEventos] = useState<TimelineEvento[]>([])
   const [loading, setLoading] = useState(false)
+  // Checkbox OFF por defecto: CANC en gris solo cuando se activa. PEND/PROC siempre en amarillo.
+  const [verCanceladas, setVerCanceladas] = useState(verCanceladasInicial)
 
+  // Nota: el padre monta este drawer de nuevo en cada apertura
+  // (`{timelineProduct && <TrazabilidadTimelineDrawer .../>}`), así que el
+  // useState inicial con verCanceladasInicial basta — sin efecto de sincronía.
   useEffect(() => {
     if (!isOpen || !productoId) return
 
     setLoading(true)
-    fetchProductoTimeline(productoId, fechaDesde, fechaHasta)
+    fetchProductoTimeline(productoId, fechaDesde, fechaHasta, verCanceladas)
       .then((data) => {
         setEventos(data)
       })
@@ -66,7 +74,37 @@ export function TrazabilidadTimelineDrawer({
       .finally(() => {
         setLoading(false)
       })
-  }, [isOpen, productoId, fechaDesde, fechaHasta])
+  }, [isOpen, productoId, fechaDesde, fechaHasta, verCanceladas])
+
+  const getEstadoBadge = (codigo: string) => {
+    const est = (codigo || '').toUpperCase()
+    if (est === 'PEND' || est === 'PROC') {
+      return (
+        <Badge className="bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 hover:bg-yellow-500/25 border-yellow-500/40 gap-1 text-[11px] font-bold">
+          <Clock className="w-3 h-3" /> {est === 'PROC' ? 'En proceso' : 'Pendiente'}
+        </Badge>
+      )
+    }
+    if (est === 'CANC') {
+      return (
+        <Badge variant="secondary" className="gap-1 text-[11px] text-gray-500 line-through">
+          Cancelada
+        </Badge>
+      )
+    }
+    if (est === 'MODF') {
+      return (
+        <Badge className="bg-teal-500/15 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 border-teal-500/30 gap-1 text-[11px]">
+          Modificada
+        </Badge>
+      )
+    }
+    return (
+      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/30 gap-1 text-[11px]">
+        Confirmada
+      </Badge>
+    )
+  }
 
   const getTipoBadge = (codigo: string) => {
     switch (codigo) {
@@ -121,6 +159,15 @@ export function TrazabilidadTimelineDrawer({
               <DialogTitle className="text-lg font-bold text-foreground mt-1">
                 Línea de Tiempo y Trazabilidad Cronológica
               </DialogTitle>
+              <label className="flex items-center gap-2 mt-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground w-fit">
+                <input
+                  type="checkbox"
+                  checked={verCanceladas}
+                  onChange={(e) => setVerCanceladas(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-gray-500"
+                />
+                <span>Ver canceladas <span className="text-[10px]">(gris, no suman al stock)</span></span>
+              </label>
               {descripcion && (
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5 truncate max-w-xl">
                   {descripcion}
@@ -141,7 +188,7 @@ export function TrazabilidadTimelineDrawer({
             <div className="text-center py-14 text-muted-foreground">
               <Package className="w-10 h-10 mx-auto mb-2 opacity-40" />
               <p className="text-sm font-semibold">Sin movimientos registrados</p>
-              <p className="text-xs mt-1">No se encontraron notas confirmadas para este producto en el rango seleccionado.</p>
+              <p className="text-xs mt-1">No se encontraron notas activas (CONF/MODF en color normal, PEND/PROC en amarillo) para este producto en el rango seleccionado. Las canceladas están ocultas salvo que actives “Ver canceladas”.</p>
             </div>
           ) : (
             <div className="relative pl-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
@@ -156,12 +203,19 @@ export function TrazabilidadTimelineDrawer({
                   }`} />
 
                   {/* Tarjeta del evento */}
-                  <div className="bg-card border border-border rounded-xl p-4 shadow-xs space-y-2.5">
-                    
+                  <div className={`bg-card border rounded-xl p-4 shadow-xs space-y-2.5 ${
+                    ev.estado_codigo === 'CANC'
+                      ? 'border-gray-300 opacity-60'
+                      : ev.estado_codigo === 'PEND' || ev.estado_codigo === 'PROC'
+                        ? 'border-yellow-500/50 bg-yellow-500/5'
+                        : 'border-border'
+                  }`}>
+
                     {/* Fila superior: Fecha, Badge de Tipo y Folio Nota */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {getTipoBadge(ev.tipo_codigo)}
+                        {getEstadoBadge(ev.estado_codigo)}
                         <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
                           <Clock className="w-3 h-3 text-muted-foreground/70" />
                           {new Date(ev.fecha_nota).toLocaleDateString('es-MX', {
@@ -176,7 +230,7 @@ export function TrazabilidadTimelineDrawer({
                         <Link
                           href={`/inventario/notas/${ev.nota_id}`}
                           target="_blank"
-                          className="inline-flex items-center gap-1 text-xs font-mono font-bold text-primary hover:underline bg-primary/10 px-2 py-0.5 rounded-md"
+                          className={`inline-flex items-center gap-1 text-xs font-mono font-bold hover:underline px-2 py-0.5 rounded-md ${ev.estado_codigo === 'CANC' ? 'text-gray-500 bg-gray-500/10 line-through' : 'text-primary bg-primary/10'}`}
                         >
                           <FileText className="w-3 h-3" />
                           {ev.numero_nota}

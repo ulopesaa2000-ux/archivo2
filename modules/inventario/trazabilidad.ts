@@ -45,6 +45,8 @@ export interface TrazabilidadFiltros {
   ciudad?: string
   familia?: string
   agrupar_por?: 'familia' | 'producto'
+  /** Toggle "Ver canceladas" — OFF por defecto. Solo muestra CANC con activo=true, nunca suma. */
+  incluir_canceladas?: boolean
 }
 
 export interface CiudadMovimiento {
@@ -59,6 +61,14 @@ export interface TraspasoInterCiudad {
   destino_ciudad: string
   origen_bodega: string
   destino_bodega: string
+  cajas: number
+}
+
+export interface NotaPendienteResumen {
+  nota_id: number
+  numero_nota: string
+  tipo_codigo: string
+  delta: number
   cajas: number
 }
 
@@ -78,6 +88,24 @@ export interface FilaTrazabilidadMatriz {
   stock_por_ciudad: Record<string, number>
   traspasos_flujo: TraspasoInterCiudad[]
   skus?: FilaTrazabilidadMatriz[]
+  /** Trámite PEND/PROC con activo=true — solo visual (amarillo), no suma a totales CONF. */
+  tiene_pendiente?: boolean
+  delta_pendiente?: number
+  notas_pendientes?: NotaPendienteResumen[]
+}
+
+export interface NotaCanceladaResumen {
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string
+  tipo_codigo: string
+  tipo_nombre: string
+  producto_id: number
+  sku_base: string
+  cajas: number
+  origen_bodega: string | null
+  destino_bodega: string | null
+  observaciones: string | null
 }
 
 export interface TimelineEvento {
@@ -113,7 +141,15 @@ export interface TrazabilidadCompletaRespuesta {
     familia?: string
     q?: string
     agruparPor: 'familia' | 'producto'
+    incluirCanceladas: boolean
   }
+  avisos: {
+    /** CONF/MODF con activo=false ignoradas en el período (borrado suave admin). Explica descuadres vs stock_actual. */
+    movimientosOcultosIgnorados: number
+    canceladasVisibles: number
+    pendientesEnTramite: number
+  }
+  canceladas: NotaCanceladaResumen[]
   kpis: {
     totalSalidasCajas: number
     totalEntradasCajas: number
@@ -321,7 +357,8 @@ export async function fetchTrazabilidadData(
     entry.por_ciudad[ciudad] = (entry.por_ciudad[ciudad] || 0) + cajas
   })
 
-  // 4. Obtener movimientos confirmados (CONF) dentro del período
+  // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período.
+  // Regla: CANC y activo=false NUNCA suman. MODF sí movió stock vía trigger → cuenta como real.
   // Hacemos join de nota_detalle_productos con notas_inventario
   const { data: movimientosRaw, error: movError } = await supabase
     .from('nota_detalle_productos')
@@ -340,6 +377,7 @@ export async function fetchTrazabilidadData(
         fecha_nota,
         created_at,
         estado_id,
+        activo,
         nota_referencia,
         observaciones,
         cat_tipos_movimiento (
@@ -356,10 +394,136 @@ export async function fetchTrazabilidadData(
     .in('producto_id', productosIds.length > 0 ? productosIds : [-1])
     .gte('notas_inventario.fecha_nota', desde)
     .lte('notas_inventario.fecha_nota', hasta)
-    .eq('notas_inventario.cat_estados_nota.codigo', 'CONF')
+    .eq('notas_inventario.activo', true)
+    .in('notas_inventario.cat_estados_nota.codigo', ['CONF', 'MODF'])
     .order('id')
 
   if (movError) throw movError
+
+  // 4b. Conteo de movimientos ocultos (CONF/MODF con activo=false) ignorados en el período.
+  // Solo para aviso de descuadre: el stock_actual sí incluye su efecto vía trigger.
+  let movimientosOcultosIgnorados = 0
+  try {
+    const { count } = await supabase
+      .from('nota_detalle_productos')
+      .select('id, notas_inventario!inner (id, activo, fecha_nota, cat_estados_nota!inner (codigo))', { count: 'exact', head: true })
+      .in('producto_id', productosIds.length > 0 ? productosIds : [-1])
+      .gte('notas_inventario.fecha_nota', desde)
+      .lte('notas_inventario.fecha_nota', hasta)
+      .eq('notas_inventario.activo', false)
+      .in('notas_inventario.cat_estados_nota.codigo', ['CONF', 'MODF'])
+    movimientosOcultosIgnorados = count ?? 0
+  } catch (_) {
+    movimientosOcultosIgnorados = 0
+  }
+
+  // 4c. Notas CANC con activo=true en el período — SOLO visual (gris), nunca suman.
+  // Se devuelven aparte cuando el toggle "Ver canceladas" está ON. Default OFF → lista vacía.
+  const incluirCanceladas = filtros.incluir_canceladas === true
+  let canceladas: NotaCanceladaResumen[] = []
+  if (incluirCanceladas && productosIds.length > 0) {
+    try {
+      const { data: cancRaw } = await supabase
+        .from('nota_detalle_productos')
+        .select(`
+          id,
+          nota_id,
+          producto_id,
+          cajas,
+          notas_inventario!inner (
+            id,
+            numero_nota,
+            fecha_nota,
+            observaciones,
+            bodega_origen_id,
+            bodega_destino_id,
+            activo,
+            cat_tipos_movimiento (codigo, nombre),
+            cat_estados_nota (codigo)
+          )
+        `)
+        .in('producto_id', productosIds)
+        .gte('notas_inventario.fecha_nota', desde)
+        .lte('notas_inventario.fecha_nota', hasta)
+        .eq('notas_inventario.activo', true)
+        .eq('notas_inventario.cat_estados_nota.codigo', 'CANC')
+        .order('id')
+        .limit(500)
+      canceladas = ((cancRaw || []) as any[]).map((m: any) => {
+        const nota = m.notas_inventario
+        const prod = productosMap.get(m.producto_id)
+        return {
+          nota_id: nota?.id ?? m.nota_id,
+          numero_nota: String(nota?.numero_nota || ''),
+          fecha_nota: nota?.fecha_nota || '',
+          tipo_codigo: nota?.cat_tipos_movimiento?.codigo || 'SAL',
+          tipo_nombre: nota?.cat_tipos_movimiento?.nombre || 'Movimiento',
+          producto_id: m.producto_id,
+          sku_base: prod?.sku_base || '',
+          cajas: Number(m.cajas) || 0,
+          origen_bodega: nota?.bodega_origen_id ? String(nota.bodega_origen_id) : null,
+          destino_bodega: nota?.bodega_destino_id ? String(nota.bodega_destino_id) : null,
+          observaciones: nota?.observaciones || null,
+        }
+      })
+    } catch (_) {
+      canceladas = []
+    }
+  }
+
+  // 4d. Notas en trámite (PEND/PROC con activo=true) — para resaltado amarillo.
+  // No filtran por fecha_nota: el trámite abierto afecta el pronóstico aunque la nota sea anterior.
+  const pendientesPorProducto = new Map<number, { delta: number; notas: NotaPendienteResumen[] }>()
+  try {
+    if (productosIds.length > 0) {
+      const { data: pendRaw } = await supabase
+        .from('nota_detalle_productos')
+        .select(`
+          id,
+          nota_id,
+          producto_id,
+          cajas,
+          notas_inventario!inner (
+            id,
+            numero_nota,
+            bodega_origen_id,
+            bodega_destino_id,
+            activo,
+            cat_tipos_movimiento (codigo, afecta_inventario),
+            cat_estados_nota (codigo)
+          )
+        `)
+        .in('producto_id', productosIds)
+        .eq('notas_inventario.activo', true)
+        .in('notas_inventario.cat_estados_nota.codigo', ['PEND', 'PROC'])
+        .order('id')
+        .limit(2000)
+      ;((pendRaw || []) as any[]).forEach((m: any) => {
+        const nota = m.notas_inventario
+        const tipoCod = String(nota?.cat_tipos_movimiento?.codigo || '').toUpperCase()
+        const afecta = Number(nota?.cat_tipos_movimiento?.afecta_inventario ?? 0)
+        const cajas = Number(m.cajas) || 0
+        // Delta direccional simple a nivel empresa: ENT/DEV suma, SAL resta, TRF neutro global pero marca trámite
+        let delta = 0
+        if (tipoCod === 'ENT' || tipoCod === 'DEV' || afecta > 0) delta = Math.abs(cajas)
+        else if (tipoCod === 'SAL' || afecta < 0) delta = -Math.abs(cajas)
+        else if (tipoCod === 'TRF') delta = 0
+        else delta = afecta < 0 ? -Math.abs(cajas) : Math.abs(cajas)
+        const entry = pendientesPorProducto.get(m.producto_id) || { delta: 0, notas: [] }
+        entry.delta += delta
+        entry.notas.push({
+          nota_id: nota?.id ?? m.nota_id,
+          numero_nota: String(nota?.numero_nota || ''),
+          tipo_codigo: tipoCod,
+          delta,
+          cajas,
+        })
+        pendientesPorProducto.set(m.producto_id, entry)
+      })
+    }
+  } catch (_) {
+    // sin pendientes → sin resaltado
+  }
 
   // 5. Procesar KPIs globales y agregaciones por familia/producto
   let totalSalidasCajas = 0
@@ -402,6 +566,10 @@ export async function fetchTrazabilidadData(
 
   ;(movimientosRaw || []).forEach((m: any) => {
     const nota = m.notas_inventario
+    // Blindaje defensivo: aunque el filtro SQL ya excluye, nunca sumar CANC ni activo=false.
+    if (nota?.activo === false) return
+    const estadoCod = String(nota?.cat_estados_nota?.codigo || 'CONF').toUpperCase()
+    if (estadoCod !== 'CONF' && estadoCod !== 'MODF') return
     const tipo = nota?.cat_tipos_movimiento?.codigo || 'OTRO'
     const cajas = Number(m.cajas) || 0
     const prodId = m.producto_id
@@ -502,6 +670,8 @@ export async function fetchTrazabilidadData(
       const stockActual = stockInfo.total
       const stockInicial = Math.max(0, stockActual - p.entradas + p.salidas)
 
+      const pend = pendientesPorProducto.get(pId)
+      const tienePendiente = Boolean(pend && pend.notas.length > 0)
       const skuRow: FilaTrazabilidadMatriz = {
         id: `p-${pId}`,
         familia: fam,
@@ -517,6 +687,9 @@ export async function fetchTrazabilidadData(
         salidas_por_ciudad: p.salidas_por_ciudad,
         stock_por_ciudad: stockInfo.por_ciudad,
         traspasos_flujo: p.traspasos_flujo,
+        tiene_pendiente: tienePendiente,
+        delta_pendiente: pend?.delta ?? 0,
+        notas_pendientes: pend?.notas ?? [],
       }
 
       if (!familiasAgrupadas[fam]) {
@@ -542,6 +715,11 @@ export async function fetchTrazabilidadData(
       fGroup.total_salidas += p.salidas
       fGroup.total_traspasos += p.traspasos
       fGroup.stock_actual += stockActual
+      if (skuRow.tiene_pendiente) {
+        fGroup.tiene_pendiente = true
+        fGroup.delta_pendiente = (fGroup.delta_pendiente ?? 0) + (skuRow.delta_pendiente ?? 0)
+        fGroup.notas_pendientes = [...(fGroup.notas_pendientes ?? []), ...(skuRow.notas_pendientes ?? [])].slice(0, 20)
+      }
       fGroup.skus?.push(skuRow)
 
       Object.entries(p.salidas_por_ciudad).forEach(([cd, cant]) => {
@@ -565,6 +743,7 @@ export async function fetchTrazabilidadData(
         const stockInfo = stockActualPorProducto.get(p.producto_id) || { total: 0, por_ciudad: {} }
         const stockActual = stockInfo.total
         const stockInicial = Math.max(0, stockActual - p.entradas + p.salidas)
+        const pend = pendientesPorProducto.get(p.producto_id)
 
         return {
           id: `p-${p.producto_id}`,
@@ -581,6 +760,9 @@ export async function fetchTrazabilidadData(
           salidas_por_ciudad: p.salidas_por_ciudad,
           stock_por_ciudad: stockInfo.por_ciudad,
           traspasos_flujo: p.traspasos_flujo,
+          tiene_pendiente: Boolean(pend && pend.notas.length > 0),
+          delta_pendiente: pend?.delta ?? 0,
+          notas_pendientes: pend?.notas ?? [],
         }
       })
       .sort((a, b) => {
@@ -599,7 +781,14 @@ export async function fetchTrazabilidadData(
       familia: filtros.familia,
       q: filtros.q,
       agruparPor,
+      incluirCanceladas,
     },
+    avisos: {
+      movimientosOcultosIgnorados,
+      canceladasVisibles: canceladas.length,
+      pendientesEnTramite: pendientesPorProducto.size,
+    },
+    canceladas,
     kpis: {
       totalSalidasCajas,
       totalEntradasCajas,
@@ -618,7 +807,8 @@ export async function fetchTrazabilidadData(
 export async function fetchProductoTimeline(
   productoId: number,
   fechaDesde?: string,
-  fechaHasta?: string
+  fechaHasta?: string,
+  incluirCanceladas = false
 ): Promise<TimelineEvento[]> {
   const supabase = await createClient()
 
@@ -643,6 +833,7 @@ export async function fetchProductoTimeline(
         fecha_nota,
         created_at,
         estado_id,
+        activo,
         nota_referencia,
         observaciones,
         cat_tipos_movimiento (
@@ -663,6 +854,7 @@ export async function fetchProductoTimeline(
       )
     `)
     .eq('producto_id', productoId)
+    .eq('notas_inventario.activo', true)
     .order('id', { ascending: false })
 
   if (fechaDesde) {
@@ -675,7 +867,17 @@ export async function fetchProductoTimeline(
   const { data, error } = await query
   if (error) throw error
 
-  return (data || []).map((m: any) => {
+  const filtrados = (data || []).filter((m: any) => {
+    const nota = m.notas_inventario
+    // activo=false nunca sale (borrado suave admin)
+    if (nota?.activo === false) return false
+    const est = String(nota?.cat_estados_nota?.codigo || 'CONF').toUpperCase()
+    // Base: CONF/MODF normal + PEND/PROC amarillo. CANC solo con toggle ON.
+    if (est === 'CANC') return incluirCanceladas
+    return true
+  })
+
+  return filtrados.map((m: any) => {
     const nota = m.notas_inventario
     return {
       nota_id: nota.id,
