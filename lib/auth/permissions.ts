@@ -28,9 +28,12 @@ export const PERMISSION_MODULES = [
   'ecommerce_ordenes',
   'ecommerce_config',
   'config_usuarios',
+  'config_personas',
   'config_roles',
   'config_auditoria_productos',
   'config_tablas',
+  'config_tablas_soporte',
+  'config_general',
 ] as const
 
 export type PermissionModule = typeof PERMISSION_MODULES[number]
@@ -60,9 +63,12 @@ export const MODULE_LABELS: Record<PermissionModule, { label: string; grupo: str
   ecommerce_ordenes: { label: 'Ordenes Venta', grupo: 'Ecommerce' },
   ecommerce_config: { label: 'Config Ecommerce', grupo: 'Ecommerce' },
   config_usuarios: { label: 'Usuarios', grupo: 'Config' },
+  config_personas: { label: 'Personas Asociadas', grupo: 'Config' },
   config_roles: { label: 'Roles', grupo: 'Config' },
   config_auditoria_productos: { label: 'Auditoria Productos', grupo: 'Config' },
   config_tablas: { label: 'Configuracion de Tablas', grupo: 'Config' },
+  config_tablas_soporte: { label: 'Tablas de Soporte', grupo: 'Config' },
+  config_general: { label: 'Configuracion General', grupo: 'Config' },
 }
 
 export const ROUTE_PERMISSION_MAP = [
@@ -71,6 +77,7 @@ export const ROUTE_PERMISSION_MAP = [
   { prefix: '/catalogo/familias', modulo: 'catalogo_familias' },
   { prefix: '/catalogo', modulo: 'catalogo_productos' },
   { prefix: '/inventario/stock', modulo: 'inventario_stock' },
+  { prefix: '/inventario/trazabilidad', modulo: 'inventario_stock' },
   { prefix: '/inventario/notas', modulo: 'inventario_notas' },
   { prefix: '/inventario/bodegas', modulo: 'inventario_bodegas' },
   { prefix: '/inventario/config', modulo: 'inventario_config' },
@@ -83,12 +90,21 @@ export const ROUTE_PERMISSION_MAP = [
   { prefix: '/ecommerce/ordenes-venta', modulo: 'ecommerce_ordenes' },
   { prefix: '/ecommerce/config', modulo: 'ecommerce_config' },
   { prefix: '/configuracion/usuarios', modulo: 'config_usuarios' },
-  { prefix: '/configuracion/personas', modulo: 'config_usuarios' },
+  { prefix: '/configuracion/personas', modulo: 'config_personas' },
   { prefix: '/configuracion/roles', modulo: 'config_roles' },
   { prefix: '/configuracion/auditoria_producto', modulo: 'config_auditoria_productos' },
+  { prefix: '/configuracion/tablas-soporte', modulo: 'config_tablas_soporte' },
   { prefix: '/configuracion/tablas', modulo: 'config_tablas' },
-  { prefix: '/configuracion/tablas-soporte', modulo: 'config_tablas' },
+  { prefix: '/configuracion/general', modulo: 'config_general' },
 ] as const satisfies readonly { prefix: string; modulo: PermissionModule }[]
+
+// Compatibilidad hacia atras: roles creados antes de la separacion granular
+// otorgaban acceso via el modulo agrupador. El middleware acepta cualquiera.
+export const LEGACY_MODULE_FALLBACKS: Partial<Record<PermissionModule, PermissionModule[]>> = {
+  config_personas: ['config_usuarios'],
+  config_tablas_soporte: ['config_tablas'],
+  config_general: ['config_usuarios'],
+}
 
 export function createEmptyPermissionMatrix(): PermissionMatrix {
   return Object.fromEntries(
@@ -173,6 +189,24 @@ export function can(
 ): boolean {
   if (isSuperAdmin(user)) return true
   return getEffectivePermissions(user)[modulo]?.[action] === true
+}
+
+/**
+ * Igual que can() pero acepta los modulos agrupadores anteriores
+ * (LEGACY_MODULE_FALLBACKS) para no bloquear roles creados antes
+ * de la separacion granular de Configuracion.
+ */
+export function canWithFallback(
+  user: UsuarioConRol | null | undefined,
+  modulo: PermissionModule,
+  action: PermissionAction = 'puede_leer'
+): boolean {
+  if (isSuperAdmin(user)) return true
+  const matrix = getEffectivePermissions(user)
+  if (matrix[modulo]?.[action] === true) return true
+  return (LEGACY_MODULE_FALLBACKS[modulo] ?? []).some(
+    (legacy) => matrix[legacy]?.[action] === true
+  )
 }
 
 export function canReadCatalog(user: UsuarioConRol | null | undefined): boolean {

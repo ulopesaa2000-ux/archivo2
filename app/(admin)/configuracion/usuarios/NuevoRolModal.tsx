@@ -31,7 +31,7 @@ const AREAS: { id: string; label: string; modules: ModuloPermiso[] }[] = [
   { id: 'inventario', label: 'Inventario', modules: ['inventario_stock', 'inventario_notas', 'inventario_bodegas', 'inventario_virtual'] },
   { id: 'b2b', label: 'Ordenes B2B', modules: ['b2b_ordenes', 'b2b_cajas', 'b2b_contenedores', 'despachos'] },
   { id: 'ecommerce', label: 'Ecommerce', modules: ['ecommerce_catalogo', 'ecommerce_ordenes', 'ecommerce_config'] },
-  { id: 'config', label: 'Configuracion', modules: ['config_usuarios', 'config_roles', 'config_auditoria_productos', 'config_tablas'] },
+  { id: 'config', label: 'Configuracion', modules: ['config_usuarios', 'config_personas', 'config_roles', 'config_auditoria_productos', 'config_tablas', 'config_tablas_soporte', 'config_general'] },
 ]
 
 export function NuevoRolModal() {

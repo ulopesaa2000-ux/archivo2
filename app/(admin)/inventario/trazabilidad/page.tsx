@@ -2,7 +2,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
-import { verifySession } from '@/lib/dal'
+import { requirePermission } from '@/lib/dal'
 import { Route, Layers, Sparkles, Workflow } from 'lucide-react'
 import { fetchTrazabilidadData, type TrazabilidadFiltros } from '@/modules/inventario/trazabilidad'
 import { TrazabilidadHeaderControls } from './components/TrazabilidadHeaderControls'
@@ -31,7 +31,8 @@ interface TrazabilidadPageProps {
 }
 
 export default async function TrazabilidadPage({ searchParams }: TrazabilidadPageProps) {
-  await verifySession()
+  // Mismo check de permiso que Stock: solo roles con inventario_stock·leer.
+  await requirePermission('inventario_stock')
   const params = await searchParams
 
   const filtros: TrazabilidadFiltros = {
