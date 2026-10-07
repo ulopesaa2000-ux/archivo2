@@ -570,7 +570,7 @@ export async function desvincularOrdenContenedorAction(
 
 export async function quickEditContenedoresAction(
   ids: number[],
-  field: 'estado' | 'codigo_contenedor' | 'fecha_eta',
+  field: 'estado' | 'codigo_contenedor' | 'numero_contenedor' | 'fecha_eta',
   value: string | null
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
@@ -590,7 +590,9 @@ export async function quickEditContenedoresAction(
   const supabase = await createClient()
   const payload = field === 'fecha_eta'
     ? { fecha_eta: value || null }
-    : { codigo_contenedor: (value ?? '').trim() }
+    : field === 'numero_contenedor'
+      ? { numero_contenedor: (value ?? '').trim().toUpperCase() || null }
+      : { codigo_contenedor: (value ?? '').trim() }
 
   if (field === 'codigo_contenedor' && !payload.codigo_contenedor) {
     return { success: false, error: 'Codigo de contenedor obligatorio.' }
@@ -603,7 +605,7 @@ export async function quickEditContenedoresAction(
 
   if (error) {
     if (error.code === '23505') {
-      return { success: false, error: 'El codigo ya existe.' }
+      return { success: false, error: field === 'numero_contenedor' ? 'El numero ya existe.' : 'El codigo ya existe.' }
     }
     return { success: false, error: error.message }
   }

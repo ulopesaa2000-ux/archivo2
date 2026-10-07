@@ -47,6 +47,16 @@ export interface TrazabilidadFiltros {
   agrupar_por?: 'familia' | 'producto'
   /** Toggle "Ver canceladas" — OFF por defecto. Solo muestra CANC con activo=true, nunca suma. */
   incluir_canceladas?: boolean
+  /** Alcance a una bodega específica (cascada ciudad → bodega). Solo sus movimientos y stock. */
+  bodega_id?: number
+}
+
+export interface BodegaDisponible {
+  id: number
+  nombre: string
+  ciudad: string
+  es_virtual: boolean
+  stock_cajas: number
 }
 
 export interface CiudadMovimiento {
@@ -62,6 +72,19 @@ export interface TraspasoInterCiudad {
   origen_bodega: string
   destino_bodega: string
   cajas: number
+  nota_id?: number
+  numero_nota?: string
+}
+
+export interface PendienteDetalle {
+  delta: number
+  /** Suma de lo que entra (amarillo +) */
+  entradas: number
+  /** Suma de lo que sale en valor absoluto (amarillo −) */
+  salidas: number
+  n_entradas: number
+  n_salidas: number
+  notas: NotaPendienteResumen[]
 }
 
 export interface NotaPendienteResumen {
@@ -70,6 +93,8 @@ export interface NotaPendienteResumen {
   tipo_codigo: string
   delta: number
   cajas: number
+  bodega_origen_id?: number | null
+  bodega_destino_id?: number | null
 }
 
 export interface FilaTrazabilidadMatriz {
@@ -91,6 +116,11 @@ export interface FilaTrazabilidadMatriz {
   /** Trámite PEND/PROC con activo=true — solo visual (amarillo), no suma a totales CONF. */
   tiene_pendiente?: boolean
   delta_pendiente?: number
+  /** Desglose amarillo en 2 valores: lo que suma (+) y lo que resta (−) con sus conteos. */
+  pend_entradas?: number
+  pend_salidas?: number
+  pend_n_entradas?: number
+  pend_n_salidas?: number
   notas_pendientes?: NotaPendienteResumen[]
 }
 
@@ -142,6 +172,9 @@ export interface TrazabilidadCompletaRespuesta {
     q?: string
     agruparPor: 'familia' | 'producto'
     incluirCanceladas: boolean
+    bodegaId?: number
+    bodegaNombre?: string
+    bodegaCiudad?: string
   }
   avisos: {
     /** CONF/MODF con activo=false ignoradas en el período (borrado suave admin). Explica descuadres vs stock_actual. */
@@ -161,6 +194,8 @@ export interface TrazabilidadCompletaRespuesta {
   }
   ciudadesDisponibles: string[]
   familiasDisponibles: { codigo: string; descripcion: string | null }[]
+  /** Bodegas con stock > 0 en los productos del alcance (para cascada ciudad → bodega, incluye virtuales). */
+  bodegasDisponibles: BodegaDisponible[]
   matriz: FilaTrazabilidadMatriz[]
 }
 
@@ -224,7 +259,7 @@ export async function fetchTrazabilidadData(
 
   if (bodegasError) throw bodegasError
 
-  const bodegasMap = new Map<number, { id: number; nombre: string; ciudad: string }>()
+  const bodegasMap = new Map<number, { id: number; nombre: string; ciudad: string; es_virtual: boolean }>()
   const ciudadesSet = new Set<string>()
 
   ;(bodegasRaw || []).forEach((b) => {
@@ -233,11 +268,14 @@ export async function fetchTrazabilidadData(
       id: b.id,
       nombre: b.nombre,
       ciudad: ciudadNorm,
+      es_virtual: Boolean((b as any).es_virtual),
     })
     ciudadesSet.add(ciudadNorm)
   })
 
   const ciudadesDisponibles = Array.from(ciudadesSet).sort()
+  // Alcance a bodega específica (cascada ciudad → bodega). Se valida que exista y esté activa.
+  const bodegaAlcance = filtros.bodega_id ? bodegasMap.get(filtros.bodega_id) || null : null
 
   // 2. Obtener productos activos con familia
   let productosQuery = supabase
@@ -340,12 +378,20 @@ export async function fetchTrazabilidadData(
   if (stockError) throw stockError
 
   // Mapa: producto_id -> { total: number, por_ciudad: Record<string, number> }
+  // Con alcance a bodega, solo cuenta esa bodega (columnas colapsan a ella).
   const stockActualPorProducto = new Map<number, { total: number; por_ciudad: Record<string, number> }>()
+  const stockPorBodega = new Map<number, number>()
   let totalStockEmpresa = 0
 
   ;(stockRaw || []).forEach((s) => {
     const cajas = Number(s.cajas) || 0
+    if (bodegaAlcance && Number(s.bodega_id) !== bodegaAlcance.id) {
+      // Igual acumula para el catálogo de bodegas con stock (cascada ciudad → bodega)
+      stockPorBodega.set(Number(s.bodega_id), (stockPorBodega.get(Number(s.bodega_id)) || 0) + cajas)
+      return
+    }
     totalStockEmpresa += cajas
+    stockPorBodega.set(Number(s.bodega_id), (stockPorBodega.get(Number(s.bodega_id)) || 0) + cajas)
     const b = bodegasMap.get(s.bodega_id)
     const ciudad = b ? b.ciudad : 'OTRO'
 
@@ -356,6 +402,21 @@ export async function fetchTrazabilidadData(
     entry.total += cajas
     entry.por_ciudad[ciudad] = (entry.por_ciudad[ciudad] || 0) + cajas
   })
+
+  // Catálogo de bodegas con stock > 0 (incluye virtuales) para el filtro en cascada
+  const bodegasDisponibles: BodegaDisponible[] = Array.from(stockPorBodega.entries())
+    .filter(([, stock]) => stock > 0)
+    .map(([id, stock]) => {
+      const b = bodegasMap.get(id)
+      return {
+        id,
+        nombre: b?.nombre || `Bodega ${id}`,
+        ciudad: b?.ciudad || 'OTRO',
+        es_virtual: b?.es_virtual ?? false,
+        stock_cajas: stock,
+      }
+    })
+    .sort((a, b) => a.ciudad.localeCompare(b.ciudad, 'es') || a.nombre.localeCompare(b.nombre, 'es'))
 
   // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período.
   // Regla: CANC y activo=false NUNCA suman. MODF sí movió stock vía trigger → cuenta como real.
@@ -449,7 +510,13 @@ export async function fetchTrazabilidadData(
         .eq('notas_inventario.cat_estados_nota.codigo', 'CANC')
         .order('id')
         .limit(500)
-      canceladas = ((cancRaw || []) as any[]).map((m: any) => {
+      canceladas = ((cancRaw || []) as any[])
+        .filter((m: any) => {
+          if (!bodegaAlcance) return true
+          const nota = m.notas_inventario
+          return Number(nota?.bodega_origen_id) === bodegaAlcance.id || Number(nota?.bodega_destino_id) === bodegaAlcance.id
+        })
+        .map((m: any) => {
         const nota = m.notas_inventario
         const prod = productosMap.get(m.producto_id)
         return {
@@ -473,7 +540,8 @@ export async function fetchTrazabilidadData(
 
   // 4d. Notas en trámite (PEND/PROC con activo=true) — para resaltado amarillo.
   // No filtran por fecha_nota: el trámite abierto afecta el pronóstico aunque la nota sea anterior.
-  const pendientesPorProducto = new Map<number, { delta: number; notas: NotaPendienteResumen[] }>()
+  // Se guardan 2 valores: entradas (+) y salidas (−) con sus conteos de notas.
+  const pendientesPorProducto = new Map<number, PendienteDetalle>()
   try {
     if (productosIds.length > 0) {
       const { data: pendRaw } = await supabase
@@ -509,8 +577,14 @@ export async function fetchTrazabilidadData(
         else if (tipoCod === 'SAL' || afecta < 0) delta = -Math.abs(cajas)
         else if (tipoCod === 'TRF') delta = 0
         else delta = afecta < 0 ? -Math.abs(cajas) : Math.abs(cajas)
-        const entry = pendientesPorProducto.get(m.producto_id) || { delta: 0, notas: [] }
+        // Alcance a bodega: el trámite solo cuenta si toca esa bodega
+        if (bodegaAlcance && Number(nota?.bodega_origen_id) !== bodegaAlcance.id && Number(nota?.bodega_destino_id) !== bodegaAlcance.id) {
+          return
+        }
+        const entry = pendientesPorProducto.get(m.producto_id) || { delta: 0, entradas: 0, salidas: 0, n_entradas: 0, n_salidas: 0, notas: [] }
         entry.delta += delta
+        if (delta > 0) { entry.entradas += delta; entry.n_entradas += 1 }
+        else if (delta < 0) { entry.salidas += Math.abs(delta); entry.n_salidas += 1 }
         entry.notas.push({
           nota_id: nota?.id ?? m.nota_id,
           numero_nota: String(nota?.numero_nota || ''),
@@ -586,6 +660,11 @@ export async function fetchTrazabilidadData(
       return
     }
 
+    // Alcance a bodega: solo movimientos donde la bodega es origen o destino
+    if (bodegaAlcance && Number(nota.bodega_origen_id) !== bodegaAlcance.id && Number(nota.bodega_destino_id) !== bodegaAlcance.id) {
+      return
+    }
+
     const itemAcum = prodAcumulados.get(prodId)
 
     if (tipo === 'SAL') {
@@ -612,6 +691,8 @@ export async function fetchTrazabilidadData(
           origen_bodega: origen?.nombre || 'Origen',
           destino_bodega: destino?.nombre || 'Destino',
           cajas,
+          nota_id: nota?.id ?? m.nota_id,
+          numero_nota: nota?.numero_nota || '',
         })
       }
     } else if (tipo === 'AJU') {
@@ -689,6 +770,10 @@ export async function fetchTrazabilidadData(
         traspasos_flujo: p.traspasos_flujo,
         tiene_pendiente: tienePendiente,
         delta_pendiente: pend?.delta ?? 0,
+        pend_entradas: pend?.entradas ?? 0,
+        pend_salidas: pend?.salidas ?? 0,
+        pend_n_entradas: pend?.n_entradas ?? 0,
+        pend_n_salidas: pend?.n_salidas ?? 0,
         notas_pendientes: pend?.notas ?? [],
       }
 
@@ -718,6 +803,10 @@ export async function fetchTrazabilidadData(
       if (skuRow.tiene_pendiente) {
         fGroup.tiene_pendiente = true
         fGroup.delta_pendiente = (fGroup.delta_pendiente ?? 0) + (skuRow.delta_pendiente ?? 0)
+        fGroup.pend_entradas = (fGroup.pend_entradas ?? 0) + (skuRow.pend_entradas ?? 0)
+        fGroup.pend_salidas = (fGroup.pend_salidas ?? 0) + (skuRow.pend_salidas ?? 0)
+        fGroup.pend_n_entradas = (fGroup.pend_n_entradas ?? 0) + (skuRow.pend_n_entradas ?? 0)
+        fGroup.pend_n_salidas = (fGroup.pend_n_salidas ?? 0) + (skuRow.pend_n_salidas ?? 0)
         fGroup.notas_pendientes = [...(fGroup.notas_pendientes ?? []), ...(skuRow.notas_pendientes ?? [])].slice(0, 20)
       }
       fGroup.skus?.push(skuRow)
@@ -762,14 +851,24 @@ export async function fetchTrazabilidadData(
           traspasos_flujo: p.traspasos_flujo,
           tiene_pendiente: Boolean(pend && pend.notas.length > 0),
           delta_pendiente: pend?.delta ?? 0,
+          pend_entradas: pend?.entradas ?? 0,
+          pend_salidas: pend?.salidas ?? 0,
+          pend_n_entradas: pend?.n_entradas ?? 0,
+          pend_n_salidas: pend?.n_salidas ?? 0,
           notas_pendientes: pend?.notas ?? [],
         }
       })
+      .filter((r) => !bodegaAlcance || r.stock_actual > 0 || r.total_entradas > 0 || r.total_salidas > 0 || r.total_traspasos > 0 || r.tiene_pendiente)
       .sort((a, b) => {
         const famCmp = compareFamiliaDesc(a.familia, b.familia)
         if (famCmp !== 0) return famCmp
         return compareSkuAsc(a.sku_base, b.sku_base)
       })
+  }
+
+  // En alcance a bodega se ocultan las familias sin movimiento ni stock en ella
+  if (bodegaAlcance && agruparPor === 'familia') {
+    matriz = matriz.filter((f) => f.stock_actual > 0 || f.total_entradas > 0 || f.total_salidas > 0 || f.total_traspasos > 0 || f.tiene_pendiente)
   }
 
   return {
@@ -782,6 +881,9 @@ export async function fetchTrazabilidadData(
       q: filtros.q,
       agruparPor,
       incluirCanceladas,
+      bodegaId: bodegaAlcance?.id,
+      bodegaNombre: bodegaAlcance?.nombre,
+      bodegaCiudad: bodegaAlcance?.ciudad,
     },
     avisos: {
       movimientosOcultosIgnorados,
@@ -800,6 +902,7 @@ export async function fetchTrazabilidadData(
     },
     ciudadesDisponibles,
     familiasDisponibles,
+    bodegasDisponibles,
     matriz,
   }
 }
@@ -904,4 +1007,312 @@ export async function fetchProductoTimeline(
       nota_referencia: nota.nota_referencia,
     }
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SKUs de una familia con stock actual > 0 — para el modo dual del modal Kardex
+// (clic en fila familia → lista de SKUs rastreables).
+// ─────────────────────────────────────────────────────────────────────────────
+export interface SkuConStock {
+  producto_id: number
+  sku_base: string
+  descripcion: string | null
+  stock_cajas: number
+}
+
+export async function fetchFamiliaSkusConStock(familia: string, limite = 100): Promise<SkuConStock[]> {
+  const supabase = await createClient()
+  const fam = (familia || '').trim()
+  if (!fam) return []
+
+  let prodQuery = supabase
+    .from('productos')
+    .select('id, sku_base, descripcion, familia')
+    .eq('activo', true)
+  if (fam.toUpperCase() === 'SIN FAMILIA' || fam.toUpperCase() === 'SIN_FAMILIA' || fam === 'F000-000C') {
+    prodQuery = (prodQuery as any).or('familia.is.null,familia.eq.F000-000C,familia.eq.F000-000')
+  } else {
+    prodQuery = (prodQuery as any).eq('familia', fam)
+  }
+  const { data: prods } = await (prodQuery as any).order('sku_base', { ascending: true }).limit(500)
+  if (!prods || prods.length === 0) return []
+  const ids = (prods as any[]).map((p) => p.id)
+
+  const { data: stockRows } = await supabase
+    .from('inventario_stock')
+    .select('producto_id, cajas')
+    .in('producto_id', ids)
+    .is('caja_id', null)
+
+  const porProducto = new Map<number, number>()
+  ;((stockRows || []) as any[]).forEach((s) => {
+    porProducto.set(Number(s.producto_id), (porProducto.get(Number(s.producto_id)) || 0) + (Number(s.cajas) || 0))
+  })
+
+  return (prods as any[])
+    .map((p) => ({
+      producto_id: Number(p.id),
+      sku_base: String(p.sku_base || ''),
+      descripcion: p.descripcion || null,
+      stock_cajas: porProducto.get(Number(p.id)) || 0,
+    }))
+    .filter((s) => s.stock_cajas > 0)
+    .slice(0, Math.min(Math.max(limite, 1), 200))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Movimientos recientes de una ciudad (origen o destino) — alimenta la columna
+// de rastreo del diagrama. Solo CONF/MODF con activo=true (+CANC con toggle).
+// ─────────────────────────────────────────────────────────────────────────────
+export interface MovimientoCiudad {
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string
+  tipo_codigo: string
+  tipo_nombre: string
+  estado_codigo: string
+  producto_id: number
+  sku_base: string
+  cajas: number
+  origen_bodega: string | null
+  destino_bodega: string | null
+  es_origen: boolean
+}
+
+export async function fetchMovimientosPorCiudad(
+  ciudad: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+  opts?: { familia?: string; q?: string; incluirCanceladas?: boolean; limite?: number }
+): Promise<MovimientoCiudad[]> {
+  const supabase = await createClient()
+  const cd = (ciudad || '').trim().toUpperCase()
+  if (!cd) return []
+
+  const { data: bodegas } = await supabase.from('bodegas').select('id, ciudad').eq('activa', true)
+  const ids = ((bodegas || []) as any[])
+    .filter((b) => ((b.ciudad || 'VIRTUAL').trim().toUpperCase()) === cd)
+    .map((b) => b.id)
+  if (ids.length === 0) return []
+
+  const estados = opts?.incluirCanceladas ? ['CONF', 'MODF', 'CANC'] : ['CONF', 'MODF']
+  let query = supabase
+    .from('nota_detalle_productos')
+    .select(`
+      id,
+      nota_id,
+      producto_id,
+      cajas,
+      productos (sku_base, familia),
+      notas_inventario!inner (
+        id,
+        numero_nota,
+        fecha_nota,
+        bodega_origen_id,
+        bodega_destino_id,
+        activo,
+        cat_tipos_movimiento (codigo, nombre),
+        cat_estados_nota (codigo),
+        bodega_origen:bodegas!bodega_origen_id (nombre),
+        bodega_destino:bodegas!bodega_destino_id (nombre)
+      )
+    `)
+    .eq('notas_inventario.activo', true)
+    .in('notas_inventario.cat_estados_nota.codigo', estados)
+    .order('id', { ascending: false })
+
+  if (fechaDesde) query = query.gte('notas_inventario.fecha_nota', fechaDesde)
+  if (fechaHasta) query = query.lte('notas_inventario.fecha_nota', fechaHasta)
+
+  const limite = Math.min(Math.max(opts?.limite ?? 60, 1), 200)
+  query = (query as any).limit(limite * 4)
+
+  const { data, error } = await (query as any).or(
+    `bodega_origen_id.in.(${ids.join(',')}),bodega_destino_id.in.(${ids.join(',')})`,
+    { foreignTable: 'notas_inventario' }
+  )
+  if (error || !data) return []
+
+  const famFiltro = (opts?.familia || '').trim()
+  const qFiltro = (opts?.q || '').trim().toLowerCase()
+
+  const out: MovimientoCiudad[] = []
+  for (const m of data as any[]) {
+    const nota = m.notas_inventario
+    if (!nota || nota.activo === false) continue
+    const prod = Array.isArray(m.productos) ? m.productos[0] : m.productos
+    if (famFiltro && (prod?.familia || '') !== famFiltro) continue
+    if (qFiltro && !String(prod?.sku_base || '').toLowerCase().includes(qFiltro)) continue
+    const esOrigen = nota.bodega_origen_id !== null && ids.includes(Number(nota.bodega_origen_id))
+    out.push({
+      nota_id: nota.id,
+      numero_nota: String(nota.numero_nota || ''),
+      fecha_nota: nota.fecha_nota,
+      tipo_codigo: nota.cat_tipos_movimiento?.codigo || 'SAL',
+      tipo_nombre: nota.cat_tipos_movimiento?.nombre || 'Movimiento',
+      estado_codigo: nota.cat_estados_nota?.codigo || 'CONF',
+      producto_id: m.producto_id,
+      sku_base: prod?.sku_base || '',
+      cajas: Number(m.cajas) || 0,
+      origen_bodega: nota.bodega_origen?.nombre || null,
+      destino_bodega: nota.bodega_destino?.nombre || null,
+      es_origen: esOrigen,
+    })
+    if (out.length >= limite) break
+  }
+  return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notas de una celda de la matriz (producto o familia × ciudad/bodega) —
+// alimenta el popover anclado. Firmado direccional respecto al alcance:
+// SAL −, ENT/DEV +, TRF − en origen / + en destino. PEND/PROC aparte en amarillo.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface NotaCelda {
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string
+  tipo_codigo: string
+  estado_codigo: string
+  producto_id: number
+  sku_base: string
+  cajas: number
+  firmado: number
+  origen_bodega: string | null
+  destino_bodega: string | null
+}
+
+export interface NotasCeldaRespuesta {
+  notas: NotaCelda[]
+  pendientes: NotaCelda[]
+  total: number
+}
+
+function firmadoRespectoAlcance(
+  tipoCodigo: string,
+  afecta: number,
+  cajas: number,
+  esOrigen: boolean,
+  esDestino: boolean
+): number {
+  const t = (tipoCodigo || '').toUpperCase()
+  const abs = Math.abs(cajas)
+  if (t === 'SAL') return -abs
+  if (t === 'ENT' || t === 'DEV') return abs
+  if (t === 'TRF') {
+    if (esOrigen && !esDestino) return -abs
+    if (esDestino && !esOrigen) return abs
+    return 0
+  }
+  if (t === 'AJU') return cajas >= 0 ? abs : -abs
+  if (esOrigen && !esDestino) return afecta < 0 ? -abs : abs
+  if (esDestino && !esOrigen) return abs
+  return 0
+}
+
+export async function fetchNotasCelda(opts: {
+  productoId?: number
+  familia?: string
+  ciudad?: string
+  bodegaId?: number
+  desde: string
+  hasta: string
+  incluirCanceladas?: boolean
+  limite?: number
+}): Promise<NotasCeldaRespuesta> {
+  const supabase = await createClient()
+  const limite = Math.min(Math.max(opts.limite ?? 15, 1), 50)
+
+  const { data: bodegas } = await supabase.from('bodegas').select('id, nombre, ciudad').eq('activa', true)
+  const bodMap = new Map<number, { nombre: string; ciudad: string }>()
+  ;((bodegas || []) as any[]).forEach((b) => {
+    bodMap.set(Number(b.id), { nombre: String(b.nombre), ciudad: ((b.ciudad || 'VIRTUAL').trim().toUpperCase()) })
+  })
+
+  // Alcance: bodega exacta, todas las de la ciudad, o global (sin filtro de bodega)
+  let ids: number[] = []
+  if (opts.bodegaId) {
+    if (!bodMap.has(opts.bodegaId)) return { notas: [], pendientes: [], total: 0 }
+    ids = [opts.bodegaId]
+  } else if (opts.ciudad) {
+    const cd = opts.ciudad.trim().toUpperCase()
+    ids = Array.from(bodMap.entries()).filter(([, b]) => b.ciudad === cd).map(([id]) => id)
+    if (ids.length === 0) return { notas: [], pendientes: [], total: 0 }
+  }
+
+  async function traer(estados: string[], conFechas: boolean, max: number) {
+    let query = supabase
+      .from('nota_detalle_productos')
+      .select(`
+        id,
+        nota_id,
+        producto_id,
+        cajas,
+        productos (sku_base, familia),
+        notas_inventario!inner (
+          id,
+          numero_nota,
+          fecha_nota,
+          bodega_origen_id,
+          bodega_destino_id,
+          activo,
+          cat_tipos_movimiento (codigo, afecta_inventario),
+          cat_estados_nota (codigo)
+        )
+      `)
+      .eq('notas_inventario.activo', true)
+      .in('notas_inventario.cat_estados_nota.codigo', estados)
+      .order('id', { ascending: false })
+    if (opts.productoId) query = query.eq('producto_id', opts.productoId)
+    if (conFechas) {
+      query = query.gte('notas_inventario.fecha_nota', opts.desde)
+      query = (query as any).lte('notas_inventario.fecha_nota', opts.hasta)
+    }
+    query = (query as any).limit(max)
+    const q2 = ids.length > 0
+      ? (query as any).or(`bodega_origen_id.in.(${ids.join(',')}),bodega_destino_id.in.(${ids.join(',')})`, { foreignTable: 'notas_inventario' })
+      : query
+    const { data, error } = await q2
+    if (error || !data) return []
+    const fam = (opts.familia || '').trim()
+    const out: NotaCelda[] = []
+    for (const m of data as any[]) {
+      const nota = m.notas_inventario
+      if (!nota || nota.activo === false) continue
+      const prod = Array.isArray(m.productos) ? m.productos[0] : m.productos
+      if (fam && (prod?.familia || '') !== fam) continue
+      const oId = nota.bodega_origen_id !== null ? Number(nota.bodega_origen_id) : null
+      const dId = nota.bodega_destino_id !== null ? Number(nota.bodega_destino_id) : null
+      const tipoCod = String(nota?.cat_tipos_movimiento?.codigo || 'SAL')
+      const tUp = tipoCod.toUpperCase()
+      // Sin alcance de bodega/ciudad: firmado por tipo (SAL −, ENT/DEV +, TRF según flujo)
+      const esOrigen = ids.length > 0 ? (oId !== null && ids.includes(oId)) : (tUp === 'SAL' || tUp === 'TRF')
+      const esDestino = ids.length > 0 ? (dId !== null && ids.includes(dId)) : (tUp === 'ENT' || tUp === 'DEV')
+      if (ids.length > 0 && !esOrigen && !esDestino) continue
+      const oNom = oId !== null ? bodMap.get(oId)?.nombre || null : null
+      const dNom = dId !== null ? bodMap.get(dId)?.nombre || null : null
+      out.push({
+        nota_id: nota.id,
+        numero_nota: String(nota.numero_nota || ''),
+        fecha_nota: nota.fecha_nota,
+        tipo_codigo: tipoCod.toUpperCase(),
+        estado_codigo: String(nota?.cat_estados_nota?.codigo || 'CONF'),
+        producto_id: m.producto_id,
+        sku_base: prod?.sku_base || '',
+        cajas: Number(m.cajas) || 0,
+        firmado: firmadoRespectoAlcance(tipoCod, Number(nota?.cat_tipos_movimiento?.afecta_inventario ?? 0), Number(m.cajas) || 0, esOrigen, esDestino),
+        origen_bodega: oNom,
+        destino_bodega: dNom,
+      })
+      if (out.length >= max) break
+    }
+    return out
+  }
+
+  const estadosBase = opts.incluirCanceladas ? ['CONF', 'MODF', 'CANC'] : ['CONF', 'MODF']
+  const [notas, pendientes] = await Promise.all([
+    traer(estadosBase, true, limite * 3),
+    traer(['PEND', 'PROC'], false, 30),
+  ])
+  return { notas: notas.slice(0, limite), pendientes: pendientes.slice(0, 15), total: notas.length }
 }

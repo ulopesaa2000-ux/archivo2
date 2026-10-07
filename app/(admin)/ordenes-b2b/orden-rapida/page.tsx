@@ -26,8 +26,12 @@ export default async function OrdenRapidaPage() {
     supabase
       .from('contenedores')
       .select('id, codigo_contenedor, numero_contenedor, estado')
-      .in('estado', ['borrador', 'en_transito', 'en_aduana', 'en_bodega'])
-      .order('created_at', { ascending: false }),
+      // Se muestran todos los estados menos 'cancelado' para no perder los
+      // recientes ya surtidos/completos/cerrados (antes se filtraba solo a
+      // borrador/en_transito/en_aduana/en_bodega y faltaban folios como 2026-11).
+      .neq('estado', 'cancelado')
+      .order('created_at', { ascending: false })
+      .limit(300),
     supabase.from('cat_marcas').select('id, nombre').eq('activo', true).order('nombre'),
     supabase.from('cat_generos').select('id, nombre').eq('activo', true).order('nombre'),
     supabase.from('cat_edades').select('id, rango').order('orden'),

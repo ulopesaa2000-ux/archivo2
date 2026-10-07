@@ -37,6 +37,7 @@ export function getDefaultFeatures(route: string): TableFeatures {
         sortable: true,
         quickEdit: [
           { key: 'codigo_contenedor', label: 'Codigo', type: 'text' },
+          { key: 'numero_contenedor', label: 'No. Contenedor', type: 'text' },
           { key: 'fecha_eta', label: 'ETA', type: 'date' },
           { key: 'estado', label: 'Estado', type: 'select' },
         ],

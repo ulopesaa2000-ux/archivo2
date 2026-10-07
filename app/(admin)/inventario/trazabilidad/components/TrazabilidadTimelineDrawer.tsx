@@ -26,7 +26,8 @@ import {
   SlidersHorizontal,
   FileText
 } from 'lucide-react'
-import { fetchProductoTimeline, type TimelineEvento } from '@/modules/inventario/trazabilidad'
+import { fetchProductoTimeline, fetchFamiliaSkusConStock, type TimelineEvento, type SkuConStock } from '@/modules/inventario/trazabilidad'
+import { TrazabilidadSkuDiagrama } from './TrazabilidadSkuDiagrama'
 
 interface Props {
   isOpen: boolean
@@ -39,6 +40,8 @@ interface Props {
   fechaHasta?: string
   /** Toggle "Ver canceladas" — OFF por defecto. Hereda el estado de la página. */
   verCanceladasInicial?: boolean
+  /** Modo inicial: 'sku' (default) o 'familia' (abre lista de SKUs con stock). */
+  modoInicial?: 'sku' | 'familia'
 }
 
 export function TrazabilidadTimelineDrawer({
@@ -51,20 +54,33 @@ export function TrazabilidadTimelineDrawer({
   fechaDesde,
   fechaHasta,
   verCanceladasInicial = false,
+  modoInicial = 'sku',
 }: Props) {
   const [eventos, setEventos] = useState<TimelineEvento[]>([])
   const [loading, setLoading] = useState(false)
   // Checkbox OFF por defecto: CANC en gris solo cuando se activa. PEND/PROC siempre en amarillo.
   const [verCanceladas, setVerCanceladas] = useState(verCanceladasInicial)
+  // Pestaña default: diagrama visual. Lista conserva el timeline actual.
+  const [tab, setTab] = useState<'diagrama' | 'lista'>('diagrama')
+  // Dual SKU ↔ familia
+  const [modo, setModo] = useState<'sku' | 'familia'>(modoInicial)
+  const [pid, setPid] = useState<number | null>(productoId)
+  const [skuSel, setSkuSel] = useState(skuBase)
+  const [descSel, setDescSel] = useState(descripcion)
+  // Fechas: heredan la página, editables en el modal; vacío = histórico completo
+  const [fDesde, setFDesde] = useState<string | undefined>(fechaDesde?.slice(0, 10))
+  const [fHasta, setFHasta] = useState<string | undefined>(fechaHasta?.slice(0, 10))
+  const [skus, setSkus] = useState<SkuConStock[]>([])
+  const [loadingSkus, setLoadingSkus] = useState(false)
 
   // Nota: el padre monta este drawer de nuevo en cada apertura
-  // (`{timelineProduct && <TrazabilidadTimelineDrawer .../>}`), así que el
-  // useState inicial con verCanceladasInicial basta — sin efecto de sincronía.
+  // (`{timelineProduct && <TrazabilidadTimelineDrawer .../>}`), así que los
+  // useState iniciales bastan — sin efectos de sincronía.
   useEffect(() => {
-    if (!isOpen || !productoId) return
+    if (!isOpen || !pid || modo !== 'sku') return
 
     setLoading(true)
-    fetchProductoTimeline(productoId, fechaDesde, fechaHasta, verCanceladas)
+    fetchProductoTimeline(pid, fDesde, fHasta, verCanceladas)
       .then((data) => {
         setEventos(data)
       })
@@ -74,7 +90,24 @@ export function TrazabilidadTimelineDrawer({
       .finally(() => {
         setLoading(false)
       })
-  }, [isOpen, productoId, fechaDesde, fechaHasta, verCanceladas])
+  }, [isOpen, pid, modo, fDesde, fHasta, verCanceladas])
+
+  useEffect(() => {
+    if (!isOpen || modo !== 'familia' || !familia) return
+    setLoadingSkus(true)
+    fetchFamiliaSkusConStock(familia)
+      .then(setSkus)
+      .catch(() => setSkus([]))
+      .finally(() => setLoadingSkus(false))
+  }, [isOpen, modo, familia])
+
+  const elegirSku = (s: SkuConStock) => {
+    setPid(s.producto_id)
+    setSkuSel(s.sku_base)
+    setDescSel(s.descripcion || undefined)
+    setModo('sku')
+    setTab('diagrama')
+  }
 
   const getEstadoBadge = (codigo: string) => {
     const est = (codigo || '').toUpperCase()
@@ -145,12 +178,12 @@ export function TrazabilidadTimelineDrawer({
         {/* Cabecera */}
         <DialogHeader className="p-5 pb-3 border-b border-border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className="font-mono text-xs font-bold px-2 py-0.5">
-                  {skuBase}
+                  {modo === 'sku' ? skuSel : familia || skuSel}
                 </Badge>
-                {familia && (
+                {familia && modo === 'sku' && (
                   <Badge variant="secondary" className="text-xs">
                     {familia}
                   </Badge>
@@ -159,18 +192,45 @@ export function TrazabilidadTimelineDrawer({
               <DialogTitle className="text-lg font-bold text-foreground mt-1">
                 Línea de Tiempo y Trazabilidad Cronológica
               </DialogTitle>
-              <label className="flex items-center gap-2 mt-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground w-fit">
-                <input
-                  type="checkbox"
-                  checked={verCanceladas}
-                  onChange={(e) => setVerCanceladas(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-gray-500"
-                />
-                <span>Ver canceladas <span className="text-[10px]">(gris, no suman al stock)</span></span>
-              </label>
-              {descripcion && (
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5 truncate max-w-xl">
-                  {descripcion}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground w-fit">
+                  <input
+                    type="checkbox"
+                    checked={verCanceladas}
+                    onChange={(e) => setVerCanceladas(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-gray-500"
+                  />
+                  <span>Ver canceladas <span className="text-[10px]">(gris, no suman al stock)</span></span>
+                </label>
+                {familia && (
+                  <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/40 text-xs">
+                    <button type="button" onClick={() => setModo('sku')} className={`px-2 py-0.5 rounded-md ${modo === 'sku' ? 'bg-background font-semibold shadow-xs' : 'text-muted-foreground'}`}>SKU</button>
+                    <button type="button" onClick={() => setModo('familia')} className={`px-2 py-0.5 rounded-md ${modo === 'familia' ? 'bg-background font-semibold shadow-xs' : 'text-muted-foreground'}`} title="Rastrear familia completa">Familia</button>
+                  </div>
+                )}
+                {modo === 'sku' && (
+                  <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/40 text-xs">
+                    <button type="button" onClick={() => setTab('diagrama')} className={`px-2 py-0.5 rounded-md ${tab === 'diagrama' ? 'bg-background font-semibold shadow-xs' : 'text-muted-foreground'}`}>Diagrama</button>
+                    <button type="button" onClick={() => setTab('lista')} className={`px-2 py-0.5 rounded-md ${tab === 'lista' ? 'bg-background font-semibold shadow-xs' : 'text-muted-foreground'}`}>Lista</button>
+                  </div>
+                )}
+              </div>
+              {modo === 'sku' && (
+                <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  <span>Desde</span>
+                  <input type="date" value={fDesde || ''} onChange={(e) => setFDesde(e.target.value || undefined)} className="h-7 text-xs rounded-md border border-border bg-background px-1.5" aria-label="Fecha desde" />
+                  <span>al</span>
+                  <input type="date" value={fHasta || ''} onChange={(e) => setFHasta(e.target.value || undefined)} className="h-7 text-xs rounded-md border border-border bg-background px-1.5" aria-label="Fecha hasta" />
+                  {(fDesde || fHasta) && (
+                    <button type="button" onClick={() => { setFDesde(undefined); setFHasta(undefined) }} className="text-[11px] text-primary hover:underline font-semibold">
+                      Todo el histórico
+                    </button>
+                  )}
+                </div>
+              )}
+              {descSel && modo === 'sku' && (
+                <DialogDescription className="text-xs text-muted-foreground mt-1 truncate max-w-xl">
+                  {descSel}
                 </DialogDescription>
               )}
             </div>
@@ -179,7 +239,45 @@ export function TrazabilidadTimelineDrawer({
 
         {/* Contenido / Timeline */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {loading ? (
+          {modo === 'familia' ? (
+            loadingSkus ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <p className="text-xs">Cargando SKUs con stock de la familia...</p>
+              </div>
+            ) : skus.length === 0 ? (
+              <div className="text-center py-14 text-muted-foreground">
+                <Package className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm font-semibold">Sin SKUs con stock</p>
+                <p className="text-xs mt-1">Ningún SKU de esta familia tiene existencias para rastrear.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">{skus.length} SKUs con stock en {familia}. Elige uno para ver su diagrama:</p>
+                {skus.map((s) => (
+                  <button
+                    key={s.producto_id}
+                    type="button"
+                    onClick={() => elegirSku(s)}
+                    className="w-full flex items-center gap-2 text-left text-xs rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 px-3 py-2 transition-colors"
+                  >
+                    <span className="font-mono font-bold">{s.sku_base}</span>
+                    <span className="text-muted-foreground truncate flex-1">{s.descripcion}</span>
+                    <Badge variant="secondary" className="font-mono text-[10px] ml-auto shrink-0">{s.stock_cajas} cj</Badge>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : tab === 'diagrama' ? (
+            loading ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <p className="text-xs">Cargando diagrama del producto...</p>
+              </div>
+            ) : (
+              <TrazabilidadSkuDiagrama eventos={eventos} />
+            )
+          ) : loading ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
               <p className="text-xs">Cargando trazabilidad histórica del producto...</p>
