@@ -21,6 +21,7 @@ interface TrazabilidadPageProps {
     ciudad?: string
     familia?: string
     agrupar_por?: 'familia' | 'producto'
+    ver_canceladas?: string
   }>
 }
 
@@ -36,6 +37,8 @@ export default async function TrazabilidadPage({ searchParams }: TrazabilidadPag
     ciudad: params.ciudad,
     familia: params.familia,
     agrupar_por: params.agrupar_por || 'familia',
+    // Checkbox OFF por defecto: solo '1' muestra CANC (activo=true, solo visual, no suma)
+    incluir_canceladas: params.ver_canceladas === '1',
   }
 
   const data = await fetchTrazabilidadData(filtros)
@@ -86,12 +89,30 @@ export default async function TrazabilidadPage({ searchParams }: TrazabilidadPag
           </div>
         </div>
 
+        {(data.avisos.movimientosOcultosIgnorados > 0 || data.avisos.canceladasVisibles > 0) && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+            {data.avisos.movimientosOcultosIgnorados > 0 && (
+              <span>
+                Se ignoraron <strong>{data.avisos.movimientosOcultosIgnorados}</strong> movimientos ocultos (CONF con activo=false, borrado admin). El stock actual incluye su efecto vía trigger y puede no cuadrar con el período.
+              </span>
+            )}
+            {data.avisos.movimientosOcultosIgnorados > 0 && data.avisos.canceladasVisibles > 0 && <span> · </span>}
+            {data.avisos.canceladasVisibles > 0 && (
+              <span>
+                Mostrando <strong>{data.avisos.canceladasVisibles}</strong> notas canceladas (gris, solo visual, no suman).
+              </span>
+            )}
+          </div>
+        )}
+
         <TrazabilidadMatrizTable
           filas={data.matriz}
           ciudades={data.ciudadesDisponibles}
           agruparPor={data.filtrosAplicados.agruparPor}
           fechaDesde={data.filtrosAplicados.fechaDesde}
           fechaHasta={data.filtrosAplicados.fechaHasta}
+          canceladas={data.canceladas}
+          verCanceladas={data.filtrosAplicados.incluirCanceladas}
         />
       </div>
 

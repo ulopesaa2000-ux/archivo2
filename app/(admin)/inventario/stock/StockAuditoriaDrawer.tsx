@@ -24,10 +24,12 @@ type Props = {
   descripcion?: string | null
 }
 
-function efectoBadge(efecto: number) {
+function cantidadFirmada(efecto: number) {
   if (efecto > 0)
-    return <Badge variant="outline" className="font-mono bg-emerald-500/10 text-emerald-700 border-emerald-500/30">+{efecto}</Badge>
-  return <Badge variant="outline" className="font-mono bg-rose-500/10 text-rose-700 border-rose-500/30">{efecto}</Badge>
+    return <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{efecto}</span>
+  if (efecto < 0)
+    return <span className="font-mono font-bold text-rose-600 dark:text-rose-400">{efecto}</span>
+  return <span className="font-mono text-muted-foreground">0</span>
 }
 
 export function StockAuditoriaDrawer({
@@ -45,6 +47,10 @@ export function StockAuditoriaDrawer({
   const [error, setError] = useState<string | null>(null)
   const [dataProd, setDataProd] = useState<AuditoriaInversaProducto | null>(null)
   const [dataFam, setDataFam] = useState<AuditoriaInversaFamilia | null>(null)
+  // Checkbox OFF por defecto: CANC en gris solo cuando se activa (solo visual, no suma).
+  const [verCanceladas, setVerCanceladas] = useState(false)
+  const [canceladas, setCanceladas] = useState<{ nota_id: number; numero_nota: string; fecha_nota: string | null; tipo_codigo: string; efecto_cajas: number }[]>([])
+  const [pendientes, setPendientes] = useState<{ nota_id: number; numero_nota: string; tipo_codigo: string; delta: number; cajas: number; bodega_id: number }[]>([])
 
   const bodegaIds = useMemo(() => bodegas.map((b) => b.id), [bodegas])
   const ciudadLabel = ciudadesFiltro.length === 1 ? ciudadesFiltro[0] : ciudadesFiltro.length > 1 ? `${ciudadesFiltro.length} ciudades` : 'Todas las ciudades'
@@ -53,6 +59,8 @@ export function StockAuditoriaDrawer({
     if (!open) {
       setDataProd(null)
       setDataFam(null)
+      setCanceladas([])
+      setPendientes([])
       setError(null)
       return
     }
@@ -65,6 +73,28 @@ export function StockAuditoriaDrawer({
         if (modo === 'producto' && productoId) {
           const res = await mod.fetchAuditoriaInversaPorProducto(productoId, { bodegaIds, limiteNotas: 50 }, bodegas)
           if (!cancelled) setDataProd(res)
+          // Trámite PEND/PROC (amarillo): solo activo=true + estado PEND/PROC, CANC nunca suma.
+          try {
+            const imp = await mod.fetchNotasPendientesImpactoMultiBodega(bodegaIds)
+            const lista: { nota_id: number; numero_nota: string; tipo_codigo: string; delta: number; cajas: number; bodega_id: number }[] = []
+            imp.mapImpacto.forEach((v) => {
+              if (v.producto_id !== productoId) return
+              v.notas.forEach((n) => lista.push({ nota_id: n.nota_id, numero_nota: n.numero_nota, tipo_codigo: n.tipo_codigo, delta: n.delta, cajas: n.cajas, bodega_id: v.bodega_id }))
+            })
+            if (!cancelled) setPendientes(lista.slice(0, 20))
+          } catch (_) {
+            if (!cancelled) setPendientes([])
+          }
+          // Canceladas (gris, solo visual con toggle ON)
+          if (verCanceladas) {
+            try {
+              const traza = await import('@/modules/inventario/trazabilidad')
+              const tl = await traza.fetchProductoTimeline(productoId, undefined, undefined, true)
+              if (!cancelled) setCanceladas(tl.filter((e) => e.estado_codigo === 'CANC').map((e) => ({ nota_id: e.nota_id, numero_nota: e.numero_nota, fecha_nota: e.fecha_nota, tipo_codigo: e.tipo_codigo, efecto_cajas: 0 })))
+            } catch (_) {
+              if (!cancelled) setCanceladas([])
+            }
+          } else if (!cancelled) setCanceladas([])
         } else if (modo === 'familia' && familia) {
           const res = await mod.fetchAuditoriaInversaPorFamilia(familia, { bodegaIds, limiteNotas: 50 }, bodegas)
           if (!cancelled) setDataFam(res)
@@ -80,7 +110,12 @@ export function StockAuditoriaDrawer({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, modo, productoId, familia])
+  }, [open, modo, productoId, familia, verCanceladas])
+
+  // Solo bodegas con notas en el alcance — las vacías solo generan ruido visual.
+  const bodegasConMovimiento = modo === 'producto' && dataProd
+    ? dataProd.bodegas.filter((b) => b.notas.length > 0)
+    : []
 
   const titulo = modo === 'producto' ? `Auditoría ${productoSku || ''}` : `Auditoría familia ${familia || ''}`
   const kpis =
@@ -99,16 +134,25 @@ export function StockAuditoriaDrawer({
             {titulo}
           </SheetTitle>
           <SheetDescription>
-            Auditoría inversa con movimientos aceptados (CONF): stock actual − entradas + salidas = stock inicial.
+            Auditoría inversa con movimientos aceptados (CONF/MODF con activo=true): stock actual − entradas + salidas = stock inicial. CANC y ocultas (activo=false) nunca suman.
             {' '}Ámbito: {ciudadLabel} · {bodegas.length} bodega{bodegas.length !== 1 ? 's' : ''}.
             {descripcion ? ` · ${descripcion}` : ''}
           </SheetDescription>
+          <label className="flex items-center gap-2 mt-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground w-fit">
+            <input
+              type="checkbox"
+              checked={verCanceladas}
+              onChange={(e) => setVerCanceladas(e.target.checked)}
+              className="h-3.5 w-3.5 accent-gray-500"
+            />
+            <span>Ver canceladas <span className="text-[10px]">(gris, no suman)</span></span>
+          </label>
         </SheetHeader>
 
         {loading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Cargando movimientos CONF...
+            Cargando movimientos CONF/MODF...
           </div>
         )}
         {error && <p className="text-sm text-destructive py-4">{error}</p>}
@@ -136,7 +180,13 @@ export function StockAuditoriaDrawer({
 
         {!loading && !error && modo === 'producto' && dataProd && (
           <div className="space-y-4">
-            {dataProd.bodegas.map((b) => (
+            <p className="text-xs text-muted-foreground">
+              {bodegasConMovimiento.length} de {dataProd.bodegas.length} bodegas con movimientos en el alcance (se ocultan las sin notas).
+            </p>
+            {bodegasConMovimiento.length === 0 && (
+              <p className="px-3 py-3 text-xs text-muted-foreground">Sin movimientos CONF/MODF en el alcance.</p>
+            )}
+            {bodegasConMovimiento.map((b) => (
               <div key={b.bodega_id} className="rounded-lg border overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b">
                   <div className="text-sm font-bold">{b.bodega_nombre} <span className="text-xs font-normal text-muted-foreground">· {b.ciudad}</span></div>
@@ -150,23 +200,23 @@ export function StockAuditoriaDrawer({
                       <tr className="text-left text-muted-foreground border-b">
                         <th className="px-3 py-1.5">Nota</th>
                         <th className="px-3 py-1.5">Tipo</th>
+                        <th className="px-3 py-1.5 text-right">Cant.</th>
                         <th className="px-3 py-1.5">Fecha</th>
                         <th className="px-3 py-1.5">Origen → Destino</th>
-                        <th className="px-3 py-1.5 text-right">Efecto</th>
                       </tr>
                     </thead>
                     <tbody>
                       {b.notas.map((n) => (
                         <tr key={`${n.nota_id}-${b.bodega_id}`} className="border-b last:border-0 hover:bg-muted/30">
                           <td className="px-3 py-1.5 font-mono">
-                            <Link href={ADMIN_ROUTES.inventario.notaDetalle(n.nota_id)} className="hover:underline text-primary">{n.numero_nota}</Link>
+                            <Link href={ADMIN_ROUTES.inventario.notaDetalle(n.nota_id)} target="_blank" rel="noopener noreferrer" className="hover:underline text-primary" title="Abrir nota en pestaña nueva">{n.numero_nota}</Link>
                           </td>
                           <td className="px-3 py-1.5"><Badge variant="outline" className="text-[10px]">{n.tipo_codigo}</Badge></td>
+                          <td className="px-3 py-1.5 text-right" title={n.efecto_cajas > 0 ? 'Entraron a esta bodega' : n.efecto_cajas < 0 ? 'Salieron de esta bodega' : 'Sin efecto neto'}>{cantidadFirmada(n.efecto_cajas)}</td>
                           <td className="px-3 py-1.5 text-muted-foreground"><Fecha valor={n.fecha_nota} formato="fecha" /></td>
                           <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[220px]" title={`${n.bodega_origen_nombre || '—'} → ${n.bodega_destino_nombre || '—'}`}>
                             {n.bodega_origen_nombre || '—'} → {n.bodega_destino_nombre || '—'}
                           </td>
-                          <td className="px-3 py-1.5 text-right">{efectoBadge(n.efecto_cajas)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -174,6 +224,50 @@ export function StockAuditoriaDrawer({
                 )}
               </div>
             ))}
+            {pendientes.length > 0 && (
+              <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 overflow-hidden">
+                <div className="px-3 py-2 border-b border-yellow-500/30">
+                  <p className="text-xs font-bold text-yellow-800 dark:text-yellow-300">En trámite PEND/PROC (amarillo, no suma al real — alimenta el pronóstico)</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                  {pendientes.map((n) => (
+                    <Link
+                      key={`pend-${n.nota_id}-${n.bodega_id}`}
+                      href={ADMIN_ROUTES.inventario.notaDetalle(n.nota_id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-yellow-500/40 bg-background hover:bg-yellow-500/10 font-mono"
+                      title={`${n.numero_nota} · ${n.tipo_codigo} · afecta pronóstico`}
+                    >
+                      {n.numero_nota} <span className="font-bold text-yellow-700 dark:text-yellow-300">{n.delta >= 0 ? `+${n.delta}` : n.delta}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+            {verCanceladas && (
+              <div className="rounded-lg border border-gray-300 bg-muted/30 overflow-hidden opacity-80">
+                <div className="px-3 py-2 border-b">
+                  <p className="text-xs font-bold text-muted-foreground">Canceladas (gris, solo visual — excluidas del cálculo){canceladas.length > 0 ? `: ${canceladas.length}` : ': sin canceladas activas'}</p>
+                </div>
+                {canceladas.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                    {canceladas.slice(0, 20).map((n) => (
+                      <Link
+                        key={`canc-${n.nota_id}`}
+                        href={ADMIN_ROUTES.inventario.notaDetalle(n.nota_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-background font-mono text-gray-500 line-through"
+                        title={`${n.numero_nota} · ${n.tipo_codigo} · cancelada, no suma`}
+                      >
+                        {n.numero_nota}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex justify-end">
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/inventario/trazabilidad?ciudad=${encodeURIComponent(ciudadesFiltro[0] || '')}&q=${encodeURIComponent(productoSku || '')}&periodo=todo`}>
@@ -186,7 +280,7 @@ export function StockAuditoriaDrawer({
 
         {!loading && !error && modo === 'familia' && dataFam && (
           <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">{dataFam.productos.length} productos · {dataFam.total_notas} movimientos CONF en el alcance.</p>
+            <p className="text-xs text-muted-foreground">{dataFam.productos.length} productos · {dataFam.total_notas} movimientos CONF/MODF en el alcance (CANC y ocultas excluidas).</p>
             {dataFam.productos.map((p) => (
               <div key={p.producto_id} className="rounded-lg border overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b">
@@ -208,6 +302,8 @@ export function StockAuditoriaDrawer({
                             <Link
                               key={`${n.nota_id}-${b.bodega_id}`}
                               href={ADMIN_ROUTES.inventario.notaDetalle(n.nota_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-background hover:bg-muted font-mono"
                               title={`${n.numero_nota} · ${n.tipo_codigo} · ${n.bodega_origen_nombre || ''}→${n.bodega_destino_nombre || ''}`}
                             >

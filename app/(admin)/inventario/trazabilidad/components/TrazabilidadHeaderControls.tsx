@@ -6,6 +6,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Search, Calendar, MapPin, Layers, RotateCcw, Building2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ interface Props {
     familia?: string
     q?: string
     agruparPor: 'familia' | 'producto'
+    incluirCanceladas?: boolean
   }
 }
 
@@ -205,7 +207,17 @@ export function TrazabilidadHeaderControls({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-muted-foreground hover:text-foreground">
+            <Checkbox
+              checked={filtrosActuales.incluirCanceladas === true}
+              onCheckedChange={(checked) =>
+                updateQuery({ ver_canceladas: checked === true ? '1' : undefined })
+              }
+            />
+            <span className="text-[11px] font-medium">Ver canceladas</span>
+            <span className="text-[10px] text-muted-foreground/70">(gris, no suman)</span>
+          </label>
           {isPending && (
             <Badge variant="secondary" className="animate-pulse text-[11px] py-0.5">
               Actualizando datos...

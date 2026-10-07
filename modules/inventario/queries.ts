@@ -533,6 +533,8 @@ export async function fetchNotasPendientesImpactoPorBodega(bodegaId: number): Pr
   }
 
   for (const n of notasPendientes as any[]) {
+    // Blindaje pronóstico: solo PEND (1) y PROC (4) con activo=true. CANC/CONF/MODF nunca suman.
+    if (Number(n.estado_id) !== 1 && Number(n.estado_id) !== 4) continue
     const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
     const afecta = tipo?.afecta_inventario ?? 0
     const tipoCod = String(tipo?.codigo || '').toUpperCase()
@@ -1120,6 +1122,8 @@ export async function fetchNotasPendientesImpactoMultiBodega(bodegasIds: number[
   }
 
   for (const n of notasPendientes as any[]) {
+    // Blindaje pronóstico multi-bodega: solo PEND (1) y PROC (4). CANC/CONF/MODF nunca suman.
+    if (Number(n.estado_id) !== 1 && Number(n.estado_id) !== 4) continue
     const tipo = Array.isArray(n.tipo_movimiento) ? n.tipo_movimiento[0] : n.tipo_movimiento
     const afecta = tipo?.afecta_inventario ?? 0
     const tipoCod = String(tipo?.codigo || '').toUpperCase()
@@ -1694,13 +1698,14 @@ export async function fetchAuditoriaInversaPorProducto(
     stockActualByBodega.set(Number(r.bodega_id), (stockActualByBodega.get(Number(r.bodega_id)) || 0) + (Number(r.cajas) || 0))
   })
 
+  // Blindaje: solo CONF/MODF con activo=true suman. CANC y activo=false nunca entran al cálculo.
   let movQuery = supabase
     .from('nota_detalle_productos')
     .select(`
       id, nota_id, producto_id, cajas, piezas_sueltas,
       notas_inventario!inner (
         id, numero_nota, fecha_nota, fecha_confirmacion, bodega_origen_id, bodega_destino_id,
-        observaciones, usuario_id,
+        observaciones, usuario_id, activo,
         tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo, nombre, afecta_inventario ),
         estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo ),
         origen:bodegas!notas_inventario_bodega_origen_id_fkey ( id, nombre, ciudad ),
@@ -1708,7 +1713,8 @@ export async function fetchAuditoriaInversaPorProducto(
       )
     `)
     .eq('producto_id', productoId)
-    .eq('notas_inventario.estado.codigo', 'CONF')
+    .eq('notas_inventario.activo', true)
+    .in('notas_inventario.estado.codigo', ['CONF', 'MODF'])
     .order('nota_id', { ascending: false })
 
   if (filtros.fechaDesde) movQuery = (movQuery as any).gte('notas_inventario.fecha_nota', filtros.fechaDesde)
@@ -1761,9 +1767,14 @@ export async function fetchAuditoriaInversaPorProducto(
   ;((movRaw || []) as any[]).forEach((m: any) => {
     const nota = Array.isArray(m.notas_inventario) ? m.notas_inventario[0] : m.notas_inventario
     if (!nota) return
+    // Blindaje defensivo: CANC y activo=false nunca suman aunque el filtro SQL fallara.
+    if ((nota as any).activo === false) return
+    const estadoObj = Array.isArray((nota as any).estado) ? (nota as any).estado[0] : (nota as any).estado
+    const estadoCod = String(estadoObj?.codigo || 'CONF').toUpperCase()
+    if (estadoCod !== 'CONF' && estadoCod !== 'MODF') return
     const tipo = Array.isArray(nota.tipo) ? nota.tipo[0] : nota.tipo
     const tipoCodigo = String(tipo?.codigo || '').toUpperCase()
-    // Solo CONF (MODF se trata como aceptado si el trigger ya procesó; aquí estricto CONF)
+    // Solo CONF/MODF con activo=true (MODF sí movió stock vía trigger)
     const afecta = Number(tipo?.afecta_inventario ?? 0)
     const cajas = Number(m.cajas || 0)
     const origen = Array.isArray(nota.origen) ? nota.origen[0] : nota.origen
@@ -2237,7 +2248,7 @@ export async function fetchNotasPendientesPorBodega(
       bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (id, nombre, codigo)
     `)
     .eq('activo', true)
-    .eq('estado_id', 1) // PEND
+    .in('estado_id', [1, 4]) // PEND + PROC (traspasos en tránsito). CANC (3) y CONF/MODF nunca entran al pronóstico.
     .or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
     .order('fecha_nota', { ascending: false })
     .limit(limit)

@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
-import type { FilaTrazabilidadMatriz } from '@/modules/inventario/trazabilidad'
+import type { FilaTrazabilidadMatriz, NotaCanceladaResumen } from '@/modules/inventario/trazabilidad'
 import { TrazabilidadTimelineDrawer } from './TrazabilidadTimelineDrawer'
 import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon } from '@/lib/inventario/familias-orden'
 
@@ -39,6 +39,8 @@ interface Props {
   agruparPor: 'familia' | 'producto'
   fechaDesde: string
   fechaHasta: string
+  canceladas?: NotaCanceladaResumen[]
+  verCanceladas?: boolean
 }
 
 function isUnassignedFamily(fam: string | null | undefined): boolean {
@@ -51,6 +53,8 @@ export function TrazabilidadMatrizTable({
   agruparPor,
   fechaDesde,
   fechaHasta,
+  canceladas = [],
+  verCanceladas = false,
 }: Props) {
   const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set())
   const [isExporting, setIsExporting] = useState(false)
@@ -679,7 +683,7 @@ export function TrazabilidadMatrizTable({
                       {/* Fila Principal (Familia o Producto) */}
                       <tr className={`transition-colors hover:bg-muted/40 ${
                         hasSkus ? 'bg-muted/15 font-medium' : ''
-                      }`}>
+                      } ${fila.tiene_pendiente ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}`}>
                         
                         {/* Columna Sticky: Nombre / Familia con botón expander */}
                         <td className="py-2.5 px-4 sticky left-0 z-10 bg-card/95 backdrop-blur-xs border-r border-border/40">
@@ -713,6 +717,14 @@ export function TrazabilidadMatrizTable({
                                 {hasSkus && (
                                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                                     {fila.skus?.length} SKUs
+                                  </Badge>
+                                )}
+                                {fila.tiene_pendiente && (
+                                  <Badge
+                                    className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border border-yellow-500/40 font-bold"
+                                    title={`En trámite (PEND/PROC): ${(fila.notas_pendientes || []).map(n => `${n.numero_nota} (${n.delta >= 0 ? '+' : ''}${n.delta})`).join(', ') || 'pendiente'}`}
+                                  >
+                                    En trámite {(fila.delta_pendiente ?? 0) !== 0 ? `${(fila.delta_pendiente ?? 0) > 0 ? '+' : ''}${fila.delta_pendiente}` : ''}
                                   </Badge>
                                 )}
                               </div>
@@ -825,7 +837,7 @@ export function TrazabilidadMatrizTable({
                       {hasSkus && isExpanded && fila.skus?.map((sku) => (
                         <tr
                           key={sku.id}
-                          className="bg-muted/5 hover:bg-muted/20 transition-colors text-[11px]"
+                          className={`hover:bg-muted/20 transition-colors text-[11px] ${sku.tiene_pendiente ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : 'bg-muted/5'}`}
                         >
                           <td className="py-2 px-4 pl-9 sticky left-0 z-10 bg-card/95 backdrop-blur-xs border-r border-border/40">
                             <div className="flex items-center gap-1.5">
@@ -833,6 +845,11 @@ export function TrazabilidadMatrizTable({
                               <span className="font-mono font-bold text-foreground">
                                 {sku.sku_base}
                               </span>
+                              {sku.tiene_pendiente && (
+                                <Badge className="text-[9px] px-1 py-0 h-3.5 bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border border-yellow-500/40 font-bold">
+                                  En trámite
+                                </Badge>
+                              )}
                               {sku.descripcion && (
                                 <span className="text-[10px] text-muted-foreground truncate max-w-[160px]">
                                   {sku.descripcion}
@@ -910,11 +927,52 @@ export function TrazabilidadMatrizTable({
           <span>
             Mostrando <strong>{filas.length}</strong> {agruparPor === 'familia' ? 'familias' : 'productos'} • Orden: familias descendente Z→A • SKUs A→Z • Descripción canónica
           </span>
-          <span className="text-[11px]">
-            * Haz clic en el icono <strong><Route className="w-3 h-3 inline" /> Kardex</strong> para ver la cronología completa de cada nota.
+          <span className="text-[11px] flex items-center gap-2">
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> CONF</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> PEND/PROC en trámite</span>
+            {verCanceladas && <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400 inline-block" /> CANC (no suma)</span>}
+            <span>* Haz clic en <strong><Route className="w-3 h-3 inline" /> Kardex</strong> para ver la cronología.</span>
           </span>
         </div>
       </div>
+
+      {/* Sección gris de canceladas — solo visual cuando el toggle está ON, nunca suma */}
+      {verCanceladas && canceladas.length > 0 && (
+        <div className="bg-card border border-border rounded-xl shadow-xs overflow-hidden opacity-90">
+          <div className="px-4 py-2.5 border-b border-border bg-muted/40">
+            <p className="text-xs font-bold text-muted-foreground">
+              Notas canceladas en el período <span className="font-normal">(gris, solo visual — excluidas de entradas, salidas y stock inicial)</span>: {canceladas.length}
+            </p>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            <table className="w-full text-left text-[11px]">
+              <thead className="bg-muted/60 sticky top-0 text-muted-foreground uppercase">
+                <tr>
+                  <th className="py-2 px-3">Nota</th>
+                  <th className="py-2 px-3">Fecha</th>
+                  <th className="py-2 px-3">SKU</th>
+                  <th className="py-2 px-3">Tipo</th>
+                  <th className="py-2 px-3 text-right">Cajas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {canceladas.slice(0, 100).map((c, idx) => (
+                  <tr key={`${c.nota_id}-${c.producto_id}-${idx}`} className="text-muted-foreground">
+                    <td className="py-1.5 px-3 font-mono line-through">{c.numero_nota}</td>
+                    <td className="py-1.5 px-3 font-mono">{c.fecha_nota ? new Date(c.fecha_nota).toLocaleDateString('es-MX') : '—'}</td>
+                    <td className="py-1.5 px-3 font-mono">{c.sku_base}</td>
+                    <td className="py-1.5 px-3"><Badge variant="secondary" className="text-[10px] bg-gray-500/10 text-gray-600 dark:text-gray-400">{c.tipo_codigo}</Badge></td>
+                    <td className="py-1.5 px-3 text-right font-mono">{c.cajas}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {canceladas.length > 100 && (
+              <p className="px-4 py-2 text-[11px] text-muted-foreground italic">Mostrando 100 de {canceladas.length}. Usa el reporte Excel o el timeline por SKU para el detalle completo.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Drawer / Modal de Timeline Individual */}
       {timelineProduct && (
@@ -927,6 +985,7 @@ export function TrazabilidadMatrizTable({
           familia={timelineProduct.familia}
           fechaDesde={fechaDesde}
           fechaHasta={fechaHasta}
+          verCanceladasInicial={verCanceladas}
         />
       )}
 
