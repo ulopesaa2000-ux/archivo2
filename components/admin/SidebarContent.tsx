@@ -35,7 +35,7 @@ import {
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import type { UsuarioConRol } from '@/lib/types/tables'
-import { can, type PermissionModule } from '@/lib/auth/permissions'
+import { canWithFallback, type PermissionModule } from '@/lib/auth/permissions'
 import {
   Tooltip,
   TooltipTrigger,
@@ -116,10 +116,10 @@ const GROUPS: NavGroup[] = [
     label: 'Configuracion',
     icon: Settings,
     items: [
-      { label: 'General', href: ADMIN_ROUTES.configuracion.general, icon: Sliders, modulo: 'config_usuarios' },
+      { label: 'General', href: ADMIN_ROUTES.configuracion.general, icon: Sliders, modulo: 'config_general' },
       { label: 'Usuarios', href: ADMIN_ROUTES.configuracion.usuarios, icon: Users, modulo: 'config_usuarios' },
-      { label: 'Personas Asociadas', href: '/configuracion/personas', icon: Users, modulo: 'config_usuarios' },
-      { label: 'Tablas de Soporte', href: ADMIN_ROUTES.configuracion.tablasSoporte, icon: Database, modulo: 'config_tablas' },
+      { label: 'Personas Asociadas', href: '/configuracion/personas', icon: Users, modulo: 'config_personas' },
+      { label: 'Tablas de Soporte', href: ADMIN_ROUTES.configuracion.tablasSoporte, icon: Database, modulo: 'config_tablas_soporte' },
       { label: 'Roles', href: ADMIN_ROUTES.configuracion.roles, icon: Shield, modulo: 'config_roles' },
       { label: 'Auditoria Productos', href: ADMIN_ROUTES.configuracion.auditoriaProductos, icon: History, modulo: 'config_auditoria_productos' },
       { label: 'Configuracion de Tablas', href: ADMIN_ROUTES.configuracion.tablas, icon: Settings, modulo: 'config_tablas' },
@@ -165,7 +165,7 @@ export function SidebarContent({
           if (item.href === ADMIN_ROUTES.inventario.bodegas && user?.rol?.nombre === 'Bodeguero') {
             return false
           }
-          return can(user, item.modulo, 'puede_leer')
+          return canWithFallback(user, item.modulo, 'puede_leer')
         }),
       }
     })

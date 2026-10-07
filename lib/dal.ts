@@ -133,7 +133,7 @@ export const getUserDTO = cache(async (): Promise<SafeUserDTO | null> => {
  * @throws {redirect} - Redirige si el usuario no tiene permisos suficientes.
  */
 const LEGACY_MODULE_GROUPS: Record<string, PermissionModule[]> = {
-  configuracion: ['config_usuarios', 'config_roles', 'config_auditoria_productos', 'config_tablas'],
+  configuracion: ['config_usuarios', 'config_personas', 'config_roles', 'config_auditoria_productos', 'config_tablas', 'config_tablas_soporte', 'config_general'],
   inventario: ['inventario_stock', 'inventario_notas', 'inventario_bodegas'],
   'inventario-virtual': ['inventario_virtual'],
   'ordenes-b2b': ['b2b_ordenes', 'b2b_cajas'],

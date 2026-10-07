@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\lib\supabase\middleware.ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { permissionForPath, type PermissionAction } from '@/lib/auth/permissions'
+import { permissionForPath, LEGACY_MODULE_FALLBACKS, type PermissionAction } from '@/lib/auth/permissions'
 import { Database } from '../types/database.types'
 import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from './constants'
 
@@ -108,6 +108,14 @@ export async function updateSession(request: NextRequest) {
 
       if (!hasAccess && modulo === 'catalogo_productos') {
         hasAccess = claims.permissions?.modules?.catalogo_catalogos?.puede_leer === true
+      }
+
+      // Fallbacks de modulos separados despues (ej. config_tablas -> config_tablas_soporte)
+      if (!hasAccess) {
+        const fallbacks = LEGACY_MODULE_FALLBACKS[modulo] ?? []
+        hasAccess = fallbacks.some(
+          (legacy) => claims.permissions?.modules?.[legacy]?.[action] === true
+        )
       }
 
       if (!hasAccess) {
