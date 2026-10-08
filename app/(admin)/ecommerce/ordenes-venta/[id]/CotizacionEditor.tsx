@@ -75,10 +75,12 @@ export function CotizacionEditor({
   ordenId,
   items,
   bloqueada = false,
+  puedeEditar = true,
 }: {
   ordenId: number
   items: OrdenItemExtendido[]
   bloqueada?: boolean
+  puedeEditar?: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -103,8 +105,10 @@ export function CotizacionEditor({
     return { totalVivo: total, filasSucias: sucias }
   }, [items, filas])
 
+  const soloLectura = bloqueada || !puedeEditar
+
   const setFila = (itemId: number, patch: Partial<FilaEdicion>) => {
-    if (bloqueada) return
+    if (soloLectura) return
     setFilas((prev) => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
   }
 
@@ -114,7 +118,7 @@ export function CotizacionEditor({
   }, [filasSucias])
 
   const guardarBorrador = () => {
-    if (bloqueada || filasSucias.length === 0) return
+    if (soloLectura || filasSucias.length === 0) return
     startTransition(async () => {
       for (const itemId of filasSucias) {
         const item = items.find((i) => i.id === itemId)
@@ -136,7 +140,7 @@ export function CotizacionEditor({
     })
   }
   const eliminarPartida = (itemId: number) => {
-    if (bloqueada) return
+    if (soloLectura) return
     if (!window.confirm('¿Eliminar esta partida de la cotización?')) return
     startTransition(async () => {
       const res = await eliminarItemOrden(ordenId, itemId)
@@ -166,9 +170,11 @@ export function CotizacionEditor({
           {isPending ? 'Guardando...' : `Guardar borrador${filasSucias.length > 0 ? ` (${filasSucias.length})` : ''}`}
         </Button>
       </div>
-      {bloqueada && (
+      {soloLectura && (
         <p className="text-xs font-medium text-muted-foreground border border-border rounded-xl px-3 py-2 bg-muted/50">
-          Nota cerrada: las partidas son de solo lectura. Rastreo y hoja PDF siguen disponibles.
+          {bloqueada
+            ? 'Nota cerrada: las partidas son de solo lectura. Rastreo y hoja PDF siguen disponibles.'
+            : 'Tu rol solo permite lectura en partidas.'}
         </p>
       )}
       <p className="text-xs text-muted-foreground">
@@ -203,7 +209,7 @@ export function CotizacionEditor({
                   variant="ghost"
                   className="h-8 w-8 text-red-600 hover:text-red-700 shrink-0"
                   onClick={() => eliminarPartida(item.id)}
-                  disabled={bloqueada || isPending}
+                  disabled={soloLectura || isPending}
                   title="Eliminar partida"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -219,7 +225,7 @@ export function CotizacionEditor({
                     step={1}
                     value={fila.cajas}
                     onChange={(e) => setFila(item.id, { cajas: e.target.value })}
-                    disabled={bloqueada || isPending}
+                    disabled={soloLectura || isPending}
                     className="h-8 w-20 text-xs"
                   />
                 </div>
@@ -232,7 +238,7 @@ export function CotizacionEditor({
                     value={fila.factor}
                     placeholder={item.pz_en_caja_default ? String(item.pz_en_caja_default) : '25'}
                     onChange={(e) => setFila(item.id, { factor: e.target.value })}
-                    disabled={bloqueada || isPending}
+                    disabled={soloLectura || isPending}
                     className="h-8 w-24 text-xs"
                   />
                 </div>
@@ -244,7 +250,7 @@ export function CotizacionEditor({
                     step={0.01}
                     value={fila.precio}
                     onChange={(e) => setFila(item.id, { precio: e.target.value })}
-                    disabled={bloqueada || isPending}
+                    disabled={soloLectura || isPending}
                     className="h-8 w-28 text-xs"
                   />
                 </div>

@@ -141,7 +141,7 @@ export function DashboardVirtualContent({
                 {stock.map((s) => (
                   <TableRow key={s.producto_id}>
                     <TableCell className="font-mono text-xs">{s.sku_base ?? '—'}</TableCell>
-                    <TableCell className="max-w-[250px] truncate">{s.producto_nombre ?? '—'}</TableCell>
+                    <TableCell className="max-w-[250px] truncate" title={s.producto_descripcion ?? ''}>{s.producto_descripcion ?? '—'}</TableCell>
                     <TableCell className="text-right tabular-nums font-semibold">{s.cajas_disponibles}</TableCell>
                     <TableCell className="text-right tabular-nums">{s.piezas_sueltas}</TableCell>
                   </TableRow>

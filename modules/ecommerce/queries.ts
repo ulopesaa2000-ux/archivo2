@@ -975,6 +975,9 @@ export async function fetchOrdenesVenta(
     const zonaTerm = `%${filtros.zona.replace(/[%_]/g, '')}%`
     query = query.filter('direccion_envio->>ciudad', 'ilike', zonaTerm)
   }
+  if (!filtros.incluirCanceladas) {
+    query = query.neq('estado', 'cancelado')
+  }
 
   query = query
     .order('fecha_orden', { ascending: false })

@@ -44,7 +44,7 @@ export async function fetchStockVirtual(
       piezas_sueltas,
       bodega_id,
       bodega:bodegas!inventario_stock_bodega_id_fkey (nombre),
-      producto:productos!inventario_stock_producto_id_fkey (sku_base, nombre)
+      producto:productos!inventario_stock_producto_id_fkey (sku_base, nombre, descripcion)
     `)
     .eq('bodega_id', bodegaId)
     .gt('cajas', 0)
@@ -60,7 +60,7 @@ export async function fetchStockVirtual(
     piezas_sueltas: number | null
     bodega_id: number
     bodega: { nombre: string } | { nombre: string }[] | null
-    producto: { sku_base: string; nombre: string } | { sku_base: string; nombre: string }[] | null
+    producto: { sku_base: string; nombre: string | null; descripcion: string | null } | { sku_base: string; nombre: string | null; descripcion: string | null }[] | null
   }
 
   const rows = data as unknown as StockRowType[]
@@ -84,6 +84,7 @@ export async function fetchStockVirtual(
         producto_id: row.producto_id,
         sku_base: prod?.sku_base ?? null,
         producto_nombre: prod?.nombre ?? null,
+        producto_descripcion: prod?.descripcion ?? null,
         cajas_disponibles: Number(row.cajas ?? 0),
         piezas_sueltas: Number(row.piezas_sueltas ?? 0),
         bodega_id: row.bodega_id,

@@ -15,7 +15,17 @@ const ESTADOS_FINALES = ['cancelado', 'entregado', 'convertida']
  * Cierre definitivo junto al título y al PDF: Confirmar / Cancelar compactos.
  * Exige borrador guardado, igual que en las notas de inventario.
  */
-export function CabeceraAcciones({ ordenId, estado }: { ordenId: number; estado: string }) {
+export function CabeceraAcciones({
+  ordenId,
+  estado,
+  canEditar,
+  canEliminar,
+}: {
+  ordenId: number
+  estado: string
+  canEditar: boolean
+  canEliminar: boolean
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [cambiosSinGuardar, setCambiosSinGuardar] = useState(0)
@@ -31,7 +41,7 @@ export function CabeceraAcciones({ ordenId, estado }: { ordenId: number; estado:
   }, [])
 
   const bloqueado = ESTADOS_FINALES.includes(estado)
-  const puedeConfirmar = !bloqueado && estado !== 'aprobada'
+  const puedeConfirmar = canEditar && !bloqueado && estado !== 'aprobada'
   const conBorradorSucio = cambiosSinGuardar > 0
 
   const cambiarEstado = (nuevo: 'aprobada' | 'cancelado', mensaje: string) => {
@@ -56,26 +66,30 @@ export function CabeceraAcciones({ ordenId, estado }: { ordenId: number; estado:
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        onClick={() => cambiarEstado('aprobada', 'Cotización confirmada (aprobada)')}
-        disabled={isPending || !puedeConfirmar || conBorradorSucio}
-        className="bg-emerald-700 hover:bg-emerald-800"
-        title={conBorradorSucio ? 'Guarda el borrador antes de cerrar' : 'Confirmar cotización (cierre definitivo)'}
-      >
-        <CheckCircle2 className="h-4 w-4 mr-1.5" />
-        Confirmar
-      </Button>
-      <Button
-        size="sm"
-        variant="destructive"
-        onClick={() => cambiarEstado('cancelado', 'Cotización cancelada')}
-        disabled={isPending || bloqueado || conBorradorSucio}
-        title={conBorradorSucio ? 'Guarda el borrador antes de cerrar' : 'Cancelar cotización (cierre definitivo)'}
-      >
-        <XCircle className="h-4 w-4 mr-1.5" />
-        Cancelar
-      </Button>
+      {puedeConfirmar && (
+        <Button
+          size="sm"
+          onClick={() => cambiarEstado('aprobada', 'Cotización confirmada (aprobada)')}
+          disabled={isPending || conBorradorSucio}
+          className="bg-emerald-700 hover:bg-emerald-800"
+          title={conBorradorSucio ? 'Guarda el borrador antes de cerrar' : 'Confirmar cotización (cierre definitivo)'}
+        >
+          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+          Confirmar
+        </Button>
+      )}
+      {canEliminar && !bloqueado && (
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => cambiarEstado('cancelado', 'Cotización cancelada')}
+          disabled={isPending || conBorradorSucio}
+          title={conBorradorSucio ? 'Guarda el borrador antes de cerrar' : 'Cancelar cotización (borrado lógico)'}
+        >
+          <XCircle className="h-4 w-4 mr-1.5" />
+          Cancelar
+        </Button>
+      )}
     </div>
   )
 }

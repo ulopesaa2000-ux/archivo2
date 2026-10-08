@@ -46,7 +46,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
-import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction } from '@/modules/ordenes-b2b/actions'
+import { createColorAction } from '@/modules/catalogo/actions'
+import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction, obtenerColoresActivosAction } from '@/modules/ordenes-b2b/actions'
+import type { CatalogoColorOrdenRapida } from '@/modules/ordenes-b2b/actions'
+import { resolveColor, buildColorDraft, suggestEs } from '@/lib/color-match'
+import type { CatalogColor } from '@/lib/color-match'
+import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, derivarRepartoPorFilas, stagingMinFilaPorCodigo } from '@/lib/orden-rapida-colores'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
@@ -156,6 +161,42 @@ type OrdenProductoPack = {
   fuente?: string
 }
 
+// Fase 2: separacion sugerida por n8n (MOTI pegados / packs duplicados)
+type SeparacionSugerida = {
+  tipo?: string
+  sku_base_original?: string
+  header_row?: number | null
+  productos_candidatos?: Array<{ sku_base: string; alias?: string | null; filas?: number[]; cartones?: string[] }>
+  packs_candidatos?: Array<{ nombre_actual: string; sugerido?: string | null; cartones?: string[] }>
+  reparto_exacto?: Array<{ codigo_caja_temporal: string; sku_base_sugerido: string; motivo?: string }>
+  cajas_para_revisar?: string[]
+  confianza?: string
+  motivo?: string
+  fuente?: string
+}
+
+// Fase 2: color por confirmar (match contra cat_colores / crear)
+type ColorPorConfirmar = {
+  raw: string
+  en?: string | null
+  es?: string | null
+  cajas?: string[]
+  fuente?: string
+  estado: 'nuevo' | 'mapeado' | 'creado' | 'omitido' | 'existente'
+  color_id?: number | null
+  via?: string | null
+}
+
+// Fase 2: borrador editable del modal de colores nuevos
+type ColorDraft = {
+  nombre: string
+  nombre_intern: string
+  codigo: string
+  hex_code: string
+  tipo_color: string
+  mapear_a_id: number | null
+}
+
 type WizardParsedData = {
   orden: {
     estado: string
@@ -173,6 +214,11 @@ type WizardParsedData = {
   detalles: Array<Record<string, unknown>>
   warnings: WizardWarning[]
   orden_productos_pack: OrdenProductoPack[]
+  separacion_sugerida: SeparacionSugerida[]
+  colores_por_confirmar: Array<{ raw: string; en?: string | null; es?: string | null; cajas?: string[]; fuente?: string }>
+  colores_traducidos: Array<{ raw: string; en?: string | null; es?: string | null; motivo?: string }>
+  requiere_revision_manual: boolean
+  staging_por_codigo: Record<string, number>
   raw: unknown
 }
 
@@ -617,6 +663,17 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
     cajas,
     detalles: detallesRaw,
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    separacion_sugerida: Array.isArray(data.separacion_sugerida) ? (data.separacion_sugerida as SeparacionSugerida[]) : [],
+    colores_por_confirmar: Array.isArray(data.colores_por_confirmar) ? data.colores_por_confirmar : [],
+    colores_traducidos: Array.isArray(data.colores_traducidos) ? data.colores_traducidos : [],
+    requiere_revision_manual: Boolean(
+      (data.metadata as Record<string, unknown> | undefined)?.requiere_revision_manual,
+    ),
+    staging_por_codigo: stagingMinFilaPorCodigo(
+      ((data.staging_sugerido as Record<string, unknown> | undefined)?.packing_lineas_staging
+        ?? (data as Record<string, unknown>).packing_lineas_staging
+        ?? []) as Array<{ codigo_caja_temporal?: string; fila_origen?: number }>,
+    ),
     orden_productos_pack: Array.isArray((data as any).orden_productos_pack)
       ? (data as any).orden_productos_pack.map((op: Record<string, any>) => ({
         sku_base: String(op.sku_base ?? op.sku ?? ''),
@@ -1029,6 +1086,9 @@ export function OrdenRapidaWizard({
   const [lineaEditadaPorPack, setLineaEditadaPorPack] = useState<Record<string, number>>({})
   const [editPackSku, setEditPackSku] = useState<string | null>(null)
   const [editPackVal, setEditPackVal] = useState('')
+  // Fase 2: renombrar pack (packKey -> nombre en edicion + valor)
+  const [editPackNombre, setEditPackNombre] = useState<string | null>(null)
+  const [editPackNombreVal, setEditPackNombreVal] = useState('')
   // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
   const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
@@ -1044,6 +1104,12 @@ export function OrdenRapidaWizard({
   // Amarillos colapsados: una fila + expandir
   const [showWarnings, setShowWarnings] = useState(false)
   const [showHuecos, setShowHuecos] = useState(false)
+  // Fase 2: separacion sugerida (MOTI/packs) + colores por confirmar
+  const [catalogoColores, setCatalogoColores] = useState<CatalogoColorOrdenRapida[]>([])
+  const [coloresPorConfirmar, setColoresPorConfirmar] = useState<ColorPorConfirmar[]>([])
+  const [separacionIgnorada, setSeparacionIgnorada] = useState(false)
+  const [coloresModalOpen, setColoresModalOpen] = useState(false)
+  const [colorDrafts, setColorDrafts] = useState<Record<string, ColorDraft>>({})
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -1071,6 +1137,12 @@ export function OrdenRapidaWizard({
     setDragOverProducto(null)
     setShowWarnings(false)
     setShowHuecos(false)
+    setCatalogoColores([])
+    setColoresPorConfirmar([])
+    setSeparacionIgnorada(false)
+    setColoresModalOpen(false)
+    setColorDrafts({})
+    coloresAutoOpenedRef.current = false
     setProgress(0)
     setProgressMsg('')
   }
@@ -1543,6 +1615,206 @@ export function OrdenRapidaWizard({
     toast.success(`Caja ${codigoOrigen} → ${nuevoCodigo} en ${prodDestino.sku_base}.`)
   }
 
+  // ── Fase 2: separar pegados y dividir/renombrar packs ──
+  // Renombra el pack de todas las cajas de un (SKU, pack). No toca codigo_caja.
+  const handleRenombrarPack = (skuBase: string, packViejo: string, packNuevo: string) => {
+    const upSku = String(skuBase || '').trim().toUpperCase()
+    const upViejo = String(packViejo || 'PACK UNICO').trim().toUpperCase()
+    const nuevo = String(packNuevo || '').trim().toUpperCase()
+    if (!upSku || !nuevo || nuevo === upViejo) return
+    const cods = new Set(
+      editableCajas
+        .filter((c) => String(c.sku_base || '').trim().toUpperCase() === upSku
+          && String(c.nombre_pack || 'PACK UNICO').trim().toUpperCase() === upViejo)
+        .map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '')),
+    )
+    setEditableCajas((prev) => prev.map((c) => {
+      if (String(c.sku_base || '').trim().toUpperCase() !== upSku) return c
+      if (String(c.nombre_pack || 'PACK UNICO').trim().toUpperCase() !== upViejo) return c
+      return { ...c, nombre_pack: nuevo }
+    }))
+    setParsedData((prev: WizardParsedData | null) => {
+      if (!prev || !Array.isArray(prev.detalles)) return prev
+      return {
+        ...prev,
+        detalles: prev.detalles.map((d) => (
+          cods.has(String(d?.codigo_caja_temporal || '')) ? { ...d, nombre_pack: nuevo } : d
+        )),
+      }
+    })
+    setEditPackNombre(null)
+    toast.success(`Pack ${packViejo} → ${nuevo} en ${skuBase} (códigos intactos).`)
+  }
+
+  // Divide un pack en dos por rangos de carton: usa cartonesSugeridos
+  // (leidos en render desde warnings n8n) si existen, si no los del grupo.
+  // NOTA: no leer alertasPorSku aqui (memo declarado despues): el React
+  // Compiler no modela referencias hacia adelante y aborta el componente.
+  const handleDividirPack = (skuBase: string, pack: string, cartonesSugeridos?: string[]) => {
+    const upSku = String(skuBase || '').trim().toUpperCase()
+    const upPack = String(pack || 'PACK UNICO').trim().toUpperCase()
+    const grupo = editableCajas.filter(
+      (c) => c.tipo_caja !== 'padre_resumen'
+        && String(c.sku_base || '').trim().toUpperCase() === upSku
+        && String(c.nombre_pack || 'PACK UNICO').trim().toUpperCase() === upPack,
+    )
+    if (grupo.length < 2) { toast.error('Se necesitan 2+ cajas para dividir el pack.'); return }
+    const wCartones = (cartonesSugeridos || []).map((x) => String(x).trim()).filter(Boolean)
+    const enOrden = wCartones.length >= 2 ? wCartones : Array.from(new Set(
+      grupo.map((c) => String((c as unknown as Record<string, unknown>).carton_no_raw || '').trim()).filter(Boolean),
+    ))
+    const { mover } = partirRangosCarton(enOrden)
+    if (mover.length === 0) { toast.error('No hay rangos de cartón distintos para dividir.'); return }
+    const segundaMitad = new Set(mover)
+    const nuevo = siguienteLetraPack(pack)
+    const codsSegunda = new Set(
+      grupo
+        .filter((c) => segundaMitad.has(String((c as unknown as Record<string, unknown>).carton_no_raw || '').trim()))
+        .map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '')),
+    )
+    setEditableCajas((prev) => prev.map((c) => {
+      if (c.tipo_caja === 'padre_resumen') return c
+      if (String(c.sku_base || '').trim().toUpperCase() !== upSku) return c
+      if (String(c.nombre_pack || 'PACK UNICO').trim().toUpperCase() !== upPack) return c
+      const cod = String(c.codigo_caja_temporal || c.codigo_caja || '')
+      if (!codsSegunda.has(cod)) return c
+      return { ...c, nombre_pack: nuevo }
+    }))
+    setParsedData((prev: WizardParsedData | null) => {
+      if (!prev || !Array.isArray(prev.detalles)) return prev
+      return {
+        ...prev,
+        detalles: prev.detalles.map((d) => (
+          codsSegunda.has(String(d?.codigo_caja_temporal || '')) ? { ...d, nombre_pack: nuevo } : d
+        )),
+      }
+    })
+    toast.success(`Pack ${pack} dividido: ${codsSegunda.size} caja(s) → ${nuevo}. Renómbralo si hace falta.`)
+  }
+
+  // Separa un producto pegado (sku_conjoinado_dudoso) en N productos usando
+  // los candidatos de n8n. El 1er candidato conserva producto y cajas; el resto
+  // se crea y recibe sus cajas por carton (sin solapar rangos compartidos).
+  const handleSepararSugerido = (sep: SeparacionSugerida) => {
+    const cands = (sep.productos_candidatos || []).map((c) => ({
+      sku: String(c.sku_base || '').trim(),
+      alias: String(c.alias || '').trim(),
+      cartones: (c.cartones || []).map((x) => String(x).trim()).filter(Boolean),
+      filas: (c.filas || []).map((x) => Number(x)).filter((x) => Number.isFinite(x)),
+    })).filter((c) => c.sku)
+    if (cands.length < 2) { toast.error('La sugerencia no trae 2+ candidatos: agrega el producto a mano.'); return }
+    const originalUp = String(sep.sku_base_original || '').trim().toUpperCase()
+    const prodA = editableProductos.find((p) => String(p.sku_base || '').trim().toUpperCase() === originalUp)
+    if (!prodA || !prodA.temp_id) { toast.error('Producto original no encontrado en la revisión.'); return }
+    const skuA = cands[0].sku
+    const nuevos: WizardProducto[] = cands.slice(1).map((c, idx) => ({
+      temp_id: `temp_split_${Date.now()}_${idx}`,
+      producto_id: null,
+      sku_base: c.sku,
+      sku_raw: [c.sku, c.alias].filter(Boolean).join(' '),
+      nombre: c.sku,
+      descripcion: prodA.descripcion,
+      marca: prodA.marca,
+      precio_yuan: prodA.precio_yuan,
+      precio_unitario_usd: prodA.precio_unitario_usd,
+      estado_temporal: 'separado_sugerido',
+      es_nuevo: true,
+    }))
+    const tempPorSku = new Map<string, string>([[skuA.toUpperCase(), prodA.temp_id]])
+    for (const n of nuevos) tempPorSku.set(n.sku_base.toUpperCase(), n.temp_id!)
+    const cajasOrigen = editableCajas.filter((cj) => cj.tipo_caja !== 'padre_resumen'
+      && String(cj.sku_base || '').trim().toUpperCase() === originalUp)
+    const destinoPorCodigo = new Map<string, string>()
+    let exactas = 0
+    // Nivel A: reparto_exacto del workflow (si algun dia lo trae).
+    for (const r of sep.reparto_exacto || []) {
+      const cod = String(r.codigo_caja_temporal || '')
+      const skuD = String(r.sku_base_sugerido || '').trim()
+      if (!cod || !skuD || destinoPorCodigo.has(cod)) continue
+      if (!tempPorSku.has(skuD.toUpperCase())) continue
+      if (!cajasOrigen.some((cj) => String(cj.codigo_caja_temporal || cj.codigo_caja || '') === cod)) continue
+      destinoPorCodigo.set(cod, skuD)
+      exactas++
+    }
+    // Nivel B: derivacion por filas staging (exacta aunque compartan carton).
+    if (destinoPorCodigo.size < cajasOrigen.length) {
+      const restantes = cajasOrigen
+        .map((cj) => String(cj.codigo_caja_temporal || cj.codigo_caja || ''))
+        .filter((cod) => cod && !destinoPorCodigo.has(cod))
+      const { mapa } = derivarRepartoPorFilas(
+        restantes,
+        parsedData?.staging_por_codigo || {},
+        cands.map((c) => ({ sku_base: c.sku, filas: c.filas })),
+      )
+      for (const [cod, skuD] of mapa) {
+        if (!tempPorSku.has(skuD.toUpperCase())) continue
+        destinoPorCodigo.set(cod, skuD)
+        exactas++
+      }
+    }
+    // Nivel C: cartones unicos sin solapar (respaldo para cajas sin fila).
+    const reclamados = new Set<string>(cands[0].cartones)
+    for (const c of cands.slice(1)) {
+      const unicos = c.cartones.filter((x) => !reclamados.has(x))
+      for (const cj of cajasOrigen) {
+        const cod = String(cj.codigo_caja_temporal || cj.codigo_caja || '')
+        if (!cod || destinoPorCodigo.has(cod)) continue
+        const cart = String((cj as unknown as Record<string, unknown>).carton_no_raw || '').trim()
+        if (unicos.includes(cart)) destinoPorCodigo.set(cod, c.sku)
+      }
+      for (const x of c.cartones) reclamados.add(x)
+    }
+    const usados = new Set(editableCajas.map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '').toUpperCase()))
+    const remap = new Map<string, { sku: string; tempId: string; codigo: string }>()
+    for (const [cod, skuD] of destinoPorCodigo) {
+      const nuevoCodigo = renombrarCodigoCaja(cod, sep.sku_base_original || '', skuD, usados)
+      usados.add(nuevoCodigo.toUpperCase())
+      remap.set(cod, { sku: skuD, tempId: tempPorSku.get(skuD.toUpperCase()) || '', codigo: nuevoCodigo })
+    }
+    setEditableProductos((prev) => [
+      ...prev.map((p) => (p.temp_id === prodA.temp_id
+        ? { ...p, sku_base: skuA, sku_raw: [skuA, cands[0].alias].filter(Boolean).join(' ') }
+        : p)),
+      ...nuevos,
+    ])
+    setEditableCajas((prev) => prev.map((c) => {
+      const cod = String(c.codigo_caja_temporal || c.codigo_caja || '')
+      const m = remap.get(cod)
+      if (!m) return c
+      return { ...c, sku_base: m.sku, producto_temp_id: m.tempId, codigo_caja_temporal: m.codigo, codigo_caja: m.codigo }
+    }))
+    setParsedData((prev: WizardParsedData | null) => {
+      if (!prev || !Array.isArray(prev.detalles)) return prev
+      return {
+        ...prev,
+        detalles: prev.detalles.map((d) => {
+          const cod = String(d?.codigo_caja_temporal || '')
+          const m = remap.get(cod)
+          return m ? { ...d, codigo_caja_temporal: m.codigo } : d
+        }),
+      }
+    })
+    setExpandedProducts((prev) => new Set(prev).add(skuA))
+    for (const n of nuevos) setExpandedProducts((prev) => new Set(prev).add(n.sku_base))
+    setSeparacionIgnorada(true)
+    // Verificar SKUs nuevos en BD (mismo patron que agregar manual)
+    const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+    verificarSkusEnBDAction(nuevos.map((n) => n.sku_base), proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
+      if (res.success && res.skusExistentes.length > 0) {
+        setDbSkusSet((prev) => new Set([...Array.from(prev), ...res.skusExistentes.map((s) => s.toUpperCase())]))
+      }
+      if (res.success && (res.probables ?? []).length > 0) {
+        setProbablesDb((prev) => [...prev, ...(res.probables ?? [])])
+      }
+    })
+    const estimadas = remap.size - Math.min(exactas, remap.size)
+    toast.success(
+      `Separado: ${skuA} conserva sus cajas; ${remap.size} caja(s) movidas`
+      + (exactas > 0 ? ` (${exactas} exactas por documento${estimadas > 0 ? `, ${estimadas} por cartón` : ''})` : '')
+      + `. Ajusta líneas esperadas${remap.size < cajasOrigen.length ? ' y arrastra el resto a mano' : ''}.`,
+    )
+  }
+
   // Agregar caja manual a un producto (corrige packing cuando no se detectó una caja).
   // Hereda piezas_por_caja de la caja principal del SKU; el usuario la edita en la tarjeta.
   const handleCajaAdd = (producto: WizardProducto) => {
@@ -1736,6 +2008,19 @@ export function OrdenRapidaWizard({
       })
 
       setWarnings(wizardData.warnings)
+      setSeparacionIgnorada(false)
+      setColoresModalOpen(false)
+      setColorDrafts({})
+      // Fase 2: catalogo de colores + siembra de pendientes (n8n + barrido local)
+      obtenerColoresActivosAction().then((resColores) => {
+        const catalogo = resColores.success ? resColores.colores : []
+        setCatalogoColores(catalogo)
+        setColoresPorConfirmar(seedColoresPorConfirmar(
+          wizardData.colores_por_confirmar || [],
+          (wizardData.detalles || []) as Array<{ color_raw?: string; codigo_caja_temporal?: string }>,
+          catalogo as CatalogColor[],
+        ))
+      })
       setParsedData({ ...wizardData, productos: enrichedProductos, cajas: enrichedCajas })
       setEditableProductos(structuredClone(enrichedProductos))
       setEditableCajas(structuredClone(enrichedCajas))
@@ -1969,6 +2254,13 @@ export function OrdenRapidaWizard({
   }
 
   const doGuardarOrden = () => {
+    // Fase 2: colores sin resolver bloquean antes del servidor (mapear o crear en el modal).
+    const coloresPendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido')
+    if (coloresPendientes.length > 0) {
+      setColoresModalOpen(true)
+      toast.error(`${coloresPendientes.length} color(es) sin resolver (${coloresPendientes.slice(0, 5).map((c) => c.raw).join(', ')}): mapea a existente o créalos antes de guardar.`)
+      return
+    }
     // Bloqueo absoluto modo solo cajas: revalidar match de cajas (pudo editarse en paso 4)
     const matchFinal = calcularMatchCajasOrdenRapida()
     const matchPacksFinal = calcularMatchPacks()
@@ -2203,6 +2495,28 @@ export function OrdenRapidaWizard({
     }
     return map
   }, [alertasN8n])
+  // Fase 2: separaciones sugeridas por SKU (MOTI pegados / packs duplicados).
+  // Si el array separacion_sugerida no llego, se reconstruye la accion desde warnings tipificados.
+  const separacionPorSku = useMemo(() => {
+    const map = new Map<string, SeparacionSugerida[]>()
+    const push = (sku: string | undefined | null, s: SeparacionSugerida) => {
+      const up = String(sku || '').trim().toUpperCase()
+      if (!up) return
+      const list = map.get(up) ?? []
+      list.push(s)
+      map.set(up, list)
+    }
+    for (const s of (parsedData?.separacion_sugerida || [])) push(s.sku_base_original, s)
+    for (const a of alertasN8n) {
+      if (a.tipo === 'sku_conjoinado_dudoso' || a.tipo === 'pack_duplicado_dudoso') {
+        const up = String(a.sku_base || '').trim().toUpperCase()
+        if (up && !(map.get(up) || []).length) {
+          map.set(up, [{ tipo: a.tipo, sku_base_original: a.sku_base || undefined, motivo: a.detalle }])
+        }
+      }
+    }
+    return map
+  }, [parsedData, alertasN8n])
   const auditoriaN8n = useMemo(() => (parsedData as any)?.auditoria_n8n ?? null, [parsedData])
   const rellenadosN8n = useMemo(
     () => new Set<string>((auditoriaN8n?.rellenados ?? []).map((r: any) => String(r.sku || '').trim().toUpperCase())),
@@ -2221,6 +2535,143 @@ export function OrdenRapidaWizard({
     }
     return map
   }, [parsedData])
+
+  // Fase 2: conteos de colores por estado + borradores del modal
+  const coloresNuevos = useMemo(
+    () => coloresPorConfirmar.filter((c) => c.estado === 'nuevo'),
+    [coloresPorConfirmar],
+  )
+  const coloresOmitidos = useMemo(
+    () => coloresPorConfirmar.filter((c) => c.estado === 'omitido'),
+    [coloresPorConfirmar],
+  )
+  const coloresSinResolver = useMemo(
+    () => coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido'),
+    [coloresPorConfirmar],
+  )
+  const ensureDrafts = useCallback((nuevos: ColorPorConfirmar[]) => {
+    const tris = new Map(
+      (parsedData?.colores_traducidos || []).map((t) => [String(t.raw || '').toUpperCase(), t]),
+    )
+    setColorDrafts((prev) => {
+      const next = { ...prev }
+      for (const c of nuevos) {
+        const key = c.raw.toUpperCase()
+        if (!next[key]) {
+          const t = tris.get(key)
+          const d = buildColorDraft(c.raw, t?.en ?? c.en ?? null, t?.es ?? c.es ?? null)
+          next[key] = { ...d, mapear_a_id: null }
+        }
+      }
+      return next
+    })
+  }, [parsedData])
+  const coloresAutoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (step === 4 && !coloresAutoOpenedRef.current && coloresNuevos.length > 0) {
+      coloresAutoOpenedRef.current = true
+      ensureDrafts(coloresNuevos)
+      setColoresModalOpen(true)
+    }
+  }, [step, coloresNuevos, ensureDrafts])
+
+  const handleMapearColor = (raw: string, colorId: number | null) => {
+    const key = raw.toUpperCase()
+    if (colorId == null) {
+      setColoresPorConfirmar((prev) => prev.map((c) => (
+        c.raw.toUpperCase() === key ? { ...c, estado: 'nuevo' as const, color_id: null, via: null } : c
+      )))
+      return
+    }
+    setColoresPorConfirmar((prev) => prev.map((c) => (
+      c.raw.toUpperCase() === key ? { ...c, estado: 'mapeado' as const, color_id: colorId, via: 'manual' } : c
+    )))
+    const cat = catalogoColores.find((c) => c.id === colorId)
+    toast.success(`"${raw}" mapeado a ${cat?.nombre ?? colorId}.`)
+  }
+
+  const handleCrearColorFila = async (raw: string): Promise<boolean> => {
+    const key = raw.toUpperCase()
+    const tri = (parsedData?.colores_traducidos || []).find((t) => String(t.raw || '').toUpperCase() === key)
+    const seed = coloresPorConfirmar.find((c) => c.raw.toUpperCase() === key)
+    const d = colorDrafts[key] ?? {
+      ...buildColorDraft(raw, tri?.en ?? seed?.en ?? null, tri?.es ?? seed?.es ?? null),
+      mapear_a_id: null,
+    }
+    if (!d.nombre.trim() || !d.codigo.trim()) {
+      toast.error(`Completa nombre y código para "${raw}".`)
+      return false
+    }
+    const res = await createColorAction(d.nombre.trim(), d.codigo.trim(), d.hex_code, d.tipo_color, d.nombre_intern.trim())
+    if (!res.success || res.id == null) {
+      toast.error(res.error || `No se pudo crear "${raw}".`)
+      return false
+    }
+    const newId = Number(res.id)
+    setCatalogoColores((prev) => (prev.some((c) => c.id === newId)
+      ? prev
+      : [...prev, {
+        id: newId,
+        nombre: d.nombre.trim().toUpperCase(),
+        codigo: d.codigo.trim().toUpperCase(),
+        nombre_intern: d.nombre_intern.trim().toUpperCase() || null,
+      }]))
+    setColoresPorConfirmar((prev) => prev.map((c) => (
+      c.raw.toUpperCase() === key ? { ...c, estado: 'creado' as const, color_id: newId, via: 'creado' } : c
+    )))
+    toast.success(`Color "${d.nombre.trim().toUpperCase()}" creado (id ${newId}).`)
+    return true
+  }
+
+  const handleCrearTodosColores = async () => {
+    const pendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo')
+    let ok = 0
+    const fallos: string[] = []
+    for (const c of pendientes) {
+      const r = await handleCrearColorFila(c.raw)
+      if (r) ok++
+      else fallos.push(c.raw)
+    }
+    if (fallos.length === 0) toast.success(`${ok} color(es) creados.`)
+    else toast.error(`${ok} creados, fallaron: ${fallos.join(', ')}`)
+  }
+
+  const handleOmitirColor = (raw: string) => {
+    const key = raw.toUpperCase()
+    setColoresPorConfirmar((prev) => prev.map((c) => (
+      c.raw.toUpperCase() === key ? { ...c, estado: 'omitido' as const } : c
+    )))
+    toast.warning(`"${raw}" omitido: bloqueará el guardado hasta resolverlo.`)
+  }
+
+  const handleReabrirColor = (raw: string) => {
+    const key = raw.toUpperCase()
+    setColoresPorConfirmar((prev) => prev.map((c) => (
+      c.raw.toUpperCase() === key ? { ...c, estado: 'nuevo' as const } : c
+    )))
+  }
+
+  // Fase 2: match de colores por caja (verde = en catálogo, ámbar = por confirmar)
+  const matchColoresPorCaja = useMemo(() => {
+    const porCaja = new Map<string, string[]>()
+    const dets = (parsedData?.detalles || []) as Array<Record<string, unknown>>
+    for (const d of dets) {
+      const cod = String(d?.codigo_caja_temporal || '')
+      const raw = String(d?.color_raw || '').trim()
+      if (!cod || !raw) continue
+      const list = porCaja.get(cod) ?? []
+      if (!list.some((r) => r.toUpperCase() === raw.toUpperCase())) list.push(raw)
+      porCaja.set(cod, list)
+    }
+    const map = new Map<string, Array<{ raw: string; found: boolean; via: string | null; nombre: string }>>()
+    for (const [cod, raws] of porCaja) {
+      map.set(cod, raws.map((raw) => {
+        const m = resolveColor(raw, catalogoColores as CatalogColor[])
+        return { raw, found: m.found, via: m.via, nombre: m.catalog?.nombre || suggestEs(raw) }
+      }))
+    }
+    return map
+  }, [parsedData, catalogoColores])
 
   // ── Checklist de verificación pre-confirmación (TIEMPO REAL) ──
   // Lee las líneas efectivas (lineaEditadaPorSku prevalece sobre el JSON),
@@ -3070,6 +3521,64 @@ export function OrdenRapidaWizard({
                                           🤖 Corregido por n8n
                                         </Badge>
                                       )}
+                                    </div>
+                                  )
+                                })()}
+
+                                {(() => {
+                                  if (separacionIgnorada) return null
+                                  const up2 = String(producto.sku_base || '').trim().toUpperCase()
+                                  const seps = separacionPorSku.get(up2) ?? []
+                                  if (seps.length === 0) return null
+                                  return (
+                                    <div className="flex flex-col gap-1.5 rounded-md border border-amber-400/60 bg-amber-50/70 px-2 py-1.5 dark:bg-amber-950/30">
+                                      {seps.map((sep, si) => {
+                                        const cands = (sep.productos_candidatos || []).map((c) => String(c.sku_base || '')).filter(Boolean)
+                                        const packs = (sep.packs_candidatos || []).map((p) => String(p.nombre_actual || '')).filter(Boolean)
+                                        return (
+                                          <div key={si} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                            <span className="font-bold text-amber-900 dark:text-amber-200">
+                                              {sep.tipo === 'pack_duplicado_dudoso'
+                                                ? `Pack duplicado${packs.length > 0 ? `: ${packs.join(', ')}` : ''}`
+                                                : `Posible pegado: ${cands.length > 0 ? cands.join(' + ') : (sep.sku_base_original || '')}`}
+                                            </span>
+                                            {sep.tipo !== 'pack_duplicado_dudoso' && cands.length >= 2 && (
+                                              <Button
+                                                type="button" variant="outline" size="sm"
+                                                className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100"
+                                                onClick={() => handleSepararSugerido(sep)}
+                                                title="Crea los productos candidatos y reparte sus cajas por cartón"
+                                              >
+                                                Separar en {cands.length}
+                                              </Button>
+                                            )}
+                                            {sep.tipo === 'pack_duplicado_dudoso' && packs.map((pk) => (
+                                              <Button
+                                                key={pk} type="button" variant="outline" size="sm"
+                                                className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100"
+                                                onClick={() => {
+                                                  const upB = String(producto.sku_base || '').trim().toUpperCase()
+                                                  const wB = (alertasPorSku.get(upB) ?? []).find((a) => a.tipo === 'pack_duplicado_dudoso') as unknown as { cartones?: unknown } | undefined
+                                                  const wcB = Array.isArray(wB?.cartones) ? (wB!.cartones as unknown[]).map((x) => String(x)) : undefined
+                                                  const pcB = (sep.packs_candidatos || []).find((p) => String(p.nombre_actual || '') === pk)?.cartones
+                                                  handleDividirPack(producto.sku_base || '', pk, wcB && wcB.length >= 2 ? wcB : pcB)
+                                                }}
+                                                title={`Divide ${pk} en dos por rangos de cartón`}
+                                              >
+                                                Dividir {pk}
+                                              </Button>
+                                            ))}
+                                            <Button
+                                              type="button" variant="ghost" size="sm"
+                                              className="h-6 text-[10px] text-muted-foreground"
+                                              onClick={() => setSeparacionIgnorada(true)}
+                                            >
+                                              Ignorar
+                                            </Button>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   )
                                 })()}
@@ -3995,6 +4504,30 @@ export function OrdenRapidaWizard({
                                               : <span className="ml-1 font-bold text-destructive">dif {lineaP - armP > 0 ? `+${lineaP - armP}` : lineaP - armP}</span>}
                                           </span>
                                           <span className="text-muted-foreground tabular-nums">{items.length} caja(s) · {piezasP.toLocaleString()} pz</span>
+                                          <Button
+                                            type="button" variant="ghost" size="sm"
+                                            className="h-6 px-1.5 text-[10px] gap-1 text-muted-foreground hover:text-foreground font-bold"
+                                            onClick={(e) => { e.stopPropagation(); setEditPackNombre(pk); setEditPackNombreVal(pack) }}
+                                            title="Renombrar pack (corrige error de dedo PACK A/B)"
+                                          >
+                                            <Pencil className="h-3 w-3" /> pack
+                                          </Button>
+                                          {new Set(items.map((c) => String((c as unknown as Record<string, unknown>).carton_no_raw || '').trim()).filter(Boolean)).size > 1 && (
+                                            <Button
+                                              type="button" variant="ghost" size="sm"
+                                              className="h-6 px-1.5 text-[10px] gap-1 text-muted-foreground hover:text-foreground font-bold"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                const upD = String(producto.sku_base || '').trim().toUpperCase()
+                                                const wD = (alertasPorSku.get(upD) ?? []).find((a) => a.tipo === 'pack_duplicado_dudoso') as unknown as { cartones?: unknown } | undefined
+                                                const wcD = Array.isArray(wD?.cartones) ? (wD!.cartones as unknown[]).map((x) => String(x)) : undefined
+                                                handleDividirPack(producto.sku_base || '', pack, wcD)
+                                              }}
+                                              title="Dividir pack en dos por rangos de cartón"
+                                            >
+                                              Dividir
+                                            </Button>
+                                          )}
                                           <span className="sm:ml-auto flex items-center gap-1.5">
                                             {editandoP ? (
                                               <>
@@ -4062,12 +4595,39 @@ export function OrdenRapidaWizard({
                                           </span>
                                         </div>
                                       )}
+                                      {editPackNombre === pk && (
+                                        <div className="flex items-center gap-1.5 rounded-md border border-dashed border-primary/40 bg-primary/5 px-2 py-1.5">
+                                          <Input
+                                            value={editPackNombreVal}
+                                            onChange={(e) => setEditPackNombreVal(e.target.value.toUpperCase())}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="h-7 font-mono text-xs uppercase"
+                                            placeholder="PACK A"
+                                            autoFocus
+                                          />
+                                          <Button
+                                            type="button" size="sm" className="h-7 text-[11px] font-bold"
+                                            onClick={(e) => { e.stopPropagation(); handleRenombrarPack(producto.sku_base || '', pack, editPackNombreVal) }}
+                                          >
+                                            Guardar
+                                          </Button>
+                                          <Button
+                                            type="button" variant="ghost" size="sm" className="h-7 text-[11px]"
+                                            onClick={(e) => { e.stopPropagation(); setEditPackNombre(null) }}
+                                          >
+                                            Cancelar
+                                          </Button>
+                                        </div>
+                                      )}
                                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         {items.map((caja) => {
                                           const cajaIndex = editableCajas.indexOf(caja)
                                 const sharedCaja = wizardCajaToSharedCajaData(caja, cajaIndex)
                                 const tallasCatalogo = buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || []))
-                                const coloresCatalogo = buildCatalogoItemsFromStrings(cpColores.length > 0 ? cpColores : (caja.matriz?.colores || caja.colores || []))
+                                // Fase 2: union catalogo + packing (el packing nunca desaparece de la tarjeta)
+                                const packingCols = (caja.matriz?.colores || caja.colores || []) as string[]
+                                const unionCols = Array.from(new Set([...(cpColores.length > 0 ? cpColores : []), ...packingCols]))
+                                const coloresCatalogo = buildCatalogoItemsFromStrings(unionCols)
                                 const codTmp = String(caja.codigo_caja_temporal || '')
                                 const alertasCaja = alertasPorCaja.get(codTmp) ?? []
                                 const nDet = detallesPorCaja.get(codTmp) ?? 0
@@ -4111,6 +4671,20 @@ export function OrdenRapidaWizard({
                                             🧵 {nDet} detalle{nDet !== 1 ? 's' : ''}
                                           </Badge>
                                         )}
+                                        {(matchColoresPorCaja.get(codTmp) ?? []).map((mc, mi) => (
+                                          <Badge
+                                            key={`${mc.raw}-${mi}`}
+                                            variant="outline"
+                                            className={`font-bold ${mc.found ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-300' : 'border-amber-400 bg-amber-50 text-amber-800'}`}
+                                            title={mc.found
+                                              ? `"${mc.raw}" → ${mc.nombre} en catálogo (${mc.via ?? 'match'})`
+                                              : `"${mc.raw}" sin match en catálogo: se propone crear "${mc.nombre}". Abre el panel de colores.`}
+                                            onClick={() => { if (!mc.found) setColoresModalOpen(true) }}
+                                            style={mc.found ? undefined : { cursor: 'pointer' }}
+                                          >
+                                            {mc.found ? '✔' : '⚠'} {mc.raw}{mc.found && mc.nombre.toUpperCase() !== mc.raw.toUpperCase() ? ` → ${mc.nombre}` : ''}
+                                          </Badge>
+                                        ))}
                                         {alertasCaja.map((a, i) => (
                                           <Badge
                                             key={i}
@@ -4348,6 +4922,139 @@ export function OrdenRapidaWizard({
                   )}
                 </div>
               )}
+              {/* Fase 2: panel de colores nuevos */}
+              {(coloresNuevos.length > 0 || coloresOmitidos.length > 0) && (
+                <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 p-3 dark:bg-amber-950/30">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                      🎨 {coloresNuevos.length} color{coloresNuevos.length !== 1 ? 'es' : ''} nuevo{coloresNuevos.length !== 1 ? 's' : ''} por crear
+                      {coloresOmitidos.length > 0 && (
+                        <span className="ml-1.5 text-destructive">({coloresOmitidos.length} omitido{coloresOmitidos.length !== 1 ? 's' : ''}: bloquearán el guardado)</span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground truncate">
+                      {coloresPorConfirmar.filter((c) => c.estado === 'nuevo').slice(0, 6).map((c) => c.raw).join(' · ')}
+                    </span>
+                    <Button
+                      type="button" size="sm" className="h-7 text-[11px] font-bold ml-auto"
+                      onClick={() => { ensureDrafts(coloresNuevos); setColoresModalOpen(true) }}
+                    >
+                      Revisar colores
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {/* Fase 2: modal de colores nuevos */}
+              <Dialog open={coloresModalOpen} onOpenChange={setColoresModalOpen}>
+                <DialogContent className="w-full sm:max-w-[85vw] max-w-4xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>🎨 Se detectaron {coloresNuevos.length} color{coloresNuevos.length !== 1 ? 'es' : ''} nuevo{coloresNuevos.length !== 1 ? 's' : ''} — se crearán en el catálogo</DialogTitle>
+                    <DialogDescription>
+                      Revisa nombre ES, interno EN, código, hex y tipo. Puedes mapear a un color existente en vez de crear, u omitir (bloqueará el guardado).
+                    </DialogDescription>
+                  </DialogHeader>
+                  {coloresNuevos.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Sin colores pendientes: todo está mapeado o creado.</p>
+                  )}
+                  <div className="space-y-3">
+                    {coloresNuevos.map((c) => {
+                      const key = c.raw.toUpperCase()
+                      const d = colorDrafts[key] ?? { ...buildColorDraft(c.raw, c.en ?? null, c.es ?? null), mapear_a_id: null }
+                      const setD = (patch: Partial<ColorDraft>) => setColorDrafts((prev) => ({
+                        ...prev,
+                        [key]: { ...(prev[key] ?? d), ...patch },
+                      }))
+                      return (
+                        <div key={key} className="rounded-lg border p-3 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="font-mono font-bold">{c.raw}</Badge>
+                            {(c.en || c.es) && (
+                              <span className="text-[11px] text-muted-foreground">IA: {[c.en, c.es].filter(Boolean).join(' → ')}</span>
+                            )}
+                            <span className="text-[11px] text-muted-foreground">
+                              {(c.cajas || []).length} caja(s){(c.cajas || []).length > 0 ? `: ${(c.cajas || []).slice(0, 3).join(', ')}` : ''}
+                            </span>
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <Select value="" onValueChange={(v) => handleMapearColor(c.raw, v === '__none__' ? null : Number(v))}>
+                                <SelectTrigger className="h-7 w-44 text-[11px]">
+                                  <SelectValue placeholder="Mapear a existente…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">Sin mapear</SelectItem>
+                                  {catalogoColores.map((cc) => (
+                                    <SelectItem key={cc.id} value={String(cc.id)}>{cc.nombre}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button type="button" size="sm" className="h-7 text-[11px] font-bold" onClick={() => handleCrearColorFila(c.raw)}>
+                                Crear
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" className="h-7 text-[11px]" onClick={() => handleOmitirColor(c.raw)}>
+                                Omitir
+                              </Button>
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Nombre ES</Label>
+                              <Input value={d.nombre} onChange={(e) => setD({ nombre: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Interno EN</Label>
+                              <Input value={d.nombre_intern} onChange={(e) => setD({ nombre_intern: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Código</Label>
+                              <Input value={d.codigo} onChange={(e) => setD({ codigo: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" maxLength={20} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Hex</Label>
+                              <div className="flex gap-1.5">
+                                <Input type="color" value={d.hex_code} onChange={(e) => setD({ hex_code: e.target.value })} className="w-10 h-8 p-1" />
+                                <Input value={d.hex_code.toUpperCase()} onChange={(e) => setD({ hex_code: e.target.value })} className="h-8 font-mono text-xs uppercase" maxLength={7} />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Tipo</Label>
+                              <Select value={d.tipo_color} onValueChange={(v) => setD({ tipo_color: v || 'SOLIDO' })}>
+                                <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="SOLIDO">SOLIDO</SelectItem>
+                                  <SelectItem value="DOBLE">DOBLE</SelectItem>
+                                  <SelectItem value="ESTAMPADO">ESTAMPADO</SelectItem>
+                                  <SelectItem value="MEZCLA">MEZCLA</SelectItem>
+                                  <SelectItem value="REFLECTANTE">REFLECTANTE</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {coloresOmitidos.length > 0 && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
+                      <p className="text-[11px] font-bold text-destructive">Omitidos (bloquearán el guardado):</p>
+                      {coloresOmitidos.map((c) => (
+                        <div key={c.raw} className="flex items-center gap-2 text-[11px]">
+                          <Badge variant="outline" className="font-mono">{c.raw}</Badge>
+                          <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] ml-auto" onClick={() => handleReabrirColor(c.raw)}>
+                            Reabrir
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <DialogFooter className="gap-2 sm:gap-0">
+                    <Button type="button" variant="outline" onClick={() => setColoresModalOpen(false)}>
+                      Resolver después
+                    </Button>
+                    <Button type="button" onClick={handleCrearTodosColores} disabled={coloresNuevos.length === 0} className="font-bold">
+                      Crear {coloresNuevos.length} color{coloresNuevos.length !== 1 ? 'es' : ''}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           )}
 

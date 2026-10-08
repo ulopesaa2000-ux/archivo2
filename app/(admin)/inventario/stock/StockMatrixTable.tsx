@@ -2,6 +2,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
   Download,
@@ -10,6 +11,7 @@ import {
   Minimize2,
   FileSpreadsheet,
   ChevronDown as ChevronDownIcon,
+  Printer,
   FileBox,
   ChevronRight,
   ChevronDown,
@@ -790,6 +792,13 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           )}
         </div>
 
+        <div className="flex items-center gap-2">
+          <Link href="/print/inventario/familias" target="_blank" title="Abrir vista de impresión en carta horizontal (papel o PDF)">
+            <Button variant="outline" size="sm" className="font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30">
+              <Printer className="mr-2 h-4 w-4" />
+              Vista de impresión
+            </Button>
+          </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" disabled={isExporting} className="font-semibold text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30">
@@ -820,6 +829,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
 
       <div className="rounded-lg border overflow-x-auto shadow-sm">

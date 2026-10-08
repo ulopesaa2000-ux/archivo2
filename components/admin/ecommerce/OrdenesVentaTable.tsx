@@ -52,7 +52,10 @@ export function OrdenesVentaTable({ ordenes, total }: OrdenesVentaTableProps) {
           </TableHeader>
           <TableBody>
             {ordenes.map((orden) => (
-              <TableRow key={orden.id}>
+              <TableRow
+                key={orden.id}
+                className={orden.estado === 'cancelado' ? 'bg-red-500/5 dark:bg-red-950/20 hover:bg-red-500/10' : undefined}
+              >
                 <TableCell className="font-mono font-medium">
                   {orden.numero_orden}
                 </TableCell>
