@@ -5,6 +5,7 @@
 // el encabezado se repite en cada página (table-header-group) y cada familia
 // viaja íntegra a la página (break-inside: avoid), sin celdas partidas.
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { fetchResumenFamilias } from '@/modules/catalogo/queries'
 import { fetchConfigInventario } from '@/modules/inventario/config-queries'
 import { sortBodegasWithConfig } from '@/modules/inventario/config-types'
@@ -24,11 +25,13 @@ import {
   type FamiliaPrint,
 } from '@/app/print/inventario/familias/FamiliasPrintTable'
 
-export default function ImprimirFamiliasPage({
+export default async function ImprimirFamiliasPage({
   searchParams,
 }: {
   searchParams: Promise<{ blanco?: string; familia?: string; cero?: string }>
 }) {
+  await requirePermission('inventario_stock', 'puede_leer')
+
   return (
     <div className="min-h-screen bg-white text-black p-4 sm:p-8 font-sans">
       <Suspense
