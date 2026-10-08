@@ -65,6 +65,7 @@ export type StockVirtualItem = {
   producto_id: number
   sku_base: string | null
   producto_nombre: string | null
+  producto_descripcion: string | null
   cajas_disponibles: number
   piezas_sueltas: number
   bodega_id: number

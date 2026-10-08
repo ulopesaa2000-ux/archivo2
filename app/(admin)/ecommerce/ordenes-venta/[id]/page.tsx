@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { fetchOrdenVentaById } from '@/modules/ecommerce/queries'
+import { verifySessionOptional } from '@/lib/dal'
+import { can } from '@/lib/auth/permissions'
 import { OrdenDetalleView } from '@/components/store/pedidos/OrdenDetalleView'
 import { CotizacionEditor } from './CotizacionEditor'
 import { NotasVinculadas } from './NotasVinculadas'
@@ -20,9 +22,13 @@ export const metadata: Metadata = {
 const ESTADOS_CIERRE = ['aprobada', 'cancelado', 'entregado', 'convertida']
 
 async function OrdenDetalleContent({ id }: { id: number }) {
-  const orden = await fetchOrdenVentaById(id)
+  const [orden, session] = await Promise.all([fetchOrdenVentaById(id), verifySessionOptional()])
   if (!orden) notFound()
   const bloqueada = ESTADOS_CIERRE.includes(orden.estado)
+  // CRUD movido por la matriz del rol: Cancelar exige puede_eliminar,
+  // el resto exige puede_editar. Hoy solo Admin Comercial tiene el CRUD completo.
+  const canEditar = session.isAuth && session.user ? can(session.user, 'ecommerce_ordenes', 'puede_editar') : false
+  const canEliminar = session.isAuth && session.user ? can(session.user, 'ecommerce_ordenes', 'puede_eliminar') : false
 
   return (
     <div className="space-y-6">
@@ -33,7 +39,7 @@ async function OrdenDetalleContent({ id }: { id: number }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ResumenPDFButton orden={orden} />
-          <CabeceraAcciones ordenId={orden.id} estado={orden.estado} />
+          <CabeceraAcciones ordenId={orden.id} estado={orden.estado} canEditar={canEditar} canEliminar={canEliminar} />
         </div>
       </div>
 
@@ -41,7 +47,7 @@ async function OrdenDetalleContent({ id }: { id: number }) {
       <OrdenDetalleView orden={orden} mostrarItems={false} />
 
       {/* Productos de interés: cajas, pz por caja y precio con cálculo en vivo */}
-      <CotizacionEditor ordenId={orden.id} items={orden.items} bloqueada={bloqueada} />
+      <CotizacionEditor ordenId={orden.id} items={orden.items} bloqueada={bloqueada} puedeEditar={canEditar} />
 
       {/* Solo sus notas creadas desde este folio, con link directo */}
       <NotasVinculadas folio={orden.numero_orden} />
@@ -54,6 +60,7 @@ async function OrdenDetalleContent({ id }: { id: number }) {
         ordenId={orden.id}
         estadoActual={orden.estado}
         rastreoActual={orden.numero_rastreo}
+        puedeEditar={canEditar}
       />
     </div>
   )

@@ -80,6 +80,25 @@ describe('permissions', () => {
     expect(can(currentUser, 'inventario_notas', 'puede_crear')).toBe(false)
   })
 
+  it('mueve el borrado de ordenes por matriz: admin comercial elimina, asesor no', () => {
+    const adminComercial = user({
+      rol: { id: 7, nombre: 'Admin Operativo Comercial', descripcion: null, nivel_acceso: 2, created_at: null },
+      effective_permissions: buildPermissionMatrix([
+        { modulo: 'ecommerce_ordenes', puede_leer: true, puede_crear: true, puede_editar: true, puede_eliminar: true },
+      ]),
+    })
+    const asesor = user({
+      rol: { id: 20, nombre: 'Asesor Comercial', descripcion: null, nivel_acceso: 3, created_at: null },
+      effective_permissions: buildPermissionMatrix([
+        { modulo: 'ecommerce_ordenes', puede_leer: true, puede_crear: true, puede_editar: true, puede_eliminar: false },
+      ]),
+    })
+
+    expect(can(adminComercial, 'ecommerce_ordenes', 'puede_eliminar')).toBe(true)
+    expect(can(asesor, 'ecommerce_ordenes', 'puede_eliminar')).toBe(false)
+    expect(can(asesor, 'ecommerce_ordenes', 'puede_editar')).toBe(true)
+  })
+
   it('deja catalogos soporte en lectura para empleados autenticados', () => {
     const currentUser = user({
       effective_permissions: buildPermissionMatrix([]),

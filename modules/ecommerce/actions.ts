@@ -531,11 +531,13 @@ export async function despublicarProductoWeb(id: number) {
 
 // ORDENES / COTIZACIONES
 
-async function verificarPermisoOrdenes(): Promise<{ ok: true } | { ok: false; error: string }> {
+async function verificarPermisoOrdenes(
+  accion: 'puede_editar' | 'puede_eliminar' = 'puede_editar'
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const { getCurrentUser } = await import('@/modules/auth/queries')
   const { can } = await import('@/lib/auth/permissions')
   const currentUser = await getCurrentUser().catch(() => null)
-  if (!currentUser || !can(currentUser, 'ecommerce_ordenes', 'puede_editar')) {
+  if (!currentUser || !can(currentUser, 'ecommerce_ordenes', accion)) {
     return { ok: false, error: 'Sin permiso para administrar órdenes de venta.' }
   }
   return { ok: true }
@@ -546,7 +548,8 @@ export async function actualizarEstadoOrden(
   nuevoEstado: string,
   notas?: string
 ) {
-  const permiso = await verificarPermisoOrdenes()
+  // Cancelar = borrado lógico: exige puede_eliminar; el resto, puede_editar
+  const permiso = await verificarPermisoOrdenes(nuevoEstado === 'cancelado' ? 'puede_eliminar' : 'puede_editar')
   if (!permiso.ok) return { success: false as const, error: permiso.error }
 
   const supabase = await createClient()

@@ -101,7 +101,8 @@ export async function createColorAction(
   nombre: string,
   codigo: string,
   hexCode: string,
-  tipoColor: string
+  tipoColor: string,
+  nombreIntern?: string | null
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado' }
@@ -114,6 +115,24 @@ export async function createColorAction(
     hex_code:      hexCode || null,
     tipo_color:    tipoColor,
     orden_display: 99,
+    ...(nombreIntern && nombreIntern.trim() ? { nombre_intern: nombreIntern.trim().toUpperCase() } : {}),
+  }
+
+  // Fase 2: evita duplicados por nombre/codigo/intern antes de insertar.
+  const keys = [payload.nombre, payload.codigo, (payload as { nombre_intern?: string }).nombre_intern]
+    .filter((k): k is string => !!k && !k.includes(','))
+  if (keys.length > 0) {
+    const { data: existentes } = await supabase
+      .from('cat_colores')
+      .select('id, nombre, codigo, nombre_intern')
+      .or(keys.map((k) => `nombre.ilike.${k},codigo.ilike.${k},nombre_intern.ilike.${k}`).join(','))
+      .limit(10)
+    const dup = (existentes ?? []).find((c: { nombre: string; codigo: string; nombre_intern: string | null }) =>
+      c.nombre?.toUpperCase() === payload.nombre
+      || c.codigo?.toUpperCase() === payload.codigo
+      || (!!payload.nombre_intern && c.nombre_intern?.toUpperCase() === payload.nombre_intern)
+    )
+    if (dup) return { success: false, error: `El color ya existe como "${dup.nombre}" (id ${dup.id}).` }
   }
 
   const { data, error } = await supabase

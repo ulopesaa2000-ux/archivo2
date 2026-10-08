@@ -1187,6 +1187,26 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   if (sinPzServidor.length > 0) {
     return { success: false, error: `Bloqueo servidor: cajas sin piezas por caja: ${sinPzServidor.join(', ')}` }
   }
+  // Fase 2: sin fallback silencioso a Negro. Todo color_raw debe resolver a
+  // cat_colores (el wizard lo garantiza vía match preview + modal paso 4).
+  const coloresSinMatch = new Map<string, Set<string>>()
+  for (const d of (payload.detalles || []) as Array<{ codigo_caja_temporal?: string; color_raw?: string }>) {
+    const rawColorCheck = String(d.color_raw || '').trim()
+    const stdColorCheck = standardizeColorNameAction(rawColorCheck)
+    const colorIdCheck = findColorId(stdColorCheck) || findColorId(rawColorCheck)
+    if (!colorIdCheck) {
+      const cod = String(d.codigo_caja_temporal || 's/código')
+      const key = rawColorCheck || '(sin color)'
+      if (!coloresSinMatch.has(key)) coloresSinMatch.set(key, new Set())
+      coloresSinMatch.get(key)!.add(cod)
+    }
+  }
+  if (coloresSinMatch.size > 0) {
+    const lista = [...coloresSinMatch.entries()]
+      .map(([raw, cods]) => `"${raw}" (${cods.size} caja(s): ${[...cods].slice(0, 4).join(', ')})`)
+      .join(', ')
+    return { success: false, error: `Colores sin match en catálogo: ${lista}. Resuélvelos en el paso 4 (mapear a existente o crear nuevo).` }
+  }
   const cajaMap = new Map<string, number>()
   for (const c of payload.cajas) {
     const code = String(c.codigo_caja || c.codigo_caja_temporal).trim()
@@ -1245,10 +1265,11 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
         const rawColor = String(d.color_raw || '').trim()
         const stdColor = standardizeColorNameAction(rawColor)
-        let colorId = findColorId(stdColor) || findColorId(rawColor)
-
+        // Pre-validado arriba (coloresSinMatch). Sin fallback a Negro: si algo
+        // cambió entre validación e inserción, fallar explícito en vez de Negro.
+        const colorId = findColorId(stdColor) || findColorId(rawColor)
         if (!colorId) {
-          colorId = coloresList[0]?.id || 1 // Fallback al primer id de cat_colores (id: 1 Negro)
+          throw new Error(`Color "${rawColor || '(sin color)'}" perdió su match en catálogo durante el guardado. Reintenta desde el paso 4.`)
         }
 
         return {
@@ -2052,6 +2073,40 @@ export async function buscarProductosParaCajaAction(
   }
 
   return (data ?? []) as Array<{ id: number; sku_base: string; nombre: string | null; descripcion: string | null }>
+}
+
+export interface CatalogoColorOrdenRapida {
+  id: number
+  nombre: string
+  codigo: string | null
+  nombre_intern: string | null
+}
+
+/**
+ * Catálogo de colores activos para el wizard de orden rápida (Fase 2):
+ * match preview + modal de colores nuevos. Solo lectura.
+ */
+export async function obtenerColoresActivosAction(): Promise<{
+  success: boolean
+  colores: CatalogoColorOrdenRapida[]
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('cat_colores')
+      .select('id, nombre, codigo, nombre_intern')
+      .eq('activo', true)
+      .order('nombre', { ascending: true })
+    if (error) {
+      console.error('Error al obtener cat_colores:', error)
+      return { success: false, colores: [], error: error.message }
+    }
+    return { success: true, colores: (data ?? []) as CatalogoColorOrdenRapida[] }
+  } catch (error) {
+    console.error('Error al obtener cat_colores:', error)
+    return { success: false, colores: [], error: error instanceof Error ? error.message : 'Error desconocido' }
+  }
 }
 
 

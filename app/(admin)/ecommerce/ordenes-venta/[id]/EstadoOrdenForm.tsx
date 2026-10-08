@@ -26,6 +26,7 @@ interface EstadoOrdenFormProps {
   ordenId: number
   estadoActual: string
   rastreoActual: string | null
+  puedeEditar?: boolean
 }
 
 function Bloque({
@@ -49,7 +50,7 @@ function Bloque({
   )
 }
 
-export function EstadoOrdenForm({ ordenId, estadoActual, rastreoActual }: EstadoOrdenFormProps) {
+export function EstadoOrdenForm({ ordenId, estadoActual, rastreoActual, puedeEditar = true }: EstadoOrdenFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [estado, setEstado] = useState(estadoActual)
@@ -117,7 +118,7 @@ export function EstadoOrdenForm({ ordenId, estadoActual, rastreoActual }: Estado
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={guardarEstado} disabled={isPending || estado === estadoActual}>
+          <Button onClick={guardarEstado} disabled={!puedeEditar || isPending || estado === estadoActual}>
             Guardar estado
           </Button>
         </div>
@@ -139,7 +140,7 @@ export function EstadoOrdenForm({ ordenId, estadoActual, rastreoActual }: Estado
           <Button
             variant="outline"
             onClick={guardarRastreo}
-            disabled={isPending || rastreo.trim() === (rastreoActual || '')}
+            disabled={!puedeEditar || isPending || rastreo.trim() === (rastreoActual || '')}
           >
             Guardar guía
           </Button>
@@ -152,7 +153,7 @@ export function EstadoOrdenForm({ ordenId, estadoActual, rastreoActual }: Estado
           titulo="Conversión mayorista"
           descripcion="Crea la orden B2B a partir de estas partidas, sin volver a capturarlas."
         >
-          <Button variant="secondary" onClick={convertirAB2B} disabled={isPending}>
+          <Button variant="secondary" onClick={convertirAB2B} disabled={!puedeEditar || isPending}>
             Convertir a orden B2B
           </Button>
         </Bloque>

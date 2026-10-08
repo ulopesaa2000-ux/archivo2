@@ -128,6 +128,8 @@ export interface FiltrosOrdenesVenta {
   fecha_hasta?: string
   q?: string
   zona?: string
+  /** default false: las canceladas (borrado lógico) quedan ocultas */
+  incluirCanceladas?: boolean
   page?: number
 }
 

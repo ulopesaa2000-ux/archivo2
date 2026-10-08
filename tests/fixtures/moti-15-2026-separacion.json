@@ -1,0 +1,251 @@
+{
+  "descripcion": "Bloque final 15-2026 TXGU4972610 (AND260030 + AND260029). Esperado: 4 primeras cajas -> AND260030 (filas 70/74/78/82), 2 ultimas -> AND260029 (filas 86/90).",
+  "version_parser": "mvp-n8n-code-v1.1-moti-detect-pegados",
+  "sku_base_original": "AND260030 3JA8969 3JA8970 AND260029",
+  "productos_candidatos": [
+    {
+      "sku_base": "AND260030",
+      "alias": "3JA8969",
+      "filas": [
+        70,
+        71
+      ],
+      "cartones": [
+        "1--70"
+      ]
+    },
+    {
+      "sku_base": "AND260029",
+      "alias": "3JA8970",
+      "filas": [
+        86,
+        87
+      ],
+      "cartones": [
+        "1--72"
+      ]
+    }
+  ],
+  "cajas_para_revisar": [
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+    "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006"
+  ],
+  "staging_bloque": [
+    {
+      "fila_origen": 70,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+      "carton_no_raw": "1--70",
+      "cantidad_cajas": 70,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 71,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+      "carton_no_raw": "1--70",
+      "cantidad_cajas": 70,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 72,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+      "carton_no_raw": "1--70",
+      "cantidad_cajas": 70,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 73,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+      "carton_no_raw": "1--70",
+      "cantidad_cajas": 70,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 74,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+      "carton_no_raw": "71",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 75,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+      "carton_no_raw": "71",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 76,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+      "carton_no_raw": "71",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 77,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+      "carton_no_raw": "71",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 78,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+      "carton_no_raw": "72",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 28
+    },
+    {
+      "fila_origen": 79,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+      "carton_no_raw": "72",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 28
+    },
+    {
+      "fila_origen": 80,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+      "carton_no_raw": "72",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 28
+    },
+    {
+      "fila_origen": 81,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+      "carton_no_raw": "72",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 28
+    },
+    {
+      "fila_origen": 82,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 20
+    },
+    {
+      "fila_origen": 83,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 20
+    },
+    {
+      "fila_origen": 84,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 20
+    },
+    {
+      "fila_origen": 85,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 20
+    },
+    {
+      "fila_origen": 86,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+      "carton_no_raw": "1--72",
+      "cantidad_cajas": 72,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 87,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+      "carton_no_raw": "1--72",
+      "cantidad_cajas": 72,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 88,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+      "carton_no_raw": "1--72",
+      "cantidad_cajas": 72,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 89,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+      "carton_no_raw": "1--72",
+      "cantidad_cajas": 72,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 90,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 91,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 92,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    },
+    {
+      "fila_origen": 93,
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34
+    }
+  ],
+  "cajas_bloque": [
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0001",
+      "carton_no_raw": "1--70",
+      "cantidad_cajas": 70,
+      "piezas_por_caja": 34,
+      "total_piezas": 2380
+    },
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0002",
+      "carton_no_raw": "71",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34,
+      "total_piezas": 34
+    },
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0003",
+      "carton_no_raw": "72",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 28,
+      "total_piezas": 28
+    },
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0004",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 20,
+      "total_piezas": 20
+    },
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0005",
+      "carton_no_raw": "1--72",
+      "cantidad_cajas": 72,
+      "piezas_por_caja": 34,
+      "total_piezas": 2448
+    },
+    {
+      "codigo_caja_temporal": "AND260030-3JA8969-3JA8970-AND260029-PACKUNICO-0006",
+      "carton_no_raw": "73",
+      "cantidad_cajas": 1,
+      "piezas_por_caja": 34,
+      "total_piezas": 34
+    }
+  ]
+}

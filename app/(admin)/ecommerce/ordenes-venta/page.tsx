@@ -8,16 +8,16 @@ import { parseStoreConfig, getZonasAtencion } from '@/lib/utils/storeConfig'
 
 export const metadata: Metadata = { title: 'Órdenes de Venta' }
 
-async function OrdenesVentaContent({ zona, page }: { zona: string; page: number }) {
+async function OrdenesVentaContent({ zona, page, q, verCanceladas }: { zona: string; page: number; q: string; verCanceladas: boolean }) {
   const [config, { ordenes, total }] = await Promise.all([
     fetchConfigEcommerce(),
-    fetchOrdenesVenta({ page, zona: zona || undefined }),
+    fetchOrdenesVenta({ page, zona: zona || undefined, q: q || undefined, incluirCanceladas: verCanceladas }),
   ])
   const zonas = getZonasAtencion(parseStoreConfig(config?.mensaje_precio_variable))
 
   return (
     <div className="space-y-4">
-      <OrdenesVentaFilters zonas={zonas} zonaActual={zona} />
+      <OrdenesVentaFilters zonas={zonas} zonaActual={zona} verCanceladas={verCanceladas} />
       <OrdenesVentaTable ordenes={ordenes} total={total} />
     </div>
   )
@@ -26,11 +26,13 @@ async function OrdenesVentaContent({ zona, page }: { zona: string; page: number 
 export default async function OrdenesVentaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ zona?: string; page?: string }>
+  searchParams: Promise<{ zona?: string; page?: string; q?: string; verCanceladas?: string }>
 }) {
   const params = await searchParams
   const zona = typeof params.zona === 'string' ? params.zona : ''
   const page = Math.max(1, Number(params.page) || 1)
+  const q = typeof params.q === 'string' ? params.q : ''
+  const verCanceladas = params.verCanceladas === '1'
 
   return (
     <div className="space-y-6">
@@ -42,7 +44,7 @@ export default async function OrdenesVentaPage({
       </div>
 
       <Suspense fallback={<div className="h-96 bg-muted animate-pulse rounded-lg" />}>
-        <OrdenesVentaContent zona={zona} page={page} />
+        <OrdenesVentaContent zona={zona} page={page} q={q} verCanceladas={verCanceladas} />
       </Suspense>
     </div>
   )

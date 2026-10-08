@@ -33,6 +33,7 @@ import {
   Loader2,
   HelpCircle,
   FileSpreadsheet,
+  Printer,
   GripVertical,
   Package,
   History,
@@ -1558,19 +1559,94 @@ export function FamiliasOrganizerClient({
 
       // ─── FUNCIÓN PARA CONSTRUIR CADA HOJA ─────────────────────────────────────
       const buildSheet = (worksheet: ExcelJS.Worksheet, isBlanco: boolean) => {
-        // Configuración de página horizontal lista para impresión
+        // Configuración de página lista para la impresora de oficina.
+        // Papel carta (Letter) horizontal a tamaño real 100%: la hoja física
+        // es carta, así la impresora no reescala nada.
+        // printTitlesRow 3:3 repite el encabezado en cada hoja impresa.
+        // Sin "Ajustar a 1 página": con ajuste activo Excel ignora los saltos
+        // manuales, por eso se imprime a tamaño real para que los cortes
+        // inteligentes entre familias sí se respeten.
         worksheet.pageSetup = {
           orientation: 'landscape',
-          paperSize: 9, // A4
-          fitToPage: true,
-          fitToWidth: 1,
-          fitToHeight: 0,
+          // 1 = Letter/carta (OOXML ST_PaperSize). El enum de ExcelJS no trae
+          // Letter, por eso se castea; a runtime se escribe paperSize="1".
+          paperSize: 1 as ExcelJS.PaperSize, // Letter / carta
+          fitToPage: false,
+          horizontalCentered: true,
           margins: {
             left: 0.2, right: 0.2,
             top: 0.5, bottom: 0.5,
             header: 0.2, footer: 0.2
           },
           printTitlesRow: '3:3'
+        }
+        worksheet.headerFooter = {
+          oddHeader: '&C&9INVENTARIO GLOBAL - &D',
+          oddFooter: '&CPágina &P de &N',
+        }
+        // Congelar encabezado en pantalla (no afecta impresión)
+        worksheet.views = [{ state: 'frozen', ySplit: 3, showGridLines: true }]
+
+        // Ajuste de texto DESCRIPCION: Excel no hace autofit en celdas
+        // combinadas, por eso se estima la altura manualmente para que el
+        // texto largo salga en varias líneas y no se recorte arriba/abajo.
+        // Capacidad conservadora (mayúsculas + negrita son más anchas) y
+        // envoltura por palabras como hace Excel (no parte palabras).
+        const CHARS_POR_LINEA_DESC = 40 // width 50, Calibri 9.5 bold
+        const ALTO_LINEA = 16
+        const PADDING_VERTICAL = 18 // 9px arriba + 9px abajo
+        const ALTO_MIN_FILA = 30
+        function estimarLineas(texto: string): number {
+          const t = (texto || '').trim().replace(/\s+/g, ' ')
+          if (!t) return 1
+          const palabras = t.split(' ')
+          let lineas = 1
+          let usada = 0
+          for (const p of palabras) {
+            if (p.length > CHARS_POR_LINEA_DESC) {
+              // Palabra larguísima: ocupa sus propias líneas
+              if (usada > 0) {
+                lineas += 1
+                usada = 0
+              }
+              lineas += Math.ceil(p.length / CHARS_POR_LINEA_DESC) - 1
+              usada = p.length % CHARS_POR_LINEA_DESC
+              continue
+            }
+            const conEspacio = usada === 0 ? p.length : usada + 1 + p.length
+            if (conEspacio <= CHARS_POR_LINEA_DESC) {
+              usada = conEspacio
+            } else {
+              lineas += 1
+              usada = p.length
+            }
+          }
+          // Colchón de 1 línea cuando el texto envuelve, para que el
+          // ajuste nunca quede al ras del borde superior/inferior
+          return Math.max(1, lineas + (lineas > 1 ? 1 : 0))
+        }
+        function alturaParaBloque(descUpper: string, numFilas: number): number {
+          const total = estimarLineas(descUpper) * ALTO_LINEA + PADDING_VERTICAL
+          return Math.max(ALTO_MIN_FILA, Math.ceil(total / Math.max(1, numFilas)))
+        }
+        // Corte de página inteligente: nunca partir una celda combinada.
+        // Se acumula la altura usada en la página y, si la próxima familia
+        // ya no cabe, se inserta el salto ANTES de ella con addPageBreak().
+        // Carta horizontal a 100%: ~440pt útiles ≈ 13-15 filas por página.
+        const PRESUPUESTO_PAGINA_PT = 440
+        let usadoEnPagina = 0
+        function pedirSaltoSiNoCabe(altoBloque: number, filaAnterior: number): boolean {
+          if (filaAnterior < 4 || altoBloque <= 0) return false
+          if (usadoEnPagina > 0 && usadoEnPagina + altoBloque > PRESUPUESTO_PAGINA_PT) {
+            try {
+              worksheet.getRow(filaAnterior).addPageBreak()
+            } catch {
+              // Si ExcelJS no puede insertar el salto, se sigue sin romper nada
+            }
+            usadoEnPagina = 0
+            return true
+          }
+          return false
         }
 
         // Estructura de Columnas idéntica al formato imprimible de StockMatrix:
@@ -1625,9 +1701,9 @@ export function FamiliasOrganizerClient({
         // Fila 2: Separador
         worksheet.getRow(2).height = 8
 
-        // Fila 3: Encabezados de Columna
+        // Fila 3: Encabezados de Columna (compacto pero repetido en cada página)
         const headerRow = worksheet.getRow(3)
-        headerRow.height = 92
+        headerRow.height = 64
 
         // 1. DESCRIPCION
         const cDesc = headerRow.getCell(1)
@@ -1649,7 +1725,7 @@ export function FamiliasOrganizerClient({
         sortedBodegas.forEach((b, idx) => {
           const cell = headerRow.getCell(startBodegaCol + idx)
           cell.value = b.nombre.toUpperCase()
-          cell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FF000000' } }
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF000000' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -1732,6 +1808,19 @@ export function FamiliasOrganizerClient({
           // Tomar la descripción de la familia a partir del primer SKU alfabético con descripción
           const primerSkuConDesc = skusList.find(s => s.descripcion && s.descripcion.trim()) || skusList[0]
           const desc = primerSkuConDesc?.descripcion || f.descripcion || ''
+          // Altura dinámica con ajuste de texto: la descripción larga se reparte
+          // en varias líneas dentro de la celda combinada en vez de recortarse
+          const descUpperFam = (desc || '').toUpperCase()
+          const altoPorFilaFam = isUnassigned
+            ? ALTO_MIN_FILA
+            : alturaParaBloque(descUpperFam, skusList.length)
+
+          // Familias normales (combinadas): si el bloque entero ya no cabe,
+          // moverlo íntegro a la próxima página en vez de partirlo a la mitad
+          if (!isUnassigned && skusList.length > 0) {
+            const altoBloqueFam = altoPorFilaFam * skusList.length
+            pedirSaltoSiNoCabe(altoBloqueFam, currentRow - 1)
+          }
 
           if (skusList.length > 0) {
             const startMerge = currentRow
@@ -1741,9 +1830,21 @@ export function FamiliasOrganizerClient({
             skusList.forEach((sku, idx) => {
               const totalCajas = totalStockPorProducto[sku.id] ?? 0
               const esStockCero = totalCajas === 0
+              // Sin asignar: cada fila tiene su propia descripción -> altura por fila
+              // Familias normales: altura repartida del bloque combinado
+              const textoFila = isUnassigned
+                ? ((sku.descripcion || desc) || '').toUpperCase()
+                : descUpperFam
+              const altoFila = isUnassigned
+                ? Math.max(ALTO_MIN_FILA, estimarLineas(textoFila) * ALTO_LINEA + PADDING_VERTICAL)
+                : altoPorFilaFam
+              // Sin asignar (filas independientes): salto por fila si ya no cabe
+              if (isUnassigned) {
+                pedirSaltoSiNoCabe(altoFila, currentRow - 1)
+              }
 
               const rowValues: any = {
-                descripcion: isUnassigned ? (sku.descripcion || desc).toUpperCase() : (idx === 0 ? desc.toUpperCase() : ''),
+                descripcion: isUnassigned ? textoFila : (idx === 0 ? descUpperFam : ''),
                 estilo: sku.sku_base,
                 familia: isUnassigned ? (sku.sku_base || 'F000-000C') : (idx === 0 ? name : ''),
               }
@@ -1762,7 +1863,7 @@ export function FamiliasOrganizerClient({
               rowValues['global'] = { formula: `=SUM(${startColLetter}${currentRow}:${endColLetter}${currentRow})` }
 
               const row = worksheet.addRow(rowValues)
-              row.height = 26
+              row.height = altoFila
 
               for (let c = 1; c <= totalCols; c++) {
                 const cell = row.getCell(c)
@@ -1814,10 +1915,12 @@ export function FamiliasOrganizerClient({
                 }
               }
 
+              if (isUnassigned) usadoEnPagina += altoFila
               currentRow++
             })
 
             const endMerge = currentRow - 1
+            if (!isUnassigned) usadoEnPagina += altoPorFilaFam * skusList.length
 
             // Combinar verticalmente DESCRIPCION y FAMILIA solo para familias normales con > 1 estilo
             if (!isUnassigned && endMerge > startMerge) {
@@ -1847,6 +1950,8 @@ export function FamiliasOrganizerClient({
         })
 
         // Filas finales de Resumen (TOTAL CAJAS y BODEGAS)
+        // Si el resumen ya no cabe, mandarlo íntegro a la próxima página
+        pedirSaltoSiNoCabe(26 + 64, currentRow - 1)
         currentRow++
         const totalsRowIdx = currentRow
         const namesRowIdx = currentRow + 1
@@ -1855,7 +1960,7 @@ export function FamiliasOrganizerClient({
         const namesRow = worksheet.getRow(namesRowIdx)
 
         totalsRow.height = 26
-        namesRow.height = 92
+        namesRow.height = 64
 
         // Etiquetas TOTAL CAJAS en Col 1 y 2
         worksheet.mergeCells(totalsRowIdx, 1, totalsRowIdx, 2)
@@ -2485,7 +2590,7 @@ export function FamiliasOrganizerClient({
                 </button>
               </div>
 
-              {/* Botón Exportar Excel */}
+              {/* Botón Exportar Excel (análisis en computadora, sin cambios) */}
               <Button
                 onClick={handleExportToExcel}
                 variant="outline"
@@ -2495,6 +2600,19 @@ export function FamiliasOrganizerClient({
                 <FileSpreadsheet className="h-4 w-4 text-green-600 dark:text-green-400" />
                 <span>Exportar Excel</span>
               </Button>
+
+              {/* Botón Vista de impresión (solo para imprimir en carta / PDF) */}
+              <Link href="/print/inventario/familias" target="_blank">
+                <Button
+                  variant="outline"
+                  className="h-8 border-blue-600/30 hover:bg-blue-500/10 text-blue-700 dark:text-blue-400 flex items-center justify-center gap-1.5 text-xs shrink-0"
+                  size="sm"
+                  title="Abrir vista de impresión en carta horizontal (papel o PDF)"
+                >
+                  <Printer className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <span>Vista de impresión</span>
+                </Button>
+              </Link>
             </div>
 
             {/* Grupo 3: Cambios + checks (compacto, en fila, arriba a la derecha) */}
