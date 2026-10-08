@@ -7,13 +7,11 @@ import { Fecha } from '@/components/shared/Fecha'
 import { AutoPrint } from '@/app/print/inventario/notas/[id]/AutoPrint'
 import { PrintActionBar } from '@/app/print/inventario/notas/[id]/PrintActionBar'
 
-export default async function ImprimirNotaPage({
+export default function ImprimirNotaPage({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requirePermission('inventario_notas', 'puede_leer')
-
   return (
     <div className="min-h-screen bg-white text-black p-6 sm:p-12 font-sans selection:bg-gray-100">
       <Suspense fallback={
@@ -28,6 +26,7 @@ export default async function ImprimirNotaPage({
 }
 
 async function ImprimirNotaContenido({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermission('inventario_notas', 'puede_leer')
   const p = await params
   const id = parseInt(p.id)
   if (isNaN(id)) notFound()

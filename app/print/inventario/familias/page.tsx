@@ -25,13 +25,11 @@ import {
   type FamiliaPrint,
 } from '@/app/print/inventario/familias/FamiliasPrintTable'
 
-export default async function ImprimirFamiliasPage({
+export default function ImprimirFamiliasPage({
   searchParams,
 }: {
   searchParams: Promise<{ blanco?: string; familia?: string; cero?: string }>
 }) {
-  await requirePermission('inventario_stock', 'puede_leer')
-
   return (
     <div className="min-h-screen bg-white text-black p-4 sm:p-8 font-sans">
       <Suspense
@@ -52,6 +50,7 @@ async function ImprimirFamiliasContenido({
 }: {
   searchParams: Promise<{ blanco?: string; familia?: string; cero?: string }>
 }) {
+  await requirePermission('inventario_stock', 'puede_leer')
   const sp = await searchParams
   const isBlanco = sp.blanco === '1'
   const showFamilia = sp.familia !== '0'
