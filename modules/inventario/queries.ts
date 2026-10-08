@@ -2972,3 +2972,60 @@ export async function getNotasKPIsGlobales(
 
   return { pendientes, enProceso, cajasIngresadas, cajasEgresadas }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// NOTAS VINCULADAS A COTIZACIÓN (sin filtro de bodega a propósito:
+// el llamador —detalle de orden— ya validó que el usuario administra
+// esa orden; aquí solo se listan SUS notas creadas por referencia)
+// ═══════════════════════════════════════════════════════════════
+
+export interface NotaVinculada {
+  id: number
+  numero_nota: string
+  estado_codigo: string
+  estado_nombre: string
+  bodega_origen_nombre: string
+  fecha_nota: string | null
+  total_cajas: number | null
+}
+
+export async function fetchNotasPorReferencia(referencia: string): Promise<NotaVinculada[]> {
+  const ref = referencia.trim()
+  if (!ref) return []
+
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, total_cajas,
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey (
+        codigo, nombre
+      ),
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
+        nombre
+      )
+    `)
+    .eq('nota_referencia', ref)
+    .eq('activo', true)
+    .order('id', { ascending: false })
+
+  if (error || !data) {
+    console.error('Error fetchNotasPorReferencia:', error)
+    return []
+  }
+
+  return (data as any[]).map((n) => {
+    const estado = Array.isArray(n.estado) ? n.estado[0] : n.estado
+    const origen = Array.isArray(n.bodega_origen) ? n.bodega_origen[0] : n.bodega_origen
+    return {
+      id: n.id,
+      numero_nota: n.numero_nota,
+      estado_codigo: estado?.codigo ?? '',
+      estado_nombre: estado?.nombre ?? '',
+      bodega_origen_nombre: origen?.nombre ?? '',
+      fecha_nota: n.fecha_nota ?? null,
+      total_cajas: n.total_cajas ?? null,
+    }
+  })
+}

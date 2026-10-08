@@ -109,7 +109,9 @@ export function useQuoteCart() {
         nextItems = [...prev, { ...item, unidad, piezasPorCaja }]
       }
 
-      saveCartToStorage(nextItems)
+      // Diferir el broadcast: despachar el evento fuera del render evita
+      // "Cannot update a component while rendering a different component".
+      queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [ventaPorCajas])
@@ -140,7 +142,9 @@ export function useQuoteCart() {
         })
       }
 
-      saveCartToStorage(nextItems)
+      // Diferir el broadcast: despachar el evento fuera del render evita
+      // "Cannot update a component while rendering a different component".
+      queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [config?.multiplo_cajas])
@@ -168,7 +172,9 @@ export function useQuoteCart() {
         }
       })
 
-      saveCartToStorage(nextItems)
+      // Diferir el broadcast: despachar el evento fuera del render evita
+      // "Cannot update a component while rendering a different component".
+      queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])
@@ -183,7 +189,9 @@ export function useQuoteCart() {
           ? { ...item, precioOfrecido: precio }
           : item
       )
-      saveCartToStorage(nextItems)
+      // Diferir el broadcast: despachar el evento fuera del render evita
+      // "Cannot update a component while rendering a different component".
+      queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])
@@ -194,7 +202,9 @@ export function useQuoteCart() {
   const removeItem = useCallback((varianteId: number) => {
     setItems(prev => {
       const nextItems = prev.filter(i => i.varianteId !== varianteId)
-      saveCartToStorage(nextItems)
+      // Diferir el broadcast: despachar el evento fuera del render evita
+      // "Cannot update a component while rendering a different component".
+      queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])

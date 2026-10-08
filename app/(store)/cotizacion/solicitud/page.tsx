@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { QuoteContactForm } from '@/components/store/cotizacion/QuoteContactForm'
+import { parseStoreConfig, getZonasAtencion } from '@/lib/utils/storeConfig'
 
 export const metadata: Metadata = {
   title: 'Solicitar Cotización',
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 
 async function SolicitudContent() {
   const config = await fetchConfigEcommerce()
+  const zonas = getZonasAtencion(parseStoreConfig(config?.mensaje_precio_variable))
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -20,7 +22,7 @@ async function SolicitudContent() {
         Completa tus datos para enviar tu solicitud
       </p>
 
-      <QuoteContactForm config={config} />
+      <QuoteContactForm config={config} zonas={zonas} />
     </div>
   )
 }

@@ -2157,8 +2157,10 @@ export type Database = {
           id: number
           orden_id: number
           precio_unitario: number
+          producto_web_id: number | null
+          pz_por_caja: number | null
           subtotal: number
-          variante_id: number
+          variante_id: number | null
         }
         Insert: {
           cantidad: number
@@ -2166,8 +2168,10 @@ export type Database = {
           id?: number
           orden_id: number
           precio_unitario: number
+          producto_web_id?: number | null
+          pz_por_caja?: number | null
           subtotal: number
-          variante_id: number
+          variante_id?: number | null
         }
         Update: {
           cantidad?: number
@@ -2175,8 +2179,10 @@ export type Database = {
           id?: number
           orden_id?: number
           precio_unitario?: number
+          producto_web_id?: number | null
+          pz_por_caja?: number | null
           subtotal?: number
-          variante_id?: number
+          variante_id?: number | null
         }
         Relationships: [
           {
@@ -2213,6 +2219,12 @@ export type Database = {
             foreignKeyName: "orden_items_variante_id_fkey"
             columns: ["variante_id"]
             referencedRelation: "variantes_producto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orden_items_producto_web_id_fkey"
+            columns: ["producto_web_id"]
+            referencedRelation: "productos_web"
             referencedColumns: ["id"]
           },
         ]
@@ -2805,6 +2817,40 @@ export type Database = {
             columns: ["producto_id"]
             referencedRelation: "v_stock_alertas"
             referencedColumns: ["producto_id"]
+          },
+        ]
+      }
+      producto_favoritos: {
+        Row: {
+          created_at: string
+          id: number
+          producto_web_id: number
+          usuario_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          producto_web_id: number
+          usuario_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          producto_web_id?: number
+          usuario_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producto_favoritos_producto_web_id_fkey"
+            columns: ["producto_web_id"]
+            referencedRelation: "productos_web"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producto_favoritos_usuario_id_fkey"
+            columns: ["usuario_id"]
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
           },
         ]
       }

@@ -127,6 +127,7 @@ export interface FiltrosOrdenesVenta {
   fecha_desde?: string
   fecha_hasta?: string
   q?: string
+  zona?: string
   page?: number
 }
 
@@ -148,6 +149,8 @@ export interface OrdenItemExtendido extends OrdenItemRow {
   talla: string | null
   color: string | null
   imagen: string | null
+  /** Default del catálogo para inicializar el factor (solo lectura) */
+  pz_en_caja_default: number | null
 }
 
 export interface OrdenVentaDetalle extends OrdenVentaRow {

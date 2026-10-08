@@ -15,16 +15,20 @@
 // - TOTAL de hoja solo contraste, nunca se recalcula ni se sobrescribe.
 // NOTA String.raw: conserva escapes regex. Sin ${ ni backticks dentro.
 
-const JENNY_JS = String.raw`// Parser Jenny bloques v2.0 — SHISHI BETERLON / JENNY
+const JENNY_JS = String.raw`// Parser Jenny bloques v2.1 — SHISHI BETERLON / JENNY
+// v2.1: formato fusionado (Ctns solo en 1a fila del grupo) anexa continuacion
+// al bloque abierto; celdas robustas (richText/value/Date); 0 = dato.
 const T0 = Date.now();
 const NBSP = String.fromCharCode(160);
 function cleanText(v) {
   if (v === null || v === undefined) return '';
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
   if (typeof v === 'object') {
+    if (Object.prototype.toString.call(v) === '[object Date]') return isNaN(v.getTime()) ? '' : v.toISOString().slice(0, 10);
     if (v.result !== undefined) return cleanText(v.result);
+    if (v.value !== undefined) return cleanText(v.value);
     if (v.text !== undefined) return cleanText(v.text);
-    if (v.richText) return v.richText.map(t => t.text).join('');
+    if (v.richText) return v.richText.map(function(t) { return (t && t.text) || ''; }).join('');
     return '';
   }
   return String(v).split(NBSP).join(' ').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -32,6 +36,14 @@ function cleanText(v) {
 function toNumJenny(v) {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'object') {
+    if (Object.prototype.toString.call(v) === '[object Date]') return null;
+    if (typeof v.result === 'number') return Number.isFinite(v.result) ? v.result : null;
+    if (v.value !== undefined) return toNumJenny(v.value);
+    if (v.text !== undefined) return toNumJenny(v.text);
+    if (v.richText) return toNumJenny(v.richText.map(function(t) { return (t && t.text) || ''; }).join(''));
+    return null;
+  }
   const s = String(v).trim();
   if (!s || s === '-' || s === '—') return null;
   if (/[a-zA-Z*×\/=+%]/u.test(s)) return null;
@@ -166,6 +178,31 @@ for (const hoja of hojas) {
   let prodPrecio = null;
   let seqHoja = 0;
   const valor = function(row, i) { return i >= 0 ? row[i] : undefined; };
+  let bloqueAbierto = null;
+  function anexarFilaABloque(b, row, colorRaw, tallaNums, filaExcel) {
+    const pcsRaw = cleanText(valor(row, ix.pcs));
+    const pzcFila = toNumJenny(valor(row, ix.pcs));
+    if (pcsRaw) b.pcs_raw_list.push(pcsRaw);
+    if (pzcFila != null && b.piezas_por_caja == null && !b.tiene_packs) b.piezas_por_caja = pzcFila;
+    const pk = ix.pcs >= 0 ? parsePacksJenny(valor(row, ix.pcs)) : null;
+    if (pk) {
+      b.tiene_packs = true;
+      if (b.total_piezas_declarado != null) b.piezas_por_caja = b.total_piezas_declarado / b.cantidad_cajas;
+      if (pcsRaw) warnings.push({ tipo: 'pcs_no_numerico', severidad: 'media', sku_base: b.sku_base, hoja: b.hoja, fila: filaExcel, detalle: 'Pcs/Ctn con packs (' + pcsRaw + '): tallas x' + pk.packs + ', total desde Ttl' });
+    } else if (pcsRaw && pzcFila == null) {
+      warnings.push({ tipo: 'pcs_no_numerico', severidad: 'media', sku_base: b.sku_base, hoja: b.hoja, fila: filaExcel, detalle: 'Pcs/Ctn no numerico (' + pcsRaw + '): total desde Ttl' });
+    }
+    if (b.total_piezas_declarado == null) b.total_piezas_declarado = toNumJenny(valor(row, ix.ttl));
+    if (b.peso_neto_kg == null) b.peso_neto_kg = toNumJenny(valor(row, ix.nw));
+    if (b.peso_bruto_kg == null) b.peso_bruto_kg = toNumJenny(valor(row, ix.gw));
+    if (b.cbm_total_declarado == null) b.cbm_total_declarado = toNumJenny(valor(row, ix.cbm));
+    if (colorRaw) {
+      for (const ft of tallaNums) {
+        if (ft.q != null && ft.q > 0) b.detalles.push({ color_raw: colorRaw, talla_codigo: ft.t.talla, cantidad_por_caja: ft.q, fila_excel: filaExcel });
+      }
+      if (b.colores_raw_list.indexOf(colorRaw) === -1) b.colores_raw_list.push(colorRaw);
+    }
+  }
   for (let i = hIdx + 1; i < rows.length; i++) {
     const row = rows[i] || [];
     const styleCelda = cleanText(valor(row, ix.style));
@@ -202,11 +239,20 @@ for (const hoja of hojas) {
     }
     const colorRaw = cleanText(valor(row, ix.color));
     const ctns = enteroPositivo(valor(row, ix.ctns));
+    const tallaNums = tallas.map(function (t) { return { t: t, q: toNumJenny(row[t.i]) }; });
+    const hayPositivo = tallaNums.some(function (x) { return x.q != null && x.q > 0; });
     if (ctns === null) {
-      let hayDato = false;
-      for (const t of tallas) { if (toNumJenny(row[t.i]) != null) { hayDato = true; break; } }
-      if (colorRaw && hayDato) {
-        warnings.push({ tipo: 'color_sin_bloque_ctns', severidad: 'alta', hoja: hoja.name, fila: i + 1, sku_base: style, color: colorRaw, detalle: 'Fila con color y tallas pero sin Ctns: no se asigna a bloque' });
+      // v2.1 formato fusionado: anexar continuacion al bloque abierto del mismo style+pack
+      const hayNumerico = tallaNums.some(function (x) { return x.q != null; });
+      if (!colorRaw && !hayNumerico) continue;
+      if (bloqueAbierto && bloqueAbierto.sku_base === style && bloqueAbierto.nombre_pack === pack && colorRaw) {
+        anexarFilaABloque(bloqueAbierto, row, colorRaw, tallaNums, i + 1);
+        continue;
+      }
+      if (colorRaw && hayPositivo) {
+        warnings.push({ tipo: 'color_sin_bloque_ctns', severidad: 'alta', hoja: hoja.name, fila: i + 1, sku_base: style, color: colorRaw, detalle: 'Fila con color y tallas pero sin Ctns y sin bloque abierto: no se asigna a bloque' });
+      } else if (!colorRaw && hayPositivo) {
+        warnings.push({ tipo: 'tallas_sin_color', severidad: 'media', hoja: hoja.name, fila: i + 1, sku_base: style, detalle: 'Fila con tallas pero sin color: no se asigna a bloque' });
       }
       continue;
     }
@@ -225,10 +271,11 @@ for (const hoja of hojas) {
         peso_neto_kg: toNumJenny(valor(row, ix.nw)),
         peso_bruto_kg: toNumJenny(valor(row, ix.gw)),
         cbm_total_declarado: toNumJenny(valor(row, ix.cbm)),
-        ttl_gw_declarado: null, detalles: [], seq: seqHoja
+        ttl_gw_declarado: null, detalles: [], colores_raw_list: [], seq: seqHoja
       };
       bloques.set(clave, b);
       ordenBloques.push(b);
+      bloqueAbierto = b;
     }
     const pcsRaw = cleanText(valor(row, ix.pcs));
     const pzcFila = toNumJenny(valor(row, ix.pcs));
@@ -260,6 +307,7 @@ for (const hoja of hojas) {
       for (const ft of filaTallas) {
         b.detalles.push({ color_raw: colorRaw, talla_codigo: ft.talla, cantidad_por_caja: ft.cantidad * mult, fila_excel: i + 1 });
       }
+      if (b.colores_raw_list.indexOf(colorRaw) === -1) b.colores_raw_list.push(colorRaw);
     }
   }
   for (const b of ordenBloques) {
@@ -314,7 +362,7 @@ for (const b of ordenBloques) {
     largo_cm: null, ancho_cm: null, alto_cm: null, cbm_por_caja: cbmTotal != null ? +(cbmTotal / b.cantidad_cajas).toFixed(6) : null, cbm_total_linea: cbmTotal,
     estado_temporal: 'listo_para_revision', hoja_origen: b.hoja,
     tallas: tallasSet.join('|'), colores: coloresSet.join('|'),
-    validacion: { suma_detalle_por_caja: b.suma_detalle_por_caja, fila_excel: b.fila_excel }
+    validacion: { suma_detalle_por_caja: b.suma_detalle_por_caja, fila_excel: b.fila_excel, colores: (b.colores_raw_list || []) }
   });
   const pid = b.sku_base;
   totalesPorSku[pid] = totalesPorSku[pid] || { cajas: 0, piezas: 0 };
@@ -355,7 +403,7 @@ for (const sku of Object.keys(totalesPorSku)) { totCajas += totalesPorSku[sku].c
 const cfgOut = (() => { try { return $('Normalizar archivo + ruta').first().json.__config || {}; } catch (e) { return {}; } })();
 return [{ json: {
   ok: true,
-  version_parser: 'mvp-n8n-code-v2.0-jenny-bloques',
+  version_parser: 'mvp-n8n-code-v2.1-jenny-continuacion',
   metadata: {
     cliente_b2b_id: cfgOut.cliente_b2b_id != null ? cfgOut.cliente_b2b_id : null, proveedor_id: cfgOut.proveedor_id != null ? cfgOut.proveedor_id : null, proveedor: 'JENNY / SHISHI BETERLON',
     orden_id: cfgOut.orden_id != null ? cfgOut.orden_id : null, formato_detectado: 'jenny_multicolor_pack', fecha_parseo: new Date().toISOString(),
