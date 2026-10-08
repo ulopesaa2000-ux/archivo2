@@ -51,6 +51,14 @@ import { fetchProductosPorFamilia, fetchStockTotalesPorProducto, type FamiliaRes
 import { moverProductosDeFamiliaAction, renombrarFamiliaAction, createProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { cn } from '@/lib/utils'
+import {
+  generateIntermediateCodeV2,
+  detectDenseBlocks,
+  compactBlockToTens,
+  parseFamiliaCode,
+  FAMILIA_GAP_MIN_DEFAULT,
+  type EstrategiaCodigo,
+} from '@/lib/utils/familia-codigo'
 
 interface ProductListItem {
   id: number
@@ -237,7 +245,7 @@ export function FamiliasOrganizerClient({
           nextFamilias.push({
             familia: targetFam,
             total_productos: 1,
-            es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(targetFam),
+            es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z](\d+)?$/i.test(targetFam),
             descripcion: newProductDescripcion.trim() || null,
             skus: [newSkuItem],
           })
@@ -1225,7 +1233,8 @@ export function FamiliasOrganizerClient({
   // --- Determinar renames automáticos de sufijo (A/B) según conteos finales ---
   const getAutoSuffixRenames = (netCounts: Record<string, number>): Record<string, string> => {
     const autoRenames: Record<string, string> = {}
-    const regex = /^(F\d{3}-\d{3})([AB])$/i
+    // V2: acepta extensión infinita F###-###A1 (preserva el ext al cambiar A/B)
+    const regex = /^(F\d{3}-\d{3})([AB])(\d+)?$/i
 
     Object.entries(netCounts).forEach(([familyCode, finalCount]) => {
       // Si la familia fue renombrada explícitamente, omitir
@@ -1235,6 +1244,7 @@ export function FamiliasOrganizerClient({
       if (match) {
         const base = match[1]
         const currentSuffix = match[2].toUpperCase()
+        const ext = match[3] ?? ''
 
         // Regla: B = sola (1 producto), A = agrupada (2 o más)
         let targetSuffix = currentSuffix
@@ -1245,7 +1255,7 @@ export function FamiliasOrganizerClient({
         }
 
         if (currentSuffix !== targetSuffix) {
-          autoRenames[familyCode] = `${base}${targetSuffix}`
+          autoRenames[familyCode] = `${base}${targetSuffix}${ext}`
         }
       }
     })
@@ -1302,76 +1312,131 @@ export function FamiliasOrganizerClient({
     loadProductsForFamily(name)
   }
 
-  // --- Algoritmo matemático para sugerir código de familia intermedia F###-### ---
-  const generateIntermediateCode = (prevCode: string, nextCode?: string): string => {
-    const regex = /^F(\d{3})-(\d{3})([A-Z])$/i
-    const matchPrev = prevCode.match(regex)
-    if (!matchPrev) return prevCode
-
-    const p1 = matchPrev[1]
-    const p2Str = matchPrev[2]
-    const p2 = parseInt(p2Str, 10)
-
-    // Se determina el sufijo según la cantidad de productos seleccionados para mover:
-    // 1 producto -> B, 2 o más -> A
+  // --- Algoritmo V2: bisección con mitad del rango + overflow infinito A1, A2... ---
+  // familia es solo un string en productos.familia: todo el orden lo hace la plataforma.
+  // Nunca genera "1000": tope en 999 y luego F###-999A1, A2... (orden alfabético garantizado).
+  const getTargetSuffixForNewFamily = (): string => {
     const selectedCount = Object.values(selectedProductIds).filter(Boolean).length
-    const targetSuffix = selectedCount >= 2 ? 'A' : 'B'
+    return selectedCount >= 2 ? 'A' : 'B'
+  }
 
-    if (nextCode) {
-      const matchNext = nextCode.match(regex)
-      if (matchNext && matchNext[1] === p1) {
-        const n2 = parseInt(matchNext[2], 10)
-        const diff = n2 - p2
-
-        let nextVal = p2 + 10
-        if (diff >= 100) {
-          nextVal = p2 + 10
-        } else if (diff >= 10) {
-          nextVal = p2 + 1
-        } else {
-          nextVal = p2 + 1
-        }
-
-        const formattedVal = String(nextVal).padStart(3, '0')
-        return `F${p1}-${formattedVal}${targetSuffix}`
-      }
-    }
-
-    let nextVal = p2 + 100
-    if (p2 % 100 !== 0) {
-      nextVal = p2 + 10
-    }
-    if (p2 % 10 !== 0) {
-      nextVal = p2 + 1
-    }
-
-    const formattedVal = String(nextVal).padStart(3, '0')
-    return `F${p1}-${formattedVal}${targetSuffix}`
+  const generateIntermediateCode = (prevCode: string, nextCode?: string): string => {
+    return generateIntermediateCodeV2(prevCode, nextCode, getTargetSuffixForNewFamily(), FAMILIA_GAP_MIN_DEFAULT).codigo
   }
 
   // --- Obtener el código intermedio sugerido basado en referencia ---
-  const getIntermediateCodeSuggestion = (refCode: string): string => {
-    const sorted = [...familias].sort((a, b) => {
-      const nameA = a.familia || ''
-      const nameB = b.familia || ''
-      return nameA.localeCompare(nameB, 'es', { sensitivity: 'base' })
-    })
+  // Incluye borradores locales (stagedMoves) para no sugerir un código ya ocupado en memoria.
+  const getIntermediateDetail = (refCode: string): { codigo: string; estrategia: EstrategiaCodigo; requiereCompactar: boolean } => {
+    const vistos = new Set<string>()
+    const todas: string[] = []
+    for (const f of familias) {
+      if (f.familia && !vistos.has(f.familia)) {
+        vistos.add(f.familia)
+        todas.push(f.familia)
+      }
+    }
+    for (const dest of Object.values(stagedMoves)) {
+      if (dest && !vistos.has(dest) && parseFamiliaCode(dest)) {
+        vistos.add(dest)
+        todas.push(dest)
+      }
+    }
+    todas.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
 
-    const idx = sorted.findIndex(f => f.familia === refCode)
-    if (idx === -1) return refCode
+    const idx = todas.findIndex(f => f === refCode)
+    if (idx === -1) {
+      return generateIntermediateCodeV2(refCode, undefined, getTargetSuffixForNewFamily(), FAMILIA_GAP_MIN_DEFAULT)
+    }
 
     const prefix = refCode.substring(0, 4)
     let nextFamilyCode: string | undefined
-
-    for (let i = idx + 1; i < sorted.length; i++) {
-      const fName = sorted[i].familia || ''
-      if (fName.startsWith(prefix)) {
-        nextFamilyCode = fName
+    for (let i = idx + 1; i < todas.length; i++) {
+      if (todas[i].startsWith(prefix) && parseFamiliaCode(todas[i])) {
+        nextFamilyCode = todas[i]
         break
       }
     }
 
-    return generateIntermediateCode(refCode, nextFamilyCode)
+    return generateIntermediateCodeV2(refCode, nextFamilyCode, getTargetSuffixForNewFamily(), FAMILIA_GAP_MIN_DEFAULT)
+  }
+
+  const getIntermediateCodeSuggestion = (refCode: string): string => {
+    return getIntermediateDetail(refCode).codigo
+  }
+
+  // --- Bloque denso alrededor de la referencia (para el botón Compactar a decenas) ---
+  const getDenseBlockForRef = (refCode: string) => {
+    const parsed = parseFamiliaCode(refCode)
+    if (!parsed) return null
+    const vistos = new Set<string>()
+    const delPrefijo: string[] = []
+    const push = (c: string | null | undefined) => {
+      if (!c || vistos.has(c)) return
+      const p = parseFamiliaCode(c)
+      if (p && p.prefijo === parsed.prefijo && p.ext === null) {
+        vistos.add(c)
+        delPrefijo.push(c)
+      }
+    }
+    for (const f of familias) push(f.familia)
+    for (const dest of Object.values(stagedMoves)) push(dest)
+    if (!vistos.has(refCode) && parsed.ext === null) {
+      vistos.add(refCode)
+      delPrefijo.push(refCode)
+    }
+    const bloques = detectDenseBlocks(delPrefijo, 4)
+    return bloques.find(b => b.miembros.includes(refCode) || b.prefijo === parsed.prefijo) ?? null
+  }
+
+  const ESTRATEGIA_LABEL: Record<EstrategiaCodigo, string> = {
+    'decena-limpia': 'Decena limpia',
+    'mitad-rango': 'Mitad del rango',
+    'unidad': 'Hueco unidad',
+    'overflow-extendido': 'Overflow A1',
+    'bloque-lleno': 'Bloque lleno',
+  }
+
+  const handleCompactDenseBlock = () => {
+    if (!refFamilyName) return
+    const bloque = getDenseBlockForRef(refFamilyName)
+    if (!bloque) {
+      toast.info('No hay bloque denso para compactar en este prefijo')
+      return
+    }
+    const res = compactBlockToTens(bloque, FAMILIA_GAP_MIN_DEFAULT)
+    if (!res.cupo) {
+      toast.warning('El bloque no cabe en decenas: usa overflow A1 o crea un prefijo nuevo')
+      return
+    }
+    const entries = Object.entries(res.renames)
+    if (entries.length === 0) {
+      toast.info('El bloque ya está en decenas limpias')
+      return
+    }
+    // Como familia es solo un string, compactar = renombrar strings en borrador
+    setStagedRenames(prev => {
+      const next = { ...prev }
+      for (const [oldName, newName] of entries) {
+        // Resolver cadena de renames previos que apunten a oldName
+        for (const k of Object.keys(next)) {
+          if (next[k] === oldName) next[k] = newName
+        }
+        // Si oldName ya era destino de un rename, mover la llave original
+        const originalKey = Object.keys(next).find(k => k === oldName)
+        if (originalKey) {
+          delete next[originalKey]
+        }
+        next[oldName] = newName
+      }
+      return next
+    })
+    setFamilias(prev =>
+      prev.map(f => {
+        const nuevo = res.renames[f.familia || '']
+        return nuevo ? { ...f, familia: nuevo } : f
+      }),
+    )
+    toast.success(`Bloque compactado a decenas: ${entries.length} familia(s) reubicadas en borrador`)
   }
 
   // --- Efecto: Actualizar palabras clave sugeridas de la familia de referencia ---
@@ -3422,17 +3487,52 @@ export function FamiliasOrganizerClient({
             </p>
 
             <div className="space-y-2 p-3 bg-muted/20 border border-dashed rounded-lg">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Código sugerido:</span>
-                <button
-                  type="button"
-                  onClick={() => setNewFamilyInput(getIntermediateCodeSuggestion(refFamilyName))}
-                  className="font-mono font-bold text-primary hover:underline text-xs"
-                  title="Restablecer código sugerido"
-                >
-                  {getIntermediateCodeSuggestion(refFamilyName)}
-                </button>
+                <span className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-[10px] font-sans',
+                      getIntermediateDetail(refFamilyName).estrategia === 'overflow-extendido' ||
+                      getIntermediateDetail(refFamilyName).estrategia === 'bloque-lleno'
+                        ? 'border-amber-500/40 text-amber-600'
+                        : 'border-primary/30 text-primary',
+                    )}
+                    title="Estrategia usada: mitad del rango, decena limpia u overflow A1"
+                  >
+                    {ESTRATEGIA_LABEL[getIntermediateDetail(refFamilyName).estrategia]}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setNewFamilyInput(getIntermediateCodeSuggestion(refFamilyName))}
+                    className="font-mono font-bold text-primary hover:underline text-xs"
+                    title="Restablecer código sugerido"
+                  >
+                    {getIntermediateCodeSuggestion(refFamilyName)}
+                  </button>
+                </span>
               </div>
+              {getIntermediateDetail(refFamilyName).requiereCompactar && (
+                <p className="text-[11px] leading-normal text-amber-600 dark:text-amber-400">
+                  Quedan menos de {FAMILIA_GAP_MIN_DEFAULT} huecos libres o el bloque está lleno.
+                  Se usó overflow infinito (…A1, A2…). Si son familias seguidas, compacta a decenas para
+                  liberar 9 espacios entre cada una (solo renombra el texto de familia, sin tocar inventario).
+                </p>
+              )}
+              {getDenseBlockForRef(refFamilyName) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCompactDenseBlock}
+                  className="w-full h-8 text-[11px] font-semibold"
+                  title="Reubica el bloque denso a decenas limpias dejando 9 huecos libres entre familias"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
+                  Compactar bloque a decenas ({getDenseBlockForRef(refFamilyName)?.miembros.length} fams)
+                </Button>
+              )}
 
               {suggestedKeywords.length > 0 && (
                 <div className="space-y-1 border-t pt-2 mt-2">
@@ -3463,11 +3563,14 @@ export function FamiliasOrganizerClient({
             <div className="space-y-2">
               <label className="text-xs font-semibold text-foreground">Nombre / Código de la familia:</label>
               <Input
-                placeholder="Ej. F324-005A o Abrigos Premium"
+                placeholder="Ej. F324-005A, F426-999A1 o Abrigos Premium"
                 value={newFamilyInput}
                 onChange={(e) => setNewFamilyInput(e.target.value)}
                 className="h-9 font-mono text-xs"
               />
+              <p className="text-[10px] text-muted-foreground leading-normal">
+                Si el bloque 900–999 se llena, usa overflow infinito …A1, A2… (mantiene el orden alfabético).
+              </p>
             </div>
           </div>
 

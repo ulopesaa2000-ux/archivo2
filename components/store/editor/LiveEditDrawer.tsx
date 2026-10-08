@@ -27,12 +27,13 @@ import { useLiveStoreEditor, EditableSection } from './LiveStoreEditorContext'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { actualizarConfigEcommerce } from '@/modules/ecommerce/actions'
 import { ColeccionProductoSelector } from './ColeccionProductoSelector'
-import { 
-  parseStoreConfig, 
-  serializeStoreConfig, 
-  ParsedStoreConfig, 
-  DEFAULT_STORE_CONFIG, 
-  TextSizeOption 
+import { ContactosListEditor } from './ContactosListEditor'
+import {
+  parseStoreConfig,
+  serializeStoreConfig,
+  ParsedStoreConfig,
+  DEFAULT_STORE_CONFIG,
+  TextSizeOption
 } from '@/lib/utils/storeConfig'
 
 export function LiveEditDrawer() {
@@ -424,6 +425,11 @@ export function LiveEditDrawer() {
                 label="Tamaño del Subtítulo"
                 value={storeConfig.contactosSubtitleSize}
                 onChange={(val) => setStoreConfig({ ...storeConfig, contactosSubtitleSize: val })}
+              />
+
+              <ContactosListEditor
+                value={storeConfig.contactosLista}
+                onChange={(next) => setStoreConfig({ ...storeConfig, contactosLista: next })}
               />
             </div>
           )}

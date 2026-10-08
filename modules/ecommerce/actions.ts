@@ -88,6 +88,8 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
   revalidateTag('ecommerce-config', 'max')
   revalidatePath('/(store)')
   revalidatePath('/inicio')
+  revalidatePath('/')
+  revalidatePath('/contactos')
   revalidatePath('/shop')
   revalidatePath('/(admin)/ecommerce/config')
 
@@ -529,11 +531,24 @@ export async function despublicarProductoWeb(id: number) {
 
 // ORDENES / COTIZACIONES
 
+async function verificarPermisoOrdenes(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const { can } = await import('@/lib/auth/permissions')
+  const currentUser = await getCurrentUser().catch(() => null)
+  if (!currentUser || !can(currentUser, 'ecommerce_ordenes', 'puede_editar')) {
+    return { ok: false, error: 'Sin permiso para administrar órdenes de venta.' }
+  }
+  return { ok: true }
+}
+
 export async function actualizarEstadoOrden(
   id: number,
   nuevoEstado: string,
   notas?: string
 ) {
+  const permiso = await verificarPermisoOrdenes()
+  if (!permiso.ok) return { success: false as const, error: permiso.error }
+
   const supabase = await createClient()
 
   const updates: OrdenVentaUpdate = {
@@ -565,6 +580,9 @@ export async function actualizarEstadoOrden(
 }
 
 export async function actualizarNumeroRastreo(id: number, numeroRastreo: string) {
+  const permiso = await verificarPermisoOrdenes()
+  if (!permiso.ok) return { success: false as const, error: permiso.error }
+
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -584,12 +602,148 @@ export async function actualizarNumeroRastreo(id: number, numeroRastreo: string)
   return { success: true }
 }
 
+// EDICIÓN DE PARTIDAS (editor de cotización en /ecommerce/ordenes-venta/[id])
+
+async function recalcularTotalesOrden(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ordenId: number
+): Promise<{ success: boolean; error?: string }> {
+  const { data: items, error: itemsError } = await supabase
+    .from('orden_items')
+    .select('subtotal')
+    .eq('orden_id', ordenId)
+
+  if (itemsError) {
+    return { success: false, error: `Error recalculando: ${itemsError.message}` }
+  }
+
+  const subtotal = (items ?? []).reduce((sum: number, i: any) => sum + Number(i.subtotal || 0), 0)
+
+  const { data: orden, error: ordenError } = await supabase
+    .from('ordenes_venta')
+    .select('envio, impuestos')
+    .eq('id', ordenId)
+    .single()
+
+  if (ordenError || !orden) {
+    return { success: false, error: 'Orden no encontrada al recalcular.' }
+  }
+
+  const total = subtotal + Number((orden as any).envio || 0) + Number((orden as any).impuestos || 0)
+
+  const { error: updateError } = await supabase
+    .from('ordenes_venta')
+    .update({
+      subtotal,
+      total,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ordenId)
+
+  if (updateError) {
+    return { success: false, error: `Error guardando totales: ${updateError.message}` }
+  }
+
+  return { success: true }
+}
+
+export async function actualizarItemOrden(
+  ordenId: number,
+  itemId: number,
+  cantidad: number,
+  precioUnitario: number,
+  pzPorCaja?: number | null
+): Promise<{ success: boolean; error?: string }> {
+  const permiso = await verificarPermisoOrdenes()
+  if (!permiso.ok) return { success: false, error: permiso.error }
+
+  const cant = Math.floor(Number(cantidad))
+  const precio = Number(precioUnitario)
+  const factor = pzPorCaja === null || pzPorCaja === undefined ? null : Math.floor(Number(pzPorCaja))
+  if (!Number.isInteger(ordenId) || !Number.isInteger(itemId)) {
+    return { success: false, error: 'Orden o partida inválida.' }
+  }
+  if (!Number.isInteger(cant) || cant < 1) {
+    return { success: false, error: 'La cantidad (pz) debe ser un entero mayor a 0.' }
+  }
+  if (!Number.isFinite(precio) || precio < 0) {
+    return { success: false, error: 'El precio debe ser un número mayor o igual a 0.' }
+  }
+  if (factor !== null && (!Number.isInteger(factor) || factor < 1)) {
+    return { success: false, error: 'El pz por caja debe ser un entero mayor a 0.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: item, error: itemError } = await supabase
+    .from('orden_items')
+    .select('id')
+    .eq('id', itemId)
+    .eq('orden_id', ordenId)
+    .maybeSingle()
+
+  if (itemError || !item) {
+    return { success: false, error: 'La partida no pertenece a esta orden.' }
+  }
+
+  const { error } = await supabase
+    .from('orden_items')
+    .update({
+      cantidad: cant,
+      precio_unitario: precio,
+      subtotal: cant * precio,
+      pz_por_caja: factor,
+    })
+    .eq('id', itemId)
+
+  if (error) {
+    return { success: false, error: `Error guardando partida: ${error.message}` }
+  }
+
+  const recalc = await recalcularTotalesOrden(supabase, ordenId)
+  if (!recalc.success) return recalc
+
+  revalidatePath(`/(admin)/ecommerce/ordenes-venta/${ordenId}`)
+  revalidatePath('/mis-pedidos')
+  return { success: true }
+}
+
+export async function eliminarItemOrden(
+  ordenId: number,
+  itemId: number
+): Promise<{ success: boolean; error?: string }> {
+  const permiso = await verificarPermisoOrdenes()
+  if (!permiso.ok) return { success: false, error: permiso.error }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orden_items')
+    .delete()
+    .eq('id', itemId)
+    .eq('orden_id', ordenId)
+
+  if (error) {
+    return { success: false, error: `Error eliminando partida: ${error.message}` }
+  }
+
+  const recalc = await recalcularTotalesOrden(supabase, ordenId)
+  if (!recalc.success) return recalc
+
+  revalidatePath(`/(admin)/ecommerce/ordenes-venta/${ordenId}`)
+  revalidatePath('/mis-pedidos')
+  return { success: true }
+}
+
 // COTIZACION -> ORDEN B2B
 
 export async function convertirCotizacionAOrdenB2B(
   cotizacionId: number,
   preciosFinales?: Record<number, number>
 ) {
+  const permiso = await verificarPermisoOrdenes()
+  if (!permiso.ok) throw new Error(permiso.error)
+
   const supabase = await createClient()
 
   const { data: cotizacion, error: cotError } = await supabase
@@ -612,11 +766,16 @@ export async function convertirCotizacionAOrdenB2B(
     throw new Error('Error obteniendo items')
   }
 
-  const variantIds = (items ?? []).map((item) => item.variante_id)
-  const { data: variantes, error: variantesError } = await supabase
-    .from('variantes_producto')
-    .select('id, producto_id')
-    .in('id', variantIds)
+  const esEntero = (v: unknown): v is number => Number.isInteger(v)
+  const variantIds = (items ?? []).map((item) => item.variante_id).filter(esEntero)
+  const webIds = (items ?? []).map((item) => (item as any).producto_web_id).filter(esEntero)
+
+  const { data: variantes, error: variantesError } = variantIds.length > 0
+    ? await supabase
+        .from('variantes_producto')
+        .select('id, producto_id')
+        .in('id', variantIds)
+    : { data: [], error: null }
 
   if (variantesError) {
     throw new Error('Error obteniendo variantes para conversion B2B')
@@ -625,6 +784,17 @@ export async function convertirCotizacionAOrdenB2B(
   const productoIdByVariante = new Map(
     (variantes ?? []).map((variante) => [variante.id, variante.producto_id])
   )
+
+  // Items sin variante real (referencia web): resolver producto vía publicación
+  const productoIdByWeb = new Map<number, number>()
+  if (webIds.length > 0) {
+    const { data: webs } = await (supabase.from('productos_web') as any)
+      .select('id, producto_id')
+      .in('id', [...new Set(webIds)])
+    for (const w of (webs ?? []) as any[]) {
+      productoIdByWeb.set(w.id, w.producto_id)
+    }
+  }
 
   const { data: ordenB2B, error: ordenError } = await supabase
     .from('ordenes_b2b')
@@ -646,12 +816,14 @@ export async function convertirCotizacionAOrdenB2B(
 
   let totalPiezas = 0
   const itemsB2B: Database['inv-tienda']['Tables']['ordenes_b2b_detalles']['Insert'][] = (items ?? []).map((item) => {
-    const precioFinal = preciosFinales?.[item.variante_id] || item.precio_unitario
+    const precioFinal = (item.variante_id != null ? preciosFinales?.[item.variante_id] : undefined) || item.precio_unitario
     const subtotalItem = item.cantidad * precioFinal
-    const productoId = productoIdByVariante.get(item.variante_id)
+    const productoId =
+      (item.variante_id != null ? productoIdByVariante.get(item.variante_id) : undefined) ??
+      ((item as any).producto_web_id != null ? productoIdByWeb.get((item as any).producto_web_id) : undefined)
 
     if (!productoId) {
-      throw new Error(`No se encontro producto para la variante ${item.variante_id}`)
+      throw new Error(`No se encontro producto para la partida ${item.id}`)
     }
 
     totalPiezas += item.cantidad
@@ -711,6 +883,10 @@ export async function crearCotizacion(
 ) {
   const supabase = await createClient()
 
+  // Vincular al usuario en sesión (cliente con cuenta); invitados quedan NULL
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const currentUser = await getCurrentUser().catch(() => null)
+
   const timestamp = Date.now().toString(36).toUpperCase()
   const numeroOrden = `COT-${timestamp}`
 
@@ -723,7 +899,7 @@ export async function crearCotizacion(
     .from('ordenes_venta')
     .insert({
       numero_orden: numeroOrden,
-      usuario_id: null,
+      usuario_id: currentUser?.id ?? null,
       email_cliente: datosContacto.email,
       nombre_cliente: datosContacto.nombre,
       telefono_cliente: datosContacto.telefono,
@@ -750,12 +926,45 @@ export async function crearCotizacion(
     throw new Error(`Error creando cotizacion: ${error?.message}`)
   }
 
-  const ordenItems: Database['inv-tienda']['Tables']['orden_items']['Insert'][] = items.map((item) => ({
+  // El carrito mezcla variantes reales e ids web: resolver a variante real
+  // conservando la referencia web verdadera + factor inicial para modo cajas.
+  const { resolverItemsCotizacion } = await import('@/lib/utils/cotizacion-resolver')
+  const idsCarrito = [...new Set(items.map((i) => i.varianteId))]
+
+  const { data: variantesRealesData } = await supabase
+    .from('variantes_producto')
+    .select('id, producto_id')
+    .in('id', idsCarrito)
+  const variantesReales = new Map((variantesRealesData ?? []).map((v: any) => [v.id, v.producto_id]))
+
+  const idsWeb = idsCarrito.filter((id) => !variantesReales.has(id))
+  const webs = new Map<number, { producto_id: number; pz_en_caja: number | null }>()
+  if (idsWeb.length > 0) {
+    const { data: websData } = await (supabase.from('productos_web') as any)
+      .select('id, producto_id, productos!inner(pz_en_caja)')
+      .in('id', idsWeb)
+    for (const w of (websData ?? []) as any[]) {
+      const pz = Number.isInteger(w.productos?.pz_en_caja) && w.productos.pz_en_caja > 0 ? w.productos.pz_en_caja : null
+      webs.set(w.id, { producto_id: w.producto_id, pz_en_caja: pz })
+    }
+  }
+
+  let resueltos
+  try {
+    resueltos = resolverItemsCotizacion(items, variantesReales, webs)
+  } catch (err) {
+    await supabase.from('ordenes_venta').delete().eq('id', orden.id)
+    throw err instanceof Error ? err : new Error('Error resolviendo productos de la cotización')
+  }
+
+  const ordenItems: Database['inv-tienda']['Tables']['orden_items']['Insert'][] = items.map((item, index) => ({
     orden_id: orden.id,
-    variante_id: item.varianteId,
+    variante_id: resueltos[index].varianteId,
+    producto_web_id: resueltos[index].productoWebId,
     cantidad: item.cantidad,
     precio_unitario: item.precioUnitario || item.precioOfrecido || 0,
     subtotal: (item.precioUnitario || item.precioOfrecido || 0) * item.cantidad,
+    pz_por_caja: resueltos[index].pzPorCaja,
   }))
 
   const { error: itemsInsertError } = await supabase
@@ -763,7 +972,9 @@ export async function crearCotizacion(
     .insert(ordenItems)
 
   if (itemsInsertError) {
-    throw new Error('Error creando items de cotizacion')
+    // Rollback compensatorio: no dejar órdenes huérfanas sin partidas
+    await supabase.from('ordenes_venta').delete().eq('id', orden.id)
+    throw new Error(`Error creando items de cotizacion: ${itemsInsertError.message}`)
   }
 
   revalidatePath('/(admin)/ecommerce/ordenes-venta')

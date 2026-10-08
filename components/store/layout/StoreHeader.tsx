@@ -4,12 +4,13 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { 
-  ShoppingCart, Menu, X, LogOut, LayoutDashboard, 
-  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User, Baby
+import {
+  ShoppingCart, Menu, X, LogOut, LayoutDashboard,
+  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User, Baby, Heart
 } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
+import { useFavorites } from '@/hooks/useFavorites'
 import { signOut } from '@/modules/auth/actions'
 import { CartDrawer, OPEN_CART_EVENT } from '@/components/store/cotizacion/CartDrawer'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
@@ -28,6 +29,7 @@ import { StoreThemeToggle } from './StoreThemeToggle'
 
 export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
   const { count } = useQuoteCart()
+  const { count: favCount } = useFavorites()
   const { config } = useConfigEcommerce()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDamaOpen, setIsDamaOpen] = useState(true)
@@ -175,6 +177,21 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
             )}
           </button>
 
+          {/* 1b. Favoritos Móvil */}
+          <Link
+            href="/favoritos"
+            className="relative p-2 rounded-xl text-zinc-900 dark:text-white hover:bg-store-bg active:scale-95 transition-all flex items-center justify-center"
+            aria-label="Mis favoritos"
+            title="Mis favoritos"
+          >
+            <Heart className="w-5 h-5 text-red-500" />
+            {favCount > 0 && (
+              <span className="absolute top-1 right-1 bg-red-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-md">
+                {favCount}
+              </span>
+            )}
+          </Link>
+
           {/* 2. Usuario / Login Móvil */}
           {user ? (
             <DropdownMenu>
@@ -198,9 +215,15 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/ecommerce/ordenes-venta" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                  <Link href="/mis-pedidos" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
                     <Tag className="h-4 w-4 text-primary" />
                     <span>Mis cotizaciones / órdenes</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/favoritos" className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold py-2">
+                    <Heart className="h-4 w-4 text-red-500" />
+                    <span>Mis favoritos</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -287,9 +310,15 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/ecommerce/ordenes-venta" className="flex items-center gap-2 cursor-pointer font-medium">
+                  <Link href="/mis-pedidos" className="flex items-center gap-2 cursor-pointer font-medium">
                     <Tag className="h-4 w-4" />
                     Mis cotizaciones / órdenes
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/favoritos" className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Heart className="h-4 w-4 text-red-500" />
+                    Mis favoritos
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -326,6 +355,21 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
               Iniciar sesión
             </Link>
           )}
+
+          <Link
+            href="/favoritos"
+            className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
+            title="Mis favoritos"
+            aria-label="Mis favoritos"
+          >
+            <Heart className="h-4 w-4 md:h-5 md:w-5 text-red-500" />
+            {favCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
+                {favCount}
+              </span>
+            )}
+            <span>Favoritos</span>
+          </Link>
 
           <button
             type="button"
@@ -381,6 +425,23 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
                 </div>
                 <StoreThemeToggle variant="segmented" size="sm" className="w-full justify-between" />
               </div>
+
+              {/* 1b. Mis Favoritos (debajo del modo de pantalla) */}
+              <Link
+                href="/favoritos"
+                onClick={() => setIsMenuOpen(false)}
+                className="flex items-center justify-between p-3 rounded-2xl font-bold text-xs text-store-ink hover:bg-store-bg border border-red-500/20 bg-red-500/5 transition-all"
+              >
+                <div className="flex items-center gap-2 text-red-500">
+                  <Heart className="w-4 h-4 fill-current" />
+                  <span>MIS FAVORITOS</span>
+                </div>
+                {favCount > 0 && (
+                  <Badge className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0">
+                    {favCount}
+                  </Badge>
+                )}
+              </Link>
 
               {/* 2. Dama Accordion (Abierto por default) */}
               <div className="rounded-2xl border border-store-border/60 overflow-hidden bg-store-bg/40">

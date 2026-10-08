@@ -57,6 +57,50 @@ export function getTituloCarrito(config: ConfigEcommerce): string {
 }
 
 /**
+ * Cajas equivalentes a una cantidad en pz. Null si no hay factor válido.
+ */
+export function cajasDePz(cantidadPz: number, pzPorCaja: number | null | undefined): number | null {
+  if (!pzPorCaja || pzPorCaja < 1 || !Number.isFinite(cantidadPz) || cantidadPz < 0) return null
+  return cantidadPz / pzPorCaja
+}
+
+/**
+ * Pz resultantes de N cajas con un factor. Siempre entero exacto.
+ */
+export function pzDeCajas(cajas: number, pzPorCaja: number): number {
+  return Math.max(1, Math.floor(cajas)) * Math.max(1, Math.floor(pzPorCaja))
+}
+
+/**
+ * Precio por caja = precio unitario × factor. Null si no hay factor válido.
+ */
+export function precioPorCaja(precioUnitario: number, pzPorCaja: number | null | undefined): number | null {
+  if (!pzPorCaja || pzPorCaja < 1 || !Number.isFinite(precioUnitario) || precioUnitario < 0) return null
+  return precioUnitario * pzPorCaja
+}
+
+interface OrdenConRegion {
+  direccion_envio?: unknown
+  notas_cliente?: string | null
+}
+
+/**
+ * Región de atención de una orden. Fuente: direccion_envio.ciudad
+ * (donde el formulario guarda la zona del JSON); fallback al prefijo
+ * histórico "[Región de Atención: X]" en notas para órdenes viejas.
+ */
+export function getRegionOrden(orden: OrdenConRegion): string {
+  const dir = orden.direccion_envio as { ciudad?: unknown } | null | undefined
+  const ciudad = typeof dir?.ciudad === 'string' ? dir.ciudad.trim() : ''
+  if (ciudad) return ciudad
+
+  const match = (orden.notas_cliente || '').match(/\[Región de Atención:\s*([^\]]+)\]/)
+  if (match?.[1]) return match[1].trim()
+
+  return '—'
+}
+
+/**
  * Calcula el total de items considerando unidades (cajas/piezas)
  */
 export function calcularTotalItems(

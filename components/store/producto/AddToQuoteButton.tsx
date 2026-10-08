@@ -3,8 +3,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Minus, Plus, Heart, Check, Send } from 'lucide-react'
+import { Minus, Plus, Check, Send } from 'lucide-react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
+import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
 import { mostrarPrecio } from '@/modules/ecommerce/utils'
 import type { ProductoWebPublico } from '@/modules/ecommerce/types'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
@@ -148,10 +149,7 @@ export function AddToQuoteButton({ producto, config }: AddToQuoteButtonProps) {
         )}
       </div>
 
-      <button className="flex items-center gap-2 text-[13px] text-store-ink2 hover:text-store-ink underline tracking-[0.02em] font-medium p-0 bg-transparent border-none">
-        <Heart className="h-4 w-4" />
-        Guardar en favoritos
-      </button>
+      <FavoriteButton productoWebId={producto.id} variant="pdp" />
     </div>
   )
 }

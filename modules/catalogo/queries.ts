@@ -801,7 +801,8 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
 
   const res: FamiliaResumen[] = Object.entries(conteos).map(([familia, count]) => {
     // Detectar si cumple el patrón F000-000A, F000-000B, etc.
-    const es_codigo_raw = /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(familia)
+    // V2: acepta extensión infinita F000-000A1, A2... (overflow más allá de 999)
+    const es_codigo_raw = /^F[0-9]{3}-[0-9]{3}[A-Z](\d+)?$/i.test(familia)
     return {
       familia,
       total_productos: count,

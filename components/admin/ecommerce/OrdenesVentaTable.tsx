@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Pagination } from '@/components/admin/Pagination'
 import { Fecha } from '@/components/shared/Fecha'
+import { getRegionOrden } from '@/modules/ecommerce/utils'
 import type { OrdenVentaResumen } from '@/modules/ecommerce/types'
 
 interface OrdenesVentaTableProps {
@@ -42,6 +43,7 @@ export function OrdenesVentaTable({ ordenes, total }: OrdenesVentaTableProps) {
               <TableHead>N° Orden</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Email</TableHead>
+              <TableHead>Región</TableHead>
               <TableHead>Total</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Fecha</TableHead>
@@ -56,6 +58,7 @@ export function OrdenesVentaTable({ ordenes, total }: OrdenesVentaTableProps) {
                 </TableCell>
                 <TableCell>{orden.nombre_cliente}</TableCell>
                 <TableCell className="text-sm">{orden.email_cliente}</TableCell>
+                <TableCell className="text-xs max-w-40 truncate" title={getRegionOrden(orden)}>{getRegionOrden(orden)}</TableCell>
                 <TableCell>${orden.total}</TableCell>
                 <TableCell>
                   <Badge className={estadoColors[orden.estado] || 'bg-gray-100'}>

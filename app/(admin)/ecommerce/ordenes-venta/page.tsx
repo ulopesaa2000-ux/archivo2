@@ -1,13 +1,36 @@
 // app/(admin)/ecommerce/ordenes-venta/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { fetchOrdenesVenta } from '@/modules/ecommerce/queries'
+import { fetchConfigEcommerce, fetchOrdenesVenta } from '@/modules/ecommerce/queries'
 import { OrdenesVentaTable } from '@/components/admin/ecommerce/OrdenesVentaTable'
+import { OrdenesVentaFilters } from '@/components/admin/ecommerce/OrdenesVentaFilters'
+import { parseStoreConfig, getZonasAtencion } from '@/lib/utils/storeConfig'
 
 export const metadata: Metadata = { title: 'Órdenes de Venta' }
 
-export default async function OrdenesVentaPage() {
-  const { ordenes, total } = await fetchOrdenesVenta({ page: 1 })
+async function OrdenesVentaContent({ zona, page }: { zona: string; page: number }) {
+  const [config, { ordenes, total }] = await Promise.all([
+    fetchConfigEcommerce(),
+    fetchOrdenesVenta({ page, zona: zona || undefined }),
+  ])
+  const zonas = getZonasAtencion(parseStoreConfig(config?.mensaje_precio_variable))
+
+  return (
+    <div className="space-y-4">
+      <OrdenesVentaFilters zonas={zonas} zonaActual={zona} />
+      <OrdenesVentaTable ordenes={ordenes} total={total} />
+    </div>
+  )
+}
+
+export default async function OrdenesVentaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ zona?: string; page?: string }>
+}) {
+  const params = await searchParams
+  const zona = typeof params.zona === 'string' ? params.zona : ''
+  const page = Math.max(1, Number(params.page) || 1)
 
   return (
     <div className="space-y-6">
@@ -19,7 +42,7 @@ export default async function OrdenesVentaPage() {
       </div>
 
       <Suspense fallback={<div className="h-96 bg-muted animate-pulse rounded-lg" />}>
-        <OrdenesVentaTable ordenes={ordenes} total={total} />
+        <OrdenesVentaContent zona={zona} page={page} />
       </Suspense>
     </div>
   )

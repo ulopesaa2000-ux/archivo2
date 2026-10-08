@@ -65,6 +65,7 @@ export type EstadoNotaRow = Tables['cat_estados_nota']['Row']
 
 // ── Ecommerce ───────────────────────────────────────────────
 export type ProductoWebRow = Tables['productos_web']['Row']
+export type ProductoFavoritoRow = Tables['producto_favoritos']['Row']
 export type OrdenVentaRow = Tables['ordenes_venta']['Row']
 export type OrdenItemRow = Tables['orden_items']['Row']
 export type CarritoRow = Tables['carritos']['Row']

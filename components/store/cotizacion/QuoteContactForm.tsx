@@ -36,19 +36,10 @@ import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 
 interface QuoteContactFormProps {
   config: ConfigEcommerce | null
+  zonas: string[]
 }
 
-const REGIONES_ATENCION = [
-  'Centro / Ciudad de México',
-  'Tulancingo, Hgo.',
-  'Moroleón, Gto.',
-  'San Martín Texmelucan, Pue.',
-  'Toluca, Edo. Méx.',
-  'Chiconcuac, Edo. Méx.',
-  'Otra región / Envíos a todo México',
-]
-
-export function QuoteContactForm({ config }: QuoteContactFormProps) {
+export function QuoteContactForm({ config, zonas }: QuoteContactFormProps) {
   const router = useRouter()
   const { items, subtotal, clearCart } = useQuoteCart()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -78,7 +69,7 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
       nombre: '',
       email: '',
       telefono: '',
-      region_atencion: 'Centro / Ciudad de México',
+      region_atencion: zonas[0] || '',
       empresa: '',
       direccion: '',
       notas: '',
@@ -249,7 +240,7 @@ export function QuoteContactForm({ config }: QuoteContactFormProps) {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent className="bg-popover dark:bg-zinc-900 border-border">
-                      {REGIONES_ATENCION.map((region) => (
+                      {zonas.map((region) => (
                         <SelectItem key={region} value={region} className="text-foreground dark:text-gray-100">
                           {region}
                         </SelectItem>

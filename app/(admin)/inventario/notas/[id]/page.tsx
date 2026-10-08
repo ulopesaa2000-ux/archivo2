@@ -83,8 +83,14 @@ export default async function NotaDetallePage({
 
   if (!nota) notFound()
 
+  // Excepción de lectura: nota generada desde una cotización que el usuario
+  // administra (vínculo por folio). Entra sin importar la bodega; la edición
+  // sigue gobernada por los permisos de inventario (builder/actions).
+  const { puedeVerNotaPorCotizacion } = await import('@/modules/ecommerce/queries')
+  const accesoPorCotizacion = await puedeVerNotaPorCotizacion(nota.cabecera.nota_referencia)
+
   // Validación de acceso por rol
-  if (!isSuperAdmin && !isAdminInventario) {
+  if (!isSuperAdmin && !isAdminInventario && !accesoPorCotizacion) {
     const tieneBodegaAsignada = userBodegas.some(
       b => b.id === nota.cabecera.bodega_origen_id || b.id === (nota.cabecera.bodega_destino_id ?? -1)
     )

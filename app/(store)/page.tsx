@@ -5,19 +5,17 @@ import { Suspense } from 'react'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { fetchPortadaColeccionHome } from '@/modules/ecommerce/banners'
 import { formatearStockDisponible } from '@/modules/ecommerce/utils'
-import { 
-  ArrowRight, 
-  Heart, 
-  Sparkles, 
-  Shirt, 
-  Crown, 
-  Flame, 
-  Baby, 
-  Zap, 
-  Layers, 
+import {
+  ArrowRight,
+  Heart,
+  Sparkles,
+  Shirt,
+  Crown,
+  Flame,
+  Baby,
+  Zap,
+  Layers,
   ShieldCheck,
-  User,
-  Users
 } from 'lucide-react'
 import type { Metadata } from 'next'
 
@@ -26,11 +24,15 @@ import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
 import { StoreQuickEditorToolbar } from '@/components/store/editor/StoreQuickEditorToolbar'
 import { LiveEditDrawer } from '@/components/store/editor/LiveEditDrawer'
 import { SkuPill } from '@/components/store/SkuPill'
-import { 
-  parseStoreConfig, 
-  getTitleSizeClass, 
-  getSubtitleSizeClass 
+import {
+  parseStoreConfig,
+  getTitleSizeClass,
+  getSubtitleSizeClass,
+  getContactosActivos,
+  buildWhatsAppLink,
 } from '@/lib/utils/storeConfig'
+import { verifySessionOptional } from '@/lib/dal'
+import { can } from '@/lib/auth/permissions'
 
 export const metadata: Metadata = {
   title: 'Idol Navy | Moda que te define - Colección 2026',
@@ -471,25 +473,14 @@ async function HomePageContent() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
-          <div className="p-4 rounded-xl bg-background dark:bg-zinc-950 border border-border hover:border-emerald-500/30 transition-colors">
-            <h4 className="text-sm font-bold text-foreground dark:text-gray-100">Daniel (Centro)</h4>
-            <a href="https://wa.me/522481250472" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline block mt-1">248 125 0472</a>
-          </div>
-
-          <div className="p-4 rounded-xl bg-background dark:bg-zinc-950 border border-border hover:border-emerald-500/30 transition-colors">
-            <h4 className="text-sm font-bold text-foreground dark:text-gray-100">Javier (Tulancingo)</h4>
-            <a href="https://wa.me/525615495410" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline block mt-1">56 1549 5410</a>
-          </div>
-
-          <div className="p-4 rounded-xl bg-background dark:bg-zinc-950 border border-border hover:border-emerald-500/30 transition-colors">
-            <h4 className="text-sm font-bold text-foreground dark:text-gray-100">Carlos (Moroleón)</h4>
-            <a href="https://wa.me/525539356156" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline block mt-1">55 3935 6156</a>
-          </div>
-
-          <div className="p-4 rounded-xl bg-background dark:bg-zinc-950 border border-border hover:border-emerald-500/30 transition-colors">
-            <h4 className="text-sm font-bold text-foreground dark:text-gray-100">Juan (San Martín, Toluca, Chiconcuac)</h4>
-            <a href="https://wa.me/522481251671" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline block mt-1">248 125 1671</a>
-          </div>
+          {getContactosActivos(storeConfig).map((contacto) => (
+            <div key={contacto.id} className="p-4 rounded-xl bg-background dark:bg-zinc-950 border border-border hover:border-emerald-500/30 transition-colors">
+              <h4 className="text-sm font-bold text-foreground dark:text-gray-100">
+                {contacto.nombre}{contacto.zona ? ` (${contacto.zona})` : ''}
+              </h4>
+              <a href={buildWhatsAppLink(contacto)} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline block mt-1">{contacto.telefono_display}</a>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -514,14 +505,23 @@ async function HomePageContent() {
   )
 }
 
-export default function HomePage() {
+async function HomePageShell() {
+  const session = await verifySessionOptional()
+  const canEditServer = session.isAuth && session.user ? can(session.user, 'ecommerce_config', 'puede_editar') : false
+
   return (
-    <LiveStoreEditorProvider>
-      <Suspense fallback={<DestacadosSkeleton />}>
-        <HomePageContent />
-      </Suspense>
+    <LiveStoreEditorProvider canEdit={canEditServer}>
+      <HomePageContent />
       <StoreQuickEditorToolbar />
       <LiveEditDrawer />
     </LiveStoreEditorProvider>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<DestacadosSkeleton />}>
+      <HomePageShell />
+    </Suspense>
   )
 }

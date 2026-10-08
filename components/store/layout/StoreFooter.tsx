@@ -5,9 +5,13 @@ import Link from 'next/link'
 import { Instagram, Facebook, Twitter, Phone, MessageCircle } from 'lucide-react'
 import { TikTokIcon } from '@/components/shared/TikTokIcon'
 import { StoreThemeToggle } from './StoreThemeToggle'
+import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
+import { parseStoreConfig, getContactosActivos, buildWhatsAppLink } from '@/lib/utils/storeConfig'
 
 export function StoreFooter() {
   const currentYear = new Date().getFullYear()
+  const { config } = useConfigEcommerce()
+  const contactos = getContactosActivos(parseStoreConfig(config?.mensaje_precio_variable))
 
   return (
     <footer className="bg-store-surface border-t border-store-border">
@@ -32,50 +36,19 @@ export function StoreFooter() {
                 </Link>
               </div>
               <ul className="text-xs text-store-ink2 space-y-1.5 font-sans">
-                <li>
-                  <a 
-                    href="https://wa.me/522481250472?text=Hola%20Daniel,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
-                  >
-                    <span>• <strong>Daniel</strong> (Zona Centro CDMX)</span>
-                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">248 125 0472</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://wa.me/525615495410?text=Hola%20Javier,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
-                  >
-                    <span>• <strong>Javier</strong> (Tulancingo Hgo.)</span>
-                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">56 1549 5410</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://wa.me/525539356156?text=Hola%20Carlos,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
-                  >
-                    <span>• <strong>Carlos</strong> (Moroleón Gto.)</span>
-                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">55 3935 6156</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://wa.me/522481251671?text=Hola%20Juan,%20vengo%20del%20Cat%C3%A1logo%20IDOL%20NAVY." 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
-                  >
-                    <span>• <strong>Juan</strong> (San Martín / Toluca / Chiconcuac)</span>
-                    <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">248 125 1671</span>
-                  </a>
-                </li>
+                {contactos.map((contacto) => (
+                  <li key={contacto.id}>
+                    <a
+                      href={buildWhatsAppLink(contacto)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-emerald-600 transition-colors flex items-center justify-between gap-2 group"
+                    >
+                      <span>• <strong>{contacto.nombre}</strong>{contacto.zona ? ` (${contacto.zona})` : ''}</span>
+                      <span className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline shrink-0">{contacto.telefono_display}</span>
+                    </a>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>

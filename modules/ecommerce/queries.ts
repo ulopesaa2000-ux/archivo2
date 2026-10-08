@@ -971,6 +971,10 @@ export async function fetchOrdenesVenta(
     const term = `%${filtros.q}%`
     query = query.or(`numero_orden.ilike.${term},email_cliente.ilike.${term},nombre_cliente.ilike.${term}`)
   }
+  if (filtros.zona) {
+    const zonaTerm = `%${filtros.zona.replace(/[%_]/g, '')}%`
+    query = query.filter('direccion_envio->>ciudad', 'ilike', zonaTerm)
+  }
 
   query = query
     .order('fecha_orden', { ascending: false })
@@ -1038,57 +1042,289 @@ export async function fetchOrdenVentaById(
     }
   }
 
+  const itemsExtendidos = await fetchItemsExtendidos(supabase, id)
+  if (!itemsExtendidos) return null
+
+  return {
+    ...orden,
+    items: itemsExtendidos,
+  }
+}
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>
+
+async function fetchItemsExtendidos(
+  supabase: SupabaseClient,
+  ordenId: number
+): Promise<OrdenItemExtendido[] | null> {
+  // orden_items solo tiene FK a ordenes_venta y variantes_producto:
+  // nombres de producto/talla/color se resuelven en pasos separados.
+  // Todo en LEFT para que un item nunca desaparezca por datos viejos.
   const { data: items, error: itemsError } = await supabase
     .from('orden_items')
     .select(
       `
       *,
-      variantes_producto!inner(
+      variantes_producto!left(
         sku_completo,
         producto_id,
         talla_id,
         color_id
-      ),
-      productos!left(nombre),
-      cat_tallas!left(codigo),
-      cat_colores!left(nombre)
+      )
       `
     )
-    .eq('orden_id', id)
+    .eq('orden_id', ordenId)
 
   if (itemsError) {
     console.error('Error fetchOrdenItems:', itemsError)
     return null
   }
 
-  // Obtener imágenes
-  const productoIds = [...new Set((items || []).map((i: any) => i.variantes_producto?.producto_id))]
+  const lista = (items || []) as any[]
+  // Referencia web verdadera primero; variante_id solo para filas viejas sin ella
+  const webIdsDirectos = lista.map((i) => i.producto_web_id).filter((v) => Number.isInteger(v))
+  const varianteIds = lista
+    .filter((i) => i.producto_web_id == null)
+    .map((i) => i.variante_id)
+    .filter((v) => Number.isInteger(v))
+  const productoIds = [...new Set(
+    lista.map((i) => i.variantes_producto?.producto_id).filter((v) => Number.isInteger(v))
+  )]
+  const tallaIds = [...new Set(
+    lista.map((i) => i.variantes_producto?.talla_id).filter((v) => Number.isInteger(v))
+  )]
+  const colorIds = [...new Set(
+    lista.map((i) => i.variantes_producto?.color_id).filter((v) => Number.isInteger(v))
+  )]
+
+  let productosMap: Record<number, { nombre: string; sku_base: string; pz_en_caja: number | null }> = {}
+  let tallasMap: Record<number, string> = {}
+  let coloresMap: Record<number, string> = {}
   let imagenesMap: Record<number, string> = {}
 
-  if (productoIds.length > 0) {
-    const { data: imagenes } = await supabase
-      .from('producto_imagenes')
-      .select('producto_id, url')
-      .eq('es_principal', true)
-      .in('producto_id', productoIds)
-
-    imagenesMap = (imagenes || []).reduce((acc: any, img: any) => {
-      acc[img.producto_id] = img.url
-      return acc
-    }, {})
+  // Referencia web (nueva) o variante guardada como productos_web.id (viejas):
+  // buscar por productos_web para rescatar nombre e imagen.
+  const idsWebABuscar = [...new Set([...webIdsDirectos, ...varianteIds])]
+  let webMap: Record<number, { nombre: string; sku: string; producto_id: number }> = {}
+  if (idsWebABuscar.length > 0) {
+    const { data: webs } = await (supabase.from('productos_web') as any)
+      .select('id, producto_id, titulo_seo, productos!inner(sku_base, nombre)')
+      .in('id', idsWebABuscar)
+    for (const w of (webs || []) as any[]) {
+      webMap[w.id] = {
+        nombre: w.productos?.nombre || w.titulo_seo || '',
+        sku: w.productos?.sku_base || '',
+        producto_id: w.producto_id,
+      }
+      if (w.producto_id && !productoIds.includes(w.producto_id)) {
+        productoIds.push(w.producto_id)
+      }
+    }
   }
 
-  const itemsExtendidos: OrdenItemExtendido[] = (items || []).map((item: any) => ({
-    ...item,
-    sku_completo: item.variantes_producto?.sku_completo,
-    producto_nombre: item.productos?.nombre,
-    talla: item.cat_tallas?.codigo,
-    color: item.cat_colores?.nombre,
-    imagen: imagenesMap[item.variantes_producto?.producto_id],
-  }))
+  const [productosRes, tallasRes, coloresRes, imagenesRes] = await Promise.all([
+    productoIds.length > 0
+      ? supabase.from('productos').select('id, nombre, sku_base, pz_en_caja').in('id', productoIds)
+      : Promise.resolve({ data: [] as any[] }),
+    tallaIds.length > 0
+      ? supabase.from('cat_tallas').select('id, codigo').in('id', tallaIds)
+      : Promise.resolve({ data: [] as any[] }),
+    colorIds.length > 0
+      ? supabase.from('cat_colores').select('id, nombre').in('id', colorIds)
+      : Promise.resolve({ data: [] as any[] }),
+    productoIds.length > 0
+      ? (supabase.from('producto_imagenes') as any)
+          .select('producto_id, url')
+          .eq('es_principal', true)
+          .in('producto_id', productoIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+
+  for (const p of (productosRes.data || []) as any[]) {
+    productosMap[p.id] = {
+      nombre: p.nombre || '',
+      sku_base: p.sku_base || '',
+      pz_en_caja: Number.isInteger(p.pz_en_caja) && p.pz_en_caja > 0 ? p.pz_en_caja : null,
+    }
+  }
+  for (const t of (tallasRes.data || []) as any[]) {
+    tallasMap[t.id] = t.codigo
+  }
+  for (const c of (coloresRes.data || []) as any[]) {
+    coloresMap[c.id] = c.nombre
+  }
+  for (const img of (imagenesRes.data || []) as any[]) {
+    if (!imagenesMap[img.producto_id]) imagenesMap[img.producto_id] = img.url
+  }
+
+  return lista.map((item: any) => {
+    const variante = item.variantes_producto || {}
+    const web = item.producto_web_id != null ? webMap[item.producto_web_id] : webMap[item.variante_id]
+    const prodId: number | undefined = variante.producto_id ?? web?.producto_id
+    const prod = prodId !== undefined ? productosMap[prodId] : undefined
+    const nombre = prod?.nombre || web?.nombre || item.producto_nombre || 'Producto'
+    const sku = variante.sku_completo || prod?.sku_base || web?.sku || `Variante #${item.variante_id}`
+
+    return {
+      ...item,
+      sku_completo: sku,
+      producto_nombre: nombre,
+      talla: variante.talla_id ? tallasMap[variante.talla_id] ?? null : null,
+      color: variante.color_id ? coloresMap[variante.color_id] ?? null : null,
+      imagen: prodId !== undefined ? (imagenesMap[prodId] ?? null) : null,
+      pz_en_caja_default: prod?.pz_en_caja ?? null,
+    }
+  })
+}
+
+/**
+ * ¿Puede este usuario ver una nota vinculada a este folio?
+ * El folio debe existir y (si es cliente) pertenecerle. El llamador
+ * (detalle de nota) ya excluyó el filtro de bodega para este caso.
+ */
+export async function puedeVerNotaPorCotizacion(folio: string | null | undefined): Promise<boolean> {
+  const folioLimpio = (folio || '').trim()
+  if (!folioLimpio) return false
+
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const { can } = await import('@/lib/auth/permissions')
+  const currentUser = await getCurrentUser().catch(() => null)
+  if (!currentUser || !can(currentUser, 'ecommerce_ordenes', 'puede_leer')) return false
+
+  const supabase = await createClient()
+  const { data } = await (supabase
+    .from('ordenes_venta') as any)
+    .select('id, usuario_id, email_cliente')
+    .ilike('numero_orden', folioLimpio)
+    .maybeSingle()
+
+  if (!data) return false
+
+  const esCliente = currentUser.rol_id === 19 || (currentUser.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+  if (!esCliente) return true
+  return data.usuario_id === currentUser.id || (currentUser.email != null && data.email_cliente === currentUser.email)
+}
+
+/**
+ * Búsqueda pública de invitado: folio + email deben coincidir.
+ * Retorna null sin distinguir el motivo (anti-enumeración).
+ */
+export async function buscarOrdenInvitado(
+  folio: string,
+  email: string
+): Promise<OrdenVentaDetalle | null> {
+  const folioLimpio = folio.trim()
+  const emailLimpio = email.trim().toLowerCase()
+  if (!folioLimpio || !emailLimpio.includes('@')) return null
+
+  const supabase = createStaticClient()
+
+  const { data: orden } = await (supabase
+    .from('ordenes_venta') as any)
+    .select('*')
+    .ilike('numero_orden', folioLimpio)
+    .maybeSingle()
+
+  if (!orden) return null
+  if ((orden.email_cliente || '').toLowerCase() !== emailLimpio) return null
+
+  const itemsExtendidos = await fetchItemsExtendidos(supabase as unknown as SupabaseClient, orden.id)
+  if (!itemsExtendidos) return null
 
   return {
     ...orden,
     items: itemsExtendidos,
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FAVORITOS (FASE 1: solo lectura pública para hidratar localStorage)
+// ═══════════════════════════════════════════════════════════════
+
+export async function fetchProductosFavoritos(
+  ids: number[]
+): Promise<ProductoWebPublico[]> {
+  const validIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 200)
+  if (validIds.length === 0) return []
+
+  try {
+    const supabase = createStaticClient()
+
+    const { data, error } = await (supabase
+      .from('productos_web') as any)
+      .select(
+        `
+        id,
+        slug,
+        producto_id,
+        precio_publico,
+        precio_oferta,
+        en_oferta,
+        activo,
+        productos!inner(
+          sku_base,
+          nombre,
+          cat_marcas!left(nombre)
+        )
+        `
+      )
+      .in('id', validIds)
+      .eq('activo', true)
+
+    if (error || !data) {
+      console.error('Error fetchProductosFavoritos:', error)
+      return []
+    }
+
+    const productoIds = (data as any[]).map((p) => p.producto_id)
+    let imagenesMap: Record<number, string> = {}
+    if (productoIds.length > 0) {
+      const { data: imagenes } = await (supabase
+        .from('producto_imagenes') as any)
+        .select('producto_id, url')
+        .eq('es_principal', true)
+        .in('producto_id', productoIds)
+      imagenesMap = ((imagenes || []) as any[]).reduce((acc: Record<number, string>, img: any) => {
+        if (!acc[img.producto_id]) acc[img.producto_id] = img.url
+        return acc
+      }, {})
+    }
+
+    const order = new Map(validIds.map((id, index) => [id, index]))
+    return (data as any[])
+      .map((item) => ({
+        id: item.id,
+        slug: item.slug,
+        producto_id: item.producto_id,
+        sku_base: item.productos?.sku_base,
+        nombre: item.productos?.nombre || item.productos?.sku_base || 'Producto',
+        descripcion: null,
+        composicion: null,
+        titulo_seo: null,
+        descripcion_seo: null,
+        precio_publico: item.precio_publico,
+        precio_oferta: item.precio_oferta,
+        en_oferta: item.en_oferta,
+        destacado: false,
+        nuevo: false,
+        marca: item.productos?.cat_marcas?.nombre ?? null,
+        tipo_prenda: null,
+        genero: null,
+        tela_exterior: null,
+        tela_forro: null,
+        keywords: null,
+        imagen_principal: imagenesMap[item.producto_id] || null,
+        url_og: null,
+        modo_override: null,
+        unidad_venta: null,
+        activo: item.activo,
+        stock_cajas: 0,
+        stock_piezas: 0,
+        piezas_estimadas: 0,
+      } as ProductoWebPublico))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  } catch (err) {
+    console.error('Exception in fetchProductosFavoritos:', err)
+    return []
   }
 }

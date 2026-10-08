@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { Check } from 'lucide-react'
 import { Pagination } from '@/components/admin/Pagination'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
+import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
 import type { ProductoWebPublico, ConfigEcommerce } from '@/modules/ecommerce/types'
 import { mostrarPrecio, formatearPrecio, getPrecioAMostrar, formatearStockDisponible } from '@/modules/ecommerce/utils'
 import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
@@ -183,25 +184,28 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
             })()}
           </div>
 
-          <button
-            type="button"
-            onClick={handleQuickAdd}
-            className={`opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1 text-[12px] font-medium px-2 py-1 rounded border ${
-              added 
-                ? 'bg-emerald-600 text-white border-emerald-600 opacity-100' 
-                : 'text-[#2D5A3D] border-[#2D5A3D]/30 hover:bg-[#2D5A3D] hover:text-white'
-            }`}
-            title="Agregar a la lista de cotización / interés"
-          >
-            {added ? (
-              <>
-                <Check className="h-3 w-3" />
-                <span>Agregado</span>
-              </>
-            ) : (
-              <span>{defaultButtonLabel}</span>
-            )}
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <FavoriteButton productoWebId={producto.id} nombre={producto.nombre} className="opacity-0 group-hover:opacity-100 focus:opacity-100 [&[aria-pressed=true]]:opacity-100" />
+            <button
+              type="button"
+              onClick={handleQuickAdd}
+              className={`opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1 text-[12px] font-medium px-2 py-1 rounded border ${
+                added
+                  ? 'bg-emerald-600 text-white border-emerald-600 opacity-100'
+                  : 'text-[#2D5A3D] border-[#2D5A3D]/30 hover:bg-[#2D5A3D] hover:text-white'
+              }`}
+              title="Agregar a la lista de cotización / interés"
+            >
+              {added ? (
+                <>
+                  <Check className="h-3 w-3" />
+                  <span>Agregado</span>
+                </>
+              ) : (
+                <span>{defaultButtonLabel}</span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </Link>

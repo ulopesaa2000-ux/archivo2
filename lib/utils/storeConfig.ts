@@ -2,6 +2,16 @@
 
 export type TextSizeOption = 'small' | 'normal' | 'large'
 
+export interface StoreContacto {
+  id: string
+  nombre: string
+  zona: string
+  telefono_display: string
+  phone_raw: string
+  activo: boolean
+  orden: number
+}
+
 export interface ParsedStoreConfig {
   heroTitle: string
   heroTitleSize: TextSizeOption
@@ -28,6 +38,7 @@ export interface ParsedStoreConfig {
   contactosTitleSize: TextSizeOption
   contactosSubtitle: string
   contactosSubtitleSize: TextSizeOption
+  contactosLista: StoreContacto[]
 
   footerAgradecimiento: string
   footerAgradecimientoSize: TextSizeOption
@@ -59,9 +70,75 @@ export const DEFAULT_STORE_CONFIG: ParsedStoreConfig = {
   contactosTitleSize: 'normal',
   contactosSubtitle: 'Si necesitas más información sobre algún modelo, tallas, colores o disponibilidad, consulta con tu distribuidor autorizado de tu región.',
   contactosSubtitleSize: 'normal',
+  contactosLista: [
+    { id: 'c-daniel', nombre: 'Daniel', zona: 'Zona Centro CDMX', telefono_display: '248 125 0472', phone_raw: '522481250472', activo: true, orden: 0 },
+    { id: 'c-javier', nombre: 'Javier', zona: 'Tulancingo Hgo.', telefono_display: '56 1549 5410', phone_raw: '525615495410', activo: true, orden: 1 },
+    { id: 'c-carlos', nombre: 'Carlos', zona: 'Moroleón Gto.', telefono_display: '55 3935 6156', phone_raw: '525539356156', activo: true, orden: 2 },
+    { id: 'c-juan', nombre: 'Juan', zona: 'San Martín / Toluca / Chiconcuac', telefono_display: '248 125 1671', phone_raw: '522481251671', activo: true, orden: 3 },
+  ],
 
   footerAgradecimiento: '¡Gracias por confiar en nosotros y ser parte de nuestra comunidad!',
   footerAgradecimientoSize: 'large',
+}
+
+export function normalizePhoneRaw(input: string | null | undefined): string {
+  return (input || '').replace(/\D/g, '')
+}
+
+export function buildWhatsAppLink(contacto: Pick<StoreContacto, 'nombre' | 'phone_raw'>): string {
+  const raw = normalizePhoneRaw(contacto.phone_raw)
+  const text = encodeURIComponent(`Hola ${contacto.nombre}, vengo del Catálogo IDOL NAVY.`)
+  return `https://wa.me/${raw}?text=${text}`
+}
+
+export function getContactosActivos(config: ParsedStoreConfig): StoreContacto[] {
+  return [...(config.contactosLista || [])]
+    .filter((c) => c.activo && c.nombre.trim() && normalizePhoneRaw(c.phone_raw))
+    .sort((a, b) => a.orden - b.orden)
+}
+
+export const ZONA_OTRA_REGION = 'Otra región / Envíos a todo México'
+
+const ZONAS_FALLBACK = [
+  'Centro / Ciudad de México',
+  'Tulancingo, Hgo.',
+  'Moroleón, Gto.',
+  'San Martín Texmelucan, Pue.',
+  'Toluca, Edo. Méx.',
+  'Chiconcuac, Edo. Méx.',
+]
+
+/**
+ * Zonas de atención para el formulario de cotización.
+ * Fuente única: zonas de los encargados del JSON; fallback histórico si está vacío.
+ */
+export function getZonasAtencion(config: ParsedStoreConfig): string[] {
+  const zonas = [...new Set(
+    getContactosActivos(config).map((c) => c.zona.trim()).filter(Boolean)
+  )]
+  const base = zonas.length > 0 ? zonas : [...ZONAS_FALLBACK]
+  if (!base.includes(ZONA_OTRA_REGION)) base.push(ZONA_OTRA_REGION)
+  return base
+}
+
+function parseContactosLista(raw: unknown): StoreContacto[] {
+  if (!Array.isArray(raw)) return DEFAULT_STORE_CONFIG.contactosLista
+  const parsed = (raw as unknown[]).map((item, index) => {
+    const c = (item || {}) as Record<string, unknown>
+    const nombre = String(c.nombre || '').slice(0, 80)
+    const phoneRaw = normalizePhoneRaw(String(c.phone_raw || (c as Record<string, unknown>).phoneRaw || '')).slice(0, 20)
+    if (!nombre.trim() || !phoneRaw) return null
+    return {
+      id: String(c.id || `c-${index}-${Date.now()}`).slice(0, 60),
+      nombre,
+      zona: String(c.zona || (c as Record<string, unknown>).region || '').slice(0, 120),
+      telefono_display: String(c.telefono_display || (c as Record<string, unknown>).telefono || phoneRaw).slice(0, 30),
+      phone_raw: phoneRaw,
+      activo: c.activo !== false,
+      orden: typeof c.orden === 'number' && Number.isFinite(c.orden) ? c.orden : index,
+    } as StoreContacto
+  }).filter((c): c is StoreContacto => c !== null)
+  return parsed.length > 0 ? parsed.slice(0, 20) : DEFAULT_STORE_CONFIG.contactosLista
 }
 
 export function parseStoreConfig(raw?: string | null): ParsedStoreConfig {
@@ -95,6 +172,7 @@ export function parseStoreConfig(raw?: string | null): ParsedStoreConfig {
       contactosTitleSize: p.contactos_title_size || DEFAULT_STORE_CONFIG.contactosTitleSize,
       contactosSubtitle: p.contactos_subtitle || DEFAULT_STORE_CONFIG.contactosSubtitle,
       contactosSubtitleSize: p.contactos_subtitle_size || DEFAULT_STORE_CONFIG.contactosSubtitleSize,
+      contactosLista: p.contactos_lista !== undefined ? parseContactosLista(p.contactos_lista) : DEFAULT_STORE_CONFIG.contactosLista,
 
       footerAgradecimiento: p.footer_agradecimiento || DEFAULT_STORE_CONFIG.footerAgradecimiento,
       footerAgradecimientoSize: p.footer_agradecimiento_size || DEFAULT_STORE_CONFIG.footerAgradecimientoSize,
@@ -134,6 +212,15 @@ export function serializeStoreConfig(config: ParsedStoreConfig): string {
     contactos_title_size: config.contactosTitleSize,
     contactos_subtitle: config.contactosSubtitle,
     contactos_subtitle_size: config.contactosSubtitleSize,
+    contactos_lista: (config.contactosLista || []).map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      zona: c.zona,
+      telefono_display: c.telefono_display,
+      phone_raw: normalizePhoneRaw(c.phone_raw),
+      activo: c.activo,
+      orden: c.orden,
+    })),
 
     footer_agradecimiento: config.footerAgradecimiento,
     footer_agradecimiento_size: config.footerAgradecimientoSize,
