@@ -47,6 +47,28 @@ export type DespachoFormProducto = {
   cantidad_cajas: number
 }
 
+// ── Auditoría visible entra/sale (solo lectura, sin mover stock) ──
+
+export type AuditoriaDespachoLinea = {
+  producto_id: number
+  sku: string | null
+  nombre: string | null
+  cajas_despacho: number
+  cajas_nota: number
+  stock_origen: number
+  stock_destino: number
+  /** PEND/PROC: alcanza el stock origen. CONF: informativo (ya movido). */
+  estado: 'OK' | 'FALTA_ORIGEN' | 'DIFIERE_NOTA'
+}
+
+export type AuditoriaDespacho = {
+  despacho_id: number
+  nota_id: number | null
+  nota_numero: string | null
+  nota_estado: string | null
+  lineas: AuditoriaDespachoLinea[]
+} | null
+
 // ── Filtros de búsqueda ─────────────────────────────────────
 
 export type FiltrosDespacho = {

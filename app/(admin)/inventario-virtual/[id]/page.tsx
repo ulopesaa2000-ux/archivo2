@@ -32,12 +32,12 @@ export default async function DashboardVirtualPage(props: { params: Promise<{ id
 
   const stock = await fetchStockVirtual(id)
 
-  // Obtener notas PENDIENTES de esta bodega
+  // Obtener notas PENDIENTES/EN PROCESO de esta bodega (borradores TRF incluidos)
   const { data: notasPendientes } = await supabase
     .from('notas_inventario')
-    .select('id, numero_nota, observaciones, created_at, tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (codigo, nombre), estado:cat_estados_nota!notas_inventario_estado_id_fkey (codigo)')
+    .select('id, numero_nota, nota_referencia, observaciones, created_at, tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (codigo, nombre), estado:cat_estados_nota!notas_inventario_estado_id_fkey (codigo)')
     .or(`bodega_origen_id.eq.${id},bodega_destino_id.eq.${id}`)
-    .eq('estado_id', 1) // PEND
+    .in('estado_id', [1, 4]) // PEND, PROC
     .eq('activo', true)
     .order('created_at', { ascending: false })
     .limit(10)
@@ -51,9 +51,12 @@ export default async function DashboardVirtualPage(props: { params: Promise<{ id
           notasPendientes={(notasPendientes as any[] ?? []).map((n: any) => {
             const tipo = Array.isArray(n.tipo) ? n.tipo[0] : n.tipo
             const estado = Array.isArray(n.estado) ? n.estado[0] : n.estado
+            const match = /^Despacho (\d+)$/.exec(n.nota_referencia ?? '')
             return {
               id: n.id,
               numero_nota: n.numero_nota,
+              nota_referencia: n.nota_referencia ?? null,
+              despacho_id: match ? Number(match[1]) : null,
               observaciones: n.observaciones,
               created_at: n.created_at,
               tipo_codigo: tipo?.codigo ?? null,

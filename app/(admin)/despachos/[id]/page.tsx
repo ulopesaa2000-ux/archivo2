@@ -2,7 +2,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { fetchDespachoById } from '@/modules/despachos/queries'
+import { fetchDespachoById, fetchAuditoriaDespacho } from '@/modules/despachos/queries'
 import { DespachoDetalleContent } from './DespachoDetalleContent'
 import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
 
@@ -22,10 +22,12 @@ export default async function DespachoDetallePage(props: { params: Promise<{ id:
   const despacho = await fetchDespachoById(id)
   if (!despacho) notFound()
 
+  const auditoria = await fetchAuditoriaDespacho(id)
+
   return (
     <div className="space-y-6">
       <Suspense fallback={<DetailPageSkeleton />}>
-        <DespachoDetalleContent despacho={despacho} />
+        <DespachoDetalleContent despacho={despacho} auditoria={auditoria} />
       </Suspense>
     </div>
   )

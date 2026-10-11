@@ -22,6 +22,8 @@ export function DashboardVirtualContent({
   notasPendientes: {
     id: number
     numero_nota: string
+    nota_referencia: string | null
+    despacho_id: number | null
     observaciones: string | null
     created_at: string | null
     tipo_codigo: string | null
@@ -90,6 +92,7 @@ export function DashboardVirtualContent({
                 <TableRow>
                   <TableHead>Nota</TableHead>
                   <TableHead>Tipo</TableHead>
+                  <TableHead>Referencia</TableHead>
                   <TableHead>Observaciones</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead></TableHead>
@@ -101,6 +104,15 @@ export function DashboardVirtualContent({
                     <TableCell className="font-mono text-xs">{n.numero_nota}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{n.tipo_nombre ?? n.tipo_codigo}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {n.despacho_id ? (
+                        <Link href={ADMIN_ROUTES.despachos.detalle(n.despacho_id)} className="font-mono font-bold text-primary hover:underline">
+                          Despacho #{n.despacho_id} →
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground font-mono text-[11px]">{n.nota_referencia ?? '—'}</span>
+                      )}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate text-sm">{n.observaciones ?? '—'}</TableCell>
                     <TableCell><Fecha valor={n.created_at} formato="fecha" /></TableCell>
