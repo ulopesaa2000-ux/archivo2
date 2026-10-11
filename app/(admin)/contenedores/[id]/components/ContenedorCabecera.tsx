@@ -71,6 +71,8 @@ export function ContenedorCabecera({
   const [entiendoSurtido, setEntiendoSurtido] = useState(false)
   // Aviso de ingreso pendiente (ENT en PEND: solo avisa, aún no mueve stock)
   const [avisoPendiente, setAvisoPendiente] = useState<SurtidoPreview['avisoPendiente']>(null)
+  // Comprobante permanente (última nota por nota_referencia, cualquier estado)
+  const [comprobante, setComprobante] = useState<SurtidoPreview['comprobante']>(null)
 
   // Estado del checklist de documentos
   const [docsChecklist, setDocsChecklist] = useState<Record<string, boolean>>(() => {
@@ -87,14 +89,27 @@ export function ContenedorCabecera({
   const transicionesPermitidas = TRANSICIONES_CONTENEDOR[contenedor.estado ?? ''] ?? []
 
   // Detectar aviso de ingreso pendiente (ENT en PEND) para ofrecer el 2.º paso
+  // + comprobante permanente para evitar doble surtido
   useEffect(() => {
-    if (contenedor.estado !== 'en_bodega') return
+    if (contenedor.estado !== 'en_bodega' && contenedor.estado !== 'surtido') return
     let vivo = true
     fetchSurtidoPreview(contenedor.id)
-      .then((data) => { if (vivo) setAvisoPendiente(data.avisoPendiente) })
+      .then((data) => {
+        if (!vivo) return
+        setAvisoPendiente(data.avisoPendiente)
+        setComprobante(data.comprobante)
+      })
       .catch(() => {})
     return () => { vivo = false }
   }, [contenedor.id, contenedor.estado])
+
+  // Reconciliación: nota ya CONF pero estado aún en_bodega (caso 2026-13)
+  const necesitaSincronizar =
+    contenedor.estado === 'en_bodega' &&
+    !avisoPendiente &&
+    comprobante?.estadoCodigo === 'CONF'
+  const comprobanteSurtido =
+    contenedor.estado === 'surtido' && comprobante?.estadoCodigo === 'CONF'
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -144,6 +159,7 @@ export function ContenedorCabecera({
         const data = await fetchSurtidoPreview(contenedor.id)
         setPreview(data)
         setAvisoPendiente(data.avisoPendiente)
+        setComprobante(data.comprobante)
       } catch {
         setPreviewError('No se pudo cargar el resumen de líneas.')
       } finally {
@@ -167,6 +183,7 @@ export function ContenedorCabecera({
         const data = await fetchSurtidoPreview(contenedor.id)
         setPreview(data)
         setAvisoPendiente(data.avisoPendiente)
+        setComprobante(data.comprobante)
       } catch {
         // ignorar: el aviso ya se creó
       }
@@ -185,6 +202,12 @@ export function ContenedorCabecera({
       if (!result.success) { setError(result.error ?? 'Error al confirmar el ingreso.'); return }
       setSurtirOpen(false)
       setAvisoPendiente(null)
+      try {
+        const data = await fetchSurtidoPreview(contenedor.id)
+        setComprobante(data.comprobante)
+      } catch {
+        // ignorar
+      }
       router.refresh()
     })
   }
@@ -224,7 +247,7 @@ export function ContenedorCabecera({
             </Select>
           )}
 
-          {canEdit && contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && (
+          {canEdit && contenedor.estado === 'en_bodega' && bodegasVirtuales.length > 0 && !comprobanteSurtido && (
             <Button
               variant="default" size="sm"
               onClick={openSurtir}
@@ -246,6 +269,31 @@ export function ContenedorCabecera({
               {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               <Check className="h-3.5 w-3.5 mr-1" /> Confirmar ingreso ({avisoPendiente.numeroNota})
             </Button>
+          )}
+
+          {/* Reconciliación: nota ya CONF pero estado aún en_bodega (evita doble surtido) */}
+          {canEdit && necesitaSincronizar && comprobante && (
+            <Button
+              variant="default" size="sm"
+              onClick={handleConfirmarIngreso}
+              disabled={isPending || confirmandoIngreso}
+              title={`La nota ${comprobante.numeroNota} ya está confirmada. Sincroniza el estado a Surtido sin mover stock de nuevo.`}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              <Check className="h-3.5 w-3.5 mr-1" /> Sincronizar a surtido ({comprobante.numeroNota})
+            </Button>
+          )}
+
+          {/* Comprobante permanente: ya surtido, link a la nota */}
+          {comprobanteSurtido && comprobante && (
+            <Link
+              href={ADMIN_ROUTES.inventario.notaDetalle(comprobante.notaId)}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600/10 border border-emerald-500/30 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600/20"
+              title={`Ingreso confirmado a ${comprobante.bodegaNombre ?? 'bodega virtual'}`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Surtido {comprobante.numeroNota} →
+            </Link>
           )}
 
           {canEdit && !isEditing && (
@@ -317,6 +365,15 @@ export function ContenedorCabecera({
                       Aviso <strong>{preview.avisoPendiente.numeroNota}</strong> generado
                       {preview.avisoPendiente.bodegaNombre ? ` hacia ${preview.avisoPendiente.bodegaNombre}` : ''}:
                       solo avisa, aún no mueve stock. Confirma el ingreso en el segundo paso.
+                    </span>
+                  </div>
+                )}
+                {preview.comprobante?.estadoCodigo === 'CONF' && (
+                  <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Ya surtido con <Link href={ADMIN_ROUTES.inventario.notaDetalle(preview.comprobante.notaId)} className="font-bold underline">{preview.comprobante.numeroNota}</Link>
+                      {preview.comprobante.bodegaNombre ? ` en ${preview.comprobante.bodegaNombre}` : ''}. No generes otro aviso para evitar duplicar stock.
                     </span>
                   </div>
                 )}
@@ -439,12 +496,23 @@ export function ContenedorCabecera({
                 {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
                 <Check className="h-3.5 w-3.5 mr-1" /> Confirmar ingreso ({preview.avisoPendiente.numeroNota})
               </Button>
+            ) : preview?.comprobante?.estadoCodigo === 'CONF' ? (
+              <Button
+                size="sm"
+                onClick={handleConfirmarIngreso}
+                disabled={confirmandoIngreso}
+                title="La nota ya está CONF. Solo sincroniza estado a Surtido sin mover stock."
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+              >
+                {confirmandoIngreso && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                <Check className="h-3.5 w-3.5 mr-1" /> Sincronizar a surtido ({preview.comprobante.numeroNota})
+              </Button>
             ) : (
               <Button
                 size="sm"
                 onClick={handleSurtir}
-                disabled={!bodegaVirtualId || surtiendo || cargandoPreview || !preview || preview.lineas.length === 0 || !entiendoSurtido || preview.conDiferencias}
-                title={preview?.conDiferencias ? 'Bloqueado: hay líneas sin match con cajas físicas' : undefined}
+                disabled={!bodegaVirtualId || surtiendo || cargandoPreview || !preview || preview.lineas.length === 0 || !entiendoSurtido || preview.conDiferencias || preview?.comprobante?.estadoCodigo === 'CONF'}
+                title={preview?.conDiferencias ? 'Bloqueado: hay líneas sin match con cajas físicas' : preview?.comprobante?.estadoCodigo === 'CONF' ? 'Ya surtido: no generar otro aviso' : undefined}
               >
                 {surtiendo && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
                 <Check className="h-3.5 w-3.5 mr-1" /> Generar aviso

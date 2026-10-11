@@ -49,9 +49,11 @@ import { CajaCard } from '@/components/admin/cajas/CajaCard'
 import { createColorAction } from '@/modules/catalogo/actions'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction, obtenerColoresActivosAction } from '@/modules/ordenes-b2b/actions'
 import type { CatalogoColorOrdenRapida } from '@/modules/ordenes-b2b/actions'
-import { resolveColor, buildColorDraft, suggestEs } from '@/lib/color-match'
+import { resolveColor, buildColorDraft, suggestEs, claveColor, dedupPorClave, filtrarColoresCatalogo, normalizeColorKey } from '@/lib/color-match'
 import type { CatalogColor } from '@/lib/color-match'
 import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones } from '@/lib/orden-rapida-colores'
+import { agruparCajasPorProducto, aplicarEdicionCaja, detallesDesdeMatriz, fijarPzMinima, aplicarRepartoSeparacion } from '@/lib/orden-rapida-cajas'
+import type { CajaEditPayload } from '@/lib/orden-rapida-cajas'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
@@ -553,23 +555,30 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
     const tallas = Array.from(
       new Set(detallesCaja.map((detalle: Record<string, any>) => detalle.talla_codigo).filter(Boolean)),
     ) as string[]
-    const colores = Array.from(
-      new Set(detallesCaja.map((detalle: Record<string, any>) => detalle.color_raw).filter(Boolean)),
-    ) as string[]
+    // Colores deduplicados por clave insensible (case/acentos/espacios),
+    // conservando el primer raw como display.
+    const coloresVistos = new Map<string, string>()
+    for (const d of detallesCaja) {
+      const r = d.color_raw
+      if (!r) continue
+      const k = claveColor(String(r))
+      if (!coloresVistos.has(k)) coloresVistos.set(k, String(r))
+    }
+    const colores = Array.from(coloresVistos.values())
     const valores: Record<string, Record<string, number>> = {}
 
     for (const color of colores) {
       valores[color] = {}
       for (const talla of tallas) {
         const detalle = detallesCaja.find(
-          (item: Record<string, any>) => item.color_raw === color && item.talla_codigo === talla,
+          (item: Record<string, any>) => claveColor(String(item.color_raw || '')) === claveColor(color) && item.talla_codigo === talla,
         )
         valores[color][talla] = toNumber(detalle?.cantidad_por_caja)
       }
     }
 
     const cajaTallas = parsePipeDelimited(caja.tallas)
-    const cajaColores = parsePipeDelimited(caja.colores)
+    const cajaColores = dedupPorClave(parsePipeDelimited(caja.colores))
     const tallasFinales = cajaTallas.length > 0 ? cajaTallas : tallas
     const coloresFinales = cajaColores.length > 0 ? cajaColores : colores
 
@@ -730,77 +739,197 @@ function buildCatalogoItemsFromStrings(items: string[]): CatalogoItem[] {
   }))
 }
 
-function agruparCajasPorProducto(
-  cajas: WizardCaja[],
-  productos: WizardProducto[],
-): Array<{ producto: WizardProducto; cajas: WizardCaja[] }> {
-  const cajasPorTempId = new Map<string, WizardCaja[]>()
-  const cajasPorSku = new Map<string, WizardCaja[]>()
-
-  for (const caja of cajas) {
-    if (caja.producto_temp_id) {
-      if (!cajasPorTempId.has(caja.producto_temp_id)) cajasPorTempId.set(caja.producto_temp_id, [])
-      cajasPorTempId.get(caja.producto_temp_id)!.push(caja)
-    }
-    const normSku = (caja.sku_base || '').trim().toUpperCase()
-    if (normSku) {
-      if (!cajasPorSku.has(normSku)) cajasPorSku.set(normSku, [])
-      cajasPorSku.get(normSku)!.push(caja)
-    }
-  }
-
-  const result: Array<{ producto: WizardProducto; cajas: WizardCaja[] }> = []
-  const cajasAsignadas = new Set<WizardCaja>()
-
-  for (const producto of productos) {
-    let cajasDelProducto: WizardCaja[] = []
-    const normProdSku = (producto.sku_base || '').trim().toUpperCase()
-
-    // Prioridad 1: Coincidencia por producto_temp_id
-    if (producto.temp_id && cajasPorTempId.has(producto.temp_id)) {
-      cajasDelProducto = cajasPorTempId.get(producto.temp_id) || []
-    }
-    // Prioridad 2: Coincidencia por SKU normalizado
-    else if (normProdSku && cajasPorSku.has(normProdSku)) {
-      cajasDelProducto = cajasPorSku.get(normProdSku) || []
-    }
-
-    // Sincronizar SKU, temp_id y producto_id en todas las cajas asociadas
-    for (const caja of cajasDelProducto) {
-      cajasAsignadas.add(caja)
-      caja.sku_base = producto.sku_base
-      if (producto.temp_id) caja.producto_temp_id = producto.temp_id
-      if (producto.producto_id) caja.producto_id = producto.producto_id
-    }
-
-    result.push({ producto, cajas: cajasDelProducto })
-  }
-
-  // Cajas restantes no vinculadas a productos de la lista
-  const cajasRestantes = cajas.filter((c) => !cajasAsignadas.has(c))
-  const cajasRestantesPorSku = new Map<string, WizardCaja[]>()
-  for (const c of cajasRestantes) {
-    const sku = (c.sku_base || '').trim().toUpperCase() || '__sin_sku__'
-    if (!cajasRestantesPorSku.has(sku)) cajasRestantesPorSku.set(sku, [])
-    cajasRestantesPorSku.get(sku)!.push(c)
-  }
-
-  for (const [sku, list] of cajasRestantesPorSku) {
-    if (list.length > 0) {
-      result.push({
-        producto: {
-          temp_id: `orphan_${sku}`,
-          sku_base: sku,
-          nombre: `SKU sin producto: ${sku}`,
-          estado_temporal: 'sin_producto',
-        },
-        cajas: list,
-      })
-    }
-  }
-
-  return result
+type AlertaCajaRow = {
+  tipo?: string; severidad?: string; detalle?: string; issue?: string
 }
+
+type ColorMatchRow = { raw: string; found: boolean; via: string | null; nombre: string }
+
+type WizardCajaRowProps = {
+  caja: WizardCaja
+  cpTallas: string[]
+  cpColores: string[]
+  matchColores: ColorMatchRow[]
+  alertasCaja: AlertaCajaRow[]
+  nDetalles: number
+  modoArrastre: boolean
+  esArrastrada: boolean
+  onToggleArrastrada: (codigo: string) => void
+  onDragStartArrastrada: (codigo: string, e: React.DragEvent) => void
+  onDragEndArrastrada: () => void
+  onEditCodigo: (codigo: string, data: CajaEditPayload) => Promise<void>
+  onRemoveCodigo: (codigo: string) => void
+  onAbrirColores: () => void
+}
+
+// Fila memoizada: solo re-renderiza si su caja o sus props cambian.
+// (Antes, cada edicion reconstruia las N tarjetas del wizard.)
+const WizardCajaRow = memo(function WizardCajaRow({
+  caja, cpTallas, cpColores, matchColores, alertasCaja, nDetalles,
+  modoArrastre, esArrastrada, onToggleArrastrada, onDragStartArrastrada,
+  onDragEndArrastrada, onEditCodigo, onRemoveCodigo, onAbrirColores,
+}: WizardCajaRowProps) {
+  const codTmp = String(caja.codigo_caja_temporal || '')
+  const sharedCaja = useMemo(() => wizardCajaToSharedCajaData(caja, 0), [caja])
+  const tallasCatalogo = useMemo(
+    () => buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || [])),
+    [cpTallas, caja],
+  )
+  const coloresCatalogo = useMemo(() => {
+    const packingCols = (caja.matriz?.colores || caja.colores || []) as string[]
+    // Union deduplicada por clave (el packing nunca desaparece, sin duplicar
+    // "BLACK"/"black"): primero catalogo, luego packing no cubierto.
+    const unionCols = dedupPorClave([...(cpColores.length > 0 ? cpColores : []), ...packingCols])
+    return buildCatalogoItemsFromStrings(unionCols)
+  }, [cpColores, caja])
+  const handleEditRow = useCallback((id: number, data: CajaEditPayload) => onEditCodigo(codTmp, data), [onEditCodigo, codTmp])
+  const handleRemoveRow = useCallback(() => onRemoveCodigo(codTmp), [onRemoveCodigo, codTmp])
+
+  return (
+    <div key={caja.codigo_caja_temporal || caja.codigo_caja} className={`space-y-1.5 rounded-md p-1 transition-colors ${modoArrastre && esArrastrada ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
+      {modoArrastre && (
+        <span
+          draggable
+          onDragStart={(e) => onDragStartArrastrada(codTmp, e)}
+          onDragEnd={onDragEndArrastrada}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleArrastrada(codTmp)
+          }}
+          title="Arrastra a otro producto o tócala y luego toca el destino"
+          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold cursor-grab active:cursor-grabbing select-none ${esArrastrada ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-muted/60 text-muted-foreground hover:text-foreground'}`}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+          {esArrastrada ? 'Moviendo… toca destino' : 'Mover'}
+        </span>
+      )}
+      {((caja as any).piezas_heredadas || (caja as any).piezas_estimadas || alertasCaja.length > 0 || nDetalles > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+          {(caja as any).piezas_heredadas && (
+            <Badge
+              variant="outline"
+              className="border-sky-400 bg-sky-50 text-sky-800 font-bold"
+              title={`Piezas por caja heredadas de ${(caja as any).piezas_heredadas_de || 'principal'}`}
+            >
+              ↩ {Number(caja.piezas_por_caja || 0)} pz heredadas
+            </Badge>
+          )}
+          {(caja as any).piezas_estimadas && (
+            <Badge
+              variant="outline"
+              className="border-amber-400 bg-amber-50 text-amber-800 font-bold"
+              title="1 pza/caja temporal (botón Fijar 1 pza). Corrige el valor real editando la caja."
+            >
+              ⚠ 1 pz estimada
+            </Badge>
+          )}
+          {nDetalles > 0 && (
+            <Badge variant="secondary" title="Renglones de desglose talla/color en esta caja">
+              🧵 {nDetalles} detalle{nDetalles !== 1 ? 's' : ''}
+            </Badge>
+          )}
+          {matchColores.map((mc, mi) => (
+            <Badge
+              key={`${mc.raw}-${mi}`}
+              variant="outline"
+              className={`font-bold ${mc.found ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-300' : 'border-amber-400 bg-amber-50 text-amber-800'}`}
+              title={mc.found
+                ? `"${mc.raw}" → ${mc.nombre} en catálogo (${mc.via ?? 'match'})`
+                : `"${mc.raw}" sin match en catálogo: se propone crear "${mc.nombre}". Abre el panel de colores.`}
+              onClick={() => { if (!mc.found) onAbrirColores() }}
+              style={mc.found ? undefined : { cursor: 'pointer' }}
+            >
+              {mc.found ? '✔' : '⚠'} {mc.raw}{mc.found && claveColor(mc.nombre) !== claveColor(mc.raw) ? ` → ${mc.nombre}` : ''}
+            </Badge>
+          ))}
+          {alertasCaja.map((a, i) => (
+            <Badge
+              key={i}
+              variant="outline"
+              className={a.severidad === 'alta' ? 'border-red-400 bg-red-50 text-red-800' : 'border-amber-400 bg-amber-50 text-amber-800'}
+              title={a.detalle || a.issue || a.tipo || 'aviso n8n'}
+            >
+              <AlertTriangle className="h-3 w-3 mr-0.5" />
+              {a.tipo === 'ia_calidad' ? 'IA: ' : ''}{String(a.detalle || a.issue || a.tipo || '').slice(0, 90)}
+            </Badge>
+          ))}
+        </div>
+      )}
+      <CajaCard
+        caja={sharedCaja}
+        layout="horizontal"
+        canEdit={true}
+        canDelete={true}
+        canEditOrden={true}
+        tallasDisponibles={tallasCatalogo}
+        coloresDisponibles={coloresCatalogo}
+        onEdit={handleEditRow}
+        onRemove={handleRemoveRow}
+        isPending={false}
+      />
+    </div>
+  )
+})
+
+// Combobox buscable para mapear un color nuevo a uno existente del catalogo.
+// Filtra insensible a case/acentos por nombre+codigo+intern. Estado local por
+// tarjeta: no re-renderiza el resto del modal al escribir.
+const MapearColorCombobox = memo(function MapearColorCombobox({ catalogo, onSelect }: {
+  catalogo: CatalogoColorOrdenRapida[]
+  onSelect: (id: number | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const resultados = useMemo(() => filtrarColoresCatalogo(catalogo, q, 50), [catalogo, q])
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQ('') }}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            role="combobox"
+            aria-expanded={open}
+            className="h-7 w-44 justify-between text-[11px]"
+          />
+        }
+      >
+        <span className="truncate text-muted-foreground">Mapear a existente…</span>
+        <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0" align="end">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Buscar color…" value={q} onValueChange={setQ} />
+          <CommandList>
+            <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+              Sin resultados para &quot;{q}&quot;.
+            </CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="__none__" onSelect={() => { onSelect(null); setOpen(false) }}>
+                <Check className="mr-2 h-3.5 w-3.5 shrink-0 opacity-0" />
+                Sin mapear
+              </CommandItem>
+              {resultados.map((cc) => (
+                <CommandItem
+                  key={cc.id}
+                  value={`${cc.nombre} ${cc.codigo ?? ''} ${cc.nombre_intern ?? ''}`}
+                  onSelect={() => { onSelect(cc.id); setOpen(false) }}
+                >
+                  <Check className="mr-2 h-3.5 w-3.5 shrink-0 opacity-0" />
+                  <span className="truncate">{cc.nombre}</span>
+                  {cc.nombre_intern ? (
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">{cc.nombre_intern}</span>
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+})
 
 function ComparisonBadge({
   calculated,
@@ -1029,6 +1158,26 @@ export function OrdenRapidaWizard({
   const [overrideCbm, setOverrideCbm] = useState<number | null>(null)
   const [overridePesoNeto, setOverridePesoNeto] = useState<number | null>(null)
   const [overridePeso, setOverridePeso] = useState<number | null>(null)
+  // Dialogo compartido para editar valores objetivo de la nota (reemplaza window.prompt)
+  const [overrideModal, setOverrideModal] = useState<{ key: 'productos' | 'cajas' | 'piezas' | 'cbm' | 'pesoNeto' | 'peso'; label: string } | null>(null)
+  const [overrideValor, setOverrideValor] = useState('')
+  const abrirOverride = (key: NonNullable<typeof overrideModal>['key'], label: string, actual: unknown) => {
+    setOverrideValor(String(actual ?? ''))
+    setOverrideModal({ key, label })
+  }
+  const aplicarOverride = () => {
+    if (!overrideModal) return
+    const esEntero = overrideModal.key === 'productos' || overrideModal.key === 'cajas' || overrideModal.key === 'piezas'
+    const parsed = esEntero ? parseInt(overrideValor, 10) : parseFloat(overrideValor)
+    const val = overrideValor.trim() === '' || isNaN(parsed) ? null : parsed
+    if (overrideModal.key === 'productos') setOverrideProductos(val)
+    else if (overrideModal.key === 'cajas') setOverrideCajas(val)
+    else if (overrideModal.key === 'piezas') setOverridePiezas(val)
+    else if (overrideModal.key === 'cbm') setOverrideCbm(val)
+    else if (overrideModal.key === 'pesoNeto') setOverridePesoNeto(val)
+    else setOverridePeso(val)
+    setOverrideModal(null)
+  }
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
 
   const [dbSkusSet, setDbSkusSet] = useState<Set<string>>(new Set())
@@ -1110,6 +1259,7 @@ export function OrdenRapidaWizard({
   const [separacionIgnorada, setSeparacionIgnorada] = useState(false)
   const [coloresModalOpen, setColoresModalOpen] = useState(false)
   const [colorDrafts, setColorDrafts] = useState<Record<string, ColorDraft>>({})
+  const [filtroPendientes, setFiltroPendientes] = useState('')
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -1142,6 +1292,9 @@ export function OrdenRapidaWizard({
     setSeparacionIgnorada(false)
     setColoresModalOpen(false)
     setColorDrafts({})
+    setFiltroPendientes('')
+    setOverrideModal(null)
+    setOverrideValor('')
     coloresAutoOpenedRef.current = false
     setProgress(0)
     setProgressMsg('')
@@ -1470,72 +1623,51 @@ export function OrdenRapidaWizard({
     return map
   }, [parsedData])
 
-  const handleCajaEdit = async (
-    cajaIndex: number,
-    data: {
-      base: Partial<SharedCajaData>
-      detalles: { talla_id: number; color_id: number; cantidad: number; talla_nombre?: string; color_nombre?: string }[]
-    },
-  ) => {
+  const handleCajaEdit = useCallback(async (codigo: string, data: CajaEditPayload) => {
     setEditableCajas((prev) =>
-      prev.map((caja, idx) => {
-        if (idx !== cajaIndex) return caja
-
-        const base = data.base
-        const tallas = base.tallas ? base.tallas.split('|').filter(Boolean) : caja.tallas
-        const colores = base.colores ? base.colores.split('|').filter(Boolean) : caja.colores
-
-        const matriz = { ...caja.matriz }
-        if (data.detalles.length > 0) {
-          const newValores: Record<string, Record<string, number>> = {}
-          for (const color of colores) {
-            newValores[color] = {}
-            for (const talla of tallas) {
-              newValores[color][talla] = 0
-            }
-          }
-          for (const det of data.detalles) {
-            const colorStr = det.color_nombre || colores.find((c) => c === String(det.color_id)) || colores[det.color_id - 1] || String(det.color_id)
-            const tallaStr = det.talla_nombre || tallas.find((t) => t === String(det.talla_id)) || tallas[det.talla_id - 1] || String(det.talla_id)
-
-            if (!newValores[colorStr]) {
-              newValores[colorStr] = {}
-            }
-            newValores[colorStr][tallaStr] = det.cantidad
-          }
-          matriz.tallas = tallas
-          matriz.colores = colores
-          matriz.valores = newValores
-        }
-
-        const totalPiezasCalculadoMatriz = data.detalles.reduce((sum, d) => sum + (d.cantidad || 0), 0)
-
-        return {
-          ...caja,
-          ...base,
-          tallas,
-          colores,
-          matriz,
-          piezas_por_caja: totalPiezasCalculadoMatriz > 0 ? totalPiezasCalculadoMatriz : (base.piezas_por_caja ?? caja.piezas_por_caja),
-          cantidad_cajas: base.cantidad_cajas ?? caja.cantidad_cajas,
-          cbm: base.cbm ?? caja.cbm,
-          peso_bruto_kg: base.peso_bruto_kg ?? caja.peso_bruto_kg,
-          peso_neto_kg: base.peso_neto ?? caja.peso_neto_kg,
-          largo_cm: base.largo_cm ?? caja.largo_cm,
-          ancho_cm: base.ancho_cm ?? caja.ancho_cm,
-          alto_cm: base.alto_cm ?? caja.alto_cm,
-          nombre_pack: base.nombre_pack ?? caja.nombre_pack,
-          codigo_caja: base.codigo_caja ?? caja.codigo_caja,
-        }
+      prev.map((caja) => {
+        if (String(caja.codigo_caja_temporal || caja.codigo_caja || '') !== codigo) return caja
+        return aplicarEdicionCaja(caja, data)
       }),
     )
     toast.success('Caja actualizada localmente.')
-  }
+  }, [])
 
-  const handleCajaRemove = (cajaIndex: number) => {
-    setEditableCajas((prev) => prev.filter((_, idx) => idx !== cajaIndex))
+  const handleCajaRemove = useCallback((codigo: string) => {
+    setEditableCajas((prev) => prev.filter((c) => String(c.codigo_caja_temporal || c.codigo_caja || '') !== codigo))
     toast.success('Caja eliminada de la vista.')
-  }
+  }, [])
+
+  // Bulk-fix 0→1 pza: asigna 1 pza/caja temporal a las cajas sin dato para no
+  // romper logica (match/herencia/guardado). Marcadas como estimadas.
+  const handleFijarPzMinima = useCallback(() => {
+    setEditableCajas((prev) => {
+      const { cajas, fijadas } = fijarPzMinima(prev)
+      if (fijadas > 0) {
+        toast.warning(`${fijadas} caja(s) con 1 pza temporal: corrige el valor real en su tarjeta.`)
+      } else {
+        toast.info('No hay cajas sin piezas por caja.')
+      }
+      return cajas
+    })
+  }, [])
+
+  // Callbacks estables para las filas memoizadas (modo arrastre + colores)
+  // (sin toast: la etiqueta "Moviendo… toca destino" ya guia; evita efectos en updaters)
+  const handleToggleArrastrada = useCallback((codigo: string) => {
+    setCajaArrastrada((prev) => (prev === codigo ? null : codigo))
+  }, [])
+  const handleDragStartArrastrada = useCallback((codigo: string, e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', codigo)
+    e.dataTransfer.effectAllowed = 'move'
+    setCajaArrastrada(codigo)
+  }, [])
+  const handleDragEndArrastrada = useCallback(() => {
+    setCajaArrastrada(null)
+  }, [])
+  const handleAbrirColores = useCallback(() => {
+    setColoresModalOpen(true)
+  }, [])
 
   // Renombra el código al cambiar de SKU: conserva el sufijo (pack/contador)
   // si el código empieza con el SKU origen; si no, lo prefija. Evita
@@ -1745,37 +1877,33 @@ export function OrdenRapidaWizard({
       return
     }
     const usados = new Set(editableCajas.map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '').toUpperCase()))
-    const remap = new Map<string, { sku: string; tempId: string; codigo: string }>()
-    for (const [cod, skuD] of destinoPorCodigo) {
-      const nuevoCodigo = renombrarCodigoCaja(cod, sep.sku_base_original || '', skuD, usados)
-      usados.add(nuevoCodigo.toUpperCase())
-      remap.set(cod, { sku: skuD, tempId: tempPorSku.get(skuD.toUpperCase()) || '', codigo: nuevoCodigo })
-    }
-    setEditableProductos((prev) => [
-      ...prev.map((p) => (p.temp_id === prodA.temp_id
-        ? { ...p, sku_base: skuA, sku_raw: [skuA, cands[0].alias].filter(Boolean).join(' ') }
-        : p)),
-      ...nuevos,
-    ])
-    setEditableCajas((prev) => prev.map((c) => {
-      const cod = String(c.codigo_caja_temporal || c.codigo_caja || '')
-      const m = remap.get(cod)
-      if (!m) return c
-      return { ...c, sku_base: m.sku, producto_temp_id: m.tempId, codigo_caja_temporal: m.codigo, codigo_caja: m.codigo }
-    }))
-    setParsedData((prev: WizardParsedData | null) => {
-      if (!prev || !Array.isArray(prev.detalles)) return prev
-      return {
-        ...prev,
-        detalles: prev.detalles.map((d) => {
-          const cod = String(d?.codigo_caja_temporal || '')
-          const m = remap.get(cod)
-          return m ? { ...d, codigo_caja_temporal: m.codigo } : d
-        }),
-      }
+    void usados
+    const aplicado = aplicarRepartoSeparacion({
+      productos: editableProductos,
+      cajas: editableCajas,
+      detalles: (parsedData?.detalles || []) as Array<Record<string, unknown>>,
+      prodATempId: prodA.temp_id,
+      skuA,
+      skuRawA: [skuA, cands[0].alias].filter(Boolean).join(' '),
+      nuevos,
+      tempPorSku: Object.fromEntries(tempPorSku),
+      destinoPorCodigo,
+      originalUp,
+      renombrar: (cod, skuD, usadosSet) => renombrarCodigoCaja(cod, sep.sku_base_original || '', skuD, usadosSet),
     })
-    setExpandedProducts((prev) => new Set(prev).add(skuA))
-    for (const n of nuevos) setExpandedProducts((prev) => new Set(prev).add(n.sku_base))
+    const remapSize = aplicado.movidas
+    setEditableProductos(aplicado.productos as WizardProducto[])
+    setEditableCajas(aplicado.cajas as WizardCaja[])
+    setParsedData((prev: WizardParsedData | null) => {
+      if (!prev) return prev
+      return { ...prev, detalles: aplicado.detalles }
+    })
+    setExpandedProducts((prev) => {
+      const next = new Set(prev)
+      next.add(skuA)
+      for (const n of nuevos) next.add(n.sku_base)
+      return next
+    })
     setSeparacionIgnorada(true)
     // Verificar SKUs nuevos en BD (mismo patron que agregar manual)
     const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
@@ -1787,15 +1915,15 @@ export function OrdenRapidaWizard({
         setProbablesDb((prev) => [...prev, ...(res.probables ?? [])])
       }
     })
-    const estimadas = remap.size - Math.min(exactas, remap.size)
+    const estimadas = remapSize - Math.min(exactas, remapSize)
     if (opts?.soloCrear) {
       setModoArrastre(true)
       toast.info(`Productos creados (${[skuA, ...nuevos.map((n) => n.sku_base)].join(' + ')}). Modo arrastre activado: mueve cada caja a su producto.`)
     } else {
       toast.success(
-        `Separado: ${skuA} conserva sus cajas; ${remap.size} caja(s) movidas`
+        `Separado: ${skuA} conserva sus cajas; ${remapSize} caja(s) movidas`
         + (exactas > 0 ? ` (${exactas} exactas por documento${estimadas > 0 ? `, ${estimadas} por cartón` : ''})` : '')
-        + `. Ajusta líneas esperadas${remap.size < cajasOrigen.length ? ' y arrastra el resto a mano' : ''}.`,
+        + `. Ajusta líneas esperadas${remapSize < cajasOrigen.length ? ' y arrastra el resto a mano' : ''}.`,
       )
     }
   }
@@ -1907,12 +2035,6 @@ export function OrdenRapidaWizard({
       const nextDebugInfo = createDebugInfo(result.data, payload)
       setRawN8nResponse(payload)
       setDebugInfo(nextDebugInfo)
-      console.group('OrdenRapida n8n debug')
-      console.log('Fetch result completo:', result)
-      console.log('result.data crudo:', result.data)
-      console.log('payload desenvuelto:', payload)
-      console.log('debugInfo:', nextDebugInfo)
-      console.groupEnd()
       const wizardData = adaptarN8nAWizard(payload)
 
       if (wizardData.productos.length === 0) {
@@ -2276,6 +2398,10 @@ export function OrdenRapidaWizard({
           return
         }
 
+        // Fuente unica: detalles derivados de la matriz editable (lo que se ve
+        // en las tarjetas). parsedData.detalles es el crudo de n8n y quedaria
+        // obsoleto tras cualquier edicion de matriz.
+        const detallesEditados = editableCajas.flatMap((c) => detallesDesdeMatriz(c))
         const res = await guardarOrdenRapidaB2BAction({
           proveedorId: Number(selectedProveedor),
           clienteB2bId: Number(selectedCliente),
@@ -2283,7 +2409,7 @@ export function OrdenRapidaWizard({
           newContainerCode: selectedContenedor === 'new' ? newContainerCode : null,
           productos: editableProductos,
           cajas: editableCajas,
-          detalles: parsedData?.detalles || [],
+          detalles: detallesEditados,
           vinculosDb: Object.fromEntries(
             Object.entries(vinculosDb).map(([k, v]) => [k, v.dbId])
           ),
@@ -2539,14 +2665,27 @@ export function OrdenRapidaWizard({
     () => coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido'),
     [coloresPorConfirmar],
   )
+  // Filtro de la lista de pendientes del modal (insensible a case/acentos,
+  // todos los tokens deben aparecer en raw/en/es).
+  const pendientesFiltrados = useMemo(() => {
+    const toks = String(filtroPendientes || '')
+      .split(/\s+/)
+      .map((t) => normalizeColorKey(t))
+      .filter((t) => t.length > 0)
+    if (toks.length === 0) return coloresNuevos
+    return coloresNuevos.filter((c) => {
+      const hay = [c.raw, c.en ?? '', c.es ?? ''].map((s) => normalizeColorKey(s || '')).join(' ')
+      return toks.every((t) => hay.includes(t))
+    })
+  }, [coloresNuevos, filtroPendientes])
   const ensureDrafts = useCallback((nuevos: ColorPorConfirmar[]) => {
     const tris = new Map(
-      (parsedData?.colores_traducidos || []).map((t) => [String(t.raw || '').toUpperCase(), t]),
+      (parsedData?.colores_traducidos || []).map((t) => [claveColor(String(t.raw || '')), t]),
     )
     setColorDrafts((prev) => {
       const next = { ...prev }
       for (const c of nuevos) {
-        const key = c.raw.toUpperCase()
+        const key = claveColor(c.raw)
         if (!next[key]) {
           const t = tris.get(key)
           const d = buildColorDraft(c.raw, t?.en ?? c.en ?? null, t?.es ?? c.es ?? null)
@@ -2566,24 +2705,24 @@ export function OrdenRapidaWizard({
   }, [step, coloresNuevos, ensureDrafts])
 
   const handleMapearColor = (raw: string, colorId: number | null) => {
-    const key = raw.toUpperCase()
+    const key = claveColor(raw)
     if (colorId == null) {
       setColoresPorConfirmar((prev) => prev.map((c) => (
-        c.raw.toUpperCase() === key ? { ...c, estado: 'nuevo' as const, color_id: null, via: null } : c
+        claveColor(c.raw) === key ? { ...c, estado: 'nuevo' as const, color_id: null, via: null } : c
       )))
       return
     }
     setColoresPorConfirmar((prev) => prev.map((c) => (
-      c.raw.toUpperCase() === key ? { ...c, estado: 'mapeado' as const, color_id: colorId, via: 'manual' } : c
+      claveColor(c.raw) === key ? { ...c, estado: 'mapeado' as const, color_id: colorId, via: 'manual' } : c
     )))
     const cat = catalogoColores.find((c) => c.id === colorId)
     toast.success(`"${raw}" mapeado a ${cat?.nombre ?? colorId}.`)
   }
 
   const handleCrearColorFila = async (raw: string): Promise<boolean> => {
-    const key = raw.toUpperCase()
-    const tri = (parsedData?.colores_traducidos || []).find((t) => String(t.raw || '').toUpperCase() === key)
-    const seed = coloresPorConfirmar.find((c) => c.raw.toUpperCase() === key)
+    const key = claveColor(raw)
+    const tri = (parsedData?.colores_traducidos || []).find((t) => claveColor(String(t.raw || '')) === key)
+    const seed = coloresPorConfirmar.find((c) => claveColor(c.raw) === key)
     const d = colorDrafts[key] ?? {
       ...buildColorDraft(raw, tri?.en ?? seed?.en ?? null, tri?.es ?? seed?.es ?? null),
       mapear_a_id: null,
@@ -2607,7 +2746,7 @@ export function OrdenRapidaWizard({
         nombre_intern: d.nombre_intern.trim().toUpperCase() || null,
       }]))
     setColoresPorConfirmar((prev) => prev.map((c) => (
-      c.raw.toUpperCase() === key ? { ...c, estado: 'creado' as const, color_id: newId, via: 'creado' } : c
+      claveColor(c.raw) === key ? { ...c, estado: 'creado' as const, color_id: newId, via: 'creado' } : c
     )))
     toast.success(`Color "${d.nombre.trim().toUpperCase()}" creado (id ${newId}).`)
     return true
@@ -2627,17 +2766,17 @@ export function OrdenRapidaWizard({
   }
 
   const handleOmitirColor = (raw: string) => {
-    const key = raw.toUpperCase()
+    const key = claveColor(raw)
     setColoresPorConfirmar((prev) => prev.map((c) => (
-      c.raw.toUpperCase() === key ? { ...c, estado: 'omitido' as const } : c
+      claveColor(c.raw) === key ? { ...c, estado: 'omitido' as const } : c
     )))
     toast.warning(`"${raw}" omitido: bloqueará el guardado hasta resolverlo.`)
   }
 
   const handleReabrirColor = (raw: string) => {
-    const key = raw.toUpperCase()
+    const key = claveColor(raw)
     setColoresPorConfirmar((prev) => prev.map((c) => (
-      c.raw.toUpperCase() === key ? { ...c, estado: 'nuevo' as const } : c
+      claveColor(c.raw) === key ? { ...c, estado: 'nuevo' as const } : c
     )))
   }
 
@@ -2650,7 +2789,7 @@ export function OrdenRapidaWizard({
       const raw = String(d?.color_raw || '').trim()
       if (!cod || !raw) continue
       const list = porCaja.get(cod) ?? []
-      if (!list.some((r) => r.toUpperCase() === raw.toUpperCase())) list.push(raw)
+      if (!list.some((r) => claveColor(r) === claveColor(raw))) list.push(raw)
       porCaja.set(cod, list)
     }
     const map = new Map<string, Array<{ raw: string; found: boolean; via: string | null; nombre: string }>>()
@@ -2693,7 +2832,7 @@ export function OrdenRapidaWizard({
       totalCajas: totalCajasCount,
       todoOk: match.ok && matchPacks.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0,
     }
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- agruparCajasPorProducto muta cajas en render (preexistente); las deps de arriba están completas y garantizan tiempo real
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- el compilador no puede preservar este memo por la cadena de deps (callbacks de match); agruparCajasPorProducto ya es puro y no muta en render
   }, [editableProductos, editableCajas, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount])
 
   // Rellenar huecos desde el aviso (paso 3): completa líneas y revalida con
@@ -3965,13 +4104,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const val = window.prompt("Ingresa el total de Productos de la Nota:", String(overrideProductos ?? parsedData?.orden.total_productos ?? cajasAgrupadas.length))
-                          if (val !== null) {
-                            const parsed = parseInt(val, 10)
-                            setOverrideProductos(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('productos', 'Productos', overrideProductos ?? parsedData?.orden.total_productos ?? cajasAgrupadas.length)}
                         title="Editar valor objetivo de la nota (Productos)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -3997,13 +4130,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const val = window.prompt("Ingresa el total de Cajas de la Nota:", String(overrideCajas ?? parsedData?.orden.total_cajas ?? totalCajasCount))
-                          if (val !== null) {
-                            const parsed = parseInt(val, 10)
-                            setOverrideCajas(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('cajas', 'Cajas', overrideCajas ?? parsedData?.orden.total_cajas ?? totalCajasCount)}
                         title="Editar valor objetivo de la nota (Cajas)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -4029,13 +4156,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const val = window.prompt("Ingresa el total de Piezas de la Nota:", String(overridePiezas ?? parsedData?.orden.total_piezas ?? totalPiezasCount))
-                          if (val !== null) {
-                            const parsed = parseInt(val, 10)
-                            setOverridePiezas(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('piezas', 'Piezas', overridePiezas ?? parsedData?.orden.total_piezas ?? totalPiezasCount)}
                         title="Editar valor objetivo de la nota (Piezas)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -4061,13 +4182,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const val = window.prompt("Ingresa el CBM Total de la Nota:", String(overrideCbm ?? parsedData?.orden.cbm_estimado ?? totalCbm.toFixed(3)))
-                          if (val !== null) {
-                            const parsed = parseFloat(val)
-                            setOverrideCbm(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('cbm', 'CBM Total', overrideCbm ?? parsedData?.orden.cbm_estimado ?? totalCbm.toFixed(3))}
                         title="Editar valor objetivo de la nota (CBM)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -4093,14 +4208,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const targetVal = overridePesoNeto ?? (parsedData?.orden as any)?.peso_neto_total_kg ?? (parsedData?.orden as any)?.peso_neto_estimado ?? totalPesoNeto.toFixed(1)
-                          const val = window.prompt("Ingresa el Peso Neto Total (kg) de la Nota:", String(targetVal))
-                          if (val !== null) {
-                            const parsed = parseFloat(val)
-                            setOverridePesoNeto(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('pesoNeto', 'Peso Neto Total (kg)', overridePesoNeto ?? (parsedData?.orden as any)?.peso_neto_total_kg ?? (parsedData?.orden as any)?.peso_neto_estimado ?? totalPesoNeto.toFixed(1))}
                         title="Editar valor objetivo de la nota (Peso Neto)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -4126,13 +4234,7 @@ export function OrdenRapidaWizard({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                        onClick={() => {
-                          const val = window.prompt("Ingresa el Peso Bruto Total (kg) de la Nota:", String(overridePeso ?? parsedData?.orden.peso_bruto_total_kg ?? totalPesoBruto.toFixed(1)))
-                          if (val !== null) {
-                            const parsed = parseFloat(val)
-                            setOverridePeso(isNaN(parsed) ? null : parsed)
-                          }
-                        }}
+                        onClick={() => abrirOverride('peso', 'Peso Bruto Total (kg)', overridePeso ?? parsedData?.orden.peso_bruto_total_kg ?? totalPesoBruto.toFixed(1))}
                         title="Editar valor objetivo de la nota (Peso Bruto)"
                       >
                         <Pencil className="h-3 w-3" />
@@ -4644,97 +4746,26 @@ export function OrdenRapidaWizard({
                                       )}
                                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         {items.map((caja) => {
-                                          const cajaIndex = editableCajas.indexOf(caja)
-                                const sharedCaja = wizardCajaToSharedCajaData(caja, cajaIndex)
-                                const tallasCatalogo = buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || []))
-                                // Fase 2: union catalogo + packing (el packing nunca desaparece de la tarjeta)
-                                const packingCols = (caja.matriz?.colores || caja.colores || []) as string[]
-                                const unionCols = Array.from(new Set([...(cpColores.length > 0 ? cpColores : []), ...packingCols]))
-                                const coloresCatalogo = buildCatalogoItemsFromStrings(unionCols)
-                                const codTmp = String(caja.codigo_caja_temporal || '')
-                                const alertasCaja = alertasPorCaja.get(codTmp) ?? []
-                                const nDet = detallesPorCaja.get(codTmp) ?? 0
-
-                                return (
-                                  <div key={caja.codigo_caja_temporal || caja.codigo_caja} className={`space-y-1.5 rounded-md p-1 transition-colors ${modoArrastre && cajaArrastrada === codTmp ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
-                                    {modoArrastre && (
-                                      <span
-                                        draggable
-                                        onDragStart={(e) => {
-                                          e.dataTransfer.setData('text/plain', codTmp)
-                                          e.dataTransfer.effectAllowed = 'move'
-                                          setCajaArrastrada(codTmp)
-                                        }}
-                                        onDragEnd={() => setCajaArrastrada(null)}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setCajaArrastrada((prev) => (prev === codTmp ? null : codTmp))
-                                          if (cajaArrastrada !== codTmp) toast.info(`Caja ${codTmp} lista: toca el producto destino.`)
-                                        }}
-                                        title="Arrastra a otro producto o tócala y luego toca el destino"
-                                        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold cursor-grab active:cursor-grabbing select-none ${cajaArrastrada === codTmp ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-muted/60 text-muted-foreground hover:text-foreground'}`}
-                                      >
-                                        <GripVertical className="h-3.5 w-3.5" />
-                                        {cajaArrastrada === codTmp ? 'Moviendo… toca destino' : 'Mover'}
-                                      </span>
-                                    )}
-                                    {((caja as any).piezas_heredadas || alertasCaja.length > 0 || nDet > 0) && (
-                                      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                                        {(caja as any).piezas_heredadas && (
-                                          <Badge
-                                            variant="outline"
-                                            className="border-sky-400 bg-sky-50 text-sky-800 font-bold"
-                                            title={`Piezas por caja heredadas de ${(caja as any).piezas_heredadas_de || 'principal'}`}
-                                          >
-                                            ↩ {Number(caja.piezas_por_caja || 0)} pz heredadas
-                                          </Badge>
-                                        )}
-                                        {nDet > 0 && (
-                                          <Badge variant="secondary" title="Renglones de desglose talla/color en esta caja">
-                                            🧵 {nDet} detalle{nDet !== 1 ? 's' : ''}
-                                          </Badge>
-                                        )}
-                                        {(matchColoresPorCaja.get(codTmp) ?? []).map((mc, mi) => (
-                                          <Badge
-                                            key={`${mc.raw}-${mi}`}
-                                            variant="outline"
-                                            className={`font-bold ${mc.found ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-300' : 'border-amber-400 bg-amber-50 text-amber-800'}`}
-                                            title={mc.found
-                                              ? `"${mc.raw}" → ${mc.nombre} en catálogo (${mc.via ?? 'match'})`
-                                              : `"${mc.raw}" sin match en catálogo: se propone crear "${mc.nombre}". Abre el panel de colores.`}
-                                            onClick={() => { if (!mc.found) setColoresModalOpen(true) }}
-                                            style={mc.found ? undefined : { cursor: 'pointer' }}
-                                          >
-                                            {mc.found ? '✔' : '⚠'} {mc.raw}{mc.found && mc.nombre.toUpperCase() !== mc.raw.toUpperCase() ? ` → ${mc.nombre}` : ''}
-                                          </Badge>
-                                        ))}
-                                        {alertasCaja.map((a, i) => (
-                                          <Badge
-                                            key={i}
-                                            variant="outline"
-                                            className={a.severidad === 'alta' ? 'border-red-400 bg-red-50 text-red-800' : 'border-amber-400 bg-amber-50 text-amber-800'}
-                                            title={a.detalle || a.issue || a.tipo || 'aviso n8n'}
-                                          >
-                                            <AlertTriangle className="h-3 w-3 mr-0.5" />
-                                            {a.tipo === 'ia_calidad' ? 'IA: ' : ''}{String(a.detalle || a.issue || a.tipo || '').slice(0, 90)}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <CajaCard
-                                      caja={sharedCaja}
-                                      layout="horizontal"
-                                      canEdit={true}
-                                      canDelete={true}
-                                      canEditOrden={true}
-                                      tallasDisponibles={tallasCatalogo}
-                                      coloresDisponibles={coloresCatalogo}
-                                      onEdit={async (id, data) => handleCajaEdit(cajaIndex, data)}
-                                      onRemove={() => handleCajaRemove(cajaIndex)}
-                                      isPending={false}
-                                    />
-                                    </div>
-                                  )
+                                          const codTmp = String(caja.codigo_caja_temporal || '')
+                                          return (
+                                            <WizardCajaRow
+                                              key={caja.codigo_caja_temporal || caja.codigo_caja}
+                                              caja={caja}
+                                              cpTallas={cpTallas}
+                                              cpColores={cpColores}
+                                              matchColores={matchColoresPorCaja.get(codTmp) ?? []}
+                                              alertasCaja={alertasPorCaja.get(codTmp) ?? []}
+                                              nDetalles={detallesPorCaja.get(codTmp) ?? 0}
+                                              modoArrastre={modoArrastre}
+                                              esArrastrada={cajaArrastrada === codTmp}
+                                              onToggleArrastrada={handleToggleArrastrada}
+                                              onDragStartArrastrada={handleDragStartArrastrada}
+                                              onDragEndArrastrada={handleDragEndArrastrada}
+                                              onEditCodigo={handleCajaEdit}
+                                              onRemoveCodigo={handleCajaRemove}
+                                              onAbrirColores={handleAbrirColores}
+                                            />
+                                          )
                                         })}
                                       </div>
                                     </div>
@@ -4967,8 +4998,33 @@ export function OrdenRapidaWizard({
                   </div>
                 </div>
               )}
+              {/* Dialogo compartido: valor objetivo de la nota (override KPI) */}
+              <Dialog open={overrideModal !== null} onOpenChange={(open) => { if (!open) setOverrideModal(null) }}>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Valor objetivo: {overrideModal?.label}</DialogTitle>
+                    <DialogDescription>
+                      Sobrescribe el total de la nota para comparar contra lo calculado. Vacío = quitar override.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={overrideValor}
+                    onChange={(e) => setOverrideValor(e.target.value)}
+                    autoFocus
+                    className="h-9 tabular-nums"
+                    onKeyDown={(e) => { if (e.key === 'Enter') aplicarOverride() }}
+                  />
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setOverrideModal(null)}>Cancelar</Button>
+                    <Button type="button" onClick={aplicarOverride} className="font-bold">Guardar</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
               {/* Fase 2: modal de colores nuevos */}
-              <Dialog open={coloresModalOpen} onOpenChange={setColoresModalOpen}>
+              <Dialog open={coloresModalOpen} onOpenChange={(open) => { if (!open) setFiltroPendientes(''); setColoresModalOpen(open) }}>
                 <DialogContent className="w-full sm:max-w-[85vw] max-w-4xl max-h-[85vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>🎨 Se detectaron {coloresNuevos.length} color{coloresNuevos.length !== 1 ? 'es' : ''} nuevo{coloresNuevos.length !== 1 ? 's' : ''} — se crearán en el catálogo</DialogTitle>
@@ -4976,12 +5032,23 @@ export function OrdenRapidaWizard({
                       Revisa nombre ES, interno EN, código, hex y tipo. Puedes mapear a un color existente en vez de crear, u omitir (bloqueará el guardado).
                     </DialogDescription>
                   </DialogHeader>
+                  {coloresNuevos.length > 5 && (
+                    <Input
+                      placeholder="Filtrar pendientes…"
+                      value={filtroPendientes}
+                      onChange={(e) => setFiltroPendientes(e.target.value)}
+                      className="h-8 max-w-xs text-xs"
+                    />
+                  )}
                   {coloresNuevos.length === 0 && (
                     <p className="text-xs text-muted-foreground">Sin colores pendientes: todo está mapeado o creado.</p>
                   )}
+                  {pendientesFiltrados.length === 0 && coloresNuevos.length > 0 && (
+                    <p className="text-xs text-muted-foreground">Sin coincidencias para &quot;{filtroPendientes}&quot;.</p>
+                  )}
                   <div className="space-y-3">
-                    {coloresNuevos.map((c) => {
-                      const key = c.raw.toUpperCase()
+                    {pendientesFiltrados.map((c) => {
+                      const key = claveColor(c.raw)
                       const d = colorDrafts[key] ?? { ...buildColorDraft(c.raw, c.en ?? null, c.es ?? null), mapear_a_id: null }
                       const setD = (patch: Partial<ColorDraft>) => setColorDrafts((prev) => ({
                         ...prev,
@@ -4998,17 +5065,10 @@ export function OrdenRapidaWizard({
                               {(c.cajas || []).length} caja(s){(c.cajas || []).length > 0 ? `: ${(c.cajas || []).slice(0, 3).join(', ')}` : ''}
                             </span>
                             <span className="ml-auto flex items-center gap-1.5">
-                              <Select value="" onValueChange={(v) => handleMapearColor(c.raw, v === '__none__' ? null : Number(v))}>
-                                <SelectTrigger className="h-7 w-44 text-[11px]">
-                                  <SelectValue placeholder="Mapear a existente…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">Sin mapear</SelectItem>
-                                  {catalogoColores.map((cc) => (
-                                    <SelectItem key={cc.id} value={String(cc.id)}>{cc.nombre}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <MapearColorCombobox
+                                catalogo={catalogoColores}
+                                onSelect={(id) => handleMapearColor(c.raw, id)}
+                              />
                               <Button type="button" size="sm" className="h-7 text-[11px] font-bold" onClick={() => handleCrearColorFila(c.raw)}>
                                 Crear
                               </Button>
@@ -5497,6 +5557,16 @@ export function OrdenRapidaWizard({
                     Todas las cajas con pz por caja
                     {verificacionPrevia.sinPz.length > 0 && ` — sin dato: ${verificacionPrevia.sinPz.slice(0, 5).join(', ')}${verificacionPrevia.sinPz.length > 5 ? ` +${verificacionPrevia.sinPz.length - 5}` : ''}`}
                   </span>
+                  {verificacionPrevia.sinPz.length > 0 && (
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100 ml-auto"
+                      onClick={handleFijarPzMinima}
+                      title="Asigna 1 pza/caja temporal a las cajas sin dato para no romper la lógica (revísalas después en su tarjeta)"
+                    >
+                      Fijar 1 pza ({verificacionPrevia.sinPz.length})
+                    </Button>
+                  )}
                 </p>
                 <p className="flex items-center gap-2 text-[11px] font-semibold">
                   {alertasN8n.length === 0

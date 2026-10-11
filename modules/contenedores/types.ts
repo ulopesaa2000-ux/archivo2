@@ -213,6 +213,14 @@ export type SurtidoPreview = {
     numeroNota: string
     bodegaNombre: string | null
   } | null
+  /** Comprobante de surtido: última nota por nota_referencia en cualquier estado (PEND/PROC/CONF/CANC). No requiere columna en BD. */
+  comprobante: {
+    notaId: number
+    numeroNota: string
+    bodegaNombre: string | null
+    estadoCodigo: string | null
+    fechaConfirmacion: string | null
+  } | null
 }
 
 export type ResumenEdicionPayload = {

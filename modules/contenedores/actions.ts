@@ -66,6 +66,11 @@ export async function surtirContenedorAction(
   if (avExist && (estExist === 'PEND' || estExist === 'PROC')) {
     return { success: false, error: `Ya existe un aviso pendiente (${avExist.numero_nota}). Confirma el ingreso a la bodega virtual antes de generar otro.` }
   }
+  // Evitar doble surtido: si ya hay ingreso CONFIRMADO, no generar otro aviso.
+  // Caso 2026-13: nota CONF pero contenedor aún en_bodega → sincronizar con Confirmar ingreso.
+  if (avExist && estExist === 'CONF') {
+    return { success: false, error: `Ya existe ingreso confirmado (${avExist.numero_nota}). No generes otro aviso para evitar duplicar stock. Si el contenedor sigue en "En Bodega", usa "Confirmar ingreso" para sincronizar el estado a "Surtido".` }
+  }
 
   // 2. Obtener órdenes del contenedor
   const { data: ordenes } = await supabase
@@ -213,6 +218,8 @@ export async function surtirContenedorAction(
  * Segundo paso del surtido: confirma el aviso de ingreso (PEND → CONF).
  * Solo entonces el trigger suma las cajas al stock de la bodega virtual.
  * Requiere permiso de confirmar notas en la bodega virtual destino.
+ * Idempotente: si la nota ya está CONF (ej. confirmada desde /inventario/notas
+ * como 2026-13), solo sincroniza el estado del contenedor a 'surtido'.
  */
 export async function confirmarIngresoVirtualAction(
   contenedorId: number
@@ -246,8 +253,31 @@ export async function confirmarIngresoVirtualAction(
 
   const av: any = aviso
   const estCod = Array.isArray(av?.estado) ? av.estado[0]?.codigo : av?.estado?.codigo
-  if (!av || (estCod !== 'PEND' && estCod !== 'PROC')) {
-    return { success: false, error: 'No hay aviso de ingreso pendiente para este contenedor.' }
+  if (!av) {
+    return { success: false, error: 'No hay aviso de ingreso para este contenedor. Genera el aviso con "Surtir a bodega virtual" primero.' }
+  }
+
+  // Reconciliación: nota ya CONFIRMADA por otro camino → solo sincronizar estado.
+  if (estCod === 'CONF') {
+    const { error: updError } = await supabase
+      .from('contenedores')
+      .update({ estado: 'surtido' })
+      .eq('id', contenedorId)
+
+    if (updError) {
+      return { success: false, error: updError.message }
+    }
+
+    revalidatePath('/contenedores')
+    revalidatePath(`/contenedores/${contenedorId}`)
+    revalidatePath('/inventario/notas')
+    revalidatePath('/inventario/stock')
+
+    return { success: true, id: contenedorId, nota_id: av.id, numero_nota: av.numero_nota }
+  }
+
+  if (estCod !== 'PEND' && estCod !== 'PROC') {
+    return { success: false, error: `La nota ${av.numero_nota ?? ''} está en estado ${estCod ?? 'desconocido'}. Solo se puede confirmar desde PEND/PROC o sincronizar si ya está CONF.` }
   }
 
   // Confirmar nota (valida permisos sobre la bodega virtual y dispara el trigger)

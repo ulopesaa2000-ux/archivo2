@@ -1,16 +1,18 @@
 // components/admin/cajas/CajaCard.tsx
 'use client'
-/* eslint-disable react-hooks/set-state-in-effect */
 
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Pencil, Trash2, X, Check, Loader2, Calculator, Star } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
+import { canonicalEn, suggestEs } from '@/lib/color-match'
+import { standardizeTallaCode } from '@/lib/talla-match'
 
 function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals
@@ -23,122 +25,26 @@ import { MultiTagInput } from './MultiTagInput'
 import { CajaMatriz, CajaMatrizFallback } from './CajaMatriz'
 import { toast } from 'sonner'
 
-const COLOR_EN_ES_MAP: Record<string, string> = {
-  BLACK: 'NEGRO',
-  WHITE: 'BLANCO',
-  RED: 'ROJO',
-  NAVY: 'MARINO',
-  'NAVY BLUE': 'MARINO',
-  BLUE: 'AZUL',
-  GREY: 'GRIS',
-  GRAY: 'GRIS',
-  'DARK GREY': 'GRIS OSCURO',
-  'DARK GRAY': 'GRIS OSCURO',
-  'LIGHT GREY': 'GRIS CLARO',
-  'LIGHT GRAY': 'GRIS CLARO',
-  ROSE: 'ROSA',
-  PINK: 'ROSA',
-  CHOCOLATE: 'CHOCOLATE',
-  BROWN: 'CAFÉ',
-  GREEN: 'VERDE',
-  OLIVE: 'OLIVO',
-  'OLIVE GREEN': 'OLIVO',
-  BEIGE: 'BEIGE',
-  PURPLE: 'MORADO',
-  VIOLET: 'MORADO',
-  YELLOW: 'AMARILLO',
-  ORANGE: 'NARANJA',
-  WINE: 'VINO',
-  BURGUNDY: 'VINO',
-  MUSTARD: 'MOSTAZA',
-  CHARCOAL: 'MARENGO',
-  KHAKI: 'CAQUI',
-  BRONZE: 'BRONCE',
-  '黑色': 'NEGRO',
-  '白色': 'BLANCO',
-  '红色': 'ROJO',
-  '藏青': 'MARINO',
-  '藏青色': 'MARINO',
-  '灰色': 'GRIS',
-  '咖啡': 'CAFÉ',
-  '咖啡色': 'CAFÉ',
-  LATTE: 'BEIGE',
-  OXFORD: 'GRIS',
-  'GRIS OXFORD': 'GRIS',
-  MILITARY: 'VERDE',
-  ARMY: 'VERDE',
-  CAMO: 'VERDE',
-  CAMEL: 'BEIGE',
-  CREAM: 'BEIGE',
-  ARENA: 'BEIGE',
-  HUESO: 'BLANCO',
-}
+// NOTA: mapas de color/talla viven en lib/color-match.ts y lib/talla-match.ts
+// (fuente unica). Se conservan estos wrappers por compatibilidad con
+// CajaMatriz y otros consumidores.
 
 export function standardizeColorName(rawColor: string, catalogItems: CatalogoItem[] = []): { nombreEsp: string; isNewColor: boolean } {
   if (!rawColor) return { nombreEsp: 'SIN COLOR', isNewColor: false }
-  
-  const trimmed = rawColor.trim().toUpperCase()
-  const translated = COLOR_EN_ES_MAP[trimmed] || trimmed
 
-  const isKnown = catalogItems.some(c => c.nombre.toUpperCase() === translated || c.nombre.toUpperCase() === trimmed)
+  const trimmed = String(rawColor).trim()
+  const nombreEsp = suggestEs(canonicalEn(trimmed))
+  const up = (s: string) => String(s || '').toUpperCase()
+  const isKnown = catalogItems.some(c => up(c.nombre) === up(nombreEsp) || up(c.nombre) === up(trimmed))
 
   return {
-    nombreEsp: translated,
+    nombreEsp,
     isNewColor: !isKnown
   }
 }
 
-const TALLA_EN_ES_MAP: Record<string, string> = {
-  XS: 'ECH',
-  'EXTRA SMALL': 'ECH',
-  S: 'CH',
-  SMALL: 'CH',
-  M: 'M',
-  MEDIUM: 'M',
-  L: 'G',
-  LARGE: 'G',
-  XL: 'EG',
-  'EXTRA LARGE': 'EG',
-  '2XL': '2EG',
-  XXL: '2EG',
-  '2X EXTRA GRANDE': '2EG',
-  '3XL': '3EG',
-  XXXL: '3EG',
-  '3X EXTRA GRANDE': '3EG',
-  '4XL': '4EG',
-  XXXXL: '4EG',
-  '4X EXTRA GRANDE': '4EG',
-  '5XL': '5EG',
-  '5X EXTRA GRANDE': '5EG',
-  'ONE SIZE': 'UNITALLA',
-  OS: 'UNITALLA',
-  'CH-M': 'CH-M',
-  'CH/M': 'CH-M',
-  'S-M': 'CH-M',
-  'S/M': 'CH-M',
-  SM: 'CH-M',
-  'M-G': 'M-G',
-  'M/G': 'M-G',
-  'M-L': 'M-G',
-  'M/L': 'M-G',
-  ML: 'M-G',
-  'G-EG': 'G-EG',
-  'G/EG': 'G-EG',
-  'L-XL': 'G-EG',
-  'L/XL': 'G-EG',
-  LXL: 'G-EG',
-  'EG-2EG': 'EG-2EG',
-  'EG/2EG': 'EG-2EG',
-  'XL-2XL': 'EG-2EG',
-  'XL/2XL': 'EG-2EG',
-  'XL-XXL': 'EG-2EG',
-  'XL/XXL': 'EG-2EG',
-}
-
 export function standardizeTallaName(rawTalla: string): string {
-  if (!rawTalla) return ''
-  const trimmed = rawTalla.trim().toUpperCase()
-  return TALLA_EN_ES_MAP[trimmed] || trimmed
+  return standardizeTallaCode(rawTalla)
 }
 
 // Tipo para fila de detalle editable
@@ -146,6 +52,86 @@ type DetalleFila = {
   colorId: number
   colorNombre: string
   cantidades: Record<string, number> // talla -> cantidad
+}
+
+type EditState = {
+  editData: Record<string, any>
+  editTallas: CatalogoItem[]
+  editFilas: DetalleFila[]
+}
+
+// IDs temporales negativos: jamas colisionan con ids reales del catalogo
+// (antes se usaban Date.now() y 1000+/10000+, que SI podian colisionar).
+function tempIdFor(base: number, idx: number): number {
+  return -(base + idx)
+}
+
+/** Construye el estado de edicion desde la caja + catalogos (puro, testeable). */
+export function buildEditState(
+  caja: SharedCajaData,
+  tallasDisponibles: CatalogoItem[],
+  coloresDisponibles: CatalogoItem[],
+): EditState {
+  const editTallas: CatalogoItem[] = (() => {
+    const fromMap = contenidoTallas(caja)
+    if (fromMap.length === 0) return []
+    return fromMap.map((tallaNombreRaw, idx) => {
+      const tallaStd = standardizeTallaName(tallaNombreRaw)
+      const tallaCat = tallasDisponibles.find(t => t.nombre === tallaStd || t.codigo === tallaStd || t.nombre === tallaNombreRaw)
+      return { id: tallaCat?.id ?? tempIdFor(10000, idx), nombre: tallaCat?.codigo || tallaStd }
+    })
+  })()
+  const coloresMap = contenidoColores(caja)
+  const matriz = contenidoMatriz(caja)
+  const editFilas: DetalleFila[] = coloresMap.map((colorNombreRaw, idx) => {
+    const { nombreEsp } = standardizeColorName(colorNombreRaw, coloresDisponibles)
+    const colorCat = coloresDisponibles.find(c => c.nombre.toUpperCase() === nombreEsp.toUpperCase() || c.nombre.toUpperCase() === colorNombreRaw.toUpperCase())
+    const origCantidades = matriz[colorNombreRaw] || {}
+    const stdCantidades: Record<string, number> = {}
+    for (const [tallaKey, cant] of Object.entries(origCantidades)) {
+      const stdTallaKey = standardizeTallaName(tallaKey)
+      stdCantidades[stdTallaKey] = (stdCantidades[stdTallaKey] || 0) + cant
+    }
+    return {
+      colorId: colorCat?.id ?? tempIdFor(10000, idx),
+      colorNombre: colorCat?.nombre || nombreEsp,
+      cantidades: stdCantidades,
+    }
+  })
+  return {
+    editData: {
+      codigo_caja: caja.codigo_caja || '',
+      nombre_pack: caja.nombre_pack || '',
+      cantidad_cajas: caja.cantidad_cajas ?? '',
+      piezas_por_caja: caja.piezas_por_caja ?? '',
+      cbm: caja.cbm || '',
+      peso_bruto_kg: caja.peso_bruto_kg || '',
+      peso_neto: caja.peso_neto || '',
+      largo_cm: caja.largo_cm || '',
+      ancho_cm: caja.ancho_cm || '',
+      alto_cm: caja.alto_cm || '',
+      costo_total_caja: caja.costo_total_caja || 1,
+    },
+    editTallas,
+    editFilas,
+  }
+}
+
+function contenidoTallas(caja: SharedCajaData): string[] {
+  if (caja.contenidoMap && caja.contenidoMap.tallas.length > 0) {
+    return caja.contenidoMap.tallas.map(t => standardizeTallaName(t))
+  }
+  return caja.tallas ? caja.tallas.split('|').map(s => standardizeTallaName(s.trim())).filter(Boolean) : []
+}
+
+function contenidoColores(caja: SharedCajaData): string[] {
+  if (caja.contenidoMap && caja.contenidoMap.colores.length > 0) return [...caja.contenidoMap.colores]
+  return caja.colores ? Array.from(new Set(caja.colores.split('|').map(s => s.trim()).filter(Boolean))) : []
+}
+
+function contenidoMatriz(caja: SharedCajaData): Record<string, Record<string, number>> {
+  if (caja.contenidoMap && caja.contenidoMap.colores.length > 0) return caja.contenidoMap.matriz || {}
+  return {}
 }
 
 
@@ -180,7 +166,7 @@ interface CajaCardProps {
 }
 
 
-export function CajaCard({
+export const CajaCard = memo(function CajaCard({
   caja,
   layout = 'horizontal',
   onRemove,
@@ -208,30 +194,8 @@ export function CajaCard({
   const [showMarkPrincipalModal, setShowMarkPrincipalModal] = useState(false)
   const isVertical = layout === 'vertical'
 
-  // Estado temporal para edición de datos base
-  const [editData, setEditData] = useState<any>({
-    codigo_caja: caja.codigo_caja || '',
-    nombre_pack: caja.nombre_pack || '',
-    cantidad_cajas: caja.cantidad_cajas ?? '',
-    piezas_por_caja: caja.piezas_por_caja ?? '',
-    cbm: caja.cbm || '',
-    peso_bruto_kg: caja.peso_bruto_kg || '',
-    peso_neto: caja.peso_neto || '',
-    largo_cm: caja.largo_cm || '',
-    ancho_cm: caja.ancho_cm || '',
-    alto_cm: caja.alto_cm || '',
-    costo_total_caja: caja.costo_total_caja || 1,
-    tallas_summary: caja.tallas ? caja.tallas.split('|').filter(Boolean).map((t) => {
-      const stdT = standardizeTallaName(t)
-      const cat = CAT_TALLAS_MAESTRO.find((ct: any) => ct.codigo === stdT || ct.nombre === stdT || ct.talla_us === t)
-      return {
-        id: cat?.id ?? stdT,
-        label: cat?.nombre ?? stdT,
-        value: cat?.codigo ?? stdT,
-      }
-    }) : [],
-    colores_summary: caja.colores ? Array.from(new Set(caja.colores.split('|').filter(Boolean).map(c => c.trim()))).map(c => ({ id: c, label: c, value: c })) : [],
-  })
+  // Estado temporal para edición de datos base (se reconstruye al entrar a editar)
+  const [editData, setEditData] = useState<Record<string, any>>(() => buildEditState(caja, tallasDisponibles, coloresDisponibles).editData)
 
   // Mapa de contenido efectivo (resiliente a respuestas de n8n/wizard sin contenidoMap directo)
   const effectiveContenidoMap = useMemo(() => {
@@ -283,74 +247,72 @@ export function CajaCard({
     const list: CatalogoItem[] = [...coloresDisponibles]
     defaultColors.forEach((colorName, idx) => {
       if (!list.some(item => item.nombre.toUpperCase() === colorName)) {
-        list.push({ id: 1000 + idx, nombre: colorName, codigo: colorName.slice(0, 3) })
+        // Id temporal negativo: visible como sugerencia, jamas confunde a un id real
+        list.push({ id: -(1000 + idx), nombre: colorName, codigo: colorName.slice(0, 3) })
       }
     })
     return list
   }, [coloresDisponibles])
 
-  // Convertir contenidoMap a formato editable de filas con estandarización de nombres de color y talla
-  const initialFilas = useMemo((): DetalleFila[] => {
-    if (!effectiveContenidoMap || !effectiveContenidoMap.colores.length) return []
-
-    return effectiveContenidoMap.colores.map((colorNombreRaw, idx) => {
-      const { nombreEsp } = standardizeColorName(colorNombreRaw, effectiveColoresDisponibles)
-      const colorCat = effectiveColoresDisponibles.find(c => c.nombre.toUpperCase() === nombreEsp.toUpperCase() || c.nombre.toUpperCase() === colorNombreRaw.toUpperCase())
-      const finalColorName = colorCat?.nombre || nombreEsp
-
-      // Mapear cantidades desde la matriz original estandarizando claves de talla (ej. L -> G, S -> CH)
-      const origCantidades = effectiveContenidoMap.matriz[colorNombreRaw] || {}
-      const stdCantidades: Record<string, number> = {}
-      for (const [tallaKey, cant] of Object.entries(origCantidades)) {
-        const stdTallaKey = standardizeTallaName(tallaKey)
-        stdCantidades[stdTallaKey] = (stdCantidades[stdTallaKey] || 0) + cant
-      }
-
-      return {
-        colorId: colorCat?.id || (10000 + idx),
-        colorNombre: finalColorName,
-        cantidades: stdCantidades
-      }
-    })
-  }, [effectiveContenidoMap, effectiveColoresDisponibles])
-
   // Estado para tallas en edición (array de {id, nombre}) estandarizando US -> MX
-  const [editTallas, setEditTallas] = useState<CatalogoItem[]>(() => {
-    if (!effectiveContenidoMap || !effectiveContenidoMap.tallas.length) return []
-    return effectiveContenidoMap.tallas.map((tallaNombreRaw, idx) => {
-      const tallaStd = standardizeTallaName(tallaNombreRaw)
-      const tallaCat = effectiveTallasDisponibles.find(t => t.nombre === tallaStd || t.codigo === tallaStd || t.nombre === tallaNombreRaw)
-      return { id: tallaCat?.id || idx + 1, nombre: tallaCat?.codigo || tallaStd }
-    })
-  })
+  const [editTallas, setEditTallas] = useState<CatalogoItem[]>(() => buildEditState(caja, tallasDisponibles, coloresDisponibles).editTallas)
 
   // Estado para filas/colores en edición
-  const [editFilas, setEditFilas] = useState<DetalleFila[]>(initialFilas)
+  const [editFilas, setEditFilas] = useState<DetalleFila[]>(() => buildEditState(caja, tallasDisponibles, coloresDisponibles).editFilas)
 
-  // Sincronizar editFilas y editTallas únicamente cuando se activa el modo edición
-  useEffect(() => {
-    if (isEditing) {
-      setEditFilas(initialFilas)
-      if (effectiveContenidoMap && effectiveContenidoMap.tallas.length > 0) {
-        setEditTallas(effectiveContenidoMap.tallas.map((tallaNombreRaw, idx) => {
-          const tallaStd = standardizeTallaName(tallaNombreRaw)
-          const tallaCat = effectiveTallasDisponibles.find(t => 
-            t.nombre?.toUpperCase() === tallaStd.toUpperCase() || 
-            t.codigo?.toUpperCase() === tallaStd.toUpperCase() || 
-            t.nombre?.toUpperCase() === tallaNombreRaw.toUpperCase() ||
-            t.codigo?.toUpperCase() === tallaNombreRaw.toUpperCase() ||
-            (t as any).talla_us?.toUpperCase() === tallaStd.toUpperCase()
-          )
-          return { id: tallaCat?.id || idx + 1, nombre: tallaCat?.codigo || tallaStd }
-        }))
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditing])
+  // Entrar a edición reconstruye el estado desde la caja actual (nunca obsoleto)
+  const iniciarEdicion = () => {
+    const s = buildEditState(caja, tallasDisponibles, coloresDisponibles)
+    setEditData(s.editData)
+    setEditTallas(s.editTallas)
+    setEditFilas(s.editFilas)
+    setIsEditing(true)
+  }
 
   // Estados para selección de nueva talla/color
   const [selectedTallaId, setSelectedTallaId] = useState<string>('')
   const [selectedColorId, setSelectedColorId] = useState<string>('')
+  // Diálogo de auto-cálculo de costo (reemplaza window.prompt/alert)
+  const [showCostoDialog, setShowCostoDialog] = useState(false)
+  const [costoTc, setCostoTc] = useState('17.5')
+  const [costoPct, setCostoPct] = useState('20')
+
+  const aplicarCalculoCosto = () => {
+    const pz = Number(editData.piezas_por_caja)
+    if (!(pz > 0)) {
+      toast.error('Por favor ingresa primero las Piezas por Caja.')
+      return
+    }
+    const tieneUsd = precioUnitarioUsd != null && precioUnitarioUsd > 0
+    if (tieneUsd) {
+      const tc = parseFloat(costoTc)
+      const ganancia = parseFloat(costoPct)
+      if (isNaN(tc) || tc <= 0) {
+        toast.error('Tipo de cambio inválido.')
+        return
+      }
+      if (isNaN(ganancia) || ganancia < 0) {
+        toast.error('Porcentaje de ganancia inválido.')
+        return
+      }
+      setEditData({ ...editData, costo_total_caja: Number(((precioUnitarioUsd! * pz * tc) * (1 + ganancia / 100)).toFixed(2)) })
+    } else {
+      if (precioEcMxn == null || !(precioEcMxn > 0)) {
+        toast.error('Sin Precio EC de referencia en el catálogo base.')
+        return
+      }
+      const desc = parseFloat(costoPct)
+      if (isNaN(desc) || desc < 0 || desc > 100) {
+        toast.error('Porcentaje de descuento inválido.')
+        return
+      }
+      setEditData({ ...editData, costo_total_caja: Number(((precioEcMxn * pz) * (1 - desc / 100)).toFixed(2)) })
+    }
+    setShowCostoDialog(false)
+  }
+  // Contador de IDs temporales negativos (nunca colisiona con catalogo real)
+  const tempIdRef = useRef(-1)
+  const nextTempId = () => tempIdRef.current--
 
   // Si es modo orden, calculamos el total real de piezas
   const totalPiezasCalculado = caja.cantidad_cajas
@@ -389,37 +351,17 @@ export function CajaCard({
     }
   }, [totalesEdicion.totalGeneral])
 
-  // Sincronizar automáticamente el resumen con la matriz en tiempo de edición
+  // Sincronizar piezas_por_caja con el total de la matriz automáticamente
   useEffect(() => {
-    if (editTallas.length > 0) {
-      const syncTallas = editTallas.map(t => {
-        const cat = tallasDisponibles.find(ct => ct.id === t.id)
-        return {
-          id: t.id,
-          label: t.nombre,
-          value: cat?.codigo || t.nombre
+    if (totalesEdicion.totalGeneral > 0) {
+      setEditData((prev: any) => {
+        if (prev.piezas_por_caja !== totalesEdicion.totalGeneral) {
+          return { ...prev, piezas_por_caja: totalesEdicion.totalGeneral }
         }
-      })
-      setEditData((prev: any) => {
-        const isSame = JSON.stringify(prev.tallas_summary) === JSON.stringify(syncTallas)
-        return isSame ? prev : { ...prev, tallas_summary: syncTallas }
+        return prev
       })
     }
-  }, [editTallas, tallasDisponibles])
-
-  useEffect(() => {
-    if (editFilas.length > 0) {
-      const syncColores = editFilas.map(f => ({
-        id: f.colorId,
-        label: f.colorNombre,
-        value: f.colorNombre
-      }))
-      setEditData((prev: any) => {
-        const isSame = JSON.stringify(prev.colores_summary) === JSON.stringify(syncColores)
-        return isSame ? prev : { ...prev, colores_summary: syncColores }
-      })
-    }
-  }, [editFilas])
+  }, [totalesEdicion.totalGeneral])
 
   // Handlers para edición
   const handleDiscard = () => {
@@ -427,37 +369,11 @@ export function CajaCard({
       // Si es nueva y cancelamos, llamamos onRemove para quitarla de la lista
       onRemove?.(caja.id)
     } else {
-      // Resetear a valores originales
-      setEditData({
-        codigo_caja: caja.codigo_caja || '',
-        nombre_pack: caja.nombre_pack || '',
-        cantidad_cajas: caja.cantidad_cajas ?? '',
-        piezas_por_caja: caja.piezas_por_caja ?? '',
-        cbm: caja.cbm || '',
-        peso_bruto_kg: caja.peso_bruto_kg || '',
-        peso_neto: caja.peso_neto || '',
-        largo_cm: caja.largo_cm || '',
-        ancho_cm: caja.ancho_cm || '',
-        alto_cm: caja.alto_cm || '',
-        costo_total_caja: caja.costo_total_caja || 1,
-        tallas_summary: caja.tallas ? caja.tallas.split('|').filter(Boolean).map((t) => {
-          const cat = CAT_TALLAS_MAESTRO.find((ct) => ct.codigo === t || ct.nombre === t)
-          return {
-            id: cat?.id ?? t,
-            label: cat?.nombre ?? t,
-            value: cat?.codigo ?? t,
-          }
-        }) : [],
-        colores_summary: caja.colores ? Array.from(new Set(caja.colores.split('|').filter(Boolean).map(c => c.trim()))).map(c => ({ id: c, label: c, value: c })) : [],
-      })
-      setEditTallas(() => {
-        if (!caja.contenidoMap || !caja.contenidoMap.tallas.length) return []
-        return caja.contenidoMap.tallas.map((tallaNombre, idx) => {
-          const tallaCat = tallasDisponibles.find(t => t.nombre === tallaNombre)
-          return { id: tallaCat?.id || idx + 1, nombre: tallaNombre }
-        })
-      })
-      setEditFilas(initialFilas)
+      // Resetear a valores originales reconstruyendo desde la caja actual
+      const s = buildEditState(caja, tallasDisponibles, coloresDisponibles)
+      setEditData(s.editData)
+      setEditTallas(s.editTallas)
+      setEditFilas(s.editFilas)
     }
     setIsEditing(false)
   }
@@ -513,25 +429,21 @@ export function CajaCard({
         basePayload.piezas_por_caja = detalles.reduce((sum, d) => sum + d.cantidad, 0)
       }
 
-      // Convertir tags de resumen a strings piped
+      // Convertir tags de la matriz a strings piped
       if (editTallas.length > 0) {
         basePayload.tallas = editTallas.map(t => {
           const cat = tallasDisponibles.find(ct => ct.id === t.id)
           return cat?.codigo || t.nombre
         }).join('|')
       } else {
-        basePayload.tallas = editData.tallas_summary.map((t: any) => t.value).join('|')
+        basePayload.tallas = ''
       }
 
       if (editFilas.length > 0) {
         basePayload.colores = editFilas.map(f => f.colorNombre).join('|')
       } else {
-        basePayload.colores = editData.colores_summary.map((c: any) => c.label).join('|')
+        basePayload.colores = ''
       }
-      
-      // Limpiar campos de UI que no van a la BD
-      delete basePayload.tallas_summary
-      delete basePayload.colores_summary
 
       for (const k in basePayload) {
         if (basePayload[k] === '') basePayload[k] = null;
@@ -550,29 +462,28 @@ export function CajaCard({
       setIsEditing(false)
     } catch (error: any) {
       console.error('Error guardando caja:', error)
-      alert(error?.message || 'Error al guardar los cambios')
+      toast.error(error?.message || 'Error al guardar los cambios')
     } finally {
       setIsSaving(false)
     }
   }
 
-  // Handlers para los Tags de Resumen (Top)
+  // Handlers para los Tags de Resumen (Top): operan directo sobre la matriz
+  // (tallas_summary/colores_summary ya no se guardan en editData).
   const handleAddTallaSummary = (option: any) => {
-    if (editData.tallas_summary.some((t: any) => t.id === option.id)) return
-    setEditData({ ...editData, tallas_summary: [...editData.tallas_summary, option] })
+    handleAddTallaMatrix(option?.id ?? option?.value ?? option?.label ?? '')
   }
 
   const handleRemoveTallaSummary = (id: string | number) => {
-    setEditData({ ...editData, tallas_summary: editData.tallas_summary.filter((t: any) => t.id !== id) })
+    handleRemoveTalla(id)
   }
 
   const handleAddColorSummary = (option: any) => {
-    if (editData.colores_summary.some((c: any) => c.id === option.id)) return
-    setEditData({ ...editData, colores_summary: [...editData.colores_summary, option] })
+    handleAddColorMatrix(option?.id ?? option?.value ?? option?.label ?? '')
   }
 
   const handleRemoveColorSummary = (id: string | number) => {
-    setEditData({ ...editData, colores_summary: editData.colores_summary.filter((c: any) => c.id !== id) })
+    handleRemoveColor(id)
   }
 
   // Handlers para la Matriz (Dropdowns)
@@ -584,7 +495,7 @@ export function CajaCard({
     )
 
     const tallaObj: CatalogoItem = talla ?? {
-      id: Date.now(),
+      id: nextTempId(),
       nombre: searchStr.toUpperCase(),
       codigo: searchStr.toUpperCase()
     }
@@ -614,7 +525,7 @@ export function CajaCard({
     )
     
     const colorNombre = color ? color.nombre : nombreEsp
-    const colorId = color ? color.id : (typeof colorIdOrName === 'number' ? colorIdOrName : Date.now())
+    const colorId = color ? color.id : (typeof colorIdOrName === 'number' ? colorIdOrName : nextTempId())
 
     if (editFilas.some(f => f.colorId === colorId || f.colorNombre.toUpperCase() === colorNombre.toUpperCase())) {
       toast.info(`El color "${colorNombre}" ya está agregado a la matriz.`)
@@ -651,7 +562,7 @@ export function CajaCard({
   }
 
   const handleCantidadChange = (colorId: number | string, tallaNombre: string, valor: string) => {
-    const cantidad = parseInt(valor) || 0
+    const cantidad = parseFloat(valor) || 0
     setEditFilas(prev => prev.map(fila =>
       fila.colorId === colorId
         ? { ...fila, cantidades: { ...fila.cantidades, [tallaNombre]: cantidad } }
@@ -781,7 +692,7 @@ export function CajaCard({
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
-                    onClick={() => setIsEditing(true)}
+                    onClick={iniciarEdicion}
                     title="Editar configuración">
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -946,53 +857,18 @@ export function CajaCard({
                     className="absolute right-0.5 top-0.5 h-8 w-8 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
                     onClick={() => {
                       if (!editData.piezas_por_caja || Number(editData.piezas_por_caja) <= 0) {
-                        alert("Por favor ingresa primero las Piezas por Caja.")
+                        toast.error("Por favor ingresa primero las Piezas por Caja.")
                         return
                       }
-                      
                       const tieneUsd = precioUnitarioUsd != null && precioUnitarioUsd > 0
                       const tieneMxn = precioEcMxn != null && precioEcMxn > 0
-
                       if (!tieneUsd && !tieneMxn) {
-                        alert("Esta línea de producto no tiene un Precio Unitario (P.Unit) registrado en la orden ni un Precio EC en el catálogo base.")
+                        toast.error("Esta línea de producto no tiene un Precio Unitario (P.Unit) registrado en la orden ni un Precio EC en el catálogo base.")
                         return
                       }
-
-                      const pz = Number(editData.piezas_por_caja)
-                      let costoCalculado = 0
-
-                      if (tieneUsd) {
-                        // ESCENARIO A: Cálculo basado en COSTO USD
-                        const tcInput = window.prompt("Se detectó COSTO USD. Ingresa el Tipo de Cambio (MXN por USD):", "17.5")
-                        if (!tcInput) return
-                        const tc = parseFloat(tcInput)
-                        if (isNaN(tc) || tc <= 0) {
-                          alert("Tipo de cambio inválido.")
-                          return
-                        }
-
-                        const gananciaInput = window.prompt("Ingresa el % de ganancia extra (ej. 20 para 20%):", "20")
-                        if (!gananciaInput) return
-                        const ganancia = parseFloat(gananciaInput)
-                        if (isNaN(ganancia) || ganancia < 0) {
-                          alert("Porcentaje de ganancia inválido.")
-                          return
-                        }
-                        
-                        costoCalculado = (precioUnitarioUsd * pz * tc) * (1 + (ganancia / 100))
-                      } else {
-                        // ESCENARIO B: Cálculo basado en PRECIO EC (Venta MXN)
-                        const descInput = window.prompt(`Se utilizará el Precio EC ($${precioEcMxn} MXN) como referencia. Ingresa el % de descuento mayorista para estimar el costo de pieza (ej. 30 para 30% de descuento, o 0 para usar el precio completo):`, "30")
-                        if (descInput === null) return
-                        const desc = parseFloat(descInput)
-                        if (isNaN(desc) || desc < 0 || desc > 100) {
-                          alert("Porcentaje de descuento inválido.")
-                          return
-                        }
-                        costoCalculado = (precioEcMxn! * pz) * (1 - (desc / 100))
-                      }
-
-                      setEditData({ ...editData, costo_total_caja: Number(costoCalculado.toFixed(2)) })
+                      setCostoTc('17.5')
+                      setCostoPct(tieneUsd ? '20' : '30')
+                      setShowCostoDialog(true)
                     }}
                     title="Auto-calcular Costo: (Precio USD × Pz × TC) + Ganancia"
                   >
@@ -1036,7 +912,7 @@ export function CajaCard({
                   label="Tallas de Caja (Resumen)"
                   placeholder="Buscar talla en catálogo..."
                   options={tallaOptions}
-                  selectedValues={editData.tallas_summary}
+                  selectedValues={tallaTags}
                   onAdd={handleAddTallaSummary}
                   onRemove={handleRemoveTallaSummary}
                   freeText={false}
@@ -1045,7 +921,7 @@ export function CajaCard({
                   label="Colores de Caja (Resumen)"
                   placeholder="Colores separados por | o Enter..."
                   options={colorOptions}
-                  selectedValues={editData.colores_summary}
+                  selectedValues={colorTags}
                   onAdd={handleAddColorSummary}
                   onRemove={handleRemoveColorSummary}
                   freeText={true}
@@ -1141,6 +1017,46 @@ export function CajaCard({
         )}
       </CardContent>
 
+      <Dialog open={showCostoDialog} onOpenChange={setShowCostoDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Auto-calcular costo de caja</DialogTitle>
+            <DialogDescription>
+              {precioUnitarioUsd != null && precioUnitarioUsd > 0
+                ? `Precio USD $${precioUnitarioUsd} × ${Number(editData.piezas_por_caja) || 0} pz × tipo de cambio + ganancia.`
+                : `Precio EC $${precioEcMxn} MXN × ${Number(editData.piezas_por_caja) || 0} pz con descuento mayorista.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">
+                {precioUnitarioUsd != null && precioUnitarioUsd > 0 ? 'Tipo de cambio (MXN/USD)' : 'No aplica (modo EC)'}
+              </Label>
+              <Input
+                type="number" step="0.01" min="0" value={costoTc}
+                onChange={(e) => setCostoTc(e.target.value)}
+                disabled={!(precioUnitarioUsd != null && precioUnitarioUsd > 0)}
+                className="h-9 tabular-nums"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">
+                {precioUnitarioUsd != null && precioUnitarioUsd > 0 ? '% ganancia' : '% descuento'}
+              </Label>
+              <Input
+                type="number" step="0.1" min="0" value={costoPct}
+                onChange={(e) => setCostoPct(e.target.value)}
+                className="h-9 tabular-nums"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCostoDialog(false)}>Cancelar</Button>
+            <Button onClick={aplicarCalculoCosto}>Calcular</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDeleteModal
         isOpen={showDeactivateModal}
         onOpenChange={setShowDeactivateModal}
@@ -1193,4 +1109,4 @@ export function CajaCard({
       />
     </Card>
   )
-}
+})

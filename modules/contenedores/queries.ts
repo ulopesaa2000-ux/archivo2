@@ -267,6 +267,7 @@ export async function fetchSurtidoPreview(
     modoSoloCajas: false,
     ordenesConDiferencias: [],
     avisoPendiente: null,
+    comprobante: null,
   }
 
   let ordenQuery: any = supabase
@@ -430,7 +431,9 @@ export async function fetchSurtidoPreview(
   }
 
   // ── Aviso de ingreso ya generado y pendiente (solo avisa, no mueve stock) ──
+  // + comprobante permanente (última nota en cualquier estado, sin columna en BD)
   let avisoPendiente: SurtidoPreview['avisoPendiente'] = null
+  let comprobante: SurtidoPreview['comprobante'] = null
   const { data: contCod } = await supabase
     .from('contenedores')
     .select('codigo_contenedor')
@@ -440,7 +443,7 @@ export async function fetchSurtidoPreview(
     const { data: aviso } = await supabase
       .from('notas_inventario')
       .select(`
-        id, numero_nota,
+        id, numero_nota, fecha_confirmacion,
         estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo ),
         bodega:bodegas!notas_inventario_bodega_origen_id_fkey ( nombre )
       `)
@@ -450,6 +453,16 @@ export async function fetchSurtidoPreview(
       .maybeSingle()
     const av: any = aviso
     const estCod = Array.isArray(av?.estado) ? av.estado[0]?.codigo : av?.estado?.codigo
+    if (av) {
+      const bod = Array.isArray(av?.bodega) ? av.bodega[0] : av?.bodega
+      comprobante = {
+        notaId: av.id,
+        numeroNota: av.numero_nota,
+        bodegaNombre: bod?.nombre ?? null,
+        estadoCodigo: estCod ?? null,
+        fechaConfirmacion: av.fecha_confirmacion ?? null,
+      }
+    }
     if (av && (estCod === 'PEND' || estCod === 'PROC')) {
       const bod = Array.isArray(av?.bodega) ? av.bodega[0] : av?.bodega
       avisoPendiente = { notaId: av.id, numeroNota: av.numero_nota, bodegaNombre: bod?.nombre ?? null }
@@ -481,6 +494,7 @@ export async function fetchSurtidoPreview(
     modoSoloCajas,
     ordenesConDiferencias,
     avisoPendiente,
+    comprobante,
   }
 }
 

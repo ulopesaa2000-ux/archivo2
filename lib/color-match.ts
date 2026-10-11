@@ -39,7 +39,7 @@ const VARIANTE_A_EN: Record<string, string> = {
   'LIGHT GREY': 'LIGHT GREY', 'LIGHT GRAY': 'LIGHT GREY', 'GRIS CLARO': 'LIGHT GREY', OXFORD: 'LIGHT GREY', 'GRIS OXFORD': 'LIGHT GREY',
   ROSE: 'PINK', ROSA: 'PINK', PINK: 'PINK',
   PURPLE: 'PURPLE', MORADO: 'PURPLE', VIOLET: 'PURPLE', PURPURA: 'PURPLE', PURPUPA: 'PURPLE',
-  BROWN: 'BROWN', CAFE: 'BROWN', 'CAFÉ': 'BROWN', CHOCOLATE: 'BROWN', COFFEE: 'BROWN', COCOA: 'BROWN',
+  BROWN: 'BROWN', CAFE: 'BROWN', 'CAFÉ': 'BROWN', CHOCOLATE: 'CHOCOLATE', COFFEE: 'BROWN', COCOA: 'BROWN',
   GREEN: 'GREEN', VERDE: 'GREEN', OLIVE: 'OLIVE', OLIVO: 'OLIVE', 'OLIVE GREEN': 'OLIVE',
   MILITARY: 'MILITARY GREEN', ARMY: 'MILITARY GREEN', CAMO: 'MILITARY GREEN',
   'VERDE MILITARY': 'MILITARY GREEN', 'MILITARY GREEN': 'MILITARY GREEN', HUNTER: 'HUNTER GREEN', 'HUNTER GREEN': 'HUNTER GREEN',
@@ -55,6 +55,9 @@ const VARIANTE_A_EN: Record<string, string> = {
   KHAKI: 'KHAKI', CAQUI: 'KHAKI', 'D.KHAKI': 'DARK KHAKI', 'DARK KHAKI': 'DARK KHAKI',
   BRONZE: 'BRONZE', BRONCE: 'BRONZE',
   HUESO: 'WHITE', 'OFF WHITE': 'OFF WHITE', 'BLANCO HUESO': 'OFF WHITE',
+  // CJK (chino simplificado) -> canonico. Se conservan para no romper packing lists CN.
+  '黑色': 'BLACK', '白色': 'WHITE', '红色': 'RED', '藏青': 'NAVY', '藏青色': 'NAVY',
+  '灰色': 'GREY', '咖啡': 'BROWN', '咖啡色': 'BROWN',
   'D.BEIGE': 'DARK BEIGE', 'DARK BEIGE': 'DARK BEIGE', 'BEIGE OSCURO': 'DARK BEIGE',
   'PALE ROSE': 'PALE ROSE', 'ROSA PALIDO': 'PALE ROSE', 'ROSA PÁLIDO': 'PALE ROSE',
   SAND: 'SAND', ARENA2: 'SAND',
@@ -65,7 +68,7 @@ const VARIANTE_A_EN: Record<string, string> = {
 const EN_A_ES: Record<string, string> = {
   BLACK: 'NEGRO', WHITE: 'BLANCO', RED: 'ROJO', NAVY: 'MARINO', BLUE: 'AZUL',
   GREY: 'GRIS', 'DARK GREY': 'GRIS OSCURO', 'LIGHT GREY': 'GRIS CLARO',
-  PINK: 'ROSA', PURPLE: 'MORADO', BROWN: 'CAFÉ', GREEN: 'VERDE', OLIVE: 'OLIVO',
+  PINK: 'ROSA', PURPLE: 'MORADO', BROWN: 'CAFÉ', CHOCOLATE: 'CHOCOLATE', GREEN: 'VERDE', OLIVE: 'OLIVO',
   'MILITARY GREEN': 'VERDE MILITAR', 'HUNTER GREEN': 'VERDE CAZADOR',
   BEIGE: 'BEIGE', 'LIGHT BEIGE': 'BEIGE CLARO', 'DARK BEIGE': 'BEIGE OSCURO',
   'OFF WHITE': 'BLANCO HUESO', PETROL: 'PETRÓLEO', DENIM: 'DENIM',
@@ -109,16 +112,111 @@ export function splitCompoundColor(raw: string): string[] {
   return [clean]
 }
 
+/** Modificadores de intensidad genericos (claro/oscuro). */
+export type ModificadorColor = 'LIGHT' | 'DARK' | null
+
+const MOD_ES: Record<Exclude<ModificadorColor, null>, string> = {
+  LIGHT: 'CLARO',
+  DARK: 'OSCURO',
+}
+
+/**
+ * Separa un modificador claro/oscuro de la base del color.
+ * Soporta prefijos EN (LT, DK, D., L., LIGHT, DARK) y sufijos ES
+ * (CLARO/A, OSCURO/A, OBSCURO/A). El punto evita comerse DENIM/DEEP.
+ * Ej: "LT BLUE" -> {DARK:null... LIGHT, "BLUE"}, "AZUL OSCURO" -> {DARK, "AZUL"}.
+ */
+export function separarModificador(raw: string): { mod: ModificadorColor; base: string } {
+  let s = cleanColorRaw(raw)
+  let mod: ModificadorColor = null
+  const pre = s.match(/^(LT|DK|LIGHT|DARK)\s+(.+)$/) || s.match(/^([DL])\.\s*(.+)$/)
+  if (pre) {
+    const p = pre[1]
+    mod = p === 'LT' || p === 'L' || p === 'LIGHT' ? 'LIGHT' : 'DARK'
+    s = pre[2].trim()
+  } else {
+    const suf = s.match(/^(.+?)\s+(CLARO|CLARA|OSCURO|OSCURA|OBSCURO|OBSCURA)$/)
+    if (suf) {
+      const m = suf[2]
+      mod = m === 'CLARO' || m === 'CLARA' ? 'LIGHT' : 'DARK'
+      s = suf[1].trim()
+    }
+  }
+  return { mod, base: s }
+}
+
 /** EN canonico (llave nombre_intern) para un raw limpio. */
 export function canonicalEn(raw: string): string {
+  // Directo primero (cubre CJK, que cleanColorRaw eliminaria).
+  const direct = VARIANTE_A_EN[String(raw || '').trim().toUpperCase()]
+  if (direct) return direct
   const clean = cleanColorRaw(raw)
-  return VARIANTE_A_EN[clean] || clean
+  const hit = VARIANTE_A_EN[clean]
+  if (hit) return hit
+  // Modificador generico: compone "LIGHT BLUE" / "DARK GREY".
+  const { mod, base } = separarModificador(clean)
+  if (mod && base) {
+    const baseEn = VARIANTE_A_EN[base] || base
+    return `${mod} ${baseEn}`
+  }
+  return clean
 }
 
 /** ES display sugerido (para nombre) a partir del EN canonico o raw. */
 export function suggestEs(rawOrEn: string): string {
   const clean = cleanColorRaw(rawOrEn)
-  return EN_A_ES[clean] || EN_A_ES[canonicalEn(clean)] || clean
+  const hit = EN_A_ES[clean]
+  if (hit) return hit
+  const en = canonicalEn(clean)
+  const enHit = EN_A_ES[en]
+  if (enHit) return enHit
+  // Compone "AZUL CLARO" desde "LIGHT BLUE" (o cualquier base conocida).
+  const { mod, base } = separarModificador(en)
+  if (mod && base) {
+    const baseEs = EN_A_ES[base] || EN_A_ES[VARIANTE_A_EN[base] || ''] || base
+    return `${baseEs} ${MOD_ES[mod]}`
+  }
+  return clean
+}
+
+/** Llave unica de dedup: insensible a case, acentos y espacios extra. */
+export function claveColor(raw: string): string {
+  return normalizeColorKey(raw)
+}
+
+/** Dedup por clave insensible, conservando el primer texto. */
+export function dedupPorClave(items: string[]): string[] {
+  const vistos = new Set<string>()
+  const out: string[] = []
+  for (const s of items || []) {
+    if (!s) continue
+    const k = normalizeColorKey(String(s))
+    if (vistos.has(k)) continue
+    vistos.add(k)
+    out.push(String(s))
+  }
+  return out
+}
+
+/**
+ * Filtra el catalogo por texto libre (buscador del modal).
+ * Insensible a case/acentos; todos los tokens deben aparecer en
+ * nombre+codigo+intern. Sin query devuelve los primeros `limite`.
+ */
+export function filtrarColoresCatalogo<T extends CatalogColor>(catalogo: T[], query: string, limite = 50): T[] {
+  const tokens = String(query || '')
+    .split(/\s+/)
+    .map((t) => normalizeColorKey(t))
+    .filter((t) => t.length > 0)
+  if (tokens.length === 0) return (catalogo || []).slice(0, limite)
+  return (catalogo || [])
+    .filter((c) => {
+      const hay = [c.nombre, c.codigo ?? '', c.nombre_intern ?? '']
+        .map((s) => normalizeColorKey(s || ''))
+        .join(' ')
+      return tokens.every((t) => hay.includes(t))
+    })
+    .slice(0, limite)
 }
 
 /**

@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\lib\orden-rapida-colores.ts
 // Logica pura Fase 2 (testeable): siembra de colores por confirmar,
 // siguiente letra de pack y particion de rangos de carton.
-import { resolveColor, type CatalogColor } from '@/lib/color-match'
+import { resolveColor, claveColor, type CatalogColor } from '@/lib/color-match'
 
 export interface N8nColorRow {
   raw: string
@@ -227,7 +227,8 @@ export function seedColoresPorConfirmar(
   const push = (rawInput: string, en?: string | null, es?: string | null, cajas?: string[], fuente?: string) => {
     const raw = String(rawInput || '').trim()
     if (!raw) return
-    const key = raw.toUpperCase()
+    // Llave insensible a case, acentos y espacios: "Cafe Claro" == "CAFE  CLARO".
+    const key = claveColor(raw)
     if (seen.has(key)) {
       const prev = seen.get(key)!
       if (cajas && cajas.length > 0) {

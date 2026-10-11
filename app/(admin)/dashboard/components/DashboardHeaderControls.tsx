@@ -1,9 +1,10 @@
 // app/(admin)/dashboard/components/DashboardHeaderControls.tsx
 'use client'
 
-import { useTransition, useState } from 'react'
+import { useTransition, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { DashboardView, DashboardPeriod } from '@/modules/dashboard/types'
+import { TIMEZONE } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,9 +39,14 @@ export function DashboardHeaderControls({
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const [lastUpdated, setLastUpdated] = useState<string>(() => {
-    return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  })
+  // Fijar hora solo en cliente para evitar hydration mismatch (SSR vs cliente).
+  const [lastUpdated, setLastUpdated] = useState<string>('')
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hidratar hora solo en cliente
+    setLastUpdated(
+      new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: TIMEZONE })
+    )
+  }, [])
 
   function handleViewChange(nuevaVista: DashboardView) {
     const params = new URLSearchParams(searchParams.toString())
@@ -61,7 +67,7 @@ export function DashboardHeaderControls({
   function handleManualRefresh() {
     startTransition(() => {
       router.refresh()
-      const nowStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      const nowStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: TIMEZONE })
       setLastUpdated(nowStr)
       toast.success('Métricas del dashboard actualizadas con éxito.', {
         description: `Datos sincronizados a las ${nowStr}`,
@@ -177,7 +183,7 @@ export function DashboardHeaderControls({
 
         <div className="flex items-center gap-1.5 text-[11px]">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Última sincronización: <strong>{lastUpdated}</strong></span>
+          <span suppressHydrationWarning>Última sincronización: <strong>{lastUpdated || '—'}</strong></span>
         </div>
       </div>
     </div>
