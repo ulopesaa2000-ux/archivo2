@@ -148,7 +148,7 @@ export const TRANSICIONES_CONTENEDOR: Record<string, string[]> = {
   borrador: ['en_transito', 'cancelado'],
   en_transito: ['en_aduana', 'cancelado'],
   en_aduana: ['en_bodega', 'cancelado'],
-  en_bodega: ['completo', 'cancelado'],
+  en_bodega: ['surtido', 'completo', 'cancelado'],
   surtido: ['completo', 'cancelado'],
   completo: ['cerrado'],
   cerrado: [],

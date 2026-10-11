@@ -75,4 +75,19 @@ describe('seedColoresPorConfirmar', () => {
     )
     expect(seed).toHaveLength(0)
   })
+
+  it('fusiona variantes de case/espacios/acentos en una sola entrada', () => {
+    const seed = seedColoresPorConfirmar(
+      [],
+      [
+        { color_raw: 'Cafe Claro', codigo_caja_temporal: 'CJ-1' },
+        { color_raw: 'CAFE CLARO', codigo_caja_temporal: 'CJ-2' },
+        { color_raw: 'Café  Claro', codigo_caja_temporal: 'CJ-3' },
+      ],
+      CATALOGO,
+    )
+    expect(seed).toHaveLength(1)
+    expect(seed[0].raw).toBe('Cafe Claro')
+    expect(seed[0].cajas).toEqual(expect.arrayContaining(['CJ-1', 'CJ-2', 'CJ-3']))
+  })
 })
