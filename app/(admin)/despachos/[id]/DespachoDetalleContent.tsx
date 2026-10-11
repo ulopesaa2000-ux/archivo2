@@ -11,11 +11,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS } from '@/lib/constants'
 import {
-  ArrowLeft, AlertCircle, Check, X, Loader2, Truck, FileText,
+  ArrowLeft, AlertCircle, Check, X, Loader2, Truck, FileText, ShieldCheck, TriangleAlert,
 } from 'lucide-react'
 import {
   confirmarSalidaDespachoAction, recibirDespachoAction, cancelarDespachoAction,
 } from '@/modules/despachos/actions'
+import type { AuditoriaDespacho } from '@/modules/despachos/types'
 
 type DespachoDetalle = NonNullable<Awaited<ReturnType<typeof import('@/modules/despachos/queries').fetchDespachoById>>>
 
@@ -26,7 +27,7 @@ const ESTADO_COLORS: Record<string, string> = {
   Cancelado: 'bg-red-100 text-red-800',
 }
 
-export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle }) {
+export function DespachoDetalleContent({ despacho, auditoria }: { despacho: DespachoDetalle; auditoria?: AuditoriaDespacho }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -185,6 +186,63 @@ export function DespachoDetalleContent({ despacho }: { despacho: DespachoDetalle
           )}
         </CardContent>
       </Card>
+
+      {/* Auditoría entra/sale vs stock real (solo lectura) */}
+      {auditoria && (
+        <Card>
+          <CardHeader><CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" /> Auditoría entra / sale (stock real)
+          </CardTitle></CardHeader>
+          <CardContent>
+            {!nota ? (
+              <p className="text-sm text-muted-foreground">Sin nota TRF vinculada.</p>
+            ) : auditoria.lineas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin líneas para auditar.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Nota TRF</TableHead>
+                    <TableHead className="text-right">Sale {despacho.bodega_origen?.nombre ?? 'origen'}</TableHead>
+                    <TableHead className="text-right">Stock origen</TableHead>
+                    <TableHead className="text-right">Entra {despacho.bodega_destino?.nombre ?? 'destino'}</TableHead>
+                    <TableHead>Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {auditoria.lineas.map((l) => (
+                    <TableRow key={l.producto_id}>
+                      <TableCell className="font-mono text-xs">{l.sku ?? '—'}</TableCell>
+                      <TableCell className="text-right tabular-nums font-semibold">{l.cajas_nota}</TableCell>
+                      <TableCell className="text-right tabular-nums">{l.cajas_nota}</TableCell>
+                      <TableCell className="text-right tabular-nums">{l.stock_origen}</TableCell>
+                      <TableCell className="text-right tabular-nums">{l.stock_destino}</TableCell>
+                      <TableCell>
+                        {l.estado === 'OK' ? (
+                          <Badge variant="secondary" className="text-[10px] gap-1">
+                            <Check className="h-3 w-3 text-emerald-600" /> Cuadra
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-600">
+                            <TriangleAlert className="h-3 w-3" />
+                            {l.estado === 'FALTA_ORIGEN' ? `Faltan ${l.cajas_nota - l.stock_origen}` : 'Difiere despacho/nota'}
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            <p className="text-xs text-muted-foreground mt-3">
+              {notaPendiente
+                ? 'Borrador: al confirmar se descuenta origen y suma destino en un solo movimiento. Si marca FALTA, el trigger lo bloqueará.'
+                : 'Confirmado: el stock ya se movió por trigger. Si algo difiere, corrige con nota AJU, no re-confirmes.'}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Productos (solo lectura: se edita en la nota) */}
       <Card>

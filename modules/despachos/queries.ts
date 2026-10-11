@@ -464,3 +464,105 @@ export async function fetchDespachoById(despachoId: number) {
     nota: await fetchNotaTraspasoDespacho(despachoId),
   }
 }
+
+// ════════════════════════════════════════════════════════════
+// AUDITORÍA VISIBLE ENTRA/SALE (solo lectura, sin mover stock)
+// Compara despacho vs nota TRF vs inventario_stock real en
+// origen y destino. El bloqueo lo sigue haciendo el trigger al CONF.
+// ════════════════════════════════════════════════════════════
+
+export async function fetchAuditoriaDespacho(
+  despachoId: number
+): Promise<import('./types').AuditoriaDespacho> {
+  const supabase = await createClient()
+
+  const despacho = await fetchDespachoById(despachoId)
+  if (!despacho) return null
+
+  const nota = despacho.nota ?? null
+  const origenId = (despacho as any).bodega_origen_id as number | null
+  const destinoId = (despacho as any).bodega_destino_id as number | null
+
+  const detalles = ((despacho as any).detalles ?? []) as {
+    producto_id: number | null
+    cantidad_cajas_solicitadas: number | null
+    producto_sku?: string | null
+    producto_nombre?: string | null
+  }[]
+
+  const porDespacho = new Map<number, { cajas: number; sku: string | null; nombre: string | null }>()
+  for (const d of detalles) {
+    if (d.producto_id == null) continue
+    const prev = porDespacho.get(d.producto_id) ?? { cajas: 0, sku: d.producto_sku ?? null, nombre: d.producto_nombre ?? null }
+    prev.cajas += Number(d.cantidad_cajas_solicitadas ?? 0)
+    if (!prev.sku) prev.sku = d.producto_sku ?? null
+    if (!prev.nombre) prev.nombre = d.producto_nombre ?? null
+    porDespacho.set(d.producto_id, prev)
+  }
+
+  const porNota = new Map<number, number>()
+  if (nota) {
+    const { data: detNota } = await supabase
+      .from('nota_detalle_productos')
+      .select('producto_id, cajas')
+      .eq('nota_id', nota.id)
+    for (const r of ((detNota ?? []) as { producto_id: number | null; cajas: number | null }[])) {
+      if (r.producto_id == null) continue
+      porNota.set(r.producto_id, (porNota.get(r.producto_id) ?? 0) + Number(r.cajas ?? 0))
+    }
+  }
+
+  const pids = Array.from(new Set([...porDespacho.keys(), ...porNota.keys()]))
+  const stockOrigen = new Map<number, number>()
+  const stockDestino = new Map<number, number>()
+  if (pids.length > 0) {
+    const bodegas = [origenId, destinoId].filter((v): v is number => v != null)
+    if (bodegas.length > 0) {
+      const { data: stock } = await supabase
+        .from('inventario_stock')
+        .select('bodega_id, producto_id, cajas')
+        .in('bodega_id', bodegas)
+        .in('producto_id', pids)
+      for (const s of ((stock ?? []) as { bodega_id: number; producto_id: number; cajas: number | null }[])) {
+        if (s.bodega_id === origenId) stockOrigen.set(s.producto_id, (stockOrigen.get(s.producto_id) ?? 0) + Number(s.cajas ?? 0))
+        if (s.bodega_id === destinoId) stockDestino.set(s.producto_id, (stockDestino.get(s.producto_id) ?? 0) + Number(s.cajas ?? 0))
+      }
+    }
+  }
+
+  // Nombres faltantes (líneas editadas directo en nota)
+  const faltantes = pids.filter((pid) => !porDespacho.get(pid))
+  let nombres = new Map<number, { sku: string | null; nombre: string | null }>()
+  if (faltantes.length > 0) {
+    const { data: prods } = await supabase
+      .from('productos')
+      .select('id, sku_base, nombre')
+      .in('id', faltantes)
+    for (const p of ((prods ?? []) as { id: number; sku_base: string | null; nombre: string | null }[])) {
+      nombres.set(p.id, { sku: p.sku_base, nombre: p.nombre })
+    }
+  }
+
+  const esPendiente = !nota || nota.estado_codigo === 'PEND' || nota.estado_codigo === 'PROC'
+  const lineas: import('./types').AuditoriaDespachoLinea[] = pids.map((pid) => {
+    const dd = porDespacho.get(pid)
+    const cajasDespacho = dd?.cajas ?? 0
+    const cajasNota = porNota.get(pid) ?? 0
+    const so = stockOrigen.get(pid) ?? 0
+    const sd = stockDestino.get(pid) ?? 0
+    const sku = dd?.sku ?? nombres.get(pid)?.sku ?? null
+    const nombre = dd?.nombre ?? nombres.get(pid)?.nombre ?? null
+    let estado: import('./types').AuditoriaDespachoLinea['estado'] = 'OK'
+    if (nota && cajasDespacho !== cajasNota) estado = 'DIFIERE_NOTA'
+    else if (esPendiente && so < cajasNota) estado = 'FALTA_ORIGEN'
+    return { producto_id: pid, sku, nombre, cajas_despacho: cajasDespacho, cajas_nota: cajasNota, stock_origen: so, stock_destino: sd, estado }
+  }).sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? ''))
+
+  return {
+    despacho_id: despachoId,
+    nota_id: nota?.id ?? null,
+    nota_numero: nota?.numero_nota ?? null,
+    nota_estado: nota?.estado_codigo ?? null,
+    lineas,
+  }
+}
