@@ -51,7 +51,7 @@ import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProdu
 import type { CatalogoColorOrdenRapida } from '@/modules/ordenes-b2b/actions'
 import { resolveColor, buildColorDraft, suggestEs } from '@/lib/color-match'
 import type { CatalogColor } from '@/lib/color-match'
-import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, derivarRepartoPorFilas, stagingMinFilaPorCodigo } from '@/lib/orden-rapida-colores'
+import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones } from '@/lib/orden-rapida-colores'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
@@ -1695,7 +1695,7 @@ export function OrdenRapidaWizard({
   // Separa un producto pegado (sku_conjoinado_dudoso) en N productos usando
   // los candidatos de n8n. El 1er candidato conserva producto y cajas; el resto
   // se crea y recibe sus cajas por carton (sin solapar rangos compartidos).
-  const handleSepararSugerido = (sep: SeparacionSugerida) => {
+  const handleSepararSugerido = (sep: SeparacionSugerida, opts?: { soloCrear?: boolean }) => {
     const cands = (sep.productos_candidatos || []).map((c) => ({
       sku: String(c.sku_base || '').trim(),
       alias: String(c.alias || '').trim(),
@@ -1726,43 +1726,23 @@ export function OrdenRapidaWizard({
       && String(cj.sku_base || '').trim().toUpperCase() === originalUp)
     const destinoPorCodigo = new Map<string, string>()
     let exactas = 0
-    // Nivel A: reparto_exacto del workflow (si algun dia lo trae).
-    for (const r of sep.reparto_exacto || []) {
-      const cod = String(r.codigo_caja_temporal || '')
-      const skuD = String(r.sku_base_sugerido || '').trim()
-      if (!cod || !skuD || destinoPorCodigo.has(cod)) continue
-      if (!tempPorSku.has(skuD.toUpperCase())) continue
-      if (!cajasOrigen.some((cj) => String(cj.codigo_caja_temporal || cj.codigo_caja || '') === cod)) continue
-      destinoPorCodigo.set(cod, skuD)
-      exactas++
-    }
-    // Nivel B: derivacion por filas staging (exacta aunque compartan carton).
-    if (destinoPorCodigo.size < cajasOrigen.length) {
-      const restantes = cajasOrigen
-        .map((cj) => String(cj.codigo_caja_temporal || cj.codigo_caja || ''))
-        .filter((cod) => cod && !destinoPorCodigo.has(cod))
-      const { mapa } = derivarRepartoPorFilas(
-        restantes,
+    if (!opts?.soloCrear) {
+      const { destinos, exactas: ex } = calcularDestinos(
+        cajasOrigen.map((cj) => ({
+          codigo: String(cj.codigo_caja_temporal || cj.codigo_caja || ''),
+          carton: String((cj as unknown as Record<string, unknown>).carton_no_raw || '').trim(),
+        })),
         parsedData?.staging_por_codigo || {},
-        cands.map((c) => ({ sku_base: c.sku, filas: c.filas })),
+        cands.map((c) => ({ sku_base: c.sku, filas: c.filas, cartones: c.cartones })),
+        sep.reparto_exacto || [],
+        (skuD) => tempPorSku.has(skuD.toUpperCase()),
       )
-      for (const [cod, skuD] of mapa) {
-        if (!tempPorSku.has(skuD.toUpperCase())) continue
-        destinoPorCodigo.set(cod, skuD)
-        exactas++
-      }
+      for (const [cod, skuD] of destinos) destinoPorCodigo.set(cod, skuD)
+      exactas = ex
     }
-    // Nivel C: cartones unicos sin solapar (respaldo para cajas sin fila).
-    const reclamados = new Set<string>(cands[0].cartones)
-    for (const c of cands.slice(1)) {
-      const unicos = c.cartones.filter((x) => !reclamados.has(x))
-      for (const cj of cajasOrigen) {
-        const cod = String(cj.codigo_caja_temporal || cj.codigo_caja || '')
-        if (!cod || destinoPorCodigo.has(cod)) continue
-        const cart = String((cj as unknown as Record<string, unknown>).carton_no_raw || '').trim()
-        if (unicos.includes(cart)) destinoPorCodigo.set(cod, c.sku)
-      }
-      for (const x of c.cartones) reclamados.add(x)
+    if (!opts?.soloCrear && destinoPorCodigo.size === 0 && cajasOrigen.length > 0) {
+      toast.error('Sin datos de posición para repartir (la sugerencia no trae filas ni cartones). Usa "Crear productos" y arrastra las cajas a mano.')
+      return
     }
     const usados = new Set(editableCajas.map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '').toUpperCase()))
     const remap = new Map<string, { sku: string; tempId: string; codigo: string }>()
@@ -1808,11 +1788,16 @@ export function OrdenRapidaWizard({
       }
     })
     const estimadas = remap.size - Math.min(exactas, remap.size)
-    toast.success(
-      `Separado: ${skuA} conserva sus cajas; ${remap.size} caja(s) movidas`
-      + (exactas > 0 ? ` (${exactas} exactas por documento${estimadas > 0 ? `, ${estimadas} por cartón` : ''})` : '')
-      + `. Ajusta líneas esperadas${remap.size < cajasOrigen.length ? ' y arrastra el resto a mano' : ''}.`,
-    )
+    if (opts?.soloCrear) {
+      setModoArrastre(true)
+      toast.info(`Productos creados (${[skuA, ...nuevos.map((n) => n.sku_base)].join(' + ')}). Modo arrastre activado: mueve cada caja a su producto.`)
+    } else {
+      toast.success(
+        `Separado: ${skuA} conserva sus cajas; ${remap.size} caja(s) movidas`
+        + (exactas > 0 ? ` (${exactas} exactas por documento${estimadas > 0 ? `, ${estimadas} por cartón` : ''})` : '')
+        + `. Ajusta líneas esperadas${remap.size < cajasOrigen.length ? ' y arrastra el resto a mano' : ''}.`,
+      )
+    }
   }
 
   // Agregar caja manual a un producto (corrige packing cuando no se detectó una caja).
@@ -2514,6 +2499,11 @@ export function OrdenRapidaWizard({
           map.set(up, [{ tipo: a.tipo, sku_base_original: a.sku_base || undefined, motivo: a.detalle }])
         }
       }
+    }
+    // Dedupe: el workflow puede traer la rica del parser + una pobre duplicada
+    // del fallback IA; quedarse con la mas rica por tipo (la pobre mueve 0 cajas).
+    for (const [key, list] of map) {
+      if (list.length > 1) map.set(key, dedupSeparaciones(list))
     }
     return map
   }, [parsedData, alertasN8n])
@@ -3535,6 +3525,29 @@ export function OrdenRapidaWizard({
                                       {seps.map((sep, si) => {
                                         const cands = (sep.productos_candidatos || []).map((c) => String(c.sku_base || '')).filter(Boolean)
                                         const packs = (sep.packs_candidatos || []).map((p) => String(p.nombre_actual || '')).filter(Boolean)
+                                        const upSep = String(sep.sku_base_original || '').trim().toUpperCase()
+                                        const cajasSep = editableCajas.filter((cj) => cj.tipo_caja !== 'padre_resumen'
+                                          && String(cj.sku_base || '').trim().toUpperCase() === upSep)
+                                        const prevision = sep.tipo !== 'pack_duplicado_dudoso' && cands.length >= 2
+                                          ? calcularDestinos(
+                                            cajasSep.map((cj) => ({
+                                              codigo: String(cj.codigo_caja_temporal || cj.codigo_caja || ''),
+                                              carton: String((cj as unknown as Record<string, unknown>).carton_no_raw || '').trim(),
+                                            })),
+                                            parsedData?.staging_por_codigo || {},
+                                            (sep.productos_candidatos || []).map((c) => ({
+                                              sku_base: String(c.sku_base || ''),
+                                              filas: (c.filas || []).map((x) => Number(x)),
+                                              cartones: (c.cartones || []).map((x) => String(x)),
+                                            })),
+                                            sep.reparto_exacto || [],
+                                          )
+                                          : null
+                                        const skuADest = String((sep.productos_candidatos || [])[0]?.sku_base || '').trim().toUpperCase()
+                                        const muevenPrevistos = prevision
+                                          ? [...prevision.destinos.values()].filter((s) => s.trim().toUpperCase() !== skuADest).length
+                                          : 0
+                                        const sinDatosPosicion = prevision !== null && cajasSep.length > 0 && muevenPrevistos === 0
                                         return (
                                           <div key={si} className="flex flex-wrap items-center gap-1.5 text-[11px]">
                                             <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
@@ -3543,14 +3556,24 @@ export function OrdenRapidaWizard({
                                                 ? `Pack duplicado${packs.length > 0 ? `: ${packs.join(', ')}` : ''}`
                                                 : `Posible pegado: ${cands.length > 0 ? cands.join(' + ') : (sep.sku_base_original || '')}`}
                                             </span>
-                                            {sep.tipo !== 'pack_duplicado_dudoso' && cands.length >= 2 && (
+                                            {sep.tipo !== 'pack_duplicado_dudoso' && cands.length >= 2 && !sinDatosPosicion && (
                                               <Button
                                                 type="button" variant="outline" size="sm"
                                                 className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100"
                                                 onClick={() => handleSepararSugerido(sep)}
-                                                title="Crea los productos candidatos y reparte sus cajas por cartón"
+                                                title={`Crea los productos candidatos y reparte sus cajas (moverá ${muevenPrevistos} a ${cands.slice(1).join(', ')})`}
                                               >
-                                                Separar en {cands.length}
+                                                Separar en {cands.length} (mueve {muevenPrevistos})
+                                              </Button>
+                                            )}
+                                            {sep.tipo !== 'pack_duplicado_dudoso' && cands.length >= 2 && sinDatosPosicion && (
+                                              <Button
+                                                type="button" variant="outline" size="sm"
+                                                className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100"
+                                                onClick={() => handleSepararSugerido(sep, { soloCrear: true })}
+                                                title="La sugerencia no trae filas ni cartones: crea los productos y mueve las cajas a mano con arrastre"
+                                              >
+                                                Crear productos (mover a mano)
                                               </Button>
                                             )}
                                             {sep.tipo === 'pack_duplicado_dudoso' && packs.map((pk) => (

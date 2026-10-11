@@ -101,6 +101,119 @@ export function stagingMinFilaPorCodigo(
   return out
 }
 
+/** Entrada de separacion (shape minimo compatible con SeparacionSugerida del wizard). */
+export interface SeparacionEntrada {
+  tipo?: string
+  sku_base_original?: string
+  productos_candidatos?: Array<{ sku_base: string; filas?: number[]; cartones?: string[] }>
+  reparto_exacto?: Array<{ codigo_caja_temporal: string; sku_base_sugerido: string }>
+  cajas_para_revisar?: string[]
+}
+
+/**
+ * Riqueza de una sugerencia: la rica del parser trae filas/cartones por
+ * candidato; la pobre (fallback IA) solo trae SKUs. Sirve para dedupe.
+ */
+export function riquezaSeparacion(s: SeparacionEntrada): number {
+  let score = 0
+  for (const c of s.productos_candidatos || []) {
+    if ((c.filas || []).length > 0) score += 2
+    if ((c.cartones || []).length > 0) score += 1
+  }
+  if ((s.reparto_exacto || []).length > 0) score += 3
+  if ((s.cajas_para_revisar || []).length > 0) score += 1
+  return score
+}
+
+/**
+ * Dedupe: conserva la mas rica por (tipo, sku original). El workflow vivo
+ * puede traer la rica del parser + una pobre duplicada del fallback IA;
+ * sin esto el banner muestra dos botones y el pobre mueve 0 cajas.
+ */
+export function dedupSeparaciones<T extends SeparacionEntrada>(seps: T[]): T[] {
+  const porTipo = new Map<string, T>()
+  for (const s of seps || []) {
+    const t = String(s.tipo || '')
+    const prev = porTipo.get(t)
+    if (!prev || riquezaSeparacion(s) > riquezaSeparacion(prev)) porTipo.set(t, s)
+  }
+  return [...porTipo.values()]
+}
+
+export interface CajaOrigenReparto {
+  codigo: string
+  carton: string
+}
+
+export interface CandidatoReparto {
+  sku_base: string
+  filas?: number[]
+  cartones?: string[]
+}
+
+export interface FilaRepartoExacto {
+  codigo_caja_temporal: string
+  sku_base_sugerido: string
+}
+
+/**
+ * Calcula destino por codigo en 3 niveles (puro, sin efectos):
+ * A) reparto_exacto del workflow; B) filas staging (exacto aunque compartan
+ * carton); C) cartones unicos sin solapar. `exactas` cuenta A+B.
+ */
+export function calcularDestinos(
+  origen: CajaOrigenReparto[],
+  stagingPorCodigo: Record<string, number>,
+  candidatos: CandidatoReparto[],
+  repartoExacto?: FilaRepartoExacto[],
+  esDestinoValido?: (sku: string) => boolean,
+): { destinos: Map<string, string>; exactas: number } {
+  const valido = esDestinoValido ?? (() => true)
+  const codsOrigen = new Set(origen.map((o) => o.codigo))
+  const destinos = new Map<string, string>()
+  let exactas = 0
+  // Nivel A
+  for (const r of repartoExacto || []) {
+    const cod = String(r.codigo_caja_temporal || '')
+    const skuD = String(r.sku_base_sugerido || '').trim()
+    if (!cod || !skuD || destinos.has(cod)) continue
+    if (!valido(skuD)) continue
+    if (!codsOrigen.has(cod)) continue
+    destinos.set(cod, skuD)
+    exactas++
+  }
+  // Nivel B
+  if (destinos.size < origen.length) {
+    const restantes = origen.map((o) => o.codigo).filter((cod) => cod && !destinos.has(cod))
+    const { mapa } = derivarRepartoPorFilas(
+      restantes,
+      stagingPorCodigo || {},
+      (candidatos || []).map((c) => ({ sku_base: c.sku_base, filas: c.filas })),
+    )
+    for (const [cod, skuD] of mapa) {
+      if (!valido(skuD)) continue
+      destinos.set(cod, skuD)
+      exactas++
+    }
+  }
+  // Nivel C
+  const cands = (candidatos || []).map((c) => ({
+    sku: String(c.sku_base || '').trim(),
+    cartones: (c.cartones || []).map((x) => String(x).trim()).filter(Boolean),
+  })).filter((c) => c.sku)
+  const reclamados = new Set<string>(cands[0]?.cartones || [])
+  for (const c of cands.slice(1)) {
+    const unicos = c.cartones.filter((x) => !reclamados.has(x))
+    for (const o of origen) {
+      if (!o.codigo || destinos.has(o.codigo)) continue
+      if (!valido(c.sku)) continue
+      if (unicos.includes(o.carton)) destinos.set(o.codigo, c.sku)
+    }
+    for (const x of c.cartones) reclamados.add(x)
+  }
+  return { destinos, exactas }
+}
+
 /**
  * Siembra pendientes: une filas n8n (raw + tripletes IA) con barrido de
  * detalles, deduplica por raw (merge de cajas) y resuelve contra catalogo.
