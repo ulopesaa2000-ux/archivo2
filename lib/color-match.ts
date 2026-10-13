@@ -221,7 +221,8 @@ export function filtrarColoresCatalogo<T extends CatalogColor>(catalogo: T[], qu
 
 /**
  * Resuelve un color contra el catalogo activo.
- * Orden: nombre_intern exacto -> codigo -> nombre -> normalizado -> parcial (>=4).
+ * Orden acordado: nombre ES exacto -> nombre_intern EN exacto -> codigo ->
+ * normalizado (en el mismo orden) -> parcial (>=4, solo nombre).
  * Los compuestos se resuelven por lados; si algun lado falla, no hay match.
  */
 export function resolveColor(raw: string, catalog: CatalogColor[]): ColorMatch {
@@ -246,18 +247,23 @@ function resolveSingle(clean: string, catalog: CatalogColor[]): ColorMatch {
   const candidatos = Array.from(new Set([clean, en, es]))
   const normCandidatos = candidatos.map(normalizeColorKey)
 
-  const byIntern = catalog.find((c) => cleanColorRaw(c.nombre_intern || '') === en)
-  if (byIntern) return { found: true, id: byIntern.id, via: 'nombre_intern', catalog: byIntern, candidatos }
-  const byCodigo = catalog.find((c) => cleanColorRaw(c.codigo || '') === clean || cleanColorRaw(c.codigo || '') === en)
-  if (byCodigo) return { found: true, id: byCodigo.id, via: 'codigo', catalog: byCodigo, candidatos }
+  // 1) nombre ES exacto (traduccion IA directa)
   const byNombre = catalog.find((c) => cleanColorRaw(c.nombre || '') === es || cleanColorRaw(c.nombre || '') === clean)
   if (byNombre) return { found: true, id: byNombre.id, via: 'nombre', catalog: byNombre, candidatos }
+  // 2) nombre_intern EN exacto (secundario: rescata lo mal traducido)
+  const byIntern = catalog.find((c) => cleanColorRaw(c.nombre_intern || '') === en)
+  if (byIntern) return { found: true, id: byIntern.id, via: 'nombre_intern', catalog: byIntern, candidatos }
+  // 3) codigo exacto
+  const byCodigo = catalog.find((c) => cleanColorRaw(c.codigo || '') === clean || cleanColorRaw(c.codigo || '') === en)
+  if (byCodigo) return { found: true, id: byCodigo.id, via: 'codigo', catalog: byCodigo, candidatos }
 
-  const normMatch = catalog.find((c) => {
-    const norms = [normalizeColorKey(c.nombre_intern || ''), normalizeColorKey(c.codigo || ''), normalizeColorKey(c.nombre || '')]
-    return normCandidatos.some((nc) => nc && norms.includes(nc))
-  })
-  if (normMatch) return { found: true, id: normMatch.id, via: 'normalizado', catalog: normMatch, candidatos }
+  // 4) normalizado, en el mismo orden de prioridad
+  const normNombre = catalog.find((c) => normCandidatos.some((nc) => nc && normalizeColorKey(c.nombre || '') === nc))
+  if (normNombre) return { found: true, id: normNombre.id, via: 'normalizado', catalog: normNombre, candidatos }
+  const normIntern = catalog.find((c) => normCandidatos.some((nc) => nc && normalizeColorKey(c.nombre_intern || '') === nc))
+  if (normIntern) return { found: true, id: normIntern.id, via: 'normalizado', catalog: normIntern, candidatos }
+  const normCodigo = catalog.find((c) => normCandidatos.some((nc) => nc && normalizeColorKey(c.codigo || '') === nc))
+  if (normCodigo) return { found: true, id: normCodigo.id, via: 'normalizado', catalog: normCodigo, candidatos }
 
   if (clean.length >= 4) {
     const partial = catalog.find((c) => {

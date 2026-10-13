@@ -40,10 +40,26 @@ describe('color-match: limpieza', () => {
 })
 
 describe('color-match: paleta 17-2026 contra catalogo', () => {
-  it('matchea por nombre_intern ingles', () => {
-    expect(resolveColor('PURPURA', CATALOGO)).toMatchObject({ found: true, id: 4, via: 'nombre_intern' })
+  it('matchea con prioridad ES nombre -> INTERN ingles -> codigo', () => {
+    // PURPURA sugiere MORADO: con la prioridad acordada entra por nombre ES.
+    expect(resolveColor('PURPURA', CATALOGO)).toMatchObject({ found: true, id: 4, via: 'nombre' })
     expect(resolveColor('COFFEE', CATALOGO)).toMatchObject({ found: true, id: 3 })
     expect(resolveColor('BLACK', CATALOGO)).toMatchObject({ found: true, id: 1 })
+  })
+
+  it('rescata por nombre_intern lo mal traducido (LT/DK/OFF)', () => {
+    const cat: CatalogColor[] = [
+      ...CATALOGO,
+      { id: 20, nombre: 'BEIGE CLARO', codigo: 'BEC', nombre_intern: 'LIGHT BEIGE' },
+      { id: 21, nombre: 'BEIGE OSCURO', codigo: 'BEO', nombre_intern: 'DARK BEIGE' },
+      { id: 22, nombre: 'BLANCO HUESO', codigo: 'BLH', nombre_intern: 'OFF WHITE' },
+      { id: 23, nombre: 'GRIS CLARO', codigo: 'GRC', nombre_intern: 'LIGHT GREY' },
+    ]
+    expect(resolveColor('LT BEIGE', cat)).toMatchObject({ found: true, id: 20 })
+    expect(resolveColor('DK BEIGE', cat)).toMatchObject({ found: true, id: 21 })
+    expect(resolveColor('OFF WHITE', cat)).toMatchObject({ found: true, id: 22 })
+    expect(resolveColor('LT GREY', cat)).toMatchObject({ found: true, id: 23 })
+    expect(resolveColor('GOOFFE', cat).found).toBe(false)
   })
 
   it('matchea espanol directo por nombre', () => {

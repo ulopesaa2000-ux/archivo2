@@ -702,9 +702,10 @@ export async function quickEditContenedoresAction(
 // ════════════════════════════════════════════════════════════
 
 /**
- * Borrado lógico: marca activo = false y desvincula sus órdenes
- * (contenedor_id = null) sin destruir historial, igual que
- * eliminarOrdenB2BAction. Requiere puede_eliminar.
+ * Borrado lógico: marca activo = false, renombra codigo_contenedor a
+ * <codigo>-DEL-<id> para liberar el original (evita duplicado al crear la
+ * versión correcta) y desvincula sus órdenes (contenedor_id = null) sin
+ * destruir historial, igual que eliminarOrdenB2BAction. Requiere puede_eliminar.
  */
 export async function eliminarContenedorAction(
   contenedorId: number
@@ -732,9 +733,21 @@ export async function eliminarContenedorAction(
 
   if (unlinkError) return { success: false, error: unlinkError.message }
 
+  // Liberar el código original para que pueda crearse su versión correcta sin
+  // duplicado (UNIQUE codigo_contenedor): el inactivo queda como <codigo>-DEL-<id>.
+  // numero_contenedor se conserva intacto para trazabilidad.
+  let codigoLiberado = `${String(cont.codigo_contenedor || '').trim()}-DEL-${contenedorId}`
+  const { data: choque } = await supabase
+    .from('contenedores')
+    .select('id')
+    .eq('codigo_contenedor', codigoLiberado)
+    .neq('id', contenedorId)
+    .maybeSingle()
+  if (choque) codigoLiberado = `${codigoLiberado}-${Date.now().toString(36).toUpperCase()}`
+
   const { error } = await supabase
     .from('contenedores')
-    .update({ activo: false })
+    .update({ activo: false, codigo_contenedor: codigoLiberado })
     .eq('id', contenedorId)
 
   if (error) return { success: false, error: error.message }

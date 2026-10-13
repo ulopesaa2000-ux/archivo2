@@ -15,6 +15,8 @@ import type {
   UsuarioConRol,
 } from '@/lib/types/tables'
 import { can, type PermissionAction } from '@/lib/auth/permissions'
+import { canonicalEn, cleanColorRaw, normalizeColorKey, suggestEs } from '@/lib/color-match'
+import { aMayusculasDescripcion } from '@/lib/descripcion'
 
 export type ActionResult = {
   success: boolean
@@ -1018,6 +1020,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
       const updPayload: any = {
         ...merged,
         nombre: merged.nombre ?? sku,
+        descripcion: aMayusculasDescripcion(merged.descripcion) || null,
         persona_id: p.persona_id || payload.proveedorId || null,
       }
       if (pzPrincipal != null) updPayload.pz_en_caja = pzPrincipal
@@ -1034,7 +1037,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
       const insertPayload: any = {
         sku_base: sku,
         nombre: p.nombre || p.descripcion || sku,
-        descripcion: p.descripcion || null,
+        descripcion: aMayusculasDescripcion(p.descripcion) || null,
         composicion: p.composicion || null,
         marca_id: p.marca_id || null,
         tipo_prenda_id: p.tipo_prenda_id || null,
@@ -1063,7 +1066,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
   // 3. Cargar Catálogos de Tallas y Colores para desgloses
   const [coloresRes, tallasRes] = await Promise.all([
-    supabase.from('cat_colores').select('id, nombre, codigo').eq('activo', true),
+    supabase.from('cat_colores').select('id, nombre, codigo, nombre_intern').eq('activo', true),
     supabase.from('cat_tallas').select('id, codigo, talla_us')
   ])
 
@@ -1075,35 +1078,55 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     })
   }
 
-  const coloresList = coloresRes.data || []
+  const coloresList = (coloresRes.data || []) as Array<{ id: number; nombre: string; codigo: string | null; nombre_intern: string | null }>
+  const coloresIds = new Set(coloresList.map((c) => c.id))
+  function esColorIdValido(id: unknown): id is number {
+    return typeof id === 'number' && Number.isInteger(id) && coloresIds.has(id)
+  }
+  // Match unificado con el front (lib/color-match): prioridad ES nombre ->
+  // INTERN EN -> codigo -> normalizado -> parcial. Sin mapas locales pobres.
   function findColorId(identificador: string | null): number | null {
     if (!identificador) return null
-    const cleanId = identificador.trim().toUpperCase()
+    const clean = cleanColorRaw(identificador)
+    if (!clean) return null
+    const en = canonicalEn(clean)
+    const es = suggestEs(en)
+    const normCands = [clean, en, es].map(normalizeColorKey)
 
-    // Coincidencia exacta por ID
-    const idNum = parseInt(cleanId)
-    if (!isNaN(idNum)) {
-      const match = coloresList.find((c: any) => c.id === idNum)
-      if (match) return match.id
+    const idNum = parseInt(clean, 10)
+    if (!Number.isNaN(idNum)) {
+      const m = coloresList.find((c) => c.id === idNum)
+      if (m) return m.id
     }
-
-    // Coincidencia exacta por código
-    const matchCod = coloresList.find((c: any) => c.codigo?.trim().toUpperCase() === cleanId)
-    if (matchCod) return matchCod.id
-
-    // Coincidencia exacta por nombre
-    const matchNom = coloresList.find((c: any) => c.nombre?.trim().toUpperCase() === cleanId)
-    if (matchNom) return matchNom.id
-
-    // Coincidencia normalizada
-    function normalize(str: string) {
-      return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    // 1) nombre ES
+    const byNom = coloresList.find((c) => cleanColorRaw(c.nombre || '') === es || cleanColorRaw(c.nombre || '') === clean)
+    if (byNom) return byNom.id
+    // 2) nombre_intern EN
+    const byIntern = coloresList.find((c) => cleanColorRaw(c.nombre_intern || '') === en)
+    if (byIntern) return byIntern.id
+    // 3) codigo
+    const byCod = coloresList.find((c) => cleanColorRaw(c.codigo || '') === clean || cleanColorRaw(c.codigo || '') === en)
+    if (byCod) return byCod.id
+    // 4) normalizado en el mismo orden
+    const nNom = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.nombre || '') === nc))
+    if (nNom) return nNom.id
+    const nInt = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.nombre_intern || '') === nc))
+    if (nInt) return nInt.id
+    const nCod = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.codigo || '') === nc))
+    if (nCod) return nCod.id
+    // 5) parcial sobre nombre (mismo auto ambar del front)
+    if (clean.length >= 4) {
+      const p = coloresList.find((c) => {
+        const n = normalizeColorKey(c.nombre || '')
+        return normCands.some((nc) => nc.length >= 4 && (n.includes(nc) || nc.includes(n)))
+      })
+      if (p) return p.id
     }
-    const normId = normalize(identificador)
-    const matchFlex = coloresList.find((c: any) => normalize(c.nombre || '') === normId || normalize(c.codigo || '') === normId)
-    if (matchFlex) return matchFlex.id
-
     return null
+  }
+  function resolverColorId(raw: string, aportado: unknown): number | null {
+    if (esColorIdValido(aportado)) return aportado
+    return findColorId(raw)
   }
 
   const TALLA_EN_ES_MAP_ACTION: Record<string, string> = {
@@ -1173,10 +1196,10 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     BEIGE: 'BEIGE',
   }
 
-  function standardizeColorNameAction(rawColor: string): string {
-    if (!rawColor) return ''
-    const trimmed = rawColor.trim().toUpperCase()
-    return COLOR_EN_ES_MAP_ACTION[trimmed] || trimmed
+  function standardizeColorNameAction(_rawColor: string): string {
+    // Compat: el match unificado (canonicalEn/suggestEs) ya cubre esto.
+    // Se conserva la firma por si otro codigo la importa indirectamente.
+    return String(_rawColor || '').trim().toUpperCase()
   }
 
   // 4. Crear/Actualizar Cajas y sus Detalles
@@ -1190,13 +1213,13 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   if (sinPzServidor.length > 0) {
     return { success: false, error: `Bloqueo servidor: cajas sin piezas por caja: ${sinPzServidor.join(', ')}` }
   }
-  // Fase 2: sin fallback silencioso a Negro. Todo color_raw debe resolver a
-  // cat_colores (el wizard lo garantiza vía match preview + modal paso 4).
+  // Fase 2: sin fallback silencioso a Negro. Todo detalle debe traer color_id
+  // (panel mapeado/creado/existente o parcial auto) o resolver con el match
+  // unificado ES->INTERN->codigo. El wizard lo garantiza en tiempo real.
   const coloresSinMatch = new Map<string, Set<string>>()
-  for (const d of (payload.detalles || []) as Array<{ codigo_caja_temporal?: string; color_raw?: string }>) {
+  for (const d of (payload.detalles || []) as Array<{ codigo_caja_temporal?: string; color_raw?: string; color_id?: number | null }>) {
     const rawColorCheck = String(d.color_raw || '').trim()
-    const stdColorCheck = standardizeColorNameAction(rawColorCheck)
-    const colorIdCheck = findColorId(stdColorCheck) || findColorId(rawColorCheck)
+    const colorIdCheck = resolverColorId(rawColorCheck, (d as { color_id?: unknown }).color_id)
     if (!colorIdCheck) {
       const cod = String(d.codigo_caja_temporal || 's/código')
       const key = rawColorCheck || '(sin color)'
@@ -1267,10 +1290,10 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         }
 
         const rawColor = String(d.color_raw || '').trim()
-        const stdColor = standardizeColorNameAction(rawColor)
-        // Pre-validado arriba (coloresSinMatch). Sin fallback a Negro: si algo
-        // cambió entre validación e inserción, fallar explícito en vez de Negro.
-        const colorId = findColorId(stdColor) || findColorId(rawColor)
+        // Pre-validado arriba (coloresSinMatch). Prefiere el color_id que ya
+        // trae el wizard (panel mapeado/creado/existente o parcial auto).
+        // Sin fallback a Negro: si algo cambio, fallar explicito.
+        const colorId = resolverColorId(rawColor, (d as { color_id?: unknown }).color_id)
         if (!colorId) {
           throw new Error(`Color "${rawColor || '(sin color)'}" perdió su match en catálogo durante el guardado. Reintenta desde el paso 4.`)
         }

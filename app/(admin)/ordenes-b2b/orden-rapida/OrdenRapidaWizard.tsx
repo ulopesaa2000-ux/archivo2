@@ -50,9 +50,10 @@ import { createColorAction } from '@/modules/catalogo/actions'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction, obtenerColoresActivosAction } from '@/modules/ordenes-b2b/actions'
 import type { CatalogoColorOrdenRapida } from '@/modules/ordenes-b2b/actions'
 import { resolveColor, buildColorDraft, suggestEs, claveColor, dedupPorClave, filtrarColoresCatalogo, normalizeColorKey } from '@/lib/color-match'
+import { aMayusculasDescripcion } from '@/lib/descripcion'
 import type { CatalogColor } from '@/lib/color-match'
 import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones } from '@/lib/orden-rapida-colores'
-import { agruparCajasPorProducto, aplicarEdicionCaja, detallesDesdeMatriz, fijarPzMinima, aplicarRepartoSeparacion } from '@/lib/orden-rapida-cajas'
+import { agruparCajasPorProducto, aplicarEdicionCaja, detallesDesdeMatriz, fijarPzMinima, aplicarRepartoSeparacion, aplicarMapaColoresACajas, enriquecerDetallesConMapa } from '@/lib/orden-rapida-cajas'
 import type { CajaEditPayload } from '@/lib/orden-rapida-cajas'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
@@ -64,6 +65,7 @@ type ContainerMock = {
   codigo_contenedor: string
   numero_contenedor: string | null
   estado: string | null
+  activo?: boolean | null
 }
 
 type CatalogItemOption = { id: number; nombre: string }
@@ -538,7 +540,7 @@ function adaptarN8nAWizard(payload: unknown): WizardParsedData {
     sku_raw: String(producto.sku_raw ?? producto.sku_base ?? ''),
     nombre: toText(producto.nombre),
     marca: toText(producto.marca),
-    descripcion: toText(producto.descripcion),
+    descripcion: aMayusculasDescripcion(producto.descripcion),
     composicion: toText(producto.composicion),
     precio_yuan: toNumber(producto.precio_yuan),
     precio_unitario_usd: toNumber(producto.precio_unitario_usd),
@@ -1077,7 +1079,11 @@ export function OrdenRapidaWizard({
 
   const sortedContenedores = useMemo(
     () =>
-      [...contenedores].sort((a, b) => {
+      // Fijo solo activos (borrado lógico del CRUD): los inactivos ni aparecen
+      // en el buscador de Destino de carga. `activo` ausente se trata como activo.
+      [...contenedores]
+        .filter((c) => (c as ContainerMock).activo !== false)
+        .sort((a, b) => {
         const aParsed = parseContainerCode(a.codigo_contenedor)
         const bParsed = parseContainerCode(b.codigo_contenedor)
 
@@ -1139,6 +1145,17 @@ export function OrdenRapidaWizard({
     },
     [sortedContenedores, isContenedorSurtidoLike],
   )
+
+  // Si el seleccionado resulta inactivo (ya no viene en la lista de activos),
+  // limpiar la selección para obligar a elegir uno activo o crear uno nuevo.
+  useEffect(() => {
+    if (selectedContenedor === 'new' || selectedContenedor === '') return
+    const sigueActivo = sortedContenedores.some((c) => String(c.id) === selectedContenedor)
+    if (!sigueActivo) {
+      setSelectedContenedor('')
+      toast.info('El contenedor seleccionado está inactivo: elige uno activo o crea uno nuevo.')
+    }
+  }, [sortedContenedores, selectedContenedor])
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
@@ -2422,7 +2439,23 @@ export function OrdenRapidaWizard({
         // Fuente unica: detalles derivados de la matriz editable (lo que se ve
         // en las tarjetas). parsedData.detalles es el crudo de n8n y quedaria
         // obsoleto tras cualquier edicion de matriz.
-        const detallesEditados = editableCajas.flatMap((c) => detallesDesdeMatriz(c))
+        // Cada detalle lleva color_id resuelto (panel mapeado/creado/existente o
+        // resolve directo incl. parcial auto) para que el servidor no re-derive.
+        const baseDetalles = editableCajas.flatMap((c) => detallesDesdeMatriz(c))
+        const mapaIds = new Map<string, number>()
+        for (const cc of coloresPorConfirmar) {
+          if ((cc.estado === 'existente' || cc.estado === 'mapeado' || cc.estado === 'creado') && typeof cc.color_id === 'number') {
+            mapaIds.set(claveColor(cc.raw), cc.color_id)
+          }
+        }
+        for (const dd of baseDetalles) {
+          const k = claveColor(String(dd?.color_raw || ''))
+          if (!mapaIds.has(k)) {
+            const mm = resolveColor(String(dd?.color_raw || ''), catalogoColores as CatalogColor[])
+            if (mm.found && typeof mm.id === 'number') mapaIds.set(k, mm.id)
+          }
+        }
+        const detallesEditados = enriquecerDetallesConMapa(baseDetalles, mapaIds)
         const res = await guardarOrdenRapidaB2BAction({
           proveedorId: Number(selectedProveedor),
           clienteB2bId: Number(selectedCliente),
@@ -2687,6 +2720,76 @@ export function OrdenRapidaWizard({
     () => coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido'),
     [coloresPorConfirmar],
   )
+  // Revision ambar no bloqueante: match parcial automatico por debajo.
+  // Lleva id y permite guardar; solo se lista para revision opcional.
+  const coloresAmbar = useMemo(
+    () => coloresPorConfirmar.filter((c) => c.estado === 'existente' && c.via === 'parcial'),
+    [coloresPorConfirmar],
+  )
+  // Mapa vivo raw->destino (existente/mapeado/creado con id) para badges,
+  // validacion y guardado. Incluye tambien el nombre destino ya renombrado.
+  const mapaColoresResueltos = useMemo(() => {
+    const m = new Map<string, { color_id: number; nombre: string; via: string | null; estado: string }>()
+    for (const c of coloresPorConfirmar) {
+      if ((c.estado === 'existente' || c.estado === 'mapeado' || c.estado === 'creado') && typeof c.color_id === 'number') {
+        const cat = catalogoColores.find((cc) => cc.id === c.color_id)
+        m.set(claveColor(c.raw), {
+          color_id: c.color_id,
+          nombre: (cat?.nombre || c.raw).trim().toUpperCase(),
+          via: c.via ?? null,
+          estado: c.estado,
+        })
+      }
+    }
+    return m
+  }, [coloresPorConfirmar, catalogoColores])
+  // Auto-siembra: si una edicion de matriz introduce un color_raw nuevo que no
+  // esta en el seed inicial, agregarlo (resuelto o nuevo) para que el panel y
+  // la validacion en tiempo real lo vean. Preserva lo ya mapeado/creado.
+  useEffect(() => {
+    if (editableCajas.length === 0 || catalogoColores.length === 0) return
+    const vistos = new Set<string>()
+    const nuevosRaws: string[] = []
+    for (const c of editableCajas) {
+      for (const col of c.matriz?.colores || []) {
+        const raw = String(col || '').trim()
+        if (!raw) continue
+        const k = claveColor(raw)
+        if (vistos.has(k)) continue
+        vistos.add(k)
+        nuevosRaws.push(raw)
+      }
+    }
+    if (nuevosRaws.length === 0) return
+    setColoresPorConfirmar((prev) => {
+      const tenidos = new Set(prev.map((c) => claveColor(c.raw)))
+      const faltantes = nuevosRaws.filter((r) => !tenidos.has(claveColor(r)))
+      if (faltantes.length === 0) return prev
+      const tris = new Map(
+        (parsedData?.colores_traducidos || []).map((t) => [claveColor(String(t.raw || '')), t]),
+      )
+      const add = faltantes.map((raw) => {
+        const m = resolveColor(raw, catalogoColores as CatalogColor[])
+        const t = tris.get(claveColor(raw))
+        return {
+          raw,
+          en: t?.en ?? null,
+          es: t?.es ?? null,
+          cajas: editableCajas
+            .filter((c) => (c.matriz?.colores || []).some((cc) => claveColor(String(cc)) === claveColor(raw)))
+            .map((c) => String(c.codigo_caja || c.codigo_caja_temporal || ''))
+            .filter(Boolean)
+            .slice(0, 25),
+          fuente: 'matriz',
+          estado: (m.found ? 'existente' : 'nuevo') as ColorPorConfirmar['estado'],
+          color_id: m.id ?? null,
+          via: m.via,
+        }
+      })
+      return [...prev, ...add]
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- parsedData solo aporta tripletes IA; el seed vive de cajas+catalogo
+  }, [editableCajas, catalogoColores])
   // Filtro de la lista de pendientes del modal (insensible a case/acentos,
   // todos los tokens deben aparecer en raw/en/es).
   const pendientesFiltrados = useMemo(() => {
@@ -2738,7 +2841,21 @@ export function OrdenRapidaWizard({
       claveColor(c.raw) === key ? { ...c, estado: 'mapeado' as const, color_id: colorId, via: 'manual' } : c
     )))
     const cat = catalogoColores.find((c) => c.id === colorId)
-    toast.success(`"${raw}" mapeado a ${cat?.nombre ?? colorId}.`)
+    const destino = (cat?.nombre || '').trim().toUpperCase()
+    if (destino) {
+      // ID + renombrar: las cajas que contenian el raw pasan al nombre del catalogo.
+      setEditableCajas((prev) => {
+        const { cajas: next, tocadas } = aplicarMapaColoresACajas(
+          prev as Parameters<typeof aplicarMapaColoresACajas>[0],
+          new Map([[key, { color_id: colorId, nombre: destino }]]),
+        )
+        if (tocadas > 0) toast.success(`"${raw}" mapeado a ${destino}: ${tocadas} caja(s) actualizadas.`)
+        else toast.success(`"${raw}" mapeado a ${destino}.`)
+        return next as typeof prev
+      })
+    } else {
+      toast.success(`"${raw}" mapeado a ${colorId}.`)
+    }
   }
 
   const handleCrearColorFila = async (raw: string): Promise<boolean> => {
@@ -2759,18 +2876,28 @@ export function OrdenRapidaWizard({
       return false
     }
     const newId = Number(res.id)
+    const nombreFinal = d.nombre.trim().toUpperCase()
     setCatalogoColores((prev) => (prev.some((c) => c.id === newId)
       ? prev
       : [...prev, {
         id: newId,
-        nombre: d.nombre.trim().toUpperCase(),
+        nombre: nombreFinal,
         codigo: d.codigo.trim().toUpperCase(),
         nombre_intern: d.nombre_intern.trim().toUpperCase() || null,
       }]))
     setColoresPorConfirmar((prev) => prev.map((c) => (
       claveColor(c.raw) === key ? { ...c, estado: 'creado' as const, color_id: newId, via: 'creado' } : c
     )))
-    toast.success(`Color "${d.nombre.trim().toUpperCase()}" creado (id ${newId}).`)
+    // ID + renombrar: las cajas con el raw adoptan el nombre recien creado.
+    setEditableCajas((prev) => {
+      const { cajas: next, tocadas } = aplicarMapaColoresACajas(
+        prev as Parameters<typeof aplicarMapaColoresACajas>[0],
+        new Map([[key, { color_id: newId, nombre: nombreFinal }]]),
+      )
+      if (tocadas > 0) toast.success(`Color "${nombreFinal}" creado (id ${newId}): ${tocadas} caja(s) actualizadas.`)
+      else toast.success(`Color "${nombreFinal}" creado (id ${newId}).`)
+      return next as typeof prev
+    })
     return true
   }
 
@@ -2802,27 +2929,34 @@ export function OrdenRapidaWizard({
     )))
   }
 
-  // Fase 2: match de colores por caja (verde = en catálogo, ámbar = por confirmar)
+  // Fase 2: match de colores por caja (verde = en catálogo, ámbar = parcial auto o por confirmar)
+  // Fuente viva: matrices editables (no parsedData obsoleto). Prioriza el mapa
+  // resuelto del panel (mapeado/creado/existente) para que el badge cambie en
+  // cuanto se mapea o crea.
   const matchColoresPorCaja = useMemo(() => {
     const porCaja = new Map<string, string[]>()
-    const dets = (parsedData?.detalles || []) as Array<Record<string, unknown>>
-    for (const d of dets) {
-      const cod = String(d?.codigo_caja_temporal || '')
-      const raw = String(d?.color_raw || '').trim()
-      if (!cod || !raw) continue
-      const list = porCaja.get(cod) ?? []
-      if (!list.some((r) => claveColor(r) === claveColor(raw))) list.push(raw)
-      porCaja.set(cod, list)
+    for (const c of editableCajas) {
+      const cod = String(c.codigo_caja_temporal || c.codigo_caja || '')
+      if (!cod) continue
+      for (const raw of c.matriz?.colores || []) {
+        const r = String(raw || '').trim()
+        if (!r) continue
+        const list = porCaja.get(cod) ?? []
+        if (!list.some((x) => claveColor(x) === claveColor(r))) list.push(r)
+        porCaja.set(cod, list)
+      }
     }
     const map = new Map<string, Array<{ raw: string; found: boolean; via: string | null; nombre: string }>>()
     for (const [cod, raws] of porCaja) {
       map.set(cod, raws.map((raw) => {
+        const res = mapaColoresResueltos.get(claveColor(raw))
+        if (res) return { raw, found: true, via: res.via, nombre: res.nombre }
         const m = resolveColor(raw, catalogoColores as CatalogColor[])
         return { raw, found: m.found, via: m.via, nombre: m.catalog?.nombre || suggestEs(raw) }
       }))
     }
     return map
-  }, [parsedData, catalogoColores])
+  }, [editableCajas, catalogoColores, mapaColoresResueltos])
 
   // ── Checklist de verificación pre-confirmación (TIEMPO REAL) ──
   // Lee las líneas efectivas (lineaEditadaPorSku prevalece sobre el JSON),
@@ -2843,6 +2977,9 @@ export function OrdenRapidaWizard({
       return reales.length > 0 && cajaPrincipalDe(up, reales) !== null
     }).length
     const fallasPacks = matchPacks.diffs.filter((d) => d.estado !== 'OK')
+    // Colores: solo nuevo/omitido bloquean (parcial ambar lleva id automatico).
+    // Se expone aqui para que el checklist no quede todo verde con colores pendientes.
+    const coloresPendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido').length
     return {
       matchOk: match.ok,
       fallasMatch: match.diffs.filter((d) => d.estado !== 'OK').length,
@@ -2852,10 +2989,11 @@ export function OrdenRapidaWizard({
       conPrincipal,
       totalProductos: editableProductos.length,
       totalCajas: totalCajasCount,
-      todoOk: match.ok && matchPacks.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0,
+      coloresPendientes,
+      todoOk: match.ok && matchPacks.ok && sinPz.length === 0 && editableProductos.length > 0 && totalCajasCount > 0 && coloresPendientes === 0,
     }
   // eslint-disable-next-line react-hooks/preserve-manual-memoization -- el compilador no puede preservar este memo por la cadena de deps (callbacks de match); agruparCajasPorProducto ya es puro y no muta en render
-  }, [editableProductos, editableCajas, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount])
+  }, [editableProductos, editableCajas, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount, coloresPorConfirmar])
 
   // Rellenar huecos desde el aviso (paso 3): completa líneas y revalida con
   // los valores recién rellenados (sin esperar el re-render). Si solo quedan
@@ -2993,9 +3131,38 @@ export function OrdenRapidaWizard({
       if (lista.length > 1) out.push({ id: `cod-dup-${up}`, codigo: 'CODIGO_DUPLICADO', mensaje: `Código duplicado "${lista[0]}" ×${lista.length} (UNIQUE: haría upsert y mezclaría cajas).`, codigoCaja: lista[0], paso: 4, fix: 'Renómbralo aquí mismo con el editor inline.' })
     }
     if (editableProductos.length > 0 && reales.length === 0) out.push({ id: 'ord-sin-caja', codigo: 'ORDEN_SIN_CAJAS', mensaje: 'La orden no tiene cajas físicas (totalCajas<=0).', paso: 4, fix: 'Agrega cajas en paso 4.' })
-    // Colores sin resolver (bloqueo servidor coloresSinMatch + modal)
+    // Colores sin resolver (bloqueo servidor coloresSinMatch + modal).
+    // 1) Pendientes del panel (nuevo/omitido). El ambar parcial no bloquea: lleva id auto.
     const pendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido')
     if (pendientes.length > 0) out.push({ id: 'col-pend', codigo: 'COLOR_SIN_RESOLVER', mensaje: `${pendientes.length} color(es) sin resolver: ${pendientes.slice(0, 4).map((c) => c.raw).join(', ')}${pendientes.length > 4 ? ` +${pendientes.length - 4}` : ''} (FK cat_colores).`, paso: 4, fix: 'Mapea a existente o créalos en el panel de colores.' })
+    // 2) Cada detalle vivo de cajas debe tener color_id (mapa panel o resolve directo).
+    // Cubre raws introducidos por edicion de matriz que aun no entraron al seed.
+    try {
+      const resueltos = new Map<string, number>()
+      for (const c of coloresPorConfirmar) {
+        if ((c.estado === 'existente' || c.estado === 'mapeado' || c.estado === 'creado') && typeof c.color_id === 'number') {
+          resueltos.set(claveColor(c.raw), c.color_id)
+        }
+      }
+      const sinId = new Map<string, Set<string>>()
+      for (const c of reales) {
+        const cod = String(c.codigo_caja || c.codigo_caja_temporal || 's/código')
+        for (const col of c.matriz?.colores || []) {
+          const raw = String(col || '').trim()
+          if (!raw) continue
+          const k = claveColor(raw)
+          if (resueltos.has(k)) continue
+          const m = resolveColor(raw, catalogoColores as CatalogColor[])
+          if (m.found && typeof m.id === 'number') { resueltos.set(k, m.id); continue }
+          if (!sinId.has(raw)) sinId.set(raw, new Set())
+          sinId.get(raw)!.add(cod)
+        }
+      }
+      if (sinId.size > 0) {
+        const lista = [...sinId.entries()].map(([raw, cods]) => `"${raw}" (${cods.size} caja(s): ${[...cods].slice(0, 3).join(', ')})`).join(', ')
+        out.push({ id: 'col-detalle', codigo: 'COLOR_SIN_RESOLVER', mensaje: `Detalles sin color_id: ${lista} (FK cat_colores).`, paso: 4, fix: 'Mapea a existente o créalos en el panel de colores.' })
+      }
+    } catch { /* sin catalogo no se valida detalle */ }
     // Match exacto líneas vs armadas + packs
     try {
       const m = calcularMatchCajasOrdenRapida()
@@ -3011,7 +3178,7 @@ export function OrdenRapidaWizard({
     } catch { /* sin packs */ }
     return out
   // eslint-disable-next-line react-hooks/preserve-manual-memoization -- cadena de match con callbacks; mismo patrón que verificacionPrevia
-  }, [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, editableProductos, editableCajas, coloresPorConfirmar, calcularMatchCajasOrdenRapida, calcularMatchPacks])
+  }, [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, editableProductos, editableCajas, coloresPorConfirmar, catalogoColores, calcularMatchCajasOrdenRapida, calcularMatchPacks])
   const erroresBloqueantes = erroresSubida
   // Hash de verificación: cualquier cambio invalida el "Verificado OK"
   const hashVerificacion = useMemo(() => {
@@ -5024,7 +5191,7 @@ export function OrdenRapidaWizard({
                   <p className="font-mono text-base font-bold">
                     {selectedContenedor === 'new'
                       ? `${newContainerCode || '(sin código)'}${newContainerNumber.trim() ? ` (${newContainerNumber.trim().toUpperCase()})` : ' (S/N)'} (Nuevo contenedor)`
-                      : contenedores.find((item) => String(item.id) === selectedContenedor)?.codigo_contenedor}
+                      : sortedContenedores.find((item) => String(item.id) === selectedContenedor)?.codigo_contenedor ?? 'Sin asignar'}
                   </p>
                   {selectedContenedorEsSurtido && selectedContenedorObj && (
                     <Badge
@@ -5344,6 +5511,27 @@ export function OrdenRapidaWizard({
                           </Button>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {coloresAmbar.length > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50/60 p-2.5 space-y-1.5 dark:bg-amber-950/30">
+                      <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200">Revisión ámbar (auto, no bloquea el guardado): {coloresAmbar.length}</p>
+                      {coloresAmbar.slice(0, 10).map((c) => {
+                        const cat = catalogoColores.find((cc) => cc.id === c.color_id)
+                        return (
+                          <div key={c.raw} className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <Badge variant="outline" className="font-mono">{c.raw}</Badge>
+                            <span className="text-muted-foreground">→ {cat?.nombre ?? c.color_id} (parcial auto)</span>
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <MapearColorCombobox
+                                catalogo={catalogoColores}
+                                onSelect={(id) => handleMapearColor(c.raw, id)}
+                              />
+                            </span>
+                          </div>
+                        )
+                      })}
+                      <p className="text-[10px] text-muted-foreground">Si no cambias nada, se guarda con el automático. Puedes mapear a otro existente si prefieres.</p>
                     </div>
                   )}
                   <DialogFooter className="gap-2 sm:gap-0">
@@ -5830,6 +6018,26 @@ export function OrdenRapidaWizard({
                   <span className={verificacionPrevia.totalProductos > 0 && verificacionPrevia.totalCajas > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
                     {verificacionPrevia.totalProductos} productos · {verificacionPrevia.totalCajas} cajas · principal en {verificacionPrevia.conPrincipal}
                   </span>
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {verificacionPrevia.coloresPendientes === 0
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className={verificacionPrevia.coloresPendientes === 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>
+                    Colores con id cat_colores (FK)
+                    {verificacionPrevia.coloresPendientes === 0
+                      ? coloresAmbar.length > 0 ? ` — ${coloresAmbar.length} ambar auto (no bloquea)` : ' — todos vinculados'
+                      : ` — ${verificacionPrevia.coloresPendientes} sin resolver`}
+                  </span>
+                  {verificacionPrevia.coloresPendientes > 0 && (
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      className="h-6 text-[10px] font-bold border-amber-500 text-amber-800 hover:bg-amber-100 ml-auto"
+                      onClick={() => setColoresModalOpen(true)}
+                    >
+                      Abrir colores ({verificacionPrevia.coloresPendientes})
+                    </Button>
+                  )}
                 </p>
                 {!verificacionPrevia.todoOk && (
                   <p className="text-[11px] italic text-muted-foreground">
