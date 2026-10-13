@@ -132,7 +132,9 @@ export function NuevoUsuarioModal({ roles }: { roles: RolConPermisos[] }) {
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground italic">
-              * Super Admin no se puede asignar desde aquí.
+              {roles.length > 0 && roles.every((r) => ['bodeguero', 'encargado de bodega'].includes(r.nombre.trim().toLowerCase()))
+                ? '* Solo puedes asignar roles de bodega (Bodeguero o Encargado de Bodega).'
+                : '* Super Admin no se puede asignar desde aquí.'}
             </p>
           </div>
 

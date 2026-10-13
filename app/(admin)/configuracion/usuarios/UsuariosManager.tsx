@@ -20,6 +20,10 @@ import type {
   UsuarioConDetalle,
   RolConPermisos,
 } from '@/modules/config/types'
+import {
+  esActorAdminInventarioRestringido,
+  esRolBodegaGestionable,
+} from '@/modules/config/types'
 import { NuevoUsuarioModal } from '@/app/(admin)/configuracion/usuarios/NuevoUsuarioModal'
 import { CambiarPasswordModal } from '@/app/(admin)/configuracion/usuarios/CambiarPasswordModal'
 import { SincronizarUsuarioModal } from '@/app/(admin)/configuracion/usuarios/SincronizarUsuarioModal'
@@ -52,12 +56,16 @@ function UsuarioRow({
   usuario,
   roles,
   isCurrentUserSuperAdmin,
+  isRestrictedInventario,
+  isOwnAccount,
   personasDisponibles,
   todasLasAsignaciones,
 }: {
   usuario: UsuarioConDetalle
   roles: RolConPermisos[]
   isCurrentUserSuperAdmin: boolean
+  isRestrictedInventario: boolean
+  isOwnAccount: boolean
   personasDisponibles: PersonaRow[]
   todasLasAsignaciones: { usuario_id: number; persona_id: number }[]
 }) {
@@ -67,12 +75,27 @@ function UsuarioRow({
 
   const totalAsignaciones = todasLasAsignaciones.filter(a => a.usuario_id === usuario.id).length
 
+  // En modo restringido el objetivo ya viene filtrado a roles de bodega; doble candado por si acaso.
+  // Fuera del modo restringido se conserva el comportamiento anterior.
+  const isSuperAdmin = usuario.rol?.nivel_acceso === 1
+  const esObjetivoBodega = esRolBodegaGestionable(usuario.rol?.nombre, usuario.rol?.nivel_acceso)
+  const bloquearFila = isRestrictedInventario && isOwnAccount
+  const puedeGestionar =
+    isCurrentUserSuperAdmin ||
+    (isRestrictedInventario && !isOwnAccount && esObjetivoBodega) ||
+    (!isRestrictedInventario && !isSuperAdmin)
+  const puedeCambiarPassword =
+    isCurrentUserSuperAdmin || (isRestrictedInventario && !isOwnAccount && esObjetivoBodega)
+
   const handleToggleActivo = () => {
     const next = !activoOpt
     setActivoOpt(next)
     startActivo(async () => {
       const res = await toggleUsuarioActivo(usuario.id, next)
-      if (!res.success) setActivoOpt(activoOpt)
+      if (!res.success) {
+        setActivoOpt(activoOpt)
+        toast.error(res.error || 'No se pudo actualizar el estado del usuario.')
+      }
     })
   }
 
@@ -82,11 +105,10 @@ function UsuarioRow({
     const rolId = parseInt(rolIdStr, 10)
     if (isNaN(rolId)) return
     startRol(async () => {
-      await cambiarRolUsuario(usuario.id, rolId)
+      const res = await cambiarRolUsuario(usuario.id, rolId)
+      if (!res.success) toast.error(res.error || 'No se pudo cambiar el rol del usuario.')
     })
   }
-
-  const isSuperAdmin = usuario.rol?.nivel_acceso === 1
 
   // Nombre para mostrar: nombre_completo → username → email
   const displayName = usuario.nombre_completo ?? usuario.username ?? usuario.email ?? '?'
@@ -125,6 +147,12 @@ function UsuarioRow({
                 {totalAsignaciones} empresa{totalAsignaciones !== 1 ? 's' : ''}
               </span>
             )}
+            {/* BADGE DE CUENTA PROPIA (modo restringido: bloqueada) */}
+            {isOwnAccount && isRestrictedInventario && (
+              <span className="inline-flex items-center rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 ring-1 ring-inset ring-blue-500/20">
+                Tu cuenta
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted-foreground truncate">{usuario.email}</p>
         </div>
@@ -150,7 +178,7 @@ function UsuarioRow({
             nombreUsuario={displayName}
           />
         ) : (
-          isCurrentUserSuperAdmin && (
+          puedeCambiarPassword && !isOwnAccount && (
             <CambiarPasswordModal
               usuarioId={usuario.id}
               nombreUsuario={displayName}
@@ -159,9 +187,9 @@ function UsuarioRow({
         )}
 
         {/* Rol selector */}
-        {isSuperAdmin ? (
-          <NivelBadge nivel={1} nombre="Super Admin" />
-        ) : (
+        {isSuperAdmin || bloquearFila ? (
+          <NivelBadge nivel={usuario.rol?.nivel_acceso ?? 99} nombre={usuario.rol?.nombre ?? 'Sin rol'} />
+        ) : puedeGestionar ? (
           <Select
             value={String(usuario.rol_id)}
             onValueChange={handleRolChange}
@@ -182,11 +210,11 @@ function UsuarioRow({
                 ))}
             </SelectContent>
           </Select>
-        )}
+        ) : null}
 
         {/* Estado activo */}
         <div className="flex items-center gap-2">
-          {!isSuperAdmin && (
+          {!isSuperAdmin && !bloquearFila && puedeGestionar && (
             <>
               <Switch
                 checked={activoOpt}
@@ -205,6 +233,11 @@ function UsuarioRow({
                 {activoOpt ? 'Activo' : 'Inactivo'}
               </label>
             </>
+          )}
+          {isOwnAccount && isRestrictedInventario && (
+            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+              Bloqueada
+            </span>
           )}
           {isSuperAdmin && (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -232,15 +265,28 @@ export function UsuariosManager({
 }) {
   const isCurrentUserSuperAdmin = currentUser?.rol?.nivel_acceso === 1
   const currentUserLevel = currentUser?.rol?.nivel_acceso ?? 99
+  const isRestrictedInventario =
+    !isCurrentUserSuperAdmin &&
+    esActorAdminInventarioRestringido(currentUser?.rol?.nombre, currentUser?.rol?.nivel_acceso)
+  const esRolBodega = (
+    nombre: string | null | undefined,
+    nivel: number | null | undefined
+  ) => esRolBodegaGestionable(nombre, nivel)
 
+  // Admin Inventario restringido: solo Bodeguero y Encargado de Bodega (+ su propia cuenta bloqueada).
   // Filtrar usuarios visibles (solo nivel >= del usuario logueado)
   const visibleUsuarios = usuarios.filter((u) => {
+    if (isRestrictedInventario) {
+      if (currentUser && u.id === currentUser.id) return true
+      return esRolBodega(u.rol?.nombre, u.rol?.nivel_acceso)
+    }
     const userNivel = u.rol?.nivel_acceso ?? 99
     return userNivel >= currentUserLevel
   })
 
   // Filtrar roles asignables (solo nivel >= del usuario logueado)
   const visibleRoles = roles.filter((r) => {
+    if (isRestrictedInventario) return esRolBodega(r.nombre, r.nivel_acceso)
     return r.nivel_acceso >= currentUserLevel
   })
 
@@ -248,7 +294,7 @@ export function UsuariosManager({
     <div className="space-y-6">
       {/* Header con acciones */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold tracking-tight">Directorio de Usuarios ({usuarios.length})</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Directorio de Usuarios ({visibleUsuarios.length})</h2>
         <NuevoUsuarioModal roles={visibleRoles} />
       </div>
 
@@ -265,6 +311,9 @@ export function UsuariosManager({
             Inactivo
           </span>
           <span className="text-muted-foreground/60">· El rol determina los permisos base del usuario.</span>
+          {isRestrictedInventario && (
+            <span className="text-muted-foreground/60">· Vista restringida: solo Bodeguero y Encargado de Bodega. Tu cuenta está bloqueada.</span>
+          )}
         </div>
 
         {visibleUsuarios.length === 0 ? (
@@ -280,6 +329,8 @@ export function UsuariosManager({
                 usuario={u}
                 roles={visibleRoles}
                 isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
+                isRestrictedInventario={isRestrictedInventario}
+                isOwnAccount={currentUser != null && u.id === currentUser.id}
                 personasDisponibles={personasDisponibles}
                 todasLasAsignaciones={todasLasAsignaciones}
               />

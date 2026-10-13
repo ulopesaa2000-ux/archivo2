@@ -65,3 +65,31 @@ export type UsuarioConDetalle = {
     descripcion: string | null
   } | null
 }
+
+/**
+ * Acceso especial Admin Operativo Inventario en Configuración > Usuarios.
+ * Fuente única de verdad compartida por servidor (actions) y UI (page/Manager).
+ */
+export const NOMBRE_ROL_ADMIN_INVENTARIO = 'Admin Operativo Inventario'
+
+/** Allowlist de roles gestionables por el Admin Inventario (en minúsculas). */
+export const ROLES_BODEGA_GESTIONABLES = ['bodeguero', 'encargado de bodega'] as const
+
+/** Doble candado: nombre en allowlist Y nivel no privilegiado (> 2). */
+export function esRolBodegaGestionable(
+  nombre: string | null | undefined,
+  nivel: number | null | undefined
+): boolean {
+  if ((nivel ?? 99) <= 2) return false
+  return (ROLES_BODEGA_GESTIONABLES as readonly string[]).includes(
+    (nombre ?? '').trim().toLowerCase()
+  )
+}
+
+/** Actor con acceso especial restringido (en servidor se valida además que no sea Super Admin). */
+export function esActorAdminInventarioRestringido(
+  nombre: string | null | undefined,
+  nivel: number | null | undefined
+): boolean {
+  return (nivel ?? 99) > 1 && (nombre ?? '').trim() === NOMBRE_ROL_ADMIN_INVENTARIO
+}

@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { TRANSICIONES_CONTENEDOR } from '@/lib/constants'
+import { can, type PermissionAction } from '@/lib/auth/permissions'
+import { getCommercialScope } from '@/lib/dal'
+import { canAccessCommercialOrder } from '@/lib/auth/commercial-scope'
 import { compararCajasLineasVsFisico } from './match-cajas'
 import { confirmarNotaAction } from '@/modules/inventario/actions'
 
@@ -14,6 +17,40 @@ export type ActionResult = {
   id?: number
   nota_id?: number
   numero_nota?: string
+}
+
+// ── Gates CRUD por rol (rol_permisos.b2b_contenedores) ──────────────
+async function requireContenedorPermission(action: PermissionAction): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+  if (!can(user, 'b2b_contenedores', action)) {
+    return { success: false, error: 'No tienes permisos para esta acción de contenedores.' }
+  }
+  return null
+}
+
+// Valida que la orden exista, esté activa y pertenezca al alcance
+// comercial del usuario (super admin pasa directo).
+async function requireContenedorOrdenAccess(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ordenId: number
+): Promise<{ ok: true } | ActionResult> {
+  const scope = await getCommercialScope()
+  if (scope.is_super_admin) return { ok: true }
+
+  const { data: orden } = await supabase
+    .from('ordenes_b2b')
+    .select('id, cliente_b2b_id, proveedor_id, activo')
+    .eq('id', ordenId)
+    .single()
+
+  if (!orden || (orden as { activo: boolean }).activo === false) {
+    return { success: false, error: 'No se encontró la orden.' }
+  }
+  if (!canAccessCommercialOrder(scope, orden as { cliente_b2b_id?: number | null; proveedor_id?: number | null })) {
+    return { success: false, error: 'La orden no pertenece a tu alcance comercial.' }
+  }
+  return { ok: true }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -311,8 +348,8 @@ export async function confirmarIngresoVirtualAction(
 export async function crearContenedorAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_crear')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -364,8 +401,8 @@ export async function crearContenedorAction(
 export async function actualizarContenedorAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = parseInt(formData.get('contenedor_id') as string)
@@ -425,8 +462,8 @@ export async function actualizarContenedorAction(
 export async function guardarResumenContenedorAction(
   payload: import('./types').ResumenEdicionPayload
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -506,8 +543,8 @@ export async function cambiarEstadoContenedorAction(
   contenedorId: number,
   nuevoEstado: string
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -560,10 +597,22 @@ export async function vincularOrdenContenedorAction(
   contenedorId: number,
   ordenId: number,
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
+
+  // El contenedor debe estar activo.
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('id')
+    .eq('id', contenedorId)
+    .eq('activo', true)
+    .maybeSingle()
+  if (!cont) return { success: false, error: 'Contenedor no encontrado.' }
+
+  const access = await requireContenedorOrdenAccess(supabase, ordenId)
+  if (!('ok' in access)) return access
 
   const { error } = await supabase
     .from('ordenes_b2b')
@@ -581,10 +630,13 @@ export async function desvincularOrdenContenedorAction(
   ordenId: number,
   contenedorId: number,
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
+
+  const access = await requireContenedorOrdenAccess(supabase, ordenId)
+  if (!('ok' in access)) return access
 
   const { error } = await supabase
     .from('ordenes_b2b')
@@ -603,8 +655,8 @@ export async function quickEditContenedoresAction(
   field: 'estado' | 'codigo_contenedor' | 'numero_contenedor' | 'fecha_eta',
   value: string | null
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado.' }
+  const denied = await requireContenedorPermission('puede_editar')
+  if (denied) return denied
 
   if (!ids.length) return { success: false, error: 'Sin contenedores seleccionados.' }
 
@@ -643,4 +695,52 @@ export async function quickEditContenedoresAction(
   revalidatePath('/contenedores')
   ids.forEach((id) => revalidatePath(`/contenedores/${id}`))
   return { success: true }
+}
+
+// ════════════════════════════════════════════════════════════
+// ELIMINAR (borrado lógico: activo = false)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Borrado lógico: marca activo = false y desvincula sus órdenes
+ * (contenedor_id = null) sin destruir historial, igual que
+ * eliminarOrdenB2BAction. Requiere puede_eliminar.
+ */
+export async function eliminarContenedorAction(
+  contenedorId: number
+): Promise<ActionResult> {
+  const denied = await requireContenedorPermission('puede_eliminar')
+  if (denied) return denied
+
+  const supabase = await createClient()
+
+  const { data: cont } = await supabase
+    .from('contenedores')
+    .select('id, codigo_contenedor, estado')
+    .eq('id', contenedorId)
+    .eq('activo', true)
+    .maybeSingle()
+
+  if (!cont) return { success: false, error: 'Contenedor no encontrado.' }
+
+  // Desvincular órdenes activas para liberarlas (quedan libres para otro contenedor).
+  const { error: unlinkError } = await supabase
+    .from('ordenes_b2b')
+    .update({ contenedor_id: null })
+    .eq('contenedor_id', contenedorId)
+    .eq('activo', true)
+
+  if (unlinkError) return { success: false, error: unlinkError.message }
+
+  const { error } = await supabase
+    .from('contenedores')
+    .update({ activo: false })
+    .eq('id', contenedorId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/contenedores')
+  revalidatePath(`/contenedores/${contenedorId}`)
+  revalidatePath('/ordenes-b2b')
+  return { success: true, id: contenedorId }
 }

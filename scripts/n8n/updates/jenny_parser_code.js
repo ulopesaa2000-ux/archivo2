@@ -10,14 +10,17 @@
 //   entre colores del mismo (Style, Pack, CtnNo.raw).
 // - Pcs/Ctn solo numerico plano; expresiones tipo 6*11packs=66 multiplican las
 //   tallas de su fila y el total sale de Ttl (con warning, sin sustitucion).
-// - Tallas solo con whitelist CH|M|G|EG|EEG|numericas (huecos vacios se ignoran).
+// - Tallas con whitelist CH|M|G|EG|EEG|ECH|dobles CH-M|M-G|G-EG|EG-2EG|UNITALLA|numericas (huecos vacios se ignoran).
+// - Pcs/Ctn acepta singular/plural y bag (pc/ctn, pcs/ctn, sets/ctn, pcs/bag); 0 = dato.
+// - v2.2 fix: anexarFilaABloque usaba ft.t.talla (undefined) en continuacion
+//   fusionada; ahora usa ft.t.nombre para no perder pz de colores anexados.
 // - CBM de celda es TOTAL del bloque; N.W/G.W son POR carton.
 // - TOTAL de hoja solo contraste, nunca se recalcula ni se sobrescribe.
 // NOTA String.raw: conserva escapes regex. Sin ${ ni backticks dentro.
 
-const JENNY_JS = String.raw`// Parser Jenny bloques v2.1 — SHISHI BETERLON / JENNY
-// v2.1: formato fusionado (Ctns solo en 1a fila del grupo) anexa continuacion
-// al bloque abierto; celdas robustas (richText/value/Date); 0 = dato.
+const JENNY_JS = String.raw`// Parser Jenny bloques v2.2 — SHISHI BETERLON / JENNY
+// v2.2: fix continuacion fusionada (ft.t.nombre) + aliases pcs singular/bag +
+// whitelist tallas ECH/dobles/UNITALLA; celdas robustas (richText/value/Date); 0 = dato.
 const T0 = Date.now();
 const NBSP = String.fromCharCode(160);
 function cleanText(v) {
@@ -139,7 +142,7 @@ for (const hoja of hojas) {
     style: indiceEncabezado(headers, ['styleno']),
     color: indiceEncabezado(headers, ['color', 'colour']),
     pack: indiceEncabezado(headers, ['pack']),
-    pcs: indiceEncabezado(headers, ['pcs/ctn', 'sets/ctn', 'pcs/bag', 'sets/bag']),
+    pcs: indiceEncabezado(headers, ['pcs/ctn', 'pc/ctn', 'sets/ctn', 'set/ctn', 'pcs/bag', 'pc/bag', 'sets/bag', 'set/bag']),
     ctnno: indiceEncabezado(headers, ['ctnno', 'bagno']),
     ctns: indiceEncabezado(headers, ['ctns']),
     ttl: indiceEncabezado(headers, ['ttlqty']),
@@ -159,7 +162,7 @@ for (const hoja of hojas) {
   if (ix.pcs >= 0) {
     for (let i = ix.color + 1; i < limite; i++) {
       const nombre = cleanText(headers[i]);
-      if (/^(CH|M|G|EG|EEG|\d{1,3})$/i.test(nombre)) tallas.push({ i: i, nombre: nombre });
+      if (/^(ECH|CH|M|G|EG|EEG|CH-M|M-G|G-EG|EG-2EG|UNITALLA|\d{1,3})$/i.test(nombre)) tallas.push({ i: i, nombre: nombre });
     }
   } else {
     warnings.push({ tipo: 'sin_columna_pcs', severidad: 'media', hoja: hoja.name, detalle: 'Sin Pcs/Sets por carton: no se extrae detalle de tallas' });
@@ -198,7 +201,7 @@ for (const hoja of hojas) {
     if (b.cbm_total_declarado == null) b.cbm_total_declarado = toNumJenny(valor(row, ix.cbm));
     if (colorRaw) {
       for (const ft of tallaNums) {
-        if (ft.q != null && ft.q > 0) b.detalles.push({ color_raw: colorRaw, talla_codigo: ft.t.talla, cantidad_por_caja: ft.q, fila_excel: filaExcel });
+        if (ft.q != null && ft.q > 0) b.detalles.push({ color_raw: colorRaw, talla_codigo: ft.t.nombre, cantidad_por_caja: ft.q, fila_excel: filaExcel });
       }
       if (b.colores_raw_list.indexOf(colorRaw) === -1) b.colores_raw_list.push(colorRaw);
     }
@@ -403,7 +406,7 @@ for (const sku of Object.keys(totalesPorSku)) { totCajas += totalesPorSku[sku].c
 const cfgOut = (() => { try { return $('Normalizar archivo + ruta').first().json.__config || {}; } catch (e) { return {}; } })();
 return [{ json: {
   ok: true,
-  version_parser: 'mvp-n8n-code-v2.1-jenny-continuacion',
+  version_parser: 'mvp-n8n-code-v2.2-jenny-continuacion',
   metadata: {
     cliente_b2b_id: cfgOut.cliente_b2b_id != null ? cfgOut.cliente_b2b_id : null, proveedor_id: cfgOut.proveedor_id != null ? cfgOut.proveedor_id : null, proveedor: 'JENNY / SHISHI BETERLON',
     orden_id: cfgOut.orden_id != null ? cfgOut.orden_id : null, formato_detectado: 'jenny_multicolor_pack', fecha_parseo: new Date().toISOString(),

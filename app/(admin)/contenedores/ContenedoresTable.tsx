@@ -1,13 +1,19 @@
 // app/(admin)/contenedores/ContenedoresTable.tsx
 'use client'
 
-import React from 'react'
+import React, { useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { DataTable, DataTableProvider, QuickEditPopover, useDataTableContext } from '@/components/admin/DataTable'
 import type { ColumnDef, TableFeatures, QuickEditField } from '@/components/admin/DataTable/types'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Ship, Eye, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Ship, Eye, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { formatCurrency, cn } from '@/lib/utils'
 import {
@@ -24,6 +30,8 @@ type Props = {
   sortBy: ContenedorSortBy
   order: 'asc' | 'desc'
   initialFeatures?: TableFeatures
+  puedeEditar?: boolean
+  puedeEliminar?: boolean
 }
 
 const ESTADO_OPTIONS = ESTADOS_CONTENEDOR.map((estado) => ({
@@ -57,10 +65,28 @@ async function handleQuickEditSave(ids: number[], field: string, value: unknown)
   toast.success(`Actualizado ${ids.length} contenedor${ids.length > 1 ? 'es' : ''}`)
 }
 
-function ContenedoresTableInner({ items, sortBy, order }: Props) {
+function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, puedeEliminar = false }: Props) {
   const ctx = useDataTableContext()
+  const router = useRouter()
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [isPendingDelete, startDelete] = useTransition()
 
-  const quickEditFields = ((ctx.features.quickEdit as QuickEditField[] | null) ?? [])
+  const handleDeleteConfirm = () => {
+    if (!deletingId) return
+    startDelete(async () => {
+      const { eliminarContenedorAction } = await import('@/modules/contenedores/actions')
+      const result = await eliminarContenedorAction(deletingId)
+      if (!result.success) {
+        toast.error('No se pudo eliminar', { description: result.error })
+        return
+      }
+      setDeletingId(null)
+      toast.success('Contenedor eliminado')
+      router.refresh()
+    })
+  }
+
+  const quickEditFields = (puedeEditar ? ((ctx.features.quickEdit as QuickEditField[] | null) ?? []) : [])
     .map((field) => {
       if (field.key === 'estado') return { ...field, type: 'select' as const, options: ESTADO_OPTIONS }
       if (field.key === 'codigo_contenedor') return { ...field, type: 'text' as const, label: 'Codigo' }
@@ -188,15 +214,32 @@ function ContenedoresTableInner({ items, sortBy, order }: Props) {
     {
       key: 'acciones',
       header: '',
-      headerClassName: 'w-[50px]',
+      headerClassName: 'w-[80px]',
       cell: (row) => (
-        <Link
-          href={ADMIN_ROUTES.contenedores.detalle(row.contenedor_id)}
-          title={`Ver contenedor ${row.contenedor_id}`}
-          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-7 w-7 p-0')}
-        >
-          <Eye className="h-3.5 w-3.5" />
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href={ADMIN_ROUTES.contenedores.detalle(row.contenedor_id)}
+            title={`Ver contenedor ${row.contenedor_id}`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-7 w-7 p-0')}
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Link>
+          {puedeEliminar && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+              title={`Eliminar contenedor ${row.contenedor_id}`}
+              aria-label={`Eliminar contenedor ${row.contenedor_id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setDeletingId(row.contenedor_id)
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       ),
     },
     ...(ctx.features.expandable ? [{
@@ -224,69 +267,88 @@ function ContenedoresTableInner({ items, sortBy, order }: Props) {
   ]
 
   return (
-    <DataTable
-      columns={columns}
-      data={items}
-      rowKey={(row) => row.contenedor_id}
-      currentSortKey={sortBy}
-      currentOrder={order}
-      defaultSortKey="fecha_eta"
-      emptyMessage="No se encontraron contenedores."
-      emptyIcon={<Ship className="h-12 w-12" />}
-      renderExpanded={(item) => (
-        <div className="grid grid-cols-2 gap-4 bg-muted/20 p-4 text-sm sm:grid-cols-4">
-          <div>
-            <span className="text-xs text-muted-foreground">Naviera</span>
-            <p className="font-medium">{item.naviera ?? '-'}</p>
+    <>
+      <DataTable
+        columns={columns}
+        data={items}
+        rowKey={(row) => row.contenedor_id}
+        currentSortKey={sortBy}
+        currentOrder={order}
+        defaultSortKey="fecha_eta"
+        emptyMessage="No se encontraron contenedores."
+        emptyIcon={<Ship className="h-12 w-12" />}
+        renderExpanded={(item) => (
+          <div className="grid grid-cols-2 gap-4 bg-muted/20 p-4 text-sm sm:grid-cols-4">
+            <div>
+              <span className="text-xs text-muted-foreground">Naviera</span>
+              <p className="font-medium">{item.naviera ?? '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">BL</span>
+              <p className="font-mono text-xs">{item.numero_bl ?? '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Buque</span>
+              <p>{item.buque ?? '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Ruta</span>
+              <p className="text-xs">{item.puerto_origen ?? '?'} {'->'} {item.puerto_destino ?? '?'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">ETD</span>
+              <p><Fecha valor={item.fecha_etd} formato="fecha" className="text-xs" /></p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">ETA</span>
+              <p><Fecha valor={item.fecha_eta} formato="fecha" className="text-xs" /></p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Peso</span>
+              <p className="tabular-nums">{item.peso_total_kg ? `${item.peso_total_kg} kg` : '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">CBM</span>
+              <p className="tabular-nums">
+                {item.cbm_ocupado ?? 0} / {item.cbm_total ?? '?'}
+                {item.pct_cbm_ocupado != null && (
+                  <span className="ml-1 text-muted-foreground">({item.pct_cbm_ocupado}%)</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Piezas</span>
+              <p className="tabular-nums font-medium">{item.piezas_totales}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Valor</span>
+              <p className="font-medium">{item.valor_total_usd ? formatCurrency(item.valor_total_usd, 'USD') : '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Proveedores</span>
+              <p className="tabular-nums">{item.total_proveedores}</p>
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-muted-foreground">BL</span>
-            <p className="font-mono text-xs">{item.numero_bl ?? '-'}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Buque</span>
-            <p>{item.buque ?? '-'}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Ruta</span>
-            <p className="text-xs">{item.puerto_origen ?? '?'} {'->'} {item.puerto_destino ?? '?'}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">ETD</span>
-            <p><Fecha valor={item.fecha_etd} formato="fecha" className="text-xs" /></p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">ETA</span>
-            <p><Fecha valor={item.fecha_eta} formato="fecha" className="text-xs" /></p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Peso</span>
-            <p className="tabular-nums">{item.peso_total_kg ? `${item.peso_total_kg} kg` : '-'}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">CBM</span>
-            <p className="tabular-nums">
-              {item.cbm_ocupado ?? 0} / {item.cbm_total ?? '?'}
-              {item.pct_cbm_ocupado != null && (
-                <span className="ml-1 text-muted-foreground">({item.pct_cbm_ocupado}%)</span>
-              )}
-            </p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Piezas</span>
-            <p className="tabular-nums font-medium">{item.piezas_totales}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Valor</span>
-            <p className="font-medium">{item.valor_total_usd ? formatCurrency(item.valor_total_usd, 'USD') : '-'}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Proveedores</span>
-            <p className="tabular-nums">{item.total_proveedores}</p>
-          </div>
-        </div>
-      )}
-    />
+        )}
+      />
+      <AlertDialog open={deletingId !== null} onOpenChange={(open) => { if (!open) setDeletingId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar contenedor</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se dará de baja el contenedor (activo = false) y sus órdenes quedarán libres para vincular a otro contenedor. Esta acción no borra el historial.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPendingDelete}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction disabled={isPendingDelete} onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

@@ -1169,6 +1169,7 @@ export type Database = {
       }
       contenedores: {
         Row: {
+          activo: boolean
           buque: string | null
           cbm_total: number | null
           codigo_contenedor: string
@@ -1193,6 +1194,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          activo?: boolean
           buque?: string | null
           cbm_total?: number | null
           codigo_contenedor: string
@@ -1217,6 +1219,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          activo?: boolean
           buque?: string | null
           cbm_total?: number | null
           codigo_contenedor?: string
