@@ -4,6 +4,8 @@ import {
   agruparCajasPorProducto,
   aplicarEdicionCaja,
   aplicarRepartoSeparacion,
+  aplicarMapaColoresACajas,
+  enriquecerDetallesConMapa,
   detallesDesdeMatriz,
   fijarPzMinima,
   type CajaEditable,
@@ -123,6 +125,66 @@ describe('detallesDesdeMatriz', () => {
   })
 })
 
+describe('aplicarMapaColoresACajas (ID + renombrar, fusionando)', () => {
+  it('renombra GOOFFE a CAFE en matriz y lista', () => {
+    const c = caja({
+      codigo_caja: 'C1',
+      tallas: ['CH', 'M'],
+      colores: ['GOOFFE'],
+      matriz: { tallas: ['CH', 'M'], colores: ['GOOFFE'], valores: { GOOFFE: { CH: 4, M: 6 } } },
+    })
+    const { cajas: next, tocadas } = aplicarMapaColoresACajas([c], new Map([['GOOFFE', { color_id: 9, nombre: 'CAFÉ' }]]))
+    expect(tocadas).toBe(1)
+    expect(next[0].matriz.colores).toEqual(['CAFÉ'])
+    expect(next[0].colores).toEqual(['CAFÉ'])
+    expect(next[0].matriz.valores).toEqual({ 'CAFÉ': { CH: 4, M: 6 } })
+    expect(c.matriz.colores).toEqual(['GOOFFE'])
+  })
+
+  it('fusiona sumando cuando dos raws caen al mismo id', () => {
+    const c = caja({
+      codigo_caja: 'C2',
+      tallas: ['CH'],
+      colores: ['GOOFFE', 'CAFE'],
+      matriz: { tallas: ['CH'], colores: ['GOOFFE', 'CAFE'], valores: { GOOFFE: { CH: 3 }, CAFE: { CH: 5 } } },
+    })
+    const { cajas: next } = aplicarMapaColoresACajas(
+      [c],
+      new Map([
+        ['GOOFFE', { color_id: 9, nombre: 'CAFÉ' }],
+        ['CAFE', { color_id: 9, nombre: 'CAFÉ' }],
+      ]),
+    )
+    expect(next[0].matriz.colores).toEqual(['CAFÉ'])
+    expect(next[0].matriz.valores).toEqual({ 'CAFÉ': { CH: 8 } })
+  })
+
+  it('es insensible a case/acentos y no toca lo no mapeado', () => {
+    const c = caja({
+      codigo_caja: 'C3',
+      tallas: ['CH'],
+      colores: ['gooffe', 'NEGRO'],
+      matriz: { tallas: ['CH'], colores: ['gooffe', 'NEGRO'], valores: { gooffe: { CH: 2 }, NEGRO: { CH: 7 } } },
+    })
+    const { cajas: next, tocadas } = aplicarMapaColoresACajas([c], new Map([['GOOFFE', { color_id: 9, nombre: 'CAFÉ' }]]))
+    expect(tocadas).toBe(1)
+    expect(next[0].matriz.colores).toEqual(['CAFÉ', 'NEGRO'])
+    expect(next[0].matriz.valores['CAFÉ']).toEqual({ CH: 2 })
+  })
+})
+
+describe('enriquecerDetallesConMapa', () => {
+  it('inyecta color_id sin mutar', () => {
+    const dets = [
+      { codigo_caja_temporal: 'C1', color_raw: 'GOOFFE', cantidad_por_caja: 2 },
+      { codigo_caja_temporal: 'C1', color_raw: 'NEGRO', cantidad_por_caja: 3 },
+    ]
+    const out = enriquecerDetallesConMapa(dets, new Map([['GOOFFE', 9]]))
+    expect(out[0].color_id).toBe(9)
+    expect(out[1].color_id).toBeUndefined()
+    expect(dets[0].color_id).toBeUndefined()
+  })
+})
 describe('fijarPzMinima (pura)', () => {
   it('fija 1 pza solo en cajas sin dato y las marca', () => {
     const cajas = [

@@ -1,6 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\lib\orden-rapida-cajas.ts
 // Logica pura de cajas del wizard de orden rapida (testeable, sin React).
 // Los tipos son estructurales minimos: WizardCaja/WizardProducto son asignables.
+import { normalizeColorKey } from '@/lib/color-match'
 
 export interface CajaEditable {
   codigo_caja_temporal?: string
@@ -197,6 +198,104 @@ export function detallesDesdeMatriz(caja: Pick<CajaEditable, 'codigo_caja_tempor
     }
   }
   return out
+}
+
+/**
+ * Destino de un color resuelto: id FK de cat_colores + nombre a mostrar en caja.
+ */
+export interface DestinoColorCaja {
+  color_id: number
+  nombre: string
+}
+
+/**
+ * Propaga un mapa raw->destino a las matrices de cajas (puro, sin mutar).
+ * - Renombra la llave de color al `nombre` del catalogo (ID + renombrar).
+ * - Si dos raws caen al mismo destino en la misma caja, fusiona sumando por talla.
+ * - Llaves insensibles a case/acentos/espacios via normalizeColorKey.
+ * Retorna arreglo nuevo; cuenta cuantas cajas tocaron.
+ */
+export function aplicarMapaColoresACajas<T extends CajaEditable>(
+  cajas: T[],
+  mapa: Map<string, DestinoColorCaja> | Record<string, DestinoColorCaja>,
+): { cajas: T[]; tocadas: number } {
+  const get = (raw: string): DestinoColorCaja | undefined => {
+    const k = normalizeColorKey(String(raw || ''))
+    if (mapa instanceof Map) return mapa.get(k)
+    return (mapa as Record<string, DestinoColorCaja>)[k]
+  }
+  let tocadas = 0
+  const next = (cajas || []).map((caja) => {
+    const coloresOrigen = caja.matriz?.colores || []
+    if (coloresOrigen.length === 0) return caja
+    let cambio = false
+    // destino por color origen
+    const destinoPorOrigen = new Map<string, string>()
+    for (const col of coloresOrigen) {
+      const d = get(col)
+      if (d && String(d.nombre || '').trim()) {
+        const target = String(d.nombre).trim().toUpperCase()
+        destinoPorOrigen.set(col, target)
+        if (target !== col) cambio = true
+      } else {
+        destinoPorOrigen.set(col, col)
+      }
+    }
+    if (!cambio) return caja
+    const tallas = [...(caja.matriz?.tallas || [])]
+    const valoresNuevos: Record<string, Record<string, number>> = {}
+    for (const col of coloresOrigen) {
+      const target = destinoPorOrigen.get(col) || col
+      const fila = caja.matriz?.valores?.[col] || {}
+      if (!valoresNuevos[target]) {
+        valoresNuevos[target] = {}
+        for (const t of tallas) valoresNuevos[target][t] = 0
+      }
+      for (const t of tallas) {
+        valoresNuevos[target][t] = Number(valoresNuevos[target][t] || 0) + Number((fila as Record<string, number>)[t] || 0)
+      }
+      // Conservar tallas extra no declaradas (defensa)
+      for (const [t, v] of Object.entries(fila)) {
+        if (!(t in valoresNuevos[target])) valoresNuevos[target][t] = Number(valoresNuevos[target][t] || 0) + Number(v || 0)
+      }
+    }
+    // Dedup de lista de colores preservando orden de primera aparicion del destino
+    const vistos = new Set<string>()
+    const coloresNuevos: string[] = []
+    for (const col of coloresOrigen) {
+      const target = destinoPorOrigen.get(col) || col
+      if (!vistos.has(target)) { vistos.add(target); coloresNuevos.push(target) }
+    }
+    tocadas++
+    return {
+      ...caja,
+      colores: coloresNuevos,
+      matriz: { tallas, colores: coloresNuevos, valores: valoresNuevos },
+    }
+  })
+  return { cajas: next, tocadas }
+}
+
+/**
+ * Enriquece detalles (shape detallesDesdeMatriz) con color_id desde un mapa
+ * clave->id. No muta: devuelve arreglo nuevo. Los no encontrados quedan igual.
+ */
+export function enriquecerDetallesConMapa(
+  detalles: Array<Record<string, unknown>>,
+  mapaId: Map<string, number> | Record<string, number>,
+): Array<Record<string, unknown>> {
+  const get = (raw: string): number | undefined => {
+    const k = normalizeColorKey(String(raw || ''))
+    if (mapaId instanceof Map) return mapaId.get(k)
+    const v = (mapaId as Record<string, number>)[k]
+    return typeof v === 'number' ? v : undefined
+  }
+  return (detalles || []).map((d) => {
+    if (typeof d?.color_id === 'number' && Number.isInteger(d.color_id as number)) return d
+    const id = get(String(d?.color_raw || ''))
+    if (id == null) return d
+    return { ...d, color_id: id, estado_temporal: 'match_color' }
+  })
 }
 
 /**

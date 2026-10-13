@@ -25,7 +25,7 @@ export default async function OrdenRapidaPage() {
   ] = await Promise.all([
     supabase
       .from('contenedores')
-      .select('id, codigo_contenedor, numero_contenedor, estado')
+      .select('id, codigo_contenedor, numero_contenedor, estado, activo')
       // Se muestran todos los estados menos 'cancelado' para no perder los
       // recientes ya surtidos/completos/cerrados (antes se filtraba solo a
       // borrador/en_transito/en_aduana/en_bodega y faltaban folios como 2026-11).
