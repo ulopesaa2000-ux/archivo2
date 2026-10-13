@@ -3,7 +3,7 @@
 
 import { useState, useTransition, useMemo, memo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronsUpDown, ClipboardCheck, ChevronDown, ChevronRight, ChevronUp, Database, FileSpreadsheet, FileUp, GripVertical, Hand, HelpCircle, Info, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronsUpDown, ClipboardCheck, ChevronDown, ChevronRight, ChevronUp, Database, FileSpreadsheet, FileUp, GripVertical, Hand, HelpCircle, Loader2, Package, Scale, Sparkles, AlertTriangle, ExternalLink, Plus, Trash2, X, Pencil, Calculator, RefreshCw, Search, ScanSearch, ShieldCheck, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -1063,6 +1063,7 @@ export function OrdenRapidaWizard({
   })
   const [selectedContenedor, setSelectedContenedor] = useState('new')
   const [newContainerCode, setNewContainerCode] = useState('')
+  const [newContainerNumber, setNewContainerNumber] = useState('')
 
   const selectedProveedorObj = useMemo(
     () => proveedores.find((p) => String(p.id) === selectedProveedor),
@@ -1241,6 +1242,13 @@ export function OrdenRapidaWizard({
   // Caja principal por producto (skuUpper -> codigo_caja elegido; default = mayor cantidad)
   const [principalPorSku, setPrincipalPorSku] = useState<Record<string, string>>({})
   const [isConfirmFinalModalOpen, setIsConfirmFinalModalOpen] = useState(false)
+  // Verificación local pre-subida: snapshot + errores en tiempo real para habilitar carga a DB
+  const [verificacionManual, setVerificacionManual] = useState<{ hash: string; ok: boolean; fecha: number } | null>(null)
+  const [mostrarErroresSubida, setMostrarErroresSubida] = useState(false)
+  const [codigoRenameDrafts, setCodigoRenameDrafts] = useState<Record<string, string>>({})
+  const [modalLineaDrafts, setModalLineaDrafts] = useState<Record<string, string>>({})
+  const [modalPackDrafts, setModalPackDrafts] = useState<Record<string, string>>({})
+  const [modalCajaNumDrafts, setModalCajaNumDrafts] = useState<Record<string, string>>({})
   // Búsqueda BD bajo demanda por fila (lápiz 🔍): temp_id en curso
   const [buscandoDb, setBuscandoDb] = useState<Set<string>>(new Set())
   const [editandoSku, setEditandoSku] = useState<string | null>(null)
@@ -1295,6 +1303,12 @@ export function OrdenRapidaWizard({
     setFiltroPendientes('')
     setOverrideModal(null)
     setOverrideValor('')
+    setVerificacionManual(null)
+    setMostrarErroresSubida(false)
+    setCodigoRenameDrafts({})
+    setModalLineaDrafts({})
+    setModalPackDrafts({})
+    setModalCajaNumDrafts({})
     coloresAutoOpenedRef.current = false
     setProgress(0)
     setProgressMsg('')
@@ -2361,6 +2375,13 @@ export function OrdenRapidaWizard({
   }
 
   const doGuardarOrden = () => {
+    // Barrera final espejo DB: si la verificación local detecta bloqueantes, no subir.
+    if (erroresBloqueantes.length > 0) {
+      setMostrarErroresSubida(true)
+      setIsConfirmFinalModalOpen(true)
+      toast.error(`${erroresBloqueantes.length} bloqueo(s) pendientes: verifica en local y corrígelos antes de subir.`)
+      return
+    }
     // Fase 2: colores sin resolver bloquean antes del servidor (mapear o crear en el modal).
     const coloresPendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido')
     if (coloresPendientes.length > 0) {
@@ -2407,6 +2428,7 @@ export function OrdenRapidaWizard({
           clienteB2bId: Number(selectedCliente),
           contenedorId: selectedContenedor === 'new' ? null : Number(selectedContenedor),
           newContainerCode: selectedContenedor === 'new' ? newContainerCode : null,
+          newContainerNumber: selectedContenedor === 'new' ? (newContainerNumber.trim() ? newContainerNumber.trim().toUpperCase() : null) : null,
           productos: editableProductos,
           cajas: editableCajas,
           detalles: detallesEditados,
@@ -2903,6 +2925,187 @@ export function OrdenRapidaWizard({
     return { filas, totalCajas, todoOk }
   }, [editableProductos, editableCajas, lineaEsperada, lineaEditadaPorSku, lineaPackEsperada, lineaEditadaPorPack, jsonPackTieneSku, cajaPrincipalDe])
 
+  // ── Validación exhaustiva pre-subida DB (TIEMPO REAL) ──
+  // Espejo de guardarOrdenRapidaB2BAction + restricciones UNIQUE/NOT NULL/FK/CHECK.
+  // Cada error trae paso destino para "Ir a corregir" y corrección inline en el modal.
+  type ErrorSubida = {
+    id: string
+    codigo:
+      | 'SOCIO_PROVEEDOR_FALTANTE' | 'SOCIO_CLIENTE_FALTANTE' | 'CONTENEDOR_CODIGO_VACIO'
+      | 'ORDEN_SIN_PRODUCTOS' | 'ORDEN_SIN_CAJAS'
+      | 'SKU_VACIO' | 'SKU_DUPLICADO' | 'PRODUCTO_SIN_CAJAS'
+      | 'CODIGO_VACIO' | 'CODIGO_DUPLICADO' | 'SIN_PZ' | 'CANTIDAD_INVALIDA' | 'MATRIZ_VACIA'
+      | 'COLOR_SIN_RESOLVER' | 'MATCH_CAJAS_DIF' | 'MATCH_PACK_DIF'
+    mensaje: string
+    detalle?: string
+    sku?: string
+    codigoCaja?: string
+    pack?: string
+    paso: 1 | 3 | 4
+    fix: string
+  }
+  const erroresSubida = useMemo<ErrorSubida[]>(() => {
+    const out: ErrorSubida[] = []
+    if (!selectedProveedor) out.push({ id: 'soc-prov', codigo: 'SOCIO_PROVEEDOR_FALTANTE', mensaje: 'Falta proveedor origen (persona_id / proveedor_id).', paso: 1, fix: 'Elige proveedor en paso 1 o en el modal.' })
+    if (!selectedCliente) out.push({ id: 'soc-cli', codigo: 'SOCIO_CLIENTE_FALTANTE', mensaje: 'Falta cliente B2B destino (cliente_b2b_id).', paso: 1, fix: 'Elige cliente en paso 1.' })
+    if (selectedContenedor === 'new' && !newContainerCode.trim()) out.push({ id: 'cont-cod', codigo: 'CONTENEDOR_CODIGO_VACIO', mensaje: 'Contenedor nuevo sin código (codigo_contenedor UNIQUE NOT NULL).', paso: 1, fix: 'Escribe el código del contenedor.' })
+    if (editableProductos.length === 0) out.push({ id: 'ord-sin-prod', codigo: 'ORDEN_SIN_PRODUCTOS', mensaje: 'La orden no tiene productos (ordenes_b2b_detalles quedaría vacía).', paso: 3, fix: 'Agrega al menos un producto.' })
+    // SKU vacío / duplicado (productos.sku_base UNIQUE NOT NULL)
+    const vistosSku = new Map<string, number>()
+    editableProductos.forEach((p) => {
+      const sku = String(p.sku_base || '').trim()
+      const up = sku.toUpperCase()
+      if (!sku) out.push({ id: `sku-vacio-${p.temp_id || sku}`, codigo: 'SKU_VACIO', mensaje: 'Producto con SKU vacío (NOT NULL).', paso: 3, fix: 'Edita el SKU en paso 3.' })
+      else vistosSku.set(up, (vistosSku.get(up) || 0) + 1)
+    })
+    for (const [up, n] of vistosSku) {
+      if (n > 1) out.push({ id: `sku-dup-${up}`, codigo: 'SKU_DUPLICADO', mensaje: `SKU duplicado "${up}" ×${n} (UNIQUE). Solo se insertaría uno y fallaría el 2do.`, sku: up, paso: 3, fix: 'Unifica o renombra el SKU en paso 3.' })
+    }
+    // Producto sin cajas reales (bloqueo servidor sinCajasArmadas)
+    for (const p of editableProductos) {
+      const sku = String(p.sku_base || '').trim()
+      const up = sku.toUpperCase()
+      if (!up) continue
+      const armadas = editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up).reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
+      if (armadas <= 0) out.push({ id: `prod-sin-caja-${up}`, codigo: 'PRODUCTO_SIN_CAJAS', mensaje: `Producto "${sku}" sin cajas armadas (bloqueo modo cajas).`, sku, paso: 4, fix: 'Agrega/mueve cajas a este SKU en paso 4.' })
+    }
+    // Cajas: código vacío/duplicado (codigo_caja UNIQUE NOT NULL), pz, cantidad, matriz
+    const vistosCod = new Map<string, string[]>()
+    const reales = editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen')
+    reales.forEach((c, idx) => {
+      const cod = String(c.codigo_caja || c.codigo_caja_temporal || '').trim()
+      const up = cod.toUpperCase()
+      if (!cod) {
+        out.push({ id: `cod-vacio-${String(c.sku_base || 'sinsku')}-${idx}`, codigo: 'CODIGO_VACIO', mensaje: `Caja sin código en SKU "${String(c.sku_base || '').trim()}" (NOT NULL).`, sku: String(c.sku_base || '').trim(), paso: 4, fix: 'Renombra el código de la caja.' })
+      } else {
+        const l = vistosCod.get(up) || []
+        l.push(cod)
+        vistosCod.set(up, l)
+      }
+      if (!(Number(c.piezas_por_caja ?? 0) > 0)) out.push({ id: `sinpz-${cod || c.sku_base}`, codigo: 'SIN_PZ', mensaje: `Caja "${cod || '(s/código)'}" sin piezas por caja (>0 requerido).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Edita pz/caja en su tarjeta o usa Fijar 1 pza.' })
+      if (!(Number(c.cantidad_cajas ?? 0) > 0)) out.push({ id: `cant-${cod || c.sku_base}`, codigo: 'CANTIDAD_INVALIDA', mensaje: `Caja "${cod || '(s/código)'}" con cantidad ${String(c.cantidad_cajas ?? 0)} (debe ser >0).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Corrige cantidad de cajas en su tarjeta.' })
+      try {
+        const dets = detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0])
+        if (dets.length === 0) out.push({ id: `matriz-${cod || c.sku_base}`, codigo: 'MATRIZ_VACIA', mensaje: `Caja "${cod || '(s/código)'}" con matriz vacía (0 detalles talla/color).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Edita la matriz en su tarjeta.' })
+      } catch { /* matriz inválida se reporta como vacía */ }
+    })
+    for (const [up, lista] of vistosCod) {
+      if (lista.length > 1) out.push({ id: `cod-dup-${up}`, codigo: 'CODIGO_DUPLICADO', mensaje: `Código duplicado "${lista[0]}" ×${lista.length} (UNIQUE: haría upsert y mezclaría cajas).`, codigoCaja: lista[0], paso: 4, fix: 'Renómbralo aquí mismo con el editor inline.' })
+    }
+    if (editableProductos.length > 0 && reales.length === 0) out.push({ id: 'ord-sin-caja', codigo: 'ORDEN_SIN_CAJAS', mensaje: 'La orden no tiene cajas físicas (totalCajas<=0).', paso: 4, fix: 'Agrega cajas en paso 4.' })
+    // Colores sin resolver (bloqueo servidor coloresSinMatch + modal)
+    const pendientes = coloresPorConfirmar.filter((c) => c.estado === 'nuevo' || c.estado === 'omitido')
+    if (pendientes.length > 0) out.push({ id: 'col-pend', codigo: 'COLOR_SIN_RESOLVER', mensaje: `${pendientes.length} color(es) sin resolver: ${pendientes.slice(0, 4).map((c) => c.raw).join(', ')}${pendientes.length > 4 ? ` +${pendientes.length - 4}` : ''} (FK cat_colores).`, paso: 4, fix: 'Mapea a existente o créalos en el panel de colores.' })
+    // Match exacto líneas vs armadas + packs
+    try {
+      const m = calcularMatchCajasOrdenRapida()
+      for (const d of m.diffs.filter((x) => x.estado !== 'OK')) {
+        out.push({ id: `match-${d.sku}`, codigo: 'MATCH_CAJAS_DIF', mensaje: `"${d.sku}": línea ${d.cajasLinea} vs armadas ${d.cajasFisicas} (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}).`, sku: d.sku, paso: 4, fix: 'Ajusta línea esperada o mueve/agrega cajas.' })
+      }
+    } catch { /* match no disponible sin datos */ }
+    try {
+      const mp = calcularMatchPacks()
+      for (const d of mp.diffs.filter((x) => x.estado !== 'OK')) {
+        out.push({ id: `pack-${d.sku}-${d.pack}`, codigo: 'MATCH_PACK_DIF', mensaje: `"${d.sku} · ${d.pack}": línea ${d.linea} vs armadas ${d.armadas} (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}).`, sku: d.sku, pack: d.pack, paso: 4, fix: 'Ajusta línea del pack o renombra/divide packs.' })
+      }
+    } catch { /* sin packs */ }
+    return out
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- cadena de match con callbacks; mismo patrón que verificacionPrevia
+  }, [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, editableProductos, editableCajas, coloresPorConfirmar, calcularMatchCajasOrdenRapida, calcularMatchPacks])
+  const erroresBloqueantes = erroresSubida
+  // Hash de verificación: cualquier cambio invalida el "Verificado OK"
+  const hashVerificacion = useMemo(() => {
+    try {
+      return JSON.stringify({
+        p: editableProductos.map((p) => [p.temp_id || p.sku_base, p.sku_base]),
+        c: editableCajas.map((c) => [c.codigo_caja || c.codigo_caja_temporal, c.sku_base, c.cantidad_cajas, c.piezas_por_caja, c.nombre_pack]),
+        le: lineaEditadaPorSku, lp: lineaEditadaPorPack, pr: principalPorSku,
+        s: [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, newContainerNumber],
+        col: coloresPorConfirmar.map((c) => [c.raw, c.estado, c.color_id]),
+      })
+    } catch { return 'hash-error' }
+  }, [editableProductos, editableCajas, lineaEditadaPorSku, lineaEditadaPorPack, principalPorSku, selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, newContainerNumber, coloresPorConfirmar])
+  const necesitaReverificar = !verificacionManual || verificacionManual.hash !== hashVerificacion
+  const verificadoOk = !!verificacionManual?.ok && !necesitaReverificar && erroresBloqueantes.length === 0
+
+  const handleVerificarLocal = () => {
+    if (erroresBloqueantes.length === 0) {
+      setVerificacionManual({ hash: hashVerificacion, ok: true, fecha: Date.now() })
+      setMostrarErroresSubida(false)
+      toast.success('Verificación local OK: sin bloqueantes. Ya puedes cargar a DB.')
+    } else {
+      setVerificacionManual({ hash: hashVerificacion, ok: false, fecha: Date.now() })
+      setMostrarErroresSubida(true)
+      toast.error(`${erroresBloqueantes.length} bloqueo(s): corrígelos aquí mismo o con Ir a corregir.`)
+    }
+  }
+
+  // Ir a corregir: cierra modal, va al paso y expande el SKU/caja objetivo
+  const handleIrACorregir = (e: ErrorSubida) => {
+    setIsConfirmFinalModalOpen(false)
+    setMostrarErroresSubida(true)
+    if (e.paso === 1) { setStep(1); return }
+    if (e.paso === 3) {
+      setStep(3)
+      if (e.sku) {
+        const prod = editableProductos.find((p) => String(p.sku_base || '').trim().toUpperCase() === String(e.sku || '').trim().toUpperCase())
+        if (prod?.sku_base) setExpandedProducts((prev) => new Set(prev).add(String(prod.sku_base)))
+        if (prod?.temp_id) { setEditandoSku(prod.temp_id) }
+      }
+      return
+    }
+    setStep(4)
+    if (e.sku) {
+      setExpandedProducts((prev) => new Set(prev).add(String(e.sku)))
+      // también prueba con upper exacto del grupo
+      const up = String(e.sku || '').trim().toUpperCase()
+      const prod = editableProductos.find((p) => String(p.sku_base || '').trim().toUpperCase() === up)
+      if (prod?.sku_base) setExpandedProducts((prev) => new Set(prev).add(String(prod.sku_base)))
+    }
+  }
+
+  // Renombrar código duplicado/vacío directo en el modal
+  const handleRenombrarCodigoEnModal = (viejo: string, nuevoRaw: string) => {
+    const nuevo = String(nuevoRaw || '').trim()
+    if (!viejo || !nuevo) { toast.error('Escribe el nuevo código.'); return }
+    if (nuevo.toUpperCase() === String(viejo).trim().toUpperCase()) return
+    const usados = new Set(editableCajas.filter((c) => String(c.codigo_caja_temporal || c.codigo_caja || '') !== viejo).map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '').toUpperCase()))
+    if (usados.has(nuevo.toUpperCase())) { toast.error(`"${nuevo}" ya existe: elige otro.`); return }
+    setEditableCajas((prev) => prev.map((c) => String(c.codigo_caja_temporal || c.codigo_caja || '') === viejo
+      ? { ...c, codigo_caja_temporal: nuevo, codigo_caja: nuevo } : c))
+    setParsedData((prev: WizardParsedData | null) => {
+      if (!prev || !Array.isArray(prev.detalles)) return prev
+      return { ...prev, detalles: prev.detalles.map((d) => String(d?.codigo_caja_temporal || '') === viejo ? { ...d, codigo_caja_temporal: nuevo } : d) }
+    })
+    setPrincipalPorSku((prev) => {
+      let ch = false
+      const nx: Record<string, string> = {}
+      for (const [k, v] of Object.entries(prev)) { if (v === viejo) { nx[k] = nuevo; ch = true } else nx[k] = v }
+      return ch ? nx : prev
+    })
+    setCodigoRenameDrafts((prev) => { const nx = { ...prev }; delete nx[viejo]; return nx })
+    toast.success(`Código ${viejo} → ${nuevo}. Vuelve a Verificar local.`)
+  }
+
+  // Ajuste rápido cantidad / piezas por caja directo en el modal
+  const handleAjustarCajaNumero = (codigo: string, campo: 'cantidad_cajas' | 'piezas_por_caja', valorRaw: string) => {
+    const v = campo === 'cantidad_cajas' ? parseInt(valorRaw, 10) : Number(valorRaw)
+    if (!codigo || isNaN(v) || v < 0 || (campo === 'cantidad_cajas' && !Number.isInteger(v))) { toast.error('Ingresa un número válido (entero ≥0 para cajas).'); return }
+    if (campo === 'cantidad_cajas' && v === 0) { toast.error('La cantidad debe ser >0 (CHECK DB + bloqueo modo cajas).'); return }
+    if (campo === 'piezas_por_caja' && !(v > 0)) { toast.error('Piezas por caja debe ser >0.'); return }
+    setEditableCajas((prev) => prev.map((c) => {
+      if (String(c.codigo_caja_temporal || c.codigo_caja || '') !== codigo) return c
+      if (campo === 'cantidad_cajas') {
+        const pz = Number(c.piezas_por_caja || 0)
+        return { ...c, cantidad_cajas: v, total_piezas: pz * v, cbm_total_linea: Number(c.cbm_por_caja ?? c.cbm ?? 0) * v, peso_bruto_total_kg: Number(c.peso_bruto_kg ?? 0) * v, peso_neto_total_kg: Number((c as unknown as Record<string, unknown>).peso_neto_kg ?? (c as unknown as Record<string, unknown>).peso_neto ?? 0) * v, piezas_estimadas: false } as WizardCaja
+      }
+      const qty = Number(c.cantidad_cajas || 0)
+      return { ...c, piezas_por_caja: v, total_piezas: v * qty, piezas_estimadas: false, piezas_heredadas: false } as unknown as WizardCaja
+    }))
+    setModalCajaNumDrafts((prev) => { const nx = { ...prev }; delete nx[`${codigo}||${campo}`]; return nx })
+    toast.success(`Caja ${codigo}: ${campo === 'cantidad_cajas' ? 'cantidad' : 'pz/caja'} = ${v}. Vuelve a Verificar local.`)
+  }
+
   const handleNext = () => {
     if (step === 1) {
       if (!selectedProveedor || !selectedCliente) {
@@ -3194,20 +3397,35 @@ export function OrdenRapidaWizard({
                   </div>
 
                   {selectedContenedor === 'new' ? (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="nuevo-cont-cod" className="text-xs">Codigo de identificacion del contenedor</Label>
-                      <Input
-                        id="nuevo-cont-cod"
-                        placeholder="Ej. CONT-K24-MX01"
-                        value={newContainerCode}
-                        onChange={(event) => setNewContainerCode(event.target.value)}
-                        className="h-9 font-mono"
-                      />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:col-span-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-cont-cod" className="text-xs">Codigo de identificacion del contenedor</Label>
+                        <Input
+                          id="nuevo-cont-cod"
+                          placeholder="Ej. CONT-K24-MX01"
+                          value={newContainerCode}
+                          onChange={(event) => setNewContainerCode(event.target.value)}
+                          className="h-9 font-mono"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-cont-num" className="text-xs">No. de contenedor (opcional)</Label>
+                        <Input
+                          id="nuevo-cont-num"
+                          placeholder="Ej. HAMU1553617 (opcional)"
+                          value={newContainerNumber}
+                          onChange={(event) => setNewContainerNumber(event.target.value.toUpperCase())}
+                          className="h-9 font-mono uppercase"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Físico. Se guarda tal cual; si va vacío queda como S/N.</p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2.5 rounded border bg-muted/40 p-3 text-xs text-muted-foreground md:col-span-2">
-                      <Info className="h-4 w-4 shrink-0 text-primary" />
-                      <span>La revision quedara asociada al contenedor seleccionado cuando se implemente la fase de guardado.</span>
+                    <div className="space-y-1 rounded border bg-muted/40 p-3 text-xs text-muted-foreground md:col-span-2">
+                      <p className="font-mono font-bold text-foreground">
+                        {selectedContenedorObj?.codigo_contenedor ?? 'Sin asignar'} ({selectedContenedorObj?.numero_contenedor ?? 'S/N'}) - {selectedContenedorObj?.estado ?? ''}
+                      </p>
+                      <p>La revision quedara asociada a este contenedor al guardar.</p>
                     </div>
                   )}
                 </div>
@@ -4805,7 +5023,7 @@ export function OrdenRapidaWizard({
                   <span className="block text-xs font-bold text-muted-foreground">Contenedor destino</span>
                   <p className="font-mono text-base font-bold">
                     {selectedContenedor === 'new'
-                      ? `${newContainerCode} (Nuevo contenedor)`
+                      ? `${newContainerCode || '(sin código)'}${newContainerNumber.trim() ? ` (${newContainerNumber.trim().toUpperCase()})` : ' (S/N)'} (Nuevo contenedor)`
                       : contenedores.find((item) => String(item.id) === selectedContenedor)?.codigo_contenedor}
                   </p>
                   {selectedContenedorEsSurtido && selectedContenedorObj && (
@@ -5527,9 +5745,36 @@ export function OrdenRapidaWizard({
           <div className="space-y-4 min-w-0">
             {/* 0. Verificación pre-guardado: la orden sube correcta */}
             <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <p className="text-xs font-black uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                <ClipboardCheck className="h-4 w-4 text-primary" /> Verificación: cajas correctas y pz por caja
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-black uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                  <ClipboardCheck className="h-4 w-4 text-primary" /> Verificación: cajas correctas y pz por caja
+                </p>
+                <Button
+                  type="button" size="sm" variant={verificadoOk ? 'default' : 'outline'}
+                  onClick={handleVerificarLocal}
+                  className="ml-auto h-7 text-[11px] font-bold gap-1.5"
+                  title="Escanea restricciones DB (SKU/códigos/pz/cantidades/matriz/colores/match/socios) y habilita la carga final solo si no hay bloqueantes"
+                >
+                  <ScanSearch className="h-3.5 w-3.5" /> {verificacionManual && !necesitaReverificar ? 'Re-verificar local' : 'Verificar local'}
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                {verificadoOk ? (
+                  <Badge className="bg-emerald-600 text-white font-bold gap-1"><ShieldCheck className="h-3 w-3" /> Verificado OK · {erroresBloqueantes.length === 0 ? '0 bloqueantes' : ''}</Badge>
+                ) : verificacionManual && !necesitaReverificar ? (
+                  <Badge variant="destructive" className="font-bold gap-1"><AlertTriangle className="h-3 w-3" /> {erroresBloqueantes.length} bloqueo(s) · corrige abajo</Badge>
+                ) : verificacionManual && necesitaReverificar ? (
+                  <Badge variant="outline" className="font-bold border-amber-500 text-amber-700 gap-1"><RefreshCw className="h-3 w-3" /> Cambios detectados · vuelve a verificar</Badge>
+                ) : (
+                  <Badge variant="outline" className="font-bold gap-1"><ScanSearch className="h-3 w-3" /> Sin verificar · pulsa Verificar local</Badge>
+                )}
+                <span className="text-muted-foreground">En vivo: {erroresBloqueantes.length} bloqueo(s) ahora mismo.</span>
+                {mostrarErroresSubida || erroresBloqueantes.length > 0 ? (
+                  <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] font-bold underline" onClick={() => setMostrarErroresSubida((v) => !v)}>
+                    {mostrarErroresSubida ? 'Ocultar detalle' : `Ver detalle (${erroresBloqueantes.length})`}
+                  </Button>
+                ) : null}
+              </div>
               <div className="space-y-1.5">
                 <p className="flex items-center gap-2 text-[11px] font-semibold">
                   {verificacionPrevia.matchOk
@@ -5592,6 +5837,122 @@ export function OrdenRapidaWizard({
                   </p>
                 )}
               </div>
+              {(mostrarErroresSubida || erroresBloqueantes.length > 0) && (
+                <div className="space-y-1.5 rounded-md border border-destructive/30 bg-background/80 p-2.5 max-h-[300px] overflow-y-auto">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-destructive flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5" /> Restricciones DB que bloquean la subida ({erroresBloqueantes.length})
+                  </p>
+                  {erroresBloqueantes.length === 0 ? (
+                    <p className="text-[11px] font-semibold text-emerald-700">Sin bloqueantes. Pulsa Verificar local para habilitar la carga.</p>
+                  ) : erroresBloqueantes.slice(0, 30).map((e) => (
+                    <div key={e.id} className="rounded border border-border/60 bg-muted/20 px-2 py-1.5 space-y-1">
+                      <div className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold leading-snug">{e.mensaje}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">{e.codigo} · paso {e.paso} · Fix: {e.fix}</p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] font-bold shrink-0" onClick={() => handleIrACorregir(e)} title={`Ir a paso ${e.paso} a corregir`}>
+                          Ir a corregir
+                        </Button>
+                      </div>
+                      {(e.codigo === 'CODIGO_DUPLICADO' || e.codigo === 'CODIGO_VACIO') && e.codigoCaja ? (
+                        <div className="flex items-center gap-1.5 pl-5">
+                          <Input
+                            value={codigoRenameDrafts[e.codigoCaja] ?? e.codigoCaja}
+                            onChange={(ev) => setCodigoRenameDrafts((prev) => ({ ...prev, [e.codigoCaja as string]: ev.target.value.toUpperCase() }))}
+                            className="h-7 font-mono text-[11px] uppercase"
+                            placeholder="NUEVO-CODIGO"
+                          />
+                          <Button type="button" size="sm" className="h-7 text-[11px] font-bold" onClick={() => handleRenombrarCodigoEnModal(e.codigoCaja as string, codigoRenameDrafts[e.codigoCaja as string] ?? '')}>
+                            Guardar código
+                          </Button>
+                        </div>
+                      ) : null}
+                      {(e.codigo === 'MATCH_CAJAS_DIF') && e.sku ? (
+                        <div className="flex items-center gap-1.5 pl-5">
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalLineaDrafts[e.sku.toUpperCase()] ?? String(lineaEsperada(e.sku))}
+                            onChange={(ev) => setModalLineaDrafts((prev) => ({ ...prev, [String(e.sku).toUpperCase()]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                          />
+                          <Button
+                            type="button" size="sm" className="h-7 text-[11px] font-bold"
+                            onClick={() => {
+                              const v = parseInt(modalLineaDrafts[String(e.sku).toUpperCase()] ?? '', 10)
+                              if (isNaN(v) || v < 0) { toast.error('Ingresa cajas ≥0.'); return }
+                              setLineaEditadaPorSku((prev) => ({ ...prev, [String(e.sku).toUpperCase()]: v }))
+                              toast.success(`Línea ${e.sku} = ${v}. Vuelve a Verificar local.`)
+                            }}
+                          >
+                            Ajustar línea
+                          </Button>
+                        </div>
+                      ) : null}
+                      {(e.codigo === 'MATCH_PACK_DIF') && e.sku && e.pack ? (
+                        <div className="flex items-center gap-1.5 pl-5">
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalPackDrafts[`${String(e.sku).toUpperCase()}||${String(e.pack).toUpperCase()}`] ?? String(lineaPackEsperada(e.sku, e.pack))}
+                            onChange={(ev) => setModalPackDrafts((prev) => ({ ...prev, [`${String(e.sku).toUpperCase()}||${String(e.pack).toUpperCase()}`]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                          />
+                          <Button
+                            type="button" size="sm" className="h-7 text-[11px] font-bold"
+                            onClick={() => {
+                              const k = `${String(e.sku).toUpperCase()}||${String(e.pack).toUpperCase()}`
+                              const v = parseInt(modalPackDrafts[k] ?? '', 10)
+                              if (isNaN(v) || v < 0) { toast.error('Ingresa cajas ≥0.'); return }
+                              setLineaEditadaPorPack((prev) => ({ ...prev, [k]: v }))
+                              toast.success(`Línea ${e.sku} · ${e.pack} = ${v}. Vuelve a Verificar local.`)
+                            }}
+                          >
+                            Ajustar pack
+                          </Button>
+                        </div>
+                      ) : null}
+                      {(e.codigo === 'SIN_PZ' || e.codigo === 'CANTIDAD_INVALIDA' || e.codigo === 'MATRIZ_VACIA') && e.codigoCaja ? (
+                        <div className="flex flex-wrap items-center gap-1.5 pl-5">
+                          <span className="text-[10px] text-muted-foreground font-mono">{e.codigoCaja}</span>
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalCajaNumDrafts[`${e.codigoCaja}||cantidad_cajas`] ?? String(editableCajas.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === e.codigoCaja)?.cantidad_cajas ?? '')}
+                            onChange={(ev) => setModalCajaNumDrafts((prev) => ({ ...prev, [`${e.codigoCaja}||cantidad_cajas`]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                            placeholder="cjs"
+                            title="Cantidad de cajas"
+                          />
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-bold" onClick={() => handleAjustarCajaNumero(e.codigoCaja as string, 'cantidad_cajas', modalCajaNumDrafts[`${e.codigoCaja}||cantidad_cajas`] ?? '')}>
+                            Cantidad
+                          </Button>
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalCajaNumDrafts[`${e.codigoCaja}||piezas_por_caja`] ?? String(editableCajas.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === e.codigoCaja)?.piezas_por_caja ?? '')}
+                            onChange={(ev) => setModalCajaNumDrafts((prev) => ({ ...prev, [`${e.codigoCaja}||piezas_por_caja`]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                            placeholder="pz"
+                            title="Piezas por caja"
+                          />
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-bold" onClick={() => handleAjustarCajaNumero(e.codigoCaja as string, 'piezas_por_caja', modalCajaNumDrafts[`${e.codigoCaja}||piezas_por_caja`] ?? '')}>
+                            Pz/caja
+                          </Button>
+                        </div>
+                      ) : null}
+                      {e.codigo === 'COLOR_SIN_RESOLVER' ? (
+                        <div className="pl-5">
+                          <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] font-bold" onClick={() => setColoresModalOpen(true)}>
+                            Abrir colores (mapear/crear)
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {erroresBloqueantes.length > 30 && (
+                    <p className="text-[10px] text-muted-foreground italic">+{erroresBloqueantes.length - 30} más. Corrige estos primero y re-verifica.</p>
+                  )}
+                </div>
+              )}
             </div>
             {/* 1. Selector/Confirmación de Proveedor Origen */}
             <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/30">
@@ -5631,8 +5992,10 @@ export function OrdenRapidaWizard({
                 <span className="text-[10px] font-bold text-muted-foreground uppercase">Contenedor Asignado</span>
                 <p className="font-mono font-bold text-foreground truncate">
                   {selectedContenedor === 'new'
-                    ? `${newContainerCode} (Nuevo)`
-                    : (selectedContenedorObj?.codigo_contenedor ?? 'Sin asignar')}
+                    ? `${newContainerCode || '(sin código)'}${newContainerNumber.trim() ? ` (${newContainerNumber.trim().toUpperCase()})` : ' (S/N)'} (Nuevo)`
+                    : selectedContenedorObj
+                      ? `${selectedContenedorObj.codigo_contenedor} (${selectedContenedorObj.numero_contenedor ?? 'S/N'}) - ${selectedContenedorObj.estado ?? ''}`
+                      : 'Sin asignar'}
                 </p>
                 <p className="text-[10px] text-muted-foreground">Unidad de transporte físico (multi-proveedor)</p>
               </div>
@@ -5692,15 +6055,70 @@ export function OrdenRapidaWizard({
                     <span>línea <strong className="text-foreground">{f.linea}</strong>{f.editada ? '*' : ''}</span>
                     <span>suma <strong className={f.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}>{f.armadas}</strong></span>
                   </div>
+                  {!f.ok && (
+                    <div className="mt-1.5 flex items-center gap-1.5 rounded border border-dashed border-destructive/30 bg-background/70 px-1.5 py-1">
+                      <Input
+                        type="number" min={0} step={1}
+                        value={modalLineaDrafts[f.sku.toUpperCase()] ?? String(f.linea)}
+                        onChange={(e) => setModalLineaDrafts((prev) => ({ ...prev, [f.sku.toUpperCase()]: e.target.value }))}
+                        className="h-6 w-16 text-right font-mono text-[10px]"
+                        title="Corregir línea esperada de este SKU"
+                      />
+                      <Button
+                        type="button" size="sm" className="h-6 text-[10px] font-bold px-2"
+                        onClick={() => {
+                          const v = parseInt(modalLineaDrafts[f.sku.toUpperCase()] ?? '', 10)
+                          if (isNaN(v) || v < 0) { toast.error('Ingresa cajas ≥0.'); return }
+                          setLineaEditadaPorSku((prev) => ({ ...prev, [f.sku.toUpperCase()]: v }))
+                          setModalLineaDrafts((prev) => { const nx = { ...prev }; delete nx[f.sku.toUpperCase()]; return nx })
+                          toast.success(`Línea ${f.sku} = ${v}. Vuelve a Verificar local.`)
+                        }}
+                      >
+                        Línea
+                      </Button>
+                      <Button
+                        type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] font-bold"
+                        onClick={() => handleIrACorregir({ id: `go-${f.sku}`, codigo: 'MATCH_CAJAS_DIF', mensaje: '', paso: 4, sku: f.sku, fix: '' })}
+                        title="Abrir este SKU en paso 4 para mover/agregar cajas"
+                      >
+                        Cajas
+                      </Button>
+                    </div>
+                  )}
                   {f.packs.length > 1 && (
                     <div className="mt-1.5 space-y-1 border-t border-border/50 pt-1.5">
                       {f.packs.map((g) => (
-                        <div key={g.pack} className="flex items-center justify-between gap-2 text-[10px] tabular-nums">
-                          <Badge variant="outline" className="font-mono font-bold text-[9px] px-1.5 py-0 h-4">{g.pack}</Badge>
-                          <span className="text-muted-foreground">lín <strong className="text-foreground">{g.linea}</strong>{g.editada ? '*' : ''}</span>
-                          <span className={g.ok ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-destructive font-bold'}>
-                            Σ {g.armadas}{g.ok ? ' ✓' : ` (${g.dif > 0 ? `+${g.dif}` : g.dif})`}
-                          </span>
+                        <div key={g.pack} className="space-y-1">
+                          <div className="flex items-center justify-between gap-2 text-[10px] tabular-nums">
+                            <Badge variant="outline" className="font-mono font-bold text-[9px] px-1.5 py-0 h-4">{g.pack}</Badge>
+                            <span className="text-muted-foreground">lín <strong className="text-foreground">{g.linea}</strong>{g.editada ? '*' : ''}</span>
+                            <span className={g.ok ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-destructive font-bold'}>
+                              Σ {g.armadas}{g.ok ? ' ✓' : ` (${g.dif > 0 ? `+${g.dif}` : g.dif})`}
+                            </span>
+                          </div>
+                          {!g.ok && (
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="number" min={0} step={1}
+                                value={modalPackDrafts[`${f.sku.toUpperCase()}||${g.pack.toUpperCase()}`] ?? String(g.linea)}
+                                onChange={(e) => setModalPackDrafts((prev) => ({ ...prev, [`${f.sku.toUpperCase()}||${g.pack.toUpperCase()}`]: e.target.value }))}
+                                className="h-6 w-16 text-right font-mono text-[10px]"
+                              />
+                              <Button
+                                type="button" size="sm" className="h-6 text-[10px] font-bold px-2"
+                                onClick={() => {
+                                  const k = `${f.sku.toUpperCase()}||${g.pack.toUpperCase()}`
+                                  const v = parseInt(modalPackDrafts[k] ?? '', 10)
+                                  if (isNaN(v) || v < 0) { toast.error('Ingresa cajas ≥0.'); return }
+                                  setLineaEditadaPorPack((prev) => ({ ...prev, [k]: v }))
+                                  setModalPackDrafts((prev) => { const nx = { ...prev }; delete nx[k]; return nx })
+                                  toast.success(`Línea ${f.sku} · ${g.pack} = ${v}. Vuelve a Verificar local.`)
+                                }}
+                              >
+                                Pack
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -5719,6 +6137,17 @@ export function OrdenRapidaWizard({
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+            <div className="mr-auto flex flex-wrap items-center gap-2 text-[10px]">
+              {verificadoOk ? (
+                <span className="font-bold text-emerald-700 flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Listo para subir a DB</span>
+              ) : necesitaReverificar && verificacionManual ? (
+                <span className="font-bold text-amber-700">Corregiste datos: pulsa Verificar local de nuevo.</span>
+              ) : erroresBloqueantes.length > 0 ? (
+                <span className="font-bold text-destructive">{erroresBloqueantes.length} bloqueo(s): verifica y corrige.</span>
+              ) : (
+                <span className="text-muted-foreground">Pulsa Verificar local para habilitar la carga final.</span>
+              )}
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -5733,8 +6162,8 @@ export function OrdenRapidaWizard({
                 setIsConfirmFinalModalOpen(false)
                 handleConfirmReview()
               }}
-              disabled={isPending || !selectedProveedor || !selectedCliente || !verificacionPrevia.todoOk}
-              title={!verificacionPrevia.todoOk ? 'Completa la verificación: match exacto y pz por caja en todas las cajas' : undefined}
+              disabled={isPending || !selectedProveedor || !selectedCliente || !verificadoOk}
+              title={!verificadoOk ? (necesitaReverificar ? 'Pulsa Verificar local tras cada corrección para habilitar la subida' : `Hay ${erroresBloqueantes.length} bloqueo(s): corrígelos y verifica`) : 'Subida real a Supabase'}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 shadow-sm"
             >
               {isPending ? (

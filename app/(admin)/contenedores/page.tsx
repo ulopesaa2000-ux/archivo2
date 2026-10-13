@@ -47,6 +47,8 @@ export default async function ContenedoresPage({
   const params = await searchParams
   const user = await getCurrentUser()
   const puedeCrear = can(user, 'b2b_contenedores', 'puede_crear')
+  const puedeEditar = can(user, 'b2b_contenedores', 'puede_editar')
+  const puedeEliminar = can(user, 'b2b_contenedores', 'puede_eliminar')
 
   const vista = params.vista === 'reporte' ? 'reporte' : 'lista'
 
@@ -97,7 +99,7 @@ export default async function ContenedoresPage({
       ) : (
         <>
           <ContenedoresFilters sortBy={sortBy} order={order} />
-          <ContenedoresTable items={items} sortBy={sortBy} order={order} initialFeatures={features} />
+          <ContenedoresTable items={items} sortBy={sortBy} order={order} initialFeatures={features} puedeEditar={puedeEditar} puedeEliminar={puedeEliminar} />
           <Pagination total={total} />
         </>
       )}

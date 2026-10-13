@@ -129,8 +129,8 @@ function getNode(wf, name) {
 }
 
 async function main() {
-  if (!JENNY_JS || !JENNY_JS.includes('v2.1-jenny-continuacion')) {
-    throw new Error('jenny_parser_code.js no contiene v2.1 (revisar fuente versionada)');
+  if (!JENNY_JS || !JENNY_JS.includes('v2.2-jenny-continuacion')) {
+    throw new Error('jenny_parser_code.js no contiene v2.2 (revisar fuente versionada)');
   }
   let wf;
   if (LOCAL) {
@@ -146,13 +146,13 @@ async function main() {
   console.log('2. Aplicando parches fase intermedia...');
   const jennyNode = getNode(wf, 'Parser Jenny multicolor-pack');
   const oldJenny = String(jennyNode.parameters.jsCode || '');
-  if (oldJenny.includes('v2.1-jenny-continuacion')) {
-    console.log('   - Parser Jenny: ya es v2.1, sin cambios.');
-  } else if (!oldJenny.includes('v2.0-jenny-bloques')) {
-    throw new Error('Parser Jenny con version inesperada (no es v2.0 ni v2.1): aborto por seguridad.');
+  if (oldJenny.includes('v2.2-jenny-continuacion')) {
+    console.log('   - Parser Jenny: ya es v2.2, sin cambios.');
+  } else if (!oldJenny.includes('v2.0-jenny-bloques') && !oldJenny.includes('v2.1-jenny-continuacion')) {
+    throw new Error('Parser Jenny con version inesperada (no es v2.0 ni v2.1 ni v2.2): aborto por seguridad.');
   } else {
     jennyNode.parameters.jsCode = JENNY_JS;
-    console.log('   - Parser Jenny: v2.0 -> v2.1 OK.');
+    console.log('   - Parser Jenny: actualizado a v2.2 OK (fix tallas continuacion + aliases pcs + whitelist).');
   }
 
   const prepNode = getNode(wf, 'Preparar Ollama');
@@ -213,10 +213,10 @@ async function main() {
     settings: wf.settings || {},
   });
   const check = await api('GET', '/workflows/' + WORKFLOW_ID);
-  const jOk = String(check.nodes.find((n) => n.name === 'Parser Jenny multicolor-pack').parameters.jsCode || '').includes('v2.1-jenny-continuacion');
+  const jOk = String(check.nodes.find((n) => n.name === 'Parser Jenny multicolor-pack').parameters.jsCode || '').includes('v2.2-jenny-continuacion');
   const pOk = String(check.nodes.find((n) => n.name === 'Preparar Ollama').parameters.jsCode || '').includes('COLORES CON DOBLE LLAVE');
   const fOk = String(check.nodes.find((n) => n.name === 'Fusionar e Inteligencia').parameters.jsCode || '').includes('colores_por_confirmar');
-  console.log('   Jenny v2.1: ' + jOk + ' | Prompt paleta: ' + pOk + ' | Fusionar colores: ' + fOk);
+  console.log('   Jenny v2.2: ' + jOk + ' | Prompt paleta: ' + pOk + ' | Fusionar colores: ' + fOk);
   if (!jOk || !pOk || !fOk) throw new Error('Verificacion fallida tras PUT.');
   console.log('LISTO: fase intermedia aplicada y verificada en n8n.');
 }

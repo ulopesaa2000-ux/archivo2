@@ -4,7 +4,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { ModuloPermiso, PermisoModulo, TipoPermiso } from './types'
-import { buildPermisosCompletos } from './types'
+import { buildPermisosCompletos, esActorAdminInventarioRestringido, esRolBodegaGestionable } from './types'
+import { createServiceRoleClient } from './queries'
 import { can, isSuperAdmin } from '@/lib/auth/permissions'
 import { getCurrentUser } from '@/modules/auth/queries'
 import type { Database } from '@/lib/types/database.types'
@@ -33,6 +34,66 @@ async function requireSuperAdminAction(): Promise<ActionResult | null> {
   return null
 }
 
+/**
+ * Acceso especial Admin Operativo Inventario en Configuración > Usuarios.
+ * Solo puede gestionar usuarios con rol Bodeguero o Encargado de Bodega,
+ * nunca su propia cuenta y nunca niveles privilegiados (<= 2).
+ */
+function isAdminInventarioRestringido(
+  actor: Awaited<ReturnType<typeof getCurrentUser>>
+): boolean {
+  if (!actor || isSuperAdmin(actor)) return false
+  return esActorAdminInventarioRestringido(actor.rol?.nombre, actor.rol?.nivel_acceso)
+}
+
+function esRolGestionablePorInventario(
+  nombre: string | null | undefined,
+  nivel: number | null | undefined
+): boolean {
+  return esRolBodegaGestionable(nombre, nivel)
+}
+
+type TargetConRol = {
+  id: number
+  rol_id: number
+  rol: { id: number; nombre: string; nivel_acceso: number } | null
+}
+
+async function fetchTargetConRol(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  usuarioId: number
+): Promise<TargetConRol | null> {
+  const { data } = await supabase
+    .from('usuarios')
+    .select('id, rol_id, rol:roles (id, nombre, nivel_acceso)')
+    .eq('id', usuarioId)
+    .single()
+  if (!data) return null
+  const rolRaw = (data as { rol: unknown }).rol
+  const rol = Array.isArray(rolRaw) ? rolRaw[0] : rolRaw
+  return {
+    id: (data as { id: number }).id,
+    rol_id: (data as { rol_id: number }).rol_id,
+    rol: (rol ?? null) as TargetConRol['rol'],
+  }
+}
+
+/** Deniega la acción si el actor es Admin Inventario restringido y el objetivo no le corresponde. */
+function denegarSiNoGestionablePorInventario(
+  actor: Awaited<ReturnType<typeof getCurrentUser>>,
+  target: TargetConRol | null
+): ActionResult | null {
+  if (!isAdminInventarioRestringido(actor)) return null
+  if (!target) return { success: false, error: 'Usuario no encontrado.' }
+  if (actor && target.id === actor.id) {
+    return { success: false, error: 'No puedes modificar tu propia cuenta.' }
+  }
+  if (!esRolGestionablePorInventario(target.rol?.nombre, target.rol?.nivel_acceso)) {
+    return { success: false, error: 'Solo puedes gestionar usuarios Bodeguero o Encargado de Bodega.' }
+  }
+  return null
+}
+
 /** Activa o desactiva un usuario */
 export async function toggleUsuarioActivo(
   usuarioId: number,
@@ -43,14 +104,28 @@ export async function toggleUsuarioActivo(
 
   const supabase = await createClient()
 
+  const actor = await getCurrentUser()
+  const restringido = isAdminInventarioRestringido(actor)
+  // RLS de escritura en `usuarios` es solo-super-admin: el restringido opera vía service_role acotado.
+  const admin = restringido ? await createServiceRoleClient() : null
+  if (restringido) {
+    if (!admin) {
+      return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para realizar esta acción.' }
+    }
+    const target = await fetchTargetConRol(admin, usuarioId)
+    const bloqueo = denegarSiNoGestionablePorInventario(actor, target)
+    if (bloqueo) return bloqueo
+  }
+  const db = admin ?? supabase
+
   // Obtener auth_user_id antes de cambiar
-  const { data: userRow } = await supabase
+  const { data: userRow } = await db
     .from('usuarios')
     .select('auth_user_id')
     .eq('id', usuarioId)
     .single()
 
-  const { error } = await supabase
+  const { error } = await db
     .from('usuarios')
     .update({ activo })
     .eq('id', usuarioId)
@@ -84,7 +159,7 @@ export async function cambiarRolUsuario(
 
   const { data: targetRole } = await supabase
     .from('roles')
-    .select('nivel_acceso')
+    .select('id, nombre, nivel_acceso')
     .eq('id', rolId)
     .single()
 
@@ -92,14 +167,36 @@ export async function cambiarRolUsuario(
     return { success: false, error: 'Super Admin no se puede asignar desde esta accion.' }
   }
 
+  const actor = await getCurrentUser()
+  const restringido = isAdminInventarioRestringido(actor)
+  const admin = restringido ? await createServiceRoleClient() : null
+  if (restringido) {
+    if (!admin) {
+      return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para realizar esta acción.' }
+    }
+    if (actor && usuarioId === actor.id) {
+      return { success: false, error: 'No puedes modificar tu propia cuenta.' }
+    }
+    if (!esRolGestionablePorInventario(
+      (targetRole as { nombre?: string } | null)?.nombre,
+      targetRole?.nivel_acceso
+    )) {
+      return { success: false, error: 'Solo puedes asignar el rol Bodeguero o Encargado de Bodega.' }
+    }
+    const target = await fetchTargetConRol(admin, usuarioId)
+    const bloqueo = denegarSiNoGestionablePorInventario(actor, target)
+    if (bloqueo) return bloqueo
+  }
+  const db = admin ?? supabase
+
   // Obtener auth_user_id antes de cambiar
-  const { data: userRow } = await supabase
+  const { data: userRow } = await db
     .from('usuarios')
     .select('auth_user_id')
     .eq('id', usuarioId)
     .single()
 
-  const { error } = await supabase
+  const { error } = await db
     .from('usuarios')
     .update({ rol_id: rolId })
     .eq('id', usuarioId)
@@ -320,8 +417,21 @@ export async function cambiarPasswordAction(
 
   const supabase = await createClient()
 
+  const actor = await getCurrentUser()
+  const restringido = isAdminInventarioRestringido(actor)
+  const admin = restringido ? await createServiceRoleClient() : null
+  if (restringido) {
+    if (!admin) {
+      return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para realizar esta acción.' }
+    }
+    const target = await fetchTargetConRol(admin, usuarioId)
+    const bloqueo = denegarSiNoGestionablePorInventario(actor, target)
+    if (bloqueo) return bloqueo
+  }
+  const db = admin ?? supabase
+
   // 1. Obtener el auth_user_id del usuario
-  const { data: user, error: fetchError } = await supabase
+  const { data: user, error: fetchError } = await db
     .from('usuarios')
     .select('auth_user_id')
     .eq('id', usuarioId)
@@ -395,12 +505,22 @@ export async function crearUsuarioAction(payload: {
   const supabase = await createClient()
   const { data: role } = await supabase
     .from('roles')
-    .select('nivel_acceso')
+    .select('id, nombre, nivel_acceso')
     .eq('id', payload.rolId)
     .single()
 
   if ((role?.nivel_acceso ?? 99) <= 1) {
     return { success: false, error: 'Super Admin no se puede asignar desde aqui.' }
+  }
+
+  const actor = await getCurrentUser()
+  if (isAdminInventarioRestringido(actor)) {
+    if (!esRolGestionablePorInventario(
+      (role as { nombre?: string } | null)?.nombre,
+      role?.nivel_acceso
+    )) {
+      return { success: false, error: 'Solo puedes crear usuarios Bodeguero o Encargado de Bodega.' }
+    }
   }
 
   // 1. Crear en auth.users
@@ -420,7 +540,9 @@ export async function crearUsuarioAction(payload: {
   // Verificaremos si existe, y si no, lo insertamos.
 
   // Asumimos que no hay trigger automático creando todo completo, lo insertamos/actualizamos.
-  const { error: dbError } = await supabase
+  // El restringido escribe vía service_role (RLS de escritura es solo-super-admin), acotado al rol validado arriba.
+  const dbCrear = isAdminInventarioRestringido(actor) ? supabaseAdmin : supabase
+  const { error: dbError } = await dbCrear
     .from('usuarios')
     .upsert({
       auth_user_id: authData.user.id,
@@ -460,6 +582,18 @@ export async function sincronizarUsuarioAction(payload: {
   const denied = await requireConfigPermission('puede_crear')
   if (denied) return denied
 
+  const actorPrevio = await getCurrentUser()
+  const restringidoPrevio = isAdminInventarioRestringido(actorPrevio)
+  const adminPrevio = restringidoPrevio ? await createServiceRoleClient() : null
+  if (restringidoPrevio) {
+    if (!adminPrevio) {
+      return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY.' }
+    }
+    const target = await fetchTargetConRol(adminPrevio, payload.usuarioId)
+    const bloqueo = denegarSiNoGestionablePorInventario(actorPrevio, target)
+    if (bloqueo) return bloqueo
+  }
+
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY.' }
@@ -488,8 +622,10 @@ export async function sincronizarUsuarioAction(payload: {
   }
 
   // 2. Actualizar en inv-tienda.usuarios
+  // El restringido escribe vía service_role (RLS de escritura es solo-super-admin).
   const supabase = await createClient()
-  const { error: updateError } = await supabase
+  const dbSync = restringidoPrevio ? supabaseAdmin : supabase
+  const { error: updateError } = await dbSync
     .from('usuarios')
     .update({ auth_user_id: authData.user.id })
     .eq('id', payload.usuarioId)

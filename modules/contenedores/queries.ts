@@ -32,29 +32,64 @@ export async function fetchContenedores(
 
   const scope = await getCommercialScope()
 
+  // Borrado lógico: la vista v_contenedor_resumen aún no expone `activo`,
+  // se filtra en capa de aplicación con los ids activos de la tabla base.
+  const { data: activos } = await supabase
+    .from('contenedores')
+    .select('id')
+    .eq('activo', true)
+  const activeIds = ((activos ?? []) as { id: number }[]).map((c) => c.id)
+  if (activeIds.length === 0) {
+    return { items: [], total: 0 }
+  }
+
   let query = supabase
     .from('v_contenedor_resumen')
     .select('*', { count: 'exact' })
 
   if (!scope.is_super_admin) {
     const orderFilter = buildCommercialOrderFilter(scope)
-    if (!orderFilter || orderFilter === '__no_access__.eq.true') {
-      return { items: [], total: 0 }
-    }
 
-    const { data: ordenes } = await supabase.from('ordenes_b2b')
+    const { data: ordenes } = orderFilter && orderFilter !== '__no_access__.eq.true'
+      ? await supabase.from('ordenes_b2b')
+        .select('contenedor_id')
+        .eq('activo', true)
+        .or(orderFilter)
+        .not('contenedor_id', 'is', null)
+      : { data: [] as { contenedor_id: number | null }[] }
+
+    const scopedIds = new Set(
+      ((ordenes ?? []) as { contenedor_id: number | null }[])
+        .map((o: any) => o.contenedor_id)
+        .filter(Boolean) as number[]
+    )
+
+    // Contenedores "libres" (sin órdenes activas): visibles para todo
+    // el que tenga puede_leer en b2b_contenedores (la page ya lo exige).
+    const { data: conOrden } = await supabase
+      .from('ordenes_b2b')
       .select('contenedor_id')
       .eq('activo', true)
-      .or(orderFilter)
       .not('contenedor_id', 'is', null)
+    const withOrderIds = new Set(
+      ((conOrden ?? []) as { contenedor_id: number | null }[])
+        .map((o: any) => o.contenedor_id)
+        .filter(Boolean) as number[]
+    )
+    const freeIds = activeIds.filter((id) => !withOrderIds.has(id))
 
-    const contenedorIds = Array.from(new Set((ordenes ?? []).map((o: any) => o.contenedor_id).filter(Boolean))) as number[]
+    const visibleIds = Array.from(new Set([
+      ...activeIds.filter((id) => scopedIds.has(id)),
+      ...freeIds,
+    ]))
 
-    if (contenedorIds.length === 0) {
+    if (visibleIds.length === 0) {
       return { items: [], total: 0 }
     }
 
-    query = query.in('contenedor_id', contenedorIds)
+    query = query.in('contenedor_id', visibleIds)
+  } else {
+    query = query.in('contenedor_id', activeIds)
   }
 
   if (filtros.q) {
@@ -99,9 +134,32 @@ export async function fetchContenedorById(
   id: number
 ): Promise<ContenedorRow | null> {
   const supabase = await createClient()
+
+  // Borrado lógico: solo contenedores activos.
+  const { data: base, error: baseError } = await supabase
+    .from('contenedores')
+    .select('*')
+    .eq('id', id)
+    .eq('activo', true)
+    .single()
+
+  if (baseError || !base) return null
+
   const scope = await getCommercialScope()
 
   if (!scope.is_super_admin) {
+    // Contenedor "libre" (sin órdenes activas): visible con solo puede_leer.
+    const { data: tieneOrdenes } = await supabase
+      .from('ordenes_b2b')
+      .select('id')
+      .eq('contenedor_id', id)
+      .eq('activo', true)
+      .limit(1)
+
+    if (!tieneOrdenes || tieneOrdenes.length === 0) {
+      return base as ContenedorRow
+    }
+
     const orderFilter = buildCommercialOrderFilter(scope)
     if (!orderFilter || orderFilter === '__no_access__.eq.true') return null
 
@@ -117,20 +175,21 @@ export async function fetchContenedorById(
     }
   }
 
-  const { data, error } = await supabase
-    .from('contenedores')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error || !data) return null
-  return data as ContenedorRow
+  return base as ContenedorRow
 }
 
 export async function fetchContenedorResumen(
   id: number
 ): Promise<ContenedorResumen | null> {
   const supabase = await createClient()
+  // Borrado lógico: la vista no expone `activo`, se valida en tabla base.
+  const { data: activo } = await supabase
+    .from('contenedores')
+    .select('id')
+    .eq('id', id)
+    .eq('activo', true)
+    .maybeSingle()
+  if (!activo) return null
   const { data, error } = await supabase
     .from('v_contenedor_resumen')
     .select('*')
@@ -674,6 +733,7 @@ export async function fetchContenedoresReporteAnual(): Promise<ContenedorReporte
         id, codigo_contenedor, numero_contenedor, estado, fecha_eta
       )
     `)
+    .eq('activo', true)
     .not('contenedor_id', 'is', null)
 
   if (!scope.is_super_admin) {
@@ -750,10 +810,11 @@ export async function fetchContenedoresDetalleAnual(
   const supabase = await createClient()
   const scope = await getCommercialScope()
 
-  // 1. Obtener contenedores del año
+  // 1. Obtener contenedores del año (solo activos: borrado lógico)
   const { data: contenedores, error } = await supabase
     .from('contenedores')
     .select('*')
+    .eq('activo', true)
     .gte('fecha_eta', `${anio}-01-01`)
     .lt('fecha_eta', `${anio + 1}-01-01`)
     .order('fecha_eta', { ascending: false })
@@ -766,13 +827,14 @@ export async function fetchContenedoresDetalleAnual(
   const contIds = contenedores.map((c) => c.id)
   if (contIds.length === 0) return []
 
-  // 2. Obtener órdenes asociadas
+  // 2. Obtener órdenes asociadas (solo activas)
   let query: any = supabase
     .from('ordenes_b2b')
     .select(`
       id, folio_proveedor, estado, total_cajas, total_piezas, cbm_orden, contenedor_id,
       proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
     `)
+    .eq('activo', true)
     .in('contenedor_id', contIds)
 
   if (!scope.is_super_admin) {

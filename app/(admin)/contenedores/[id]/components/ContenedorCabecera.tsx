@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  ArrowLeft, Pencil, Save, X, Loader2, AlertCircle, Warehouse, Check, FileCheck, FileX, DollarSign, Calendar, TriangleAlert, CheckCircle2
+  ArrowLeft, Pencil, Save, X, Loader2, AlertCircle, Warehouse, Check, FileCheck, FileX, DollarSign, Calendar, TriangleAlert, CheckCircle2, Trash2
 } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { formatCurrency } from '@/lib/utils'
@@ -27,8 +27,14 @@ import {
 } from '@/lib/constants'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   actualizarContenedorAction, cambiarEstadoContenedorAction,
   surtirContenedorAction, confirmarIngresoVirtualAction,
+  eliminarContenedorAction,
 } from '@/modules/contenedores/actions'
 import { fetchSurtidoPreview } from '@/modules/contenedores/queries'
 import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
@@ -48,17 +54,19 @@ const DOC_KEYS = [
 
 export function ContenedorCabecera({
   contenedor, resumen, bodegasVirtuales = [],
-  canEdit = true,
+  canEdit = true, canDelete = false,
 }: {
   contenedor: ContenedorRow
   resumen: ContenedorResumen | null
   bodegasVirtuales?: BodegaRow[]
   canEdit?: boolean
+  canDelete?: boolean
 }) {
   const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Surtir dialog (preview fresco en una sola solicitud al abrir)
   const [surtirOpen, setSurtirOpen] = useState(false)
@@ -141,6 +149,17 @@ export function ContenedorCabecera({
     startTransition(async () => {
       const result = await cambiarEstadoContenedorAction(contenedor.id, nuevoEstado)
       if (!result.success) { setError(result.error ?? 'Error.'); return }
+      router.refresh()
+    })
+  }
+
+  const handleDelete = () => {
+    setError(null)
+    startTransition(async () => {
+      const result = await eliminarContenedorAction(contenedor.id)
+      if (!result.success) { setError(result.error ?? 'Error al eliminar.'); setConfirmDelete(false); return }
+      setConfirmDelete(false)
+      router.push(ADMIN_ROUTES.contenedores.lista)
       router.refresh()
     })
   }
@@ -301,8 +320,32 @@ export function ContenedorCabecera({
               <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
             </Button>
           )}
+
+          {canDelete && !isEditing && (
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-destructive hover:text-destructive">
+              <Trash2 className="h-3.5 w-3.5 mr-1" /> Eliminar
+            </Button>
+          )}
         </div>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar contenedor</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se dará de baja el contenedor {contenedor.codigo_contenedor} (activo = false) y sus órdenes quedarán libres para vincular a otro contenedor. Esta acción no borra el historial.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction disabled={isPending} onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Dialog: Surtir a bodega virtual (con resumen de líneas) */}
       <Dialog open={surtirOpen} onOpenChange={setSurtirOpen}>

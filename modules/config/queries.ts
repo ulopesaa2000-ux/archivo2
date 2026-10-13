@@ -3,8 +3,35 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { RolConPermisos, UsuarioConDetalle, PermisoModulo, ModuloPermiso } from './types'
+import { esActorAdminInventarioRestringido, esRolBodegaGestionable } from './types'
+import { isSuperAdmin } from '@/lib/auth/permissions'
+import { getCurrentUser } from '@/modules/auth/queries'
+import type { Database } from '@/lib/types/database.types'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAssignedCommercialPersonas } from '@/lib/auth/commercial-scope'
 import type { PersonaAsignadaComercial } from '@/lib/types/tables'
+
+export type ServiceRoleClient = SupabaseClient<Database, 'inv-tienda'>
+
+/**
+ * Cliente service_role (bypasea RLS). Solo para uso en servidor y siempre
+ * acotado en código al allowlist del actor (nunca acceso irrestricto).
+ * Retorna null si falta la key en el entorno.
+ */
+export async function createServiceRoleClient(): Promise<ServiceRoleClient | null> {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!serviceRoleKey || !supabaseUrl) return null
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+  return createSupabaseClient<Database, 'inv-tienda'>(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: 'inv-tienda' },
+    }
+  )
+}
 
 type RolBaseRow = {
   id: number
@@ -15,7 +42,16 @@ type RolBaseRow = {
 
 /** Trae todos los usuarios con su rol (activos primero → nivel_acceso ascendente) */
 export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
-  const supabase = await createClient()
+  const actor = await getCurrentUser()
+  const esRestringido =
+    !!actor &&
+    !isSuperAdmin(actor) &&
+    esActorAdminInventarioRestringido(actor.rol?.nombre, actor.rol?.nivel_acceso)
+
+  // RLS de lectura en `usuarios` solo permite a no-super-admins ver su propia fila.
+  // Para el Admin Inventario restringido se usa service_role acotado en código a su allowlist.
+  const admin = esRestringido ? await createServiceRoleClient() : null
+  const supabase: ServiceRoleClient = admin ?? (await createClient())
 
   const { data, error } = await supabase
     .from('usuarios')
@@ -48,12 +84,19 @@ export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
     return []
   }
 
-  return (data as UsuarioConDetalle[]).sort((a, b) => {
+  const rows = (data as UsuarioConDetalle[]).sort((a, b) => {
     if (a.activo !== b.activo) return a.activo ? -1 : 1
     const nivelA = a.rol?.nivel_acceso ?? 99
     const nivelB = b.rol?.nivel_acceso ?? 99
     return nivelA - nivelB
   })
+
+  if (!esRestringido || !actor) return rows
+
+  // Acotado en código: su propia cuenta + roles de bodega gestionables.
+  return rows.filter(
+    (u) => u.id === actor.id || esRolBodegaGestionable(u.rol?.nombre, u.rol?.nivel_acceso)
+  )
 }
 
 /** Trae todos los roles con sus permisos por módulo */

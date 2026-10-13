@@ -2,6 +2,9 @@
 // Codigo fuente del nodo "Parser Multi hoja Jackie/Venkat" (referencia versionada).
 // BASELINE v1.3 live (2026-10-06): conversion mecanica a String.raw
 // (5 template literals -> concatenacion; sin cambios de logica).
+// v2.1-pesos (2026-10-12): solo aliases de peso chino/ingles en
+// JACKIE_COL_ALIASES (gw/nw/tgw/tnw): total g.w/total n.w, gw/nw sueltos,
+// 毛重kg/净重kg/总毛重kg/总净重kg, gross/net weight. Sin cambios de logica.
 // NOTA String.raw: conserva escapes regex. Sin ${ ni backticks dentro.
 
 const JACKIE_JS = String.raw`// scripts/n8n/updates/node_parser_jackie_complete.js
@@ -272,10 +275,10 @@ var JACKIE_COL_ALIASES = [
   ['ctns', ['ctns', '箱数']],
   ['pctn', ['pc/ctn', '件/箱', '件／箱', '件箱']],
   ['tpcs', ['t.pcs', 'total qty', 'total pcs', '总件数']],
-  ['gw', ['g.w', '毛重']],
-  ['nw', ['n.w', '净重']],
-  ['tgw', ['t. g.w', 'total gw', '总毛重']],
-  ['tnw', ['t. n.w', 'total nw', '总净重']],
+  ['gw', ['g.w', 'gw', '毛重', '毛重kg', 'gross weight']],
+  ['nw', ['n.w', 'nw', '净重', '净重kg', 'net weight']],
+  ['tgw', ['t. g.w', 'total gw', 'total g.w', '总毛重', '总毛重kg', 'total gross weight']],
+  ['tnw', ['t. n.w', 'total nw', 'total n.w', '总净重', '总净重kg', 'total net weight']],
   ['dims', ['meanscm', 'means', 'meas', 'measurement', '箱规cm', '箱规']],
   ['cbmper', ['cbm/ctn', '每箱立方 m3', '每箱立方']],
   ['cbmtotal', ['cbm', '立方数m3', '立方数', 'total cbm']]
@@ -1286,7 +1289,7 @@ function parsePackingListJackieVenkatMultiSheet(sheets, cfg = {}, inputItemCount
 
   return {
     ok: true,
-    version_parser: 'mvp-n8n-code-v2.0-jackie-bloques',
+    version_parser: 'mvp-n8n-code-v2.1-jackie-pesos',
     metadata: {
       cliente_b2b_id: clienteB2bId,
       proveedor_id: proveedorId,
@@ -1374,7 +1377,7 @@ if (!sheets.length) {
   return [{
     json: {
       ok: false,
-      version_parser: 'mvp-n8n-code-v2.0-jackie-bloques',
+      version_parser: 'mvp-n8n-code-v2.1-jackie-pesos',
       metadata: {
         proveedor: (cfg && cfg.proveedor) || 'Jackie/Venkat',
         formato_detectado: 'jackie_venkat_multi_sheet',

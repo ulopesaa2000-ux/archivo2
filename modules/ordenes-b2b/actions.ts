@@ -897,6 +897,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   clienteB2bId: number
   contenedorId: number | null
   newContainerCode?: string | null
+  newContainerNumber?: string | null
   observaciones?: string | null
   productos: any[]
   cajas: any[]
@@ -936,10 +937,12 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     if (existingCont) {
       contenedorId = existingCont.id
     } else {
+      const numeroCont = payload.newContainerNumber?.trim().toUpperCase() || null
       const { data: newCont, error: contErr } = await supabase
         .from('contenedores')
         .insert({
           codigo_contenedor: code,
+          numero_contenedor: numeroCont,
           estado: 'borrador'
         })
         .select('id')

@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import { Shield } from 'lucide-react'
 import { fetchUsuarios, fetchRolesConPermisos, fetchPersonasComercialesActivas, fetchTodosUsuarioPersonas } from '@/modules/config/queries'
+import { esActorAdminInventarioRestringido, esRolBodegaGestionable } from '@/modules/config/types'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { UsuariosManager } from './UsuariosManager'
 
@@ -17,6 +18,21 @@ export default async function UsuariosPage() {
     fetchPersonasComercialesActivas(),
     fetchTodosUsuarioPersonas(),
   ])
+
+  // Acceso especial: Admin Operativo Inventario solo ve/gestiona Bodeguero y Encargado de Bodega.
+  const esAdminInventarioRestringido =
+    (currentUser?.rol?.nivel_acceso ?? 99) > 1 &&
+    esActorAdminInventarioRestringido(currentUser?.rol?.nombre, currentUser?.rol?.nivel_acceso)
+
+  const esRolBodega = (nombre: string | null | undefined, nivel: number | null | undefined) =>
+    esRolBodegaGestionable(nombre, nivel)
+
+  const usuariosVisibles = esAdminInventarioRestringido
+    ? usuarios.filter((u) => esRolBodega(u.rol?.nombre, u.rol?.nivel_acceso) || u.id === currentUser?.id)
+    : usuarios
+  const rolesVisibles = esAdminInventarioRestringido
+    ? roles.filter((r) => esRolBodega(r.nombre, r.nivel_acceso))
+    : roles
 
 
   return (
@@ -36,15 +52,15 @@ export default async function UsuariosPage() {
         {/* Resumen rápido */}
         <div className="hidden sm:flex gap-4 text-sm shrink-0">
           <div className="text-center">
-            <p className="font-semibold text-lg">{usuarios.filter((u) => u.activo).length}</p>
+            <p className="font-semibold text-lg">{usuariosVisibles.filter((u) => u.activo).length}</p>
             <p className="text-muted-foreground text-xs">Activos</p>
           </div>
           <div className="text-center">
-            <p className="font-semibold text-lg text-muted-foreground">{usuarios.filter((u) => !u.activo).length}</p>
+            <p className="font-semibold text-lg text-muted-foreground">{usuariosVisibles.filter((u) => !u.activo).length}</p>
             <p className="text-muted-foreground text-xs">Inactivos</p>
           </div>
           <div className="text-center">
-            <p className="font-semibold text-lg">{roles.length}</p>
+            <p className="font-semibold text-lg">{rolesVisibles.length}</p>
             <p className="text-muted-foreground text-xs">Roles</p>
           </div>
         </div>
@@ -52,8 +68,8 @@ export default async function UsuariosPage() {
 
       {/* Manager interactivo */}
       <UsuariosManager
-        usuarios={usuarios}
-        roles={roles}
+        usuarios={usuariosVisibles}
+        roles={rolesVisibles}
         currentUser={currentUser}
         personasDisponibles={personasDisponibles}
         todasLasAsignaciones={todasLasAsignaciones}

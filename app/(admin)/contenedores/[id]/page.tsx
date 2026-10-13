@@ -37,6 +37,7 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
 
   const currentUser = await getCurrentUser()
   const puedeEditar = Boolean(currentUser && can(currentUser, 'b2b_contenedores', 'puede_editar'))
+  const puedeEliminar = Boolean(currentUser && can(currentUser, 'b2b_contenedores', 'puede_eliminar'))
   const puedeEditarOrden = Boolean(currentUser && can(currentUser, 'b2b_ordenes', 'puede_editar'))
 
   const [contenedor, resumen] = await Promise.all([
@@ -61,6 +62,7 @@ export default async function ContenedorDetallePage(props: { params: Promise<{ i
         resumen={resumen} 
         bodegasVirtuales={bodegasVirtuales} 
         canEdit={puedeEditar}
+        canDelete={puedeEliminar}
       />
       <Separator />
       <Tabs defaultValue="ordenes">
