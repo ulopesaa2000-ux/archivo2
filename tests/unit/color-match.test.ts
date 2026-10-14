@@ -6,8 +6,12 @@ import {
   claveColor,
   cleanColorRaw,
   dedupPorClave,
+  esColorIgnorable,
+  esPatronColor,
+  extraerBaseColor,
   filtrarColoresCatalogo,
   inferirCodigoHexTipo,
+  quitarStopwords,
   resolveColor,
   separarModificador,
   stripChinese,
@@ -206,5 +210,162 @@ describe('color-match: buscador de catalogo', () => {
   it('sin query devuelve los primeros N', () => {
     expect(filtrarColoresCatalogo(cat, '', 5)).toHaveLength(5)
     expect(filtrarColoresCatalogo(cat, 'zzz')).toHaveLength(0)
+  })
+})
+
+describe('color-match Fase 1: sanitizado BONNIE 18-2026 (base UPPER vs DB)', () => {
+  // Subconjunto real de inv-tienda.cat_colores (ids verdaderos).
+  const BONNIE_CAT: CatalogColor[] = [
+    { id: 1, nombre: 'NEGRO', codigo: 'BLK', nombre_intern: null },
+    { id: 5, nombre: 'GRIS', codigo: 'GRY', nombre_intern: null },
+    { id: 16, nombre: 'ARENA', codigo: 'SAND', nombre_intern: 'Sand' },
+    { id: 28, nombre: 'AZUL PETRÓLEO', codigo: 'PETBLU', nombre_intern: 'Petrol Blue' },
+    { id: 58, nombre: 'CAMPANILLA AZUL', codigo: 'BLUBEL', nombre_intern: 'Blue Bell' },
+    { id: 72, nombre: 'CIELO AZUL', codigo: 'BLUHEA', nombre_intern: 'Blue Heaven' },
+    { id: 95, nombre: 'ÉTER', codigo: 'ETHER', nombre_intern: 'Ether' },
+    { id: 98, nombre: 'FRESA', codigo: 'STRAWB', nombre_intern: 'Strawberry' },
+    { id: 99, nombre: 'FUCSIA', codigo: 'FUCHSI', nombre_intern: 'Fuchsia' },
+    { id: 129, nombre: 'MALVA', codigo: 'MAUVE', nombre_intern: 'Mauve' },
+    { id: 132, nombre: 'MALVA PÁLIDO', codigo: 'PALMAU', nombre_intern: 'Pale Mauve' },
+    { id: 134, nombre: 'MARINO', codigo: 'NVY', nombre_intern: 'Navy' },
+    { id: 135, nombre: 'MELANGE', codigo: 'MELANG', nombre_intern: 'Melange' },
+    { id: 136, nombre: 'MELANGE OSCURO', codigo: 'DARMEL', nombre_intern: 'Dark Melange' },
+    { id: 163, nombre: 'OCÉANO OSCURO', codigo: 'DAROCE', nombre_intern: 'Dark Ocean' },
+    { id: 166, nombre: 'OLIVO CLARO', codigo: 'LIGOLI', nombre_intern: 'Light Olive' },
+    { id: 174, nombre: 'PHLOX OSCURO', codigo: 'DARPHL', nombre_intern: 'Dark Phlox' },
+    { id: 186, nombre: 'ROJO CEREZA', codigo: 'REDCHE', nombre_intern: 'Red Cherry' },
+    { id: 237, nombre: 'VINO NOCHE', codigo: 'NIGWIN', nombre_intern: 'Night Wine' },
+    { id: 238, nombre: 'VINO NUEVO', codigo: 'NEWWIN', nombre_intern: 'New Wine' },
+  ]
+
+  it('extrae base limpia y detecta patron puro', () => {
+    expect(extraerBaseColor('PALE MAUVE 16-1806TPX(120)').base).toBe('PALE MAUVE')
+    expect(extraerBaseColor('BLUE BELL119').base).toBe('BLUE BELL')
+    expect(extraerBaseColor('STROWBERRY(99)').base).toBe('STROWBERRY')
+    expect(extraerBaseColor('FRANBOISE 90850(57)').base).toBe('FRANBOISE')
+    expect(extraerBaseColor('DK PHLOX 19-2820 (47').base).toBe('DK PHLOX')
+    expect(esPatronColor('11321-121')).toBe(true)
+    expect(esPatronColor('MAUVE 16-2111TPG')).toBe(false)
+    expect(quitarStopwords('ALL BLACK')).toBe('BLACK')
+    expect(quitarStopwords('NEW WINE')).toBe('WINE')
+    expect(quitarStopwords('BLACK')).toBe('BLACK')
+  })
+
+  it('ignora tela y patron (nunca bloquean)', () => {
+    expect(esColorIgnorable('FUR')).toBe(true)
+    expect(esColorIgnorable('fur')).toBe(true)
+    expect(esColorIgnorable('11321-121')).toBe(true)
+    expect(esColorIgnorable('BLACK')).toBe(false)
+  })
+
+  it('nivel 2 auto: sufijo Pantone/numeros -> existente via base', () => {
+    expect(resolveColor('MAUVE 16-2111TPG', BONNIE_CAT)).toMatchObject({ found: true, id: 129, via: 'base' })
+    expect(resolveColor('MAUVE 16-2111', BONNIE_CAT)).toMatchObject({ found: true, id: 129, via: 'base' })
+    expect(resolveColor('PALE MAUVE 16-1806TPX(120)', BONNIE_CAT)).toMatchObject({ found: true, id: 132 })
+    expect(resolveColor('ETHER 14-4506TPX(127 )', BONNIE_CAT)).toMatchObject({ found: true, id: 95 })
+    expect(resolveColor('RED CHERRY 90859(66)', BONNIE_CAT)).toMatchObject({ found: true, id: 186 })
+    expect(resolveColor('BLUE BELL119', BONNIE_CAT)).toMatchObject({ found: true, id: 58 })
+    expect(resolveColor('BLUE HEVEAN 17-4023TPX (125)', BONNIE_CAT)).toMatchObject({ found: true, id: 72 })
+    expect(resolveColor('STROWBERRY(99)', BONNIE_CAT)).toMatchObject({ found: true, id: 98 })
+    expect(resolveColor('FUSHIA 18-1945TPX(133)', BONNIE_CAT)).toMatchObject({ found: true, id: 99 })
+    expect(resolveColor('NIGHT WINE 19-1623(92)', BONNIE_CAT)).toMatchObject({ found: true, id: 237 })
+    expect(resolveColor('NEW WINE 90855', BONNIE_CAT)).toMatchObject({ found: true, id: 238 })
+    expect(resolveColor('DK OCEAN 114', BONNIE_CAT)).toMatchObject({ found: true, id: 163 })
+    expect(resolveColor('LT OLIVE OTO670113', BONNIE_CAT)).toMatchObject({ found: true, id: 166 })
+    expect(resolveColor('DK PHLOX 19-2820 (47', BONNIE_CAT)).toMatchObject({ found: true, id: 174 })
+    expect(resolveColor('DK MELANGE', BONNIE_CAT)).toMatchObject({ found: true, id: 136 })
+    expect(resolveColor('SAND 49', BONNIE_CAT)).toMatchObject({ found: true, id: 16 })
+  })
+
+  it('stopwords: ALL BLACK -> Negro automatico', () => {
+    expect(resolveColor('ALL BLACK', BONNIE_CAT)).toMatchObject({ found: true, id: 1, via: 'base' })
+    expect(resolveColor('all black', BONNIE_CAT).found).toBe(true)
+  })
+
+  it('compuestos por lados con ruido', () => {
+    expect(resolveColor('BLUE BELL119/GREY', BONNIE_CAT).found).toBe(true)
+    expect(resolveColor('BLACK/GREY', BONNIE_CAT).found).toBe(true)
+    expect(resolveColor('NAVY/ETHER', BONNIE_CAT).found).toBe(true)
+    // Lado patron: solo propone en ambar (Azul Petroleo), el humano mapea o crea.
+    expect(resolveColor('BLUE 14-4210TPX/22DG02023', BONNIE_CAT)).toMatchObject({ found: true, via: 'parcial' })
+  })
+
+  it('tripletes IA rescatan el match aunque el raw falle', () => {
+    // IA limpia MAUVE->Malva: el aiEs alcanza el nombre ES.
+    expect(resolveColor('X-RARO-1', BONNIE_CAT, 'MAUVE', 'Malva')).toMatchObject({ found: true, id: 129 })
+    expect(resolveColor('X-RARO-2', BONNIE_CAT, 'BLACK', 'Negro')).toMatchObject({ found: true, id: 1 })
+  })
+
+  it('sin match real va a nuevo (no falso positivo auto)', () => {
+    expect(resolveColor('FRANBOISE 90850(57)', BONNIE_CAT).found).toBe(false)
+    expect(resolveColor('BRUSH 33 15-1614TPX', BONNIE_CAT).found).toBe(false)
+    expect(resolveColor('CAPRI 128', BONNIE_CAT).found).toBe(false)
+  })
+
+  it('draft limpio para el modal (Fase 2 lo usara con HEX)', () => {
+    expect(buildColorDraft('PALE MAUVE 16-1806TPX(120)')).toMatchObject({
+      nombre: 'MALVA PÁLIDO',
+      nombre_intern: 'PALE MAUVE',
+    })
+    expect(buildColorDraft('STROWBERRY(99)')).toMatchObject({ nombre: 'FRESA', nombre_intern: 'STRAWBERRY' })
+    expect(buildColorDraft('ALL BLACK')).toMatchObject({ nombre: 'NEGRO', nombre_intern: 'BLACK' })
+  })
+})
+
+describe('color-match Fase 2: biblioteca HEX (verificados API)', () => {
+  it('resuelve raros BONNIE sin API', async () => {
+    const { hexBiblioteca } = await import('@/lib/color-match')
+    expect(hexBiblioteca('MALVA')).toBe('#E0B0FF')
+    expect(hexBiblioteca('MALVA PÁLIDO')).toBe('#E0B0FF')
+    expect(hexBiblioteca('ÉTER')).toBe('#98B2B4')
+    expect(hexBiblioteca('ARENA')).toBe('#E2CA76')
+    expect(hexBiblioteca('OCÉANO')).toBe('#005493')
+    expect(hexBiblioteca('FRESA')).toBe('#FB2943')
+    expect(hexBiblioteca('FUCSIA')).toBe('#ED0DD9')
+    expect(hexBiblioteca('FRAMBUESA')).toBe('#B00149')
+    expect(hexBiblioteca('FLOX')).toBe('#DF00FF')
+    expect(hexBiblioteca('CAPRI')).toBe('#00BFFF')
+    expect(hexBiblioteca('BRUSH')).toBe('#B99684')
+  })
+
+  it('desconocido -> null (el llamador usa negro)', async () => {
+    const { hexBiblioteca } = await import('@/lib/color-match')
+    expect(hexBiblioteca('MELANGE')).toBeNull()
+    expect(hexBiblioteca('ZZZ INVENTADO')).toBeNull()
+    expect(hexBiblioteca('')).toBeNull()
+  })
+
+  it('draft ya trae HEX de biblioteca (no negro)', () => {
+    expect(buildColorDraft('PALE MAUVE 16-1806TPX(120)').hex_code).toBe('#E0B0FF')
+    expect(buildColorDraft('STROWBERRY(99)').hex_code).toBe('#FB2943')
+  })
+})
+
+describe('clasificarColorLibre: texto libre de caja (resolve-o-inerte)', () => {
+  const CAT: CatalogColor[] = [
+    { id: 1, nombre: 'NEGRO', codigo: 'BLK', nombre_intern: null },
+    { id: 129, nombre: 'MALVA', codigo: 'MAUVE', nombre_intern: 'Mauve' },
+    { id: 132, nombre: 'MALVA PÁLIDO', codigo: 'PALMAU', nombre_intern: 'Pale Mauve' },
+  ]
+
+  it('id numerico existente -> fila catalogo', async () => {
+    const { clasificarColorLibre } = await import('@/lib/color-match')
+    expect(clasificarColorLibre('132', CAT)).toEqual({ kind: 'catalogo', id: 132, nombre: 'MALVA PÁLIDO' })
+  })
+
+  it('raw sucio resuelve a ES con id real (PALE MAUVE -> MALVA PÁLIDO)', async () => {
+    const { clasificarColorLibre } = await import('@/lib/color-match')
+    expect(clasificarColorLibre('PALE MAUVE 16-1806TPX(120)', CAT)).toEqual({
+      kind: 'catalogo',
+      id: 132,
+      nombre: 'MALVA PÁLIDO',
+    })
+    expect(clasificarColorLibre('mauve', CAT)).toEqual({ kind: 'catalogo', id: 129, nombre: 'MALVA' })
+  })
+
+  it('sin match -> inerte (BOLOÑESA no crea fila ni color)', async () => {
+    const { clasificarColorLibre } = await import('@/lib/color-match')
+    expect(clasificarColorLibre('BOLOÑESA', CAT)).toEqual({ kind: 'inerte', texto: 'BOLOÑESA' })
+    expect(clasificarColorLibre('  ', CAT).kind).toBe('inerte')
   })
 })

@@ -44,6 +44,10 @@ export {
   saveMedidasAction,
 } from './actions/variantes'
 
+// HEX para colores nuevos (biblioteca -> API gratuita -> negro)
+export { resolverHexColorAction } from './actions/hex'
+export type { HexSugerido, HexFuente } from './actions/hex'
+
 // Imágenes (Storage + producto_imagenes)
 export {
   uploadImagenAction,

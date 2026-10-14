@@ -204,7 +204,8 @@ export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, d
                 {opciones.map((color) => (
                   <CommandItem
                     key={color.id}
-                    value={color.nombre}
+                    // ES + EN + codigo: buscar "malva", "mauve" o "MAL" encuentra.
+                    value={[color.nombre, color.nombre_intern ?? '', color.codigo ?? ''].filter(Boolean).join(' ')}
                     onSelect={() => {
                       onSelect(color.id.toString())
                       setOpenCombobox(false)
@@ -216,7 +217,10 @@ export function ColorCombobox({ coloresDisponibles, selectedColorId, onSelect, d
                         selectedColorId === color.id.toString() ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    {color.nombre}
+                    <span className="font-medium">{color.nombre}</span>
+                    {color.nombre_intern && (
+                      <span className="ml-2 font-mono text-[11px] text-muted-foreground">{color.nombre_intern}</span>
+                    )}
                   </CommandItem>
                 ))}
               </CommandGroup>

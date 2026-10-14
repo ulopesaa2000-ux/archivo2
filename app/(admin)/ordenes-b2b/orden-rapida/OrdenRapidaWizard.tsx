@@ -46,13 +46,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
-import { createColorAction } from '@/modules/catalogo/actions'
+import { createColorAction, resolverHexColorAction } from '@/modules/catalogo/actions'
 import { guardarOrdenRapidaB2BAction, verificarSkusEnBDAction, obtenerDatosProductosDeBDAction, buscarSkuEnBDAction, obtenerColoresActivosAction } from '@/modules/ordenes-b2b/actions'
 import type { CatalogoColorOrdenRapida } from '@/modules/ordenes-b2b/actions'
-import { resolveColor, buildColorDraft, suggestEs, claveColor, dedupPorClave, filtrarColoresCatalogo, normalizeColorKey } from '@/lib/color-match'
+import { resolveColor, buildColorDraft, suggestEs, claveColor, dedupPorClave, filtrarColoresCatalogo, normalizeColorKey, esColorIgnorable } from '@/lib/color-match'
 import { aMayusculasDescripcion } from '@/lib/descripcion'
 import type { CatalogColor } from '@/lib/color-match'
-import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones } from '@/lib/orden-rapida-colores'
+import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones, mapaNombresResueltos } from '@/lib/orden-rapida-colores'
 import { agruparCajasPorProducto, aplicarEdicionCaja, detallesDesdeMatriz, fijarPzMinima, aplicarRepartoSeparacion, aplicarMapaColoresACajas, enriquecerDetallesConMapa } from '@/lib/orden-rapida-cajas'
 import type { CajaEditPayload } from '@/lib/orden-rapida-cajas'
 import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
@@ -734,8 +734,9 @@ function wizardCajaToSharedCajaData(caja: WizardCaja, index: number): SharedCaja
 }
 
 function buildCatalogoItemsFromStrings(items: string[]): CatalogoItem[] {
+  // IDs temporales negativos: jamas colisionan con ids reales del catalogo.
   return items.map((item, idx) => ({
-    id: idx + 1,
+    id: -(100000 + idx),
     nombre: item,
     codigo: item,
   }))
@@ -751,6 +752,7 @@ type WizardCajaRowProps = {
   caja: WizardCaja
   cpTallas: string[]
   cpColores: string[]
+  catalogo: CatalogoColorOrdenRapida[]
   matchColores: ColorMatchRow[]
   alertasCaja: AlertaCajaRow[]
   nDetalles: number
@@ -761,15 +763,16 @@ type WizardCajaRowProps = {
   onDragEndArrastrada: () => void
   onEditCodigo: (codigo: string, data: CajaEditPayload) => Promise<void>
   onRemoveCodigo: (codigo: string) => void
-  onAbrirColores: () => void
+  onAbrirColores: (raw?: string) => void
+  mapaResueltos: Record<string, { id: number; nombre: string }>
 }
 
 // Fila memoizada: solo re-renderiza si su caja o sus props cambian.
 // (Antes, cada edicion reconstruia las N tarjetas del wizard.)
 const WizardCajaRow = memo(function WizardCajaRow({
-  caja, cpTallas, cpColores, matchColores, alertasCaja, nDetalles,
+  caja, cpTallas, cpColores, catalogo, matchColores, alertasCaja, nDetalles,
   modoArrastre, esArrastrada, onToggleArrastrada, onDragStartArrastrada,
-  onDragEndArrastrada, onEditCodigo, onRemoveCodigo, onAbrirColores,
+  onDragEndArrastrada, onEditCodigo, onRemoveCodigo, onAbrirColores, mapaResueltos,
 }: WizardCajaRowProps) {
   const codTmp = String(caja.codigo_caja_temporal || '')
   const sharedCaja = useMemo(() => wizardCajaToSharedCajaData(caja, 0), [caja])
@@ -777,13 +780,33 @@ const WizardCajaRow = memo(function WizardCajaRow({
     () => buildCatalogoItemsFromStrings(cpTallas.length > 0 ? cpTallas : (caja.matriz?.tallas || caja.tallas || [])),
     [cpTallas, caja],
   )
-  const coloresCatalogo = useMemo(() => {
+  const coloresCatalogo = useMemo((): CatalogoItem[] => {
+    // Tabla completa primero (ids reales + EN visible); luego packing no
+    // cubierto con ids temporales negativos (jamas colisionan).
+    const reales: CatalogoItem[] = (catalogo || []).map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      codigo: c.codigo ?? c.nombre,
+      nombre_intern: c.nombre_intern ?? null,
+    }))
+    const cubiertas = new Set<string>()
+    for (const c of reales) {
+      cubiertas.add(claveColor(c.nombre))
+      if (c.nombre_intern) cubiertas.add(claveColor(c.nombre_intern))
+      if (c.codigo) cubiertas.add(claveColor(c.codigo))
+    }
     const packingCols = (caja.matriz?.colores || caja.colores || []) as string[]
-    // Union deduplicada por clave (el packing nunca desaparece, sin duplicar
-    // "BLACK"/"black"): primero catalogo, luego packing no cubierto.
+    // Union deduplicada (el packing nunca desaparece): catalogo + packing no cubierto.
     const unionCols = dedupPorClave([...(cpColores.length > 0 ? cpColores : []), ...packingCols])
-    return buildCatalogoItemsFromStrings(unionCols)
-  }, [cpColores, caja])
+    const extra: CatalogoItem[] = []
+    unionCols.forEach((col, idx) => {
+      if (!cubiertas.has(claveColor(col))) {
+        cubiertas.add(claveColor(col))
+        extra.push({ id: -(200000 + idx), nombre: col, codigo: col })
+      }
+    })
+    return [...reales, ...extra]
+  }, [catalogo, cpColores, caja])
   const handleEditRow = useCallback((id: number, data: CajaEditPayload) => onEditCodigo(codTmp, data), [onEditCodigo, codTmp])
   const handleRemoveRow = useCallback(() => onRemoveCodigo(codTmp), [onRemoveCodigo, codTmp])
 
@@ -865,6 +888,8 @@ const WizardCajaRow = memo(function WizardCajaRow({
         canEditOrden={true}
         tallasDisponibles={tallasCatalogo}
         coloresDisponibles={coloresCatalogo}
+        onAbrirColores={(raw) => onAbrirColores(raw)}
+        mapaResueltos={mapaResueltos}
         onEdit={handleEditRow}
         onRemove={handleRemoveRow}
         isPending={false}
@@ -1285,6 +1310,8 @@ export function OrdenRapidaWizard({
   const [coloresModalOpen, setColoresModalOpen] = useState(false)
   const [colorDrafts, setColorDrafts] = useState<Record<string, ColorDraft>>({})
   const [filtroPendientes, setFiltroPendientes] = useState('')
+  // Fase 2: filas con sugerencia HEX en curso (evita doble clic).
+  const [hexSugiriendo, setHexSugiriendo] = useState<Set<string>>(new Set())
 
   const resetParsedState = () => {
     setParsedData(null)
@@ -1697,6 +1724,13 @@ export function OrdenRapidaWizard({
     setCajaArrastrada(null)
   }, [])
   const handleAbrirColores = useCallback(() => {
+    setFiltroPendientes('')
+    setColoresModalOpen(true)
+  }, [])
+
+  // Icono rojo SIN ID de la matriz: abre el modal filtrado por ese raw.
+  const handleAbrirColoresRaw = useCallback((raw?: string) => {
+    setFiltroPendientes(raw ? String(raw) : '')
     setColoresModalOpen(true)
   }, [])
 
@@ -2451,7 +2485,9 @@ export function OrdenRapidaWizard({
         for (const dd of baseDetalles) {
           const k = claveColor(String(dd?.color_raw || ''))
           if (!mapaIds.has(k)) {
-            const mm = resolveColor(String(dd?.color_raw || ''), catalogoColores as CatalogColor[])
+            // Fase 1: reintento con tripletes IA del seed (en/es), no solo raw.
+            const seed = coloresPorConfirmar.find((cc) => claveColor(cc.raw) === k)
+            const mm = resolveColor(String(dd?.color_raw || ''), catalogoColores as CatalogColor[], seed?.en ?? null, seed?.es ?? null)
             if (mm.found && typeof mm.id === 'number') mapaIds.set(k, mm.id)
           }
         }
@@ -2476,6 +2512,10 @@ export function OrdenRapidaWizard({
           return
         }
 
+        // NULL tolerado: avisa lo pendiente sin trabar (ya quedó en nuevos).
+        if (res.warnings && res.warnings.length > 0) {
+          for (const w of res.warnings) toast.warning(w, { duration: 9000 })
+        }
         toast.success('Orden guardada exitosamente en Supabase.')
         setStep(5)
       } catch (error) {
@@ -2743,6 +2783,12 @@ export function OrdenRapidaWizard({
     }
     return m
   }, [coloresPorConfirmar, catalogoColores])
+  // Display de matrices: raw resuelto -> ES (rojo solo para nuevos sin id).
+  // Al mapear/crear en el modal, el id automatico se intercambia solo.
+  const mapaNombres = useMemo(
+    () => mapaNombresResueltos(coloresPorConfirmar, catalogoColores),
+    [coloresPorConfirmar, catalogoColores],
+  )
   // Auto-siembra: si una edicion de matriz introduce un color_raw nuevo que no
   // esta en el seed inicial, agregarlo (resuelto o nuevo) para que el panel y
   // la validacion en tiempo real lo vean. Preserva lo ya mapeado/creado.
@@ -2769,8 +2815,9 @@ export function OrdenRapidaWizard({
         (parsedData?.colores_traducidos || []).map((t) => [claveColor(String(t.raw || '')), t]),
       )
       const add = faltantes.map((raw) => {
-        const m = resolveColor(raw, catalogoColores as CatalogColor[])
         const t = tris.get(claveColor(raw))
+        // Fase 1: el match usa tripletes IA (en/es), no solo el raw.
+        const m = resolveColor(raw, catalogoColores as CatalogColor[], t?.en ?? null, t?.es ?? null)
         return {
           raw,
           en: t?.en ?? null,
@@ -2858,6 +2905,32 @@ export function OrdenRapidaWizard({
     }
   }
 
+  // Fase 2: sugiere HEX (biblioteca -> API gratuita -> negro sin trabar).
+  const handleSugerirHex = async (raw: string) => {
+    const key = claveColor(raw)
+    const d = colorDrafts[key]
+    if (!d || hexSugiriendo.has(key)) return
+    setHexSugiriendo((prev) => new Set(prev).add(key))
+    try {
+      const r = await resolverHexColorAction(d.nombre, d.nombre_intern)
+      setColorDrafts((prev) => ({
+        ...prev,
+        [key]: { ...(prev[key] ?? d), hex_code: r.hex },
+      }))
+      if (r.fuente === 'api') toast.success(`HEX ${r.hex} sugerido por API (${r.nombreApi ?? d.nombre_intern}).`)
+      else if (r.fuente === 'biblioteca') toast.success(`HEX ${r.hex} desde biblioteca.`)
+      else toast.warning('Sin match exacto de HEX: quedó negro, ajústalo manual.')
+    } catch {
+      toast.error('No se pudo sugerir HEX (red). Quedó el valor actual.')
+    } finally {
+      setHexSugiriendo((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+
   const handleCrearColorFila = async (raw: string): Promise<boolean> => {
     const key = claveColor(raw)
     const tri = (parsedData?.colores_traducidos || []).find((t) => claveColor(String(t.raw || '')) === key)
@@ -2914,6 +2987,23 @@ export function OrdenRapidaWizard({
     else toast.error(`${ok} creados, fallaron: ${fallos.join(', ')}`)
   }
 
+  // Ambar -> nuevo: el auto no cuadro y mapear tampoco; pasa al flujo de
+  // creacion (borrador limpio + HEX Fase 2). Desde aqui si bloquea el guardado
+  // hasta crearlo o mapearlo, igual que Omitir.
+  const handleCrearNuevoDesdeAmbar = (raw: string) => {
+    const key = claveColor(raw)
+    setColoresPorConfirmar((prev) => prev.map((c) => (
+      claveColor(c.raw) === key ? { ...c, estado: 'nuevo' as const, color_id: null, via: null } : c
+    )))
+    setColorDrafts((prev) => {
+      if (prev[key]) return prev
+      const tri = (parsedData?.colores_traducidos || []).find((t) => claveColor(String(t.raw || '')) === key)
+      const seed = coloresPorConfirmar.find((c) => claveColor(c.raw) === key)
+      return { ...prev, [key]: { ...buildColorDraft(raw, tri?.en ?? seed?.en ?? null, tri?.es ?? seed?.es ?? null), mapear_a_id: null } }
+    })
+    toast.info(`"${raw}" pasó a colores nuevos: créalo en el panel.`)
+  }
+
   const handleOmitirColor = (raw: string) => {
     const key = claveColor(raw)
     setColoresPorConfirmar((prev) => prev.map((c) => (
@@ -2947,11 +3037,14 @@ export function OrdenRapidaWizard({
       }
     }
     const map = new Map<string, Array<{ raw: string; found: boolean; via: string | null; nombre: string }>>()
+    // Fase 1: tripletes IA disponibles para el reintento por raw.
+    const tris = new Map((parsedData?.colores_traducidos || []).map((t) => [claveColor(String(t.raw || '')), t]))
     for (const [cod, raws] of porCaja) {
       map.set(cod, raws.map((raw) => {
         const res = mapaColoresResueltos.get(claveColor(raw))
         if (res) return { raw, found: true, via: res.via, nombre: res.nombre }
-        const m = resolveColor(raw, catalogoColores as CatalogColor[])
+        const t = tris.get(claveColor(raw))
+        const m = resolveColor(raw, catalogoColores as CatalogColor[], t?.en ?? null, t?.es ?? null)
         return { raw, found: m.found, via: m.via, nombre: m.catalog?.nombre || suggestEs(raw) }
       }))
     }
@@ -3152,7 +3245,10 @@ export function OrdenRapidaWizard({
           if (!raw) continue
           const k = claveColor(raw)
           if (resueltos.has(k)) continue
-          const m = resolveColor(raw, catalogoColores as CatalogColor[])
+          // Fase 1: tela/material o patron puro no bloquea la validacion.
+          if (esColorIgnorable(raw)) continue
+          const seed = coloresPorConfirmar.find((c) => claveColor(c.raw) === k)
+          const m = resolveColor(raw, catalogoColores as CatalogColor[], seed?.en ?? null, seed?.es ?? null)
           if (m.found && typeof m.id === 'number') { resueltos.set(k, m.id); continue }
           if (!sinId.has(raw)) sinId.set(raw, new Set())
           sinId.get(raw)!.add(cod)
@@ -5138,6 +5234,7 @@ export function OrdenRapidaWizard({
                                               caja={caja}
                                               cpTallas={cpTallas}
                                               cpColores={cpColores}
+                                              catalogo={catalogoColores}
                                               matchColores={matchColoresPorCaja.get(codTmp) ?? []}
                                               alertasCaja={alertasPorCaja.get(codTmp) ?? []}
                                               nDetalles={detallesPorCaja.get(codTmp) ?? 0}
@@ -5148,7 +5245,8 @@ export function OrdenRapidaWizard({
                                               onDragEndArrastrada={handleDragEndArrastrada}
                                               onEditCodigo={handleCajaEdit}
                                               onRemoveCodigo={handleCajaRemove}
-                                              onAbrirColores={handleAbrirColores}
+                                              onAbrirColores={handleAbrirColoresRaw}
+                                              mapaResueltos={mapaNombres}
                                             />
                                           )
                                         })}
@@ -5480,6 +5578,17 @@ export function OrdenRapidaWizard({
                               <div className="flex gap-1.5">
                                 <Input type="color" value={d.hex_code} onChange={(e) => setD({ hex_code: e.target.value })} className="w-10 h-8 p-1" />
                                 <Input value={d.hex_code.toUpperCase()} onChange={(e) => setD({ hex_code: e.target.value })} className="h-8 font-mono text-xs uppercase" maxLength={7} />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  title="Sugerir HEX (biblioteca → API → negro)"
+                                  className="h-8 w-8 shrink-0 p-0"
+                                  disabled={hexSugiriendo.has(key)}
+                                  onClick={() => handleSugerirHex(c.raw)}
+                                >
+                                  {hexSugiriendo.has(key) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                                </Button>
                               </div>
                             </div>
                             <div className="space-y-1">
@@ -5527,6 +5636,16 @@ export function OrdenRapidaWizard({
                                 catalogo={catalogoColores}
                                 onSelect={(id) => handleMapearColor(c.raw, id)}
                               />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-[11px]"
+                                title="El auto no cuadró: crearlo como color nuevo"
+                                onClick={() => handleCrearNuevoDesdeAmbar(c.raw)}
+                              >
+                                Crear nuevo
+                              </Button>
                             </span>
                           </div>
                         )

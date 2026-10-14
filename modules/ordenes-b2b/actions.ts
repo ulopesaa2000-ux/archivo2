@@ -15,13 +15,15 @@ import type {
   UsuarioConRol,
 } from '@/lib/types/tables'
 import { can, type PermissionAction } from '@/lib/auth/permissions'
-import { canonicalEn, cleanColorRaw, normalizeColorKey, suggestEs } from '@/lib/color-match'
+import { cleanColorRaw, esColorIgnorable, resolveColor } from '@/lib/color-match'
 import { aMayusculasDescripcion } from '@/lib/descripcion'
 
 export type ActionResult = {
   success: boolean
   error?: string
   id?: number
+  /** Avisos no bloqueantes (ej. detalles con color NULL pendiente). */
+  warnings?: string[]
 }
 
 async function requireB2BPermission(action: PermissionAction): Promise<ActionResult | null> {
@@ -1083,46 +1085,19 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   function esColorIdValido(id: unknown): id is number {
     return typeof id === 'number' && Number.isInteger(id) && coloresIds.has(id)
   }
-  // Match unificado con el front (lib/color-match): prioridad ES nombre ->
-  // INTERN EN -> codigo -> normalizado -> parcial. Sin mapas locales pobres.
-  function findColorId(identificador: string | null): number | null {
+  // Match unificado con el front (lib/color-match): delega en resolveColor,
+  // fuente unica (niveles exacto -> base -> parcial + tripletes IA).
+  function findColorId(identificador: string | null, aiEn?: string | null, aiEs?: string | null): number | null {
     if (!identificador) return null
     const clean = cleanColorRaw(identificador)
     if (!clean) return null
-    const en = canonicalEn(clean)
-    const es = suggestEs(en)
-    const normCands = [clean, en, es].map(normalizeColorKey)
-
     const idNum = parseInt(clean, 10)
     if (!Number.isNaN(idNum)) {
       const m = coloresList.find((c) => c.id === idNum)
       if (m) return m.id
     }
-    // 1) nombre ES
-    const byNom = coloresList.find((c) => cleanColorRaw(c.nombre || '') === es || cleanColorRaw(c.nombre || '') === clean)
-    if (byNom) return byNom.id
-    // 2) nombre_intern EN
-    const byIntern = coloresList.find((c) => cleanColorRaw(c.nombre_intern || '') === en)
-    if (byIntern) return byIntern.id
-    // 3) codigo
-    const byCod = coloresList.find((c) => cleanColorRaw(c.codigo || '') === clean || cleanColorRaw(c.codigo || '') === en)
-    if (byCod) return byCod.id
-    // 4) normalizado en el mismo orden
-    const nNom = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.nombre || '') === nc))
-    if (nNom) return nNom.id
-    const nInt = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.nombre_intern || '') === nc))
-    if (nInt) return nInt.id
-    const nCod = coloresList.find((c) => normCands.some((nc) => nc && normalizeColorKey(c.codigo || '') === nc))
-    if (nCod) return nCod.id
-    // 5) parcial sobre nombre (mismo auto ambar del front)
-    if (clean.length >= 4) {
-      const p = coloresList.find((c) => {
-        const n = normalizeColorKey(c.nombre || '')
-        return normCands.some((nc) => nc.length >= 4 && (n.includes(nc) || nc.includes(n)))
-      })
-      if (p) return p.id
-    }
-    return null
+    const r = resolveColor(clean, coloresList, aiEn ?? null, aiEs ?? null)
+    return r.id
   }
   function resolverColorId(raw: string, aportado: unknown): number | null {
     if (esColorIdValido(aportado)) return aportado
@@ -1213,26 +1188,23 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   if (sinPzServidor.length > 0) {
     return { success: false, error: `Bloqueo servidor: cajas sin piezas por caja: ${sinPzServidor.join(', ')}` }
   }
-  // Fase 2: sin fallback silencioso a Negro. Todo detalle debe traer color_id
-  // (panel mapeado/creado/existente o parcial auto) o resolver con el match
-  // unificado ES->INTERN->codigo. El wizard lo garantiza en tiempo real.
-  const coloresSinMatch = new Map<string, Set<string>>()
+  // NULL tolerado como relleno parcial: lo no resuelto viaja con color_id NULL
+  // + aviso y NUNCA error de subida por color (la BD admite NULL; variantes lo
+  // saltan). El modal mapea/crea y rellena; el raw queda trazable en
+  // cajas.colores + lista de nuevos. Ningun string falso rompe el upload.
+  const coloresSinMatch: string[] = []
   for (const d of (payload.detalles || []) as Array<{ codigo_caja_temporal?: string; color_raw?: string; color_id?: number | null }>) {
     const rawColorCheck = String(d.color_raw || '').trim()
+    // Fase 1: tela/material o patron puro (FUR, 11321-121) no es color: no bloquea.
+    if (!rawColorCheck || esColorIgnorable(rawColorCheck)) continue
     const colorIdCheck = resolverColorId(rawColorCheck, (d as { color_id?: unknown }).color_id)
-    if (!colorIdCheck) {
-      const cod = String(d.codigo_caja_temporal || 's/código')
-      const key = rawColorCheck || '(sin color)'
-      if (!coloresSinMatch.has(key)) coloresSinMatch.set(key, new Set())
-      coloresSinMatch.get(key)!.add(cod)
+    if (!colorIdCheck && rawColorCheck && !coloresSinMatch.includes(rawColorCheck)) {
+      coloresSinMatch.push(rawColorCheck)
     }
   }
-  if (coloresSinMatch.size > 0) {
-    const lista = [...coloresSinMatch.entries()]
-      .map(([raw, cods]) => `"${raw}" (${cods.size} caja(s): ${[...cods].slice(0, 4).join(', ')})`)
-      .join(', ')
-    return { success: false, error: `Colores sin match en catálogo: ${lista}. Resuélvelos en el paso 4 (mapear a existente o crear nuevo).` }
-  }
+  const colorWarnings: string[] = coloresSinMatch.length > 0
+    ? [`${coloresSinMatch.length} color(es) sin match (NULL pendiente, no bloqueó): ${coloresSinMatch.slice(0, 5).join(', ')}${coloresSinMatch.length > 5 ? ` +${coloresSinMatch.length - 5}` : ''}. Resuélvelos en el panel de colores.`]
+    : []
   const cajaMap = new Map<string, number>()
   for (const c of payload.cajas) {
     const code = String(c.codigo_caja || c.codigo_caja_temporal).trim()
@@ -1290,13 +1262,9 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         }
 
         const rawColor = String(d.color_raw || '').trim()
-        // Pre-validado arriba (coloresSinMatch). Prefiere el color_id que ya
-        // trae el wizard (panel mapeado/creado/existente o parcial auto).
-        // Sin fallback a Negro: si algo cambio, fallar explicito.
+        // Pre-resuelto por el wizard (panel mapeado/creado/existente o parcial
+        // auto) o match unificado. NULL tolerado: aviso, nunca error de subida.
         const colorId = resolverColorId(rawColor, (d as { color_id?: unknown }).color_id)
-        if (!colorId) {
-          throw new Error(`Color "${rawColor || '(sin color)'}" perdió su match en catálogo durante el guardado. Reintenta desde el paso 4.`)
-        }
 
         return {
           caja_id: cajaId,
@@ -1428,7 +1396,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   }
 
   revalidatePath('/ordenes-b2b')
-  return { success: true, id: ordenId }
+  return { success: true, id: ordenId, ...(colorWarnings.length > 0 ? { warnings: colorWarnings } : {}) }
 }
 
 /** Normaliza un SKU para comparación estricta (sin separadores - _ / espacio y sin diacríticos) */

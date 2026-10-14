@@ -1,6 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\tests\unit\orden-rapida-colores.test.ts
 import { describe, expect, it } from 'vitest'
 import {
+  mapaNombresResueltos,
   partirRangosCarton,
   seedColoresPorConfirmar,
   siguienteLetraPack,
@@ -89,5 +90,44 @@ describe('seedColoresPorConfirmar', () => {
     expect(seed).toHaveLength(1)
     expect(seed[0].raw).toBe('Cafe Claro')
     expect(seed[0].cajas).toEqual(expect.arrayContaining(['CJ-1', 'CJ-2', 'CJ-3']))
+  })
+})
+
+describe('mapaNombresResueltos: display de matriz (rojo solo nuevos)', () => {
+  const CAT = [
+    { id: 129, nombre: 'MALVA' },
+    { id: 132, nombre: 'MALVA PÁLIDO' },
+  ]
+
+  it('resuelto indexa por raw y por nombre ES (ambar incluye id automatico)', () => {
+    const m = mapaNombresResueltos(
+      [
+        { raw: 'PALE MAUVE 16-1806TPX(120)', estado: 'existente', color_id: 132, via: 'base' },
+        { raw: 'FRANBOISE 90850(57)', estado: 'nuevo', color_id: null },
+      ],
+      CAT,
+    )
+    // PALE MAUVE muestra MALVA PÁLIDO sin icono rojo
+    expect(m['PALEMAUVE161806TPX120']).toEqual({ id: 132, nombre: 'MALVA PÁLIDO' })
+    expect(m['MALVAPALIDO']).toEqual({ id: 132, nombre: 'MALVA PÁLIDO' })
+    // Nuevo no indexa -> la matriz muestra rojo SIN ID
+    expect(m['FRANBOISE9085057']).toBeUndefined()
+  })
+
+  it('mapear/crear intercambia el id automatico por el nuevo', () => {
+    const antes = mapaNombresResueltos(
+      [{ raw: 'PLOX 112', estado: 'existente', color_id: 174, via: 'parcial' }],
+      [{ id: 174, nombre: 'PHLOX OSCURO' }],
+    )
+    expect(antes['PLOX112']).toEqual({ id: 174, nombre: 'PHLOX OSCURO' })
+    const despues = mapaNombresResueltos(
+      [{ raw: 'PLOX 112', estado: 'mapeado', color_id: 200, via: 'manual' }],
+      [
+        { id: 174, nombre: 'PHLOX OSCURO' },
+        { id: 200, nombre: 'FLOX' },
+      ],
+    )
+    expect(despues['PLOX112']).toEqual({ id: 200, nombre: 'FLOX' })
+    expect(despues['FLOX']).toEqual({ id: 200, nombre: 'FLOX' })
   })
 })
