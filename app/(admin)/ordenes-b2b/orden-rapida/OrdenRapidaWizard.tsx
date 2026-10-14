@@ -958,6 +958,63 @@ const MapearColorCombobox = memo(function MapearColorCombobox({ catalogo, onSele
   )
 })
 
+// Campos editables de borrador de color nuevo (seccion nuevos + editor inline
+// ambar/azul). Fuente unica para no duplicar el grid en el modal.
+const CamposDraftColor = memo(function CamposDraftColor({ d, setD, sugiriendo, onSugerirHex }: {
+  d: ColorDraft
+  setD: (patch: Partial<ColorDraft>) => void
+  sugiriendo: boolean
+  onSugerirHex: () => void
+}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Nombre ES</Label>
+        <Input value={d.nombre} onChange={(e) => setD({ nombre: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Interno EN</Label>
+        <Input value={d.nombre_intern} onChange={(e) => setD({ nombre_intern: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Código</Label>
+        <Input value={d.codigo} onChange={(e) => setD({ codigo: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" maxLength={20} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Hex</Label>
+        <div className="flex gap-1.5">
+          <Input type="color" value={d.hex_code} onChange={(e) => setD({ hex_code: e.target.value })} className="w-10 h-8 p-1" />
+          <Input value={d.hex_code.toUpperCase()} onChange={(e) => setD({ hex_code: e.target.value })} className="h-8 font-mono text-xs uppercase" maxLength={7} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            title="Sugerir HEX (biblioteca → API → negro)"
+            className="h-8 w-8 shrink-0 p-0"
+            disabled={sugiriendo}
+            onClick={onSugerirHex}
+          >
+            {sugiriendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Tipo</Label>
+        <Select value={d.tipo_color} onValueChange={(v) => setD({ tipo_color: v || 'SOLIDO' })}>
+          <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="SOLIDO">SOLIDO</SelectItem>
+            <SelectItem value="DOBLE">DOBLE</SelectItem>
+            <SelectItem value="ESTAMPADO">ESTAMPADO</SelectItem>
+            <SelectItem value="MEZCLA">MEZCLA</SelectItem>
+            <SelectItem value="REFLECTANTE">REFLECTANTE</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+})
+
 function ComparisonBadge({
   calculated,
   json,
@@ -2766,6 +2823,12 @@ export function OrdenRapidaWizard({
     () => coloresPorConfirmar.filter((c) => c.estado === 'existente' && c.via === 'parcial'),
     [coloresPorConfirmar],
   )
+  // Dobles por decidir: ambos lados resolvieron sin entrada DOBLE (auto con el
+  // primer lado = solido, no bloquea). El usuario deja solido o crea el DOBLE.
+  const coloresAmbarDobles = useMemo(
+    () => coloresPorConfirmar.filter((c) => c.estado === 'existente' && c.via === 'compuesto'),
+    [coloresPorConfirmar],
+  )
   // Mapa vivo raw->destino (existente/mapeado/creado con id) para badges,
   // validacion y guardado. Incluye tambien el nombre destino ya renombrado.
   const mapaColoresResueltos = useMemo(() => {
@@ -2987,21 +3050,26 @@ export function OrdenRapidaWizard({
     else toast.error(`${ok} creados, fallaron: ${fallos.join(', ')}`)
   }
 
-  // Ambar -> nuevo: el auto no cuadro y mapear tampoco; pasa al flujo de
-  // creacion (borrador limpio + HEX Fase 2). Desde aqui si bloquea el guardado
-  // hasta crearlo o mapearlo, igual que Omitir.
-  const handleCrearNuevoDesdeAmbar = (raw: string) => {
+  // Ambar/azul -> editor inline: NO promueve a nuevo ni bloquea; solo abre el
+  // borrador dentro de su recuadro. Si se cierra (tache) no pasa nada: solo la
+  // lista de arriba (nuevos) es prioritaria para crear/subir (NULL al final).
+  const [ambarEditando, setAmbarEditando] = useState<Set<string>>(new Set())
+  const abrirEditorAmbar = (raw: string) => {
     const key = claveColor(raw)
-    setColoresPorConfirmar((prev) => prev.map((c) => (
-      claveColor(c.raw) === key ? { ...c, estado: 'nuevo' as const, color_id: null, via: null } : c
-    )))
     setColorDrafts((prev) => {
       if (prev[key]) return prev
       const tri = (parsedData?.colores_traducidos || []).find((t) => claveColor(String(t.raw || '')) === key)
       const seed = coloresPorConfirmar.find((c) => claveColor(c.raw) === key)
       return { ...prev, [key]: { ...buildColorDraft(raw, tri?.en ?? seed?.en ?? null, tri?.es ?? seed?.es ?? null), mapear_a_id: null } }
     })
-    toast.info(`"${raw}" pasó a colores nuevos: créalo en el panel.`)
+    setAmbarEditando((prev) => new Set(prev).add(key))
+  }
+  const cerrarEditorAmbar = (raw: string) => {
+    setAmbarEditando((prev) => {
+      const next = new Set(prev)
+      next.delete(claveColor(raw))
+      return next
+    })
   }
 
   const handleOmitirColor = (raw: string) => {
@@ -5560,51 +5628,12 @@ export function OrdenRapidaWizard({
                               </Button>
                             </span>
                           </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Nombre ES</Label>
-                              <Input value={d.nombre} onChange={(e) => setD({ nombre: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Interno EN</Label>
-                              <Input value={d.nombre_intern} onChange={(e) => setD({ nombre_intern: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Código</Label>
-                              <Input value={d.codigo} onChange={(e) => setD({ codigo: e.target.value.toUpperCase() })} className="h-8 font-mono text-xs uppercase" maxLength={20} />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Hex</Label>
-                              <div className="flex gap-1.5">
-                                <Input type="color" value={d.hex_code} onChange={(e) => setD({ hex_code: e.target.value })} className="w-10 h-8 p-1" />
-                                <Input value={d.hex_code.toUpperCase()} onChange={(e) => setD({ hex_code: e.target.value })} className="h-8 font-mono text-xs uppercase" maxLength={7} />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  title="Sugerir HEX (biblioteca → API → negro)"
-                                  className="h-8 w-8 shrink-0 p-0"
-                                  disabled={hexSugiriendo.has(key)}
-                                  onClick={() => handleSugerirHex(c.raw)}
-                                >
-                                  {hexSugiriendo.has(key) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                </Button>
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Tipo</Label>
-                              <Select value={d.tipo_color} onValueChange={(v) => setD({ tipo_color: v || 'SOLIDO' })}>
-                                <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="SOLIDO">SOLIDO</SelectItem>
-                                  <SelectItem value="DOBLE">DOBLE</SelectItem>
-                                  <SelectItem value="ESTAMPADO">ESTAMPADO</SelectItem>
-                                  <SelectItem value="MEZCLA">MEZCLA</SelectItem>
-                                  <SelectItem value="REFLECTANTE">REFLECTANTE</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
+                          <CamposDraftColor
+                            d={d}
+                            setD={setD}
+                            sugiriendo={hexSugiriendo.has(key)}
+                            onSugerirHex={() => handleSugerirHex(c.raw)}
+                          />
                         </div>
                       )
                     })}
@@ -5627,30 +5656,141 @@ export function OrdenRapidaWizard({
                       <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200">Revisión ámbar (auto, no bloquea el guardado): {coloresAmbar.length}</p>
                       {coloresAmbar.slice(0, 10).map((c) => {
                         const cat = catalogoColores.find((cc) => cc.id === c.color_id)
+                        const keyA = claveColor(c.raw)
+                        const editandoA = ambarEditando.has(keyA)
+                        const dA = colorDrafts[keyA] ?? { ...buildColorDraft(c.raw, c.en ?? null, c.es ?? null), mapear_a_id: null }
+                        const setDA = (patch: Partial<ColorDraft>) => setColorDrafts((prev) => ({
+                          ...prev,
+                          [keyA]: { ...(prev[keyA] ?? dA), ...patch },
+                        }))
                         return (
                           <div key={c.raw} className="flex flex-wrap items-center gap-2 text-[11px]">
                             <Badge variant="outline" className="font-mono">{c.raw}</Badge>
                             <span className="text-muted-foreground">→ {cat?.nombre ?? c.color_id} (parcial auto)</span>
-                            <span className="ml-auto flex items-center gap-1.5">
-                              <MapearColorCombobox
-                                catalogo={catalogoColores}
-                                onSelect={(id) => handleMapearColor(c.raw, id)}
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-[11px]"
-                                title="El auto no cuadró: crearlo como color nuevo"
-                                onClick={() => handleCrearNuevoDesdeAmbar(c.raw)}
-                              >
-                                Crear nuevo
-                              </Button>
-                            </span>
+                            {!editandoA && (
+                              <span className="ml-auto flex items-center gap-1.5">
+                                <MapearColorCombobox
+                                  catalogo={catalogoColores}
+                                  onSelect={(id) => handleMapearColor(c.raw, id)}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-[11px]"
+                                  title="Editar y crear como color nuevo aquí mismo"
+                                  onClick={() => abrirEditorAmbar(c.raw)}
+                                >
+                                  Crear nuevo
+                                </Button>
+                              </span>
+                            )}
+                            {editandoA && (
+                              <div className="w-full rounded-md border p-2 space-y-2 bg-background/60">
+                                <CamposDraftColor
+                                  d={dA}
+                                  setD={setDA}
+                                  sugiriendo={hexSugiriendo.has(keyA)}
+                                  onSugerirHex={() => handleSugerirHex(c.raw)}
+                                />
+                                <div className="flex justify-end gap-1.5">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-[11px]"
+                                    title="Cerrar sin cambios (no pasa nada)"
+                                    onClick={() => cerrarEditorAmbar(c.raw)}
+                                  >
+                                    <X className="h-3.5 w-3.5 mr-1" /> Cerrar
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-7 text-[11px] font-bold"
+                                    onClick={async () => { const ok = await handleCrearColorFila(c.raw); if (ok) cerrarEditorAmbar(c.raw) }}
+                                  >
+                                    Crear
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
                       <p className="text-[10px] text-muted-foreground">Si no cambias nada, se guarda con el automático. Puedes mapear a otro existente si prefieres.</p>
+                      {coloresAmbarDobles.length > 0 && (
+                        <div className="rounded-md border border-sky-300 bg-sky-50/60 p-2 space-y-1.5 dark:bg-sky-950/30">
+                          <p className="text-[11px] font-bold text-sky-800 dark:text-sky-200">
+                            Dobles por decidir (auto sólido, no bloquea): {coloresAmbarDobles.length}
+                          </p>
+                          {coloresAmbarDobles.map((c) => {
+                            const catD = catalogoColores.find((cc) => cc.id === c.color_id)
+                            const keyD = claveColor(c.raw)
+                            const editandoD = ambarEditando.has(keyD)
+                            const dD = colorDrafts[keyD] ?? { ...buildColorDraft(c.raw, c.en ?? null, c.es ?? null), mapear_a_id: null }
+                            const setDD = (patch: Partial<ColorDraft>) => setColorDrafts((prev) => ({
+                              ...prev,
+                              [keyD]: { ...(prev[keyD] ?? dD), ...patch },
+                            }))
+                            return (
+                              <div key={c.raw} className="flex flex-wrap items-center gap-2 text-[11px]">
+                                <Badge variant="outline" className="font-mono">{c.raw}</Badge>
+                                <span className="text-muted-foreground">→ {catD?.nombre ?? c.color_id} (sólido auto)</span>
+                                {!editandoD && (
+                                  <span className="ml-auto flex items-center gap-1.5">
+                                    <MapearColorCombobox
+                                      catalogo={catalogoColores}
+                                      onSelect={(id) => handleMapearColor(c.raw, id)}
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-[11px]"
+                                      title="Editar y crear este doble (tipo DOBLE, HEX del primer color)"
+                                      onClick={() => abrirEditorAmbar(c.raw)}
+                                    >
+                                      Crear como DOBLE
+                                    </Button>
+                                  </span>
+                                )}
+                                {editandoD && (
+                                  <div className="w-full rounded-md border p-2 space-y-2 bg-background/60">
+                                    <CamposDraftColor
+                                      d={dD}
+                                      setD={setDD}
+                                      sugiriendo={hexSugiriendo.has(keyD)}
+                                      onSugerirHex={() => handleSugerirHex(c.raw)}
+                                    />
+                                    <div className="flex justify-end gap-1.5">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-[11px]"
+                                        title="Cerrar sin cambios (no pasa nada)"
+                                        onClick={() => cerrarEditorAmbar(c.raw)}
+                                      >
+                                        <X className="h-3.5 w-3.5 mr-1" /> Cerrar
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        className="h-7 text-[11px] font-bold"
+                                        onClick={async () => { const ok = await handleCrearColorFila(c.raw); if (ok) cerrarEditorAmbar(c.raw) }}
+                                      >
+                                        Crear
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                          <p className="text-[10px] text-muted-foreground">Si no cambias nada, se guarda como sólido. Crear como DOBLE lo registra tipo DOBLE con el HEX del primer color.</p>
+                        </div>
+                      )}
                     </div>
                   )}
                   <DialogFooter className="gap-2 sm:gap-0">

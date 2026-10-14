@@ -56,6 +56,12 @@ describe('resolverHexColorAction', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
+  it('doble: API se consulta con el PRIMER lado', async () => {
+    mockFetchOnce({ colors: [{ name: 'Mint', hex: '#3eb489', similarity: 1 }] })
+    const r = await resolverHexColorAction('MIENTA/XXX', 'MINT/XXX')
+    expect(r).toMatchObject({ hex: '#3EB489', fuente: 'api', nombreApi: 'Mint' })
+  })
+
   it('sin sesion -> negro', async () => {
     mockGetCurrentUser.mockResolvedValue(null)
     const r = await resolverHexColorAction('FRESA', 'STRAWBERRY')
