@@ -44,6 +44,7 @@ import {
   Maximize2,
   Minimize2,
   Boxes,
+  RefreshCw,
 } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
@@ -60,6 +61,17 @@ import {
   FAMILIA_GAP_MIN_DEFAULT,
   type EstrategiaCodigo,
 } from '@/lib/utils/familia-codigo'
+import {
+  loadBorradorCache,
+  saveBorradorCache,
+  clearBorradorCache,
+  loadBandejaCache,
+  saveBandejaCache,
+  clearBandejaCache,
+} from '@/lib/familias/draft-cache'
+import { getNetProductCounts as calcularConteosNetos } from '@/lib/familias/net-counts'
+import { DescripcionQuickEdit } from './_components/DescripcionQuickEdit'
+import type { CatalogosParaFiltros } from '@/modules/catalogo/types'
 
 interface ProductListItem {
   id: number
@@ -76,11 +88,13 @@ interface ProductListItem {
 interface FamiliasOrganizerClientProps {
   initialFamilias: FamiliaResumen[]
   puedeEditar: boolean
+  catalogos: CatalogosParaFiltros
 }
 
 export function FamiliasOrganizerClient({
   initialFamilias,
   puedeEditar,
+  catalogos,
 }: FamiliasOrganizerClientProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -96,6 +110,8 @@ export function FamiliasOrganizerClient({
   const [stockMap, setStockMap] = useState<Record<number, StockTotalProducto>>({})
   const [loadingStock, setLoadingStock] = useState(false)
   const stockCacheRef = useRef<Record<number, StockTotalProducto>>({})
+  // --- Ref: la caché local solo se escribe tras la restauración inicial (evita pisarla en el primer render) ---
+  const cacheListaRef = useRef(false)
 
   // --- Helper para construir la caché inicial de productos precargados por el servidor ---
   const buildInitialProductsMap = (famList: FamiliaResumen[]): Record<string, ProductListItem[]> => {
@@ -667,14 +683,165 @@ export function FamiliasOrganizerClient({
     }
   }, [inspectedProduct?.id, modoStock])
 
-  // --- Efecto: Sincronizar familias iniciales si cambian los props ---
+  // --- Efecto: Sincronizar familias iniciales si cambian los props (preserva drafts locales 3.7.6) ---
   useEffect(() => {
-    setFamilias(initialFamilias)
+    setFamilias(prev => {
+      const base = [...initialFamilias]
+      const baseKeys = new Set(initialFamilias.map(f => f.familia))
+      for (const f of prev) {
+        if (f.familia && !baseKeys.has(f.familia)) base.push(f)
+      }
+      return base
+    })
     setLoadedProducts(prev => ({
       ...buildInitialProductsMap(initialFamilias),
       ...prev,
     }))
   }, [initialFamilias])
+
+  // --- Restaurar bandeja + borrador desde caché local (3.7.5, solo cliente) ---
+  // Init en efecto (no en useState) para evitar mismatch de hidratación SSR.
+  useEffect(() => {
+    try {
+      const borrador = loadBorradorCache()
+      let movesRestaurados: Record<number, string> = {}
+      if (borrador) {
+        movesRestaurados = borrador.stagedMoves
+        if (Object.keys(borrador.stagedMoves).length > 0) setStagedMoves(borrador.stagedMoves)
+        if (Object.keys(borrador.stagedRenames).length > 0) setStagedRenames(borrador.stagedRenames)
+        if (borrador.draftFamilies.length > 0) {
+          // Solo revive drafts con movimientos apuntándoles; las huérfanas se descartan.
+          const conMovimientos = new Set(Object.values(movesRestaurados))
+          const drafts = borrador.draftFamilies.filter(d => conMovimientos.has(d))
+          setFamilias(prev => {
+            const keys = new Set(prev.map(f => f.familia))
+            const faltantes = drafts
+              .filter(d => !keys.has(d))
+              .map(d => ({
+                familia: d,
+                total_productos: 0,
+                es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z](\d+)?$/i.test(d),
+                descripcion: 'Nueva familia en borrador',
+                skus: [] as FamiliaResumenSku[],
+              }))
+            return faltantes.length > 0 ? [...prev, ...faltantes] : prev
+          })
+        }
+        if (Object.keys(borrador.stagedMoves).length > 0 || Object.keys(borrador.stagedRenames).length > 0) {
+          toast.info('Borrador local restaurado (pendiente de guardar en BD)')
+        }
+      }
+      const bandeja = loadBandejaCache()
+      if (bandeja) {
+        // Lo ya movido sale de la bandeja: no se restaura
+        const pendientes = bandeja.ids.filter(id => movesRestaurados[id] === undefined)
+        if (pendientes.length > 0) {
+          setSelectedProductIds(Object.fromEntries(pendientes.map(id => [id, true])) as Record<number, boolean>)
+          const snap = bandeja.snapshot.filter(s => pendientes.includes(s.id))
+          if (snap.length > 0) {
+            setLoadedProducts(prev => {
+              const next = { ...prev }
+              for (const s of snap) {
+                const key = s.familia || 'F000-000C'
+                const list = [...(next[key] || [])]
+                if (!list.some(p => p.id === s.id)) {
+                  list.push({
+                    id: s.id,
+                    sku_base: s.sku_base,
+                    nombre: null,
+                    descripcion: s.descripcion,
+                    familia: s.familia,
+                    precio_ec: null,
+                    pz_en_caja: null,
+                    activo: true,
+                    imagen_principal: null,
+                  })
+                }
+                next[key] = list
+              }
+              return next
+            })
+          }
+          toast.info(`${pendientes.length} producto(s) restaurados en Reasignación`)
+        }
+      }
+    } finally {
+      cacheListaRef.current = true
+    }
+  }, [])
+
+  // --- Persistir borrador (moves + renames + familias draft) en caché local ---
+  useEffect(() => {
+    if (!cacheListaRef.current) return
+    const drafts = familias
+      .map(f => f.familia)
+      .filter((f): f is string => !!f && !initialFamilias.some(i => i.familia === f))
+    saveBorradorCache({ stagedMoves, stagedRenames, draftFamilies: drafts })
+  }, [stagedMoves, stagedRenames, familias, initialFamilias])
+
+  // --- Persistir bandeja de reasignación en caché local ---
+  useEffect(() => {
+    if (!cacheListaRef.current) return
+    const ids = Object.entries(selectedProductIds)
+      .filter(([_, v]) => v)
+      .map(([id]) => parseInt(id, 10))
+      .filter(id => Number.isFinite(id))
+    const snapshot: { id: number; sku_base: string; descripcion: string | null; familia: string | null }[] = []
+    for (const id of ids) {
+      let item: { sku_base: string; descripcion: string | null; familia: string | null } | null = null
+      for (const prods of Object.values(loadedProducts)) {
+        const found = prods.find(p => p.id === id)
+        if (found) {
+          item = { sku_base: found.sku_base, descripcion: found.descripcion ?? null, familia: found.familia ?? null }
+          break
+        }
+      }
+      if (!item) {
+        for (const f of familias) {
+          const s = f.skus?.find(x => x.id === id)
+          if (s) {
+            item = { sku_base: s.sku_base, descripcion: s.descripcion ?? null, familia: f.familia ?? null }
+            break
+          }
+        }
+      }
+      if (item) snapshot.push({ id, ...item })
+    }
+    saveBandejaCache({ ids, snapshot })
+  }, [selectedProductIds, loadedProducts, familias])
+
+  // --- Purgar drafts huérfanas (neto 0): si se vacían, salen de memoria ---
+  // Toda creación asigna productos al confirmar, así que una draft vacía es error ya reasignado.
+  useEffect(() => {
+    if (!cacheListaRef.current) return
+    const counts = calcularConteosNetos(
+      familias.map(f => ({
+        familia: f.familia || '',
+        total: f.total_productos,
+        esDraft: !!f.familia && !initialFamilias.some(i => i.familia === f.familia),
+      })),
+      stagedMoves,
+      (prodId: number) => {
+        for (const [fam, prods] of Object.entries(loadedProducts)) {
+          if (prods.some(p => p.id === prodId)) return fam
+        }
+        return null
+      },
+    )
+    const huerfanas = new Set(
+      familias
+        .filter(f => f.familia && !initialFamilias.some(i => i.familia === f.familia) && (counts[f.familia] ?? 0) <= 0)
+        .map(f => f.familia as string),
+    )
+    if (huerfanas.size === 0) return
+    setFamilias(prev => prev.filter(f => !f.familia || !huerfanas.has(f.familia)))
+    setLoadedProducts(prev => {
+      const next = { ...prev }
+      for (const h of huerfanas) delete next[h]
+      return next
+    })
+    toast.info(`${huerfanas.size} familia(s) vacía(s) en borrador eliminada(s)`)
+  }, [stagedMoves, familias, loadedProducts, initialFamilias])
 
   // --- Efecto: Ajustar layout para ocupar 100% de la pantalla (sin márgenes ni paddings) ---
   useEffect(() => {
@@ -1038,6 +1205,8 @@ export function FamiliasOrganizerClient({
 
   // --- Descartar todos los cambios locales ---
   const handleDiscardChanges = () => {
+    clearBorradorCache()
+    clearBandejaCache()
     setStagedMoves({})
     setStagedRenames({})
     setSelectedProductIds({})
@@ -1085,6 +1254,8 @@ export function FamiliasOrganizerClient({
         }
 
         toast.success('¡Todos los cambios fueron guardados con éxito en la base de datos!')
+        clearBorradorCache()
+        clearBandejaCache()
         setStagedMoves({})
         setStagedRenames({})
         setDestSearchQuery('')
@@ -1101,6 +1272,76 @@ export function FamiliasOrganizerClient({
         toast.error(err.message || 'Ocurrió un error inesperado al guardar los cambios')
       }
     })
+  }
+
+  // --- Refresh quirúrgico: actualiza descripciones/fotos y detecta nuevos Sin Asignar ---
+  // Solo recarga familias visibles (3.7.6): preserva borrador y bandeja, sin router.refresh() full.
+  const handleRefreshInfo = async () => {
+    if (refreshingInfo) return
+    setRefreshingInfo(true)
+    try {
+      const prevIds = new Set((loadedProducts['F000-000C'] || []).map(p => p.id))
+      // F000-000C directo (para diff de nuevos) + resto visibles vía loader con force
+      const frescos = await fetchProductosPorFamilia('F000-000C')
+      setLoadedProducts(prev => ({ ...prev, ['F000-000C']: frescos }))
+      const extras = Array.from(new Set([
+        ...pinnedFamilies.filter(f => f !== 'F000-000C'),
+        ...(highlightedFamily && highlightedFamily !== 'F000-000C' ? [highlightedFamily] : []),
+      ]))
+      await Promise.all(extras.map(f => loadProductsForFamily(f, true)))
+      const nuevos = frescos.filter(p => !prevIds.has(p.id) && stagedMoves[p.id] === undefined)
+      if (modoStock) {
+        const ids: number[] = [...frescos.map(p => p.id)]
+        for (const f of extras) for (const p of (loadedProducts[f] || [])) ids.push(p.id)
+        ids.forEach(id => { delete stockCacheRef.current[id] })
+        setStockMap({ ...stockCacheRef.current })
+        await asegurarStock(ids)
+      }
+      const hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+      setUltimoRefresh(hora)
+      if (nuevos.length > 0) toast.success(`${nuevos.length} nuevo(s) sin asignar · actualizado ${hora}`)
+      else toast.success(`Información actualizada ${hora}`)
+    } catch (err) {
+      console.error('Error al refrescar información:', err)
+      toast.error('No se pudo refrescar la información')
+    } finally {
+      setRefreshingInfo(false)
+    }
+  }
+
+  // --- Olvidar cachés locales (bandeja / borrador) ---
+  const handleOlvidarBandeja = () => {
+    clearBandejaCache()
+    setSelectedProductIds({})
+    toast.info('Bandeja de reasignación olvidada')
+  }
+
+  const handleOlvidarBorrador = () => {
+    clearBorradorCache()
+    setStagedMoves({})
+    setStagedRenames({})
+    setFamilias(initialFamilias)
+    toast.info('Borrador guardado olvidado')
+  }
+
+  // --- Reflejo optimista tras edición rápida de descripción en el inspector ---
+  const handleDescripcionSaved = (productId: number, descripcion: string | null) => {
+    setLoadedProducts(prev => {
+      const next = { ...prev }
+      for (const [key, prods] of Object.entries(next)) {
+        if (prods.some(p => p.id === productId)) {
+          next[key] = prods.map(p => (p.id === productId ? { ...p, descripcion } : p))
+        }
+      }
+      return next
+    })
+    setFamilias(prev =>
+      prev.map(f => ({
+        ...f,
+        skus: (f.skus || []).map(s => (s.id === productId ? { ...s, descripcion } : s)),
+      })),
+    )
+    setInspectedProduct(prev => (prev && prev.id === productId ? { ...prev, descripcion } : prev))
   }
 
   // --- Filtrado alfabético de familias para el directorio ---
@@ -1194,41 +1435,22 @@ export function FamiliasOrganizerClient({
   }
 
   // --- Calcular los conteos de productos post-movimientos ---
+  // Las drafts nacen en 0 (helper puro): evita el doble-conteo que subía B→A con 1 solo producto.
   const getNetProductCounts = (): Record<string, number> => {
-    const counts: Record<string, number> = {}
-
-    // 1. Inicializar con los conteos originales de la base de datos
-    familias.forEach(f => {
-      if (f.familia) {
-        counts[f.familia] = f.total_productos
-      }
-    })
-
-    // 2. Aplicar los cambios de los staged moves
-    Object.entries(stagedMoves).forEach(([prodIdStr, targetFamily]) => {
-      const prodId = parseInt(prodIdStr, 10)
-
-      // Buscar el producto en la caché local para saber su familia original
-      let originalFamily: string | null = null
-      for (const [fam, prods] of Object.entries(loadedProducts)) {
-        const found = prods.find(p => p.id === prodId)
-        if (found) {
-          originalFamily = fam
-          break
+    return calcularConteosNetos(
+      familias.map(f => ({
+        familia: f.familia || '',
+        total: f.total_productos,
+        esDraft: !!f.familia && !initialFamilias.some(i => i.familia === f.familia),
+      })),
+      stagedMoves,
+      (prodId: number) => {
+        for (const [fam, prods] of Object.entries(loadedProducts)) {
+          if (prods.some(p => p.id === prodId)) return fam
         }
-      }
-
-      if (originalFamily && originalFamily !== targetFamily) {
-        // Decrementar origen
-        if (counts[originalFamily] !== undefined) {
-          counts[originalFamily] = Math.max(0, counts[originalFamily] - 1)
-        }
-        // Incrementar destino
-        counts[targetFamily] = (counts[targetFamily] || 0) + 1
-      }
-    })
-
-    return counts
+        return null
+      },
+    )
   }
 
   // --- Determinar renames automáticos de sufijo (A/B) según conteos finales ---
@@ -2083,7 +2305,9 @@ export function FamiliasOrganizerClient({
     }
   }
 
-  const [trayDestFamily, setTrayDestFamily] = useState('')
+  // --- Refresh quirúrgico (3.7.6): actualiza info sin recargar todo ---
+  const [refreshingInfo, setRefreshingInfo] = useState(false)
+  const [ultimoRefresh, setUltimoRefresh] = useState<string | null>(null)
 
   // --- Variables calculadas dinámicamente ---
   const netCounts = getNetProductCounts()
@@ -2117,12 +2341,21 @@ export function FamiliasOrganizerClient({
   // 1. Obtener todas las familias con productos o creadas en la BD
   const existingFamilies = familias.filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
 
+  // 1b. El central solo trae lo actual: fuera drafts huérfanas (neto 0 por error y luego vaciadas).
+  const esDraftHuerfana = (code: string | null | undefined): boolean => {
+    if (!code) return true
+    if (initialFamilias.some(i => i.familia === code)) return false
+    return (netCounts[code] ?? 0) <= 0
+  }
+  const visibleFamilies = existingFamilies.filter(f => !esDraftHuerfana(f.familia))
+
   // 2. Detectar familias de destino en stagedMoves que aún no estén en existingFamilies
   const stagedTargets = Array.from(new Set(Object.values(stagedMoves)))
     .filter(dest => dest && dest !== 'F000-000C' && dest !== 'null')
 
-  const combinedFamiliesList: FamiliaResumen[] = [...existingFamilies]
+  const combinedFamiliesList: FamiliaResumen[] = [...visibleFamilies]
   stagedTargets.forEach(targetName => {
+    if ((netCounts[targetName] ?? 0) <= 0) return
     if (!combinedFamiliesList.some(f => f.familia === targetName)) {
       combinedFamiliesList.push({
         familia: targetName,
@@ -2159,45 +2392,6 @@ export function FamiliasOrganizerClient({
       setIsSinAsignarCollapsed(true)
     }
   }, [unassignedProducts.length, loadingProducts['F000-000C'], loadedProducts['F000-000C']])
-
-  // Bulk move staged changes trigger
-  const handleBulkMoveToFamily = (targetFamily: string) => {
-    if (selectedProducts.length === 0) {
-      toast.warning('No hay productos seleccionados')
-      return
-    }
-    if (!targetFamily) {
-      toast.warning('Selecciona una familia de destino')
-      return
-    }
-
-    const nextMoves = { ...stagedMoves }
-    selectedProducts.forEach(p => {
-      nextMoves[p.id] = targetFamily
-    })
-    setStagedMoves(nextMoves)
-
-    // Cargar destino
-    loadProductsForFamily(targetFamily)
-
-    // Actualizar cache local para feedback inmediato
-    setLoadedProducts(prev => {
-      const updatedDest = [...(prev[targetFamily] || [])]
-      selectedProducts.forEach(p => {
-        if (!updatedDest.some(item => item.id === p.id)) {
-          updatedDest.push({ ...p, familia: targetFamily })
-        }
-      })
-      return {
-        ...prev,
-        [targetFamily]: updatedDest
-      }
-    })
-
-    setSelectedProductIds({})
-    setTrayDestFamily('')
-    toast.success(`Se movieron ${selectedProducts.length} producto(s) a "${targetFamily}"`)
-  }
 
   return (
     <div
@@ -2244,6 +2438,15 @@ export function FamiliasOrganizerClient({
                 className="h-8 border-amber-500/30 text-amber-800 hover:bg-amber-500/10 dark:text-amber-300"
               >
                 Restablecer a Original
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleOlvidarBorrador}
+                title="Borra el borrador guardado en este navegador"
+                className="h-8 border-amber-500/30 text-amber-800 hover:bg-amber-500/10 dark:text-amber-300"
+              >
+                Olvidar guardado
               </Button>
               <Button
                 size="xs"
@@ -2477,31 +2680,17 @@ export function FamiliasOrganizerClient({
                 </div>
 
                 {selectedProducts.length > 0 && (
-                  <div className="p-2 border-t border-zinc-200 dark:border-zinc-800 bg-card space-y-2 shrink-0">
-                    <div className="flex gap-1">
-                      <select
-                        className="flex-1 h-8 rounded border border-input bg-background dark:bg-zinc-900 px-2 py-0.5 text-xs outline-none focus:border-ring"
-                        value={trayDestFamily}
-                        onChange={(e) => setTrayDestFamily(e.target.value)}
-                      >
-                        <option value="">-- Mover a familia --</option>
-                        {familias
-                          .filter(f => f.familia && f.familia !== 'F000-000C' && f.familia !== 'null')
-                          .map(f => (
-                            <option key={f.familia} value={f.familia!}>
-                              {f.familia} {f.descripcion ? `- ${f.descripcion.substring(0, 20)}...` : ''}
-                            </option>
-                          ))}
-                      </select>
-                      <Button
-                        size="xs"
-                        onClick={() => handleBulkMoveToFamily(trayDestFamily)}
-                        disabled={!trayDestFamily}
-                        className="h-8 px-3"
-                      >
-                        Mover
-                      </Button>
-                    </div>
+                  <div className="p-2 border-t border-zinc-200 dark:border-zinc-800 bg-card shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleOlvidarBandeja}
+                      title="Vacía la bandeja y olvida lo guardado en este navegador"
+                      className="h-8 w-full text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Olvidar bandeja
+                    </Button>
                   </div>
                 )}
               </div>
@@ -2671,6 +2860,18 @@ export function FamiliasOrganizerClient({
                 </label>
                 {loadingStock && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
               </div>
+
+              {/* Refresh quirúrgico solo-icono (3.7.6): descripciones/fotos + nuevos sin asignar */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRefreshInfo}
+                disabled={refreshingInfo}
+                title={ultimoRefresh ? `Actualizar información (último ${ultimoRefresh})` : 'Actualizar descripciones, fotos y nuevos sin asignar'}
+                className="h-8 w-8 shrink-0"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', refreshingInfo && 'animate-spin')} />
+              </Button>
             </div>
           </div>
 
@@ -3253,6 +3454,22 @@ export function FamiliasOrganizerClient({
             <h4 className="font-bold text-[10px] text-primary uppercase tracking-wider mb-2 flex items-center gap-1">
               <Package className="h-3 w-3" />
               Producto Seleccionado
+              {inspectedProduct && (
+                <span className="font-mono normal-case tracking-wider text-foreground/80">
+                  ({inspectedProduct.sku_base}
+                  <a
+                    href={`/catalogo/${inspectedProduct.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="ml-1 inline-flex items-center align-middle text-muted-foreground hover:text-foreground transition-colors"
+                    title={`Abrir detalle de ${inspectedProduct.sku_base} en nueva pestaña`}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  )
+                </span>
+              )}
             </h4>
             
             {loadingInspection ? (
@@ -3338,8 +3555,17 @@ export function FamiliasOrganizerClient({
 
                   {/* Detalle / Descripción */}
                   {inspectedProduct.descripcion && (
-                    <div className="bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded p-2.5 shadow-md">
-                      <p className="text-[10px] text-white leading-normal font-medium tracking-wide uppercase select-text pointer-events-auto max-h-[80px] overflow-y-auto pr-1">
+                    <div className="relative bg-black/75 dark:bg-zinc-950/85 backdrop-blur-xs border border-white/10 rounded p-2.5 shadow-md">
+                      {puedeEditar && (
+                        <DescripcionQuickEdit
+                          productId={inspectedProduct.id}
+                          descripcion={inspectedProduct.descripcion}
+                          catalogos={catalogos}
+                          onSaved={(d) => handleDescripcionSaved(inspectedProduct.id, d)}
+                          className="absolute top-1 right-1"
+                        />
+                      )}
+                      <p className={cn("text-[10px] text-white leading-normal font-medium tracking-wide uppercase select-text pointer-events-auto max-h-[80px] overflow-y-auto pr-1", puedeEditar && "pr-6")}>
                         {inspectedProduct.descripcion}
                       </p>
                     </div>
@@ -3362,6 +3588,24 @@ export function FamiliasOrganizerClient({
                   </Button>
                 </div>
               </div>
+
+              {/* Descripción entre foto y existencias (solo modo ampliado; en retraído va en overlay) */}
+              {imagenExpandida && inspectedProduct.descripcion && (
+                <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-card px-2.5 py-2 flex items-start gap-1.5">
+                  <p className="flex-1 text-[11px] text-foreground leading-normal font-medium tracking-wide uppercase select-text">
+                    {inspectedProduct.descripcion}
+                  </p>
+                  {puedeEditar && (
+                    <DescripcionQuickEdit
+                      productId={inspectedProduct.id}
+                      descripcion={inspectedProduct.descripcion}
+                      catalogos={catalogos}
+                      onSaved={(d) => handleDescripcionSaved(inspectedProduct.id, d)}
+                      className="text-muted-foreground hover:text-foreground hover:bg-muted shrink-0"
+                    />
+                  )}
+                </div>
+              )}
 
               {/* Fila de stock total global (solo con modo stock activo) */}
               {renderFilaStockInspector()}
