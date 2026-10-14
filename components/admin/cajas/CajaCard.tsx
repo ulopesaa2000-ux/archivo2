@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Pencil, Trash2, X, Check, Loader2, Calculator, Star } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
-import { canonicalEn, suggestEs } from '@/lib/color-match'
+import { canonicalEn, suggestEs, clasificarColorLibre } from '@/lib/color-match'
 import { standardizeTallaCode } from '@/lib/talla-match'
 
 function roundTo(value: number, decimals: number): number {
@@ -151,6 +151,10 @@ interface CajaCardProps {
   // Catálogos disponibles para agregar tallas/colores
   tallasDisponibles?: CatalogoItem[]
   coloresDisponibles?: CatalogoItem[]
+  /** Correccion de fila sin ID: abre el panel/modal de colores. */
+  onAbrirColores?: (colorNombre: string) => void
+  /** Resueltos del seed/modal (display ES + rojo solo nuevos). */
+  mapaResueltos?: Record<string, { id: number; nombre: string }>
   isNew?: boolean // Si es caja nueva (formulario vacío)
   onCreate?: (data: {
     base: Partial<SharedCajaData>
@@ -178,6 +182,8 @@ export const CajaCard = memo(function CajaCard({
   canEditOrden = true,
   tallasDisponibles = [],
   coloresDisponibles = [],
+  onAbrirColores,
+  mapaResueltos,
   isNew = false,
   onCreate,
   edadNombre,
@@ -260,12 +266,17 @@ export const CajaCard = memo(function CajaCard({
   // Estado para filas/colores en edición
   const [editFilas, setEditFilas] = useState<DetalleFila[]>(() => buildEditState(caja, tallasDisponibles, coloresDisponibles).editFilas)
 
+  // Texto libre sin match: se conserva visible, NO crea fila, NO sincroniza
+  // a la caja, NO intenta crear el color, NO bloquea (aviso ambar).
+  const [coloresIgnorados, setColoresIgnorados] = useState<string[]>([])
+
   // Entrar a edición reconstruye el estado desde la caja actual (nunca obsoleto)
   const iniciarEdicion = () => {
     const s = buildEditState(caja, tallasDisponibles, coloresDisponibles)
     setEditData(s.editData)
     setEditTallas(s.editTallas)
     setEditFilas(s.editFilas)
+    setColoresIgnorados([])
     setIsEditing(true)
   }
 
@@ -374,6 +385,7 @@ export const CajaCard = memo(function CajaCard({
       setEditData(s.editData)
       setEditTallas(s.editTallas)
       setEditFilas(s.editFilas)
+      setColoresIgnorados([])
     }
     setIsEditing(false)
   }
@@ -514,26 +526,32 @@ export const CajaCard = memo(function CajaCard({
   }
 
   const handleAddColorMatrix = (colorIdOrName: string | number) => {
-    if (!colorIdOrName) return
-    const searchStr = String(colorIdOrName).trim().toUpperCase()
-    
-    // Estandarizar nombre (ej: BLACK -> NEGRO)
-    const { nombreEsp } = standardizeColorName(searchStr, effectiveColoresDisponibles)
-    
-    const color = effectiveColoresDisponibles.find(
-      c => c.id.toString() === searchStr || c.nombre.toUpperCase() === searchStr || c.nombre.toUpperCase() === nombreEsp.toUpperCase()
-    )
-    
-    const colorNombre = color ? color.nombre : nombreEsp
-    const colorId = color ? color.id : (typeof colorIdOrName === 'number' ? colorIdOrName : nextTempId())
-
-    if (editFilas.some(f => f.colorId === colorId || f.colorNombre.toUpperCase() === colorNombre.toUpperCase())) {
+    if (colorIdOrName === '' || colorIdOrName == null) return
+    // Resolve-o-inerte: con match se asigna id + nombre ES del catalogo
+    // ("PALE MAUVE 16-..." -> MALVA PÁLIDO); sin match queda texto libre
+    // sin fila, sin sincronizar, sin crear color y sin bloquear.
+    const catalogo = effectiveColoresDisponibles.map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      codigo: c.codigo ?? null,
+      nombre_intern: (c as { nombre_intern?: string | null }).nombre_intern ?? null,
+    }))
+    const r = clasificarColorLibre(String(colorIdOrName), catalogo)
+    if (r.kind === 'inerte') {
+      if (!r.texto) return
+      setColoresIgnorados((prev) => (prev.includes(r.texto) ? prev : [...prev, r.texto]))
+      toast.warning(`"${r.texto}" no se agregó a la caja (sin match en catálogo). Quedó como texto libre.`)
+      setSelectedColorId('')
+      return
+    }
+    const colorNombre = r.nombre
+    if (editFilas.some(f => f.colorId === r.id || f.colorNombre.toUpperCase() === colorNombre.toUpperCase())) {
       toast.info(`El color "${colorNombre}" ya está agregado a la matriz.`)
       return
     }
 
     const nuevaFila: DetalleFila = {
-      colorId,
+      colorId: r.id,
       colorNombre,
       cantidades: {}
     }
@@ -927,6 +945,28 @@ export const CajaCard = memo(function CajaCard({
                   freeText={true}
                 />
               </div>
+              {coloresIgnorados.length > 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50/60 p-2 space-y-1 dark:bg-amber-950/30">
+                  <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200">
+                    Texto libre sin agregar a la caja (no genera detalle, no bloquea):
+                  </p>
+                  {coloresIgnorados.map((t) => (
+                    <div key={t} className="flex items-center gap-2 text-[11px]">
+                      <Badge variant="outline" className="font-mono">{t}</Badge>
+                      <span className="text-muted-foreground">sin match en catálogo — déjalo o quítalo</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px] ml-auto"
+                        onClick={() => setColoresIgnorados((prev) => prev.filter((x) => x !== t))}
+                      >
+                        Quitar
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -1011,6 +1051,8 @@ export const CajaCard = memo(function CajaCard({
             onCantidadChange={handleCantidadChange}
             onAutoRecommendTallas={handleAutoRecommendTallas}
             onAutoFillFila={handleAutoFillFila}
+            onAbrirColores={onAbrirColores}
+            mapaResueltos={mapaResueltos}
           />
         ) : (
           <CajaMatrizFallback tallas={caja.tallas} colores={caja.colores} />

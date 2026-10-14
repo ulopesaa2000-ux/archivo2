@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\lib\orden-rapida-colores.ts
 // Logica pura Fase 2 (testeable): siembra de colores por confirmar,
 // siguiente letra de pack y particion de rangos de carton.
-import { resolveColor, claveColor, type CatalogColor } from '@/lib/color-match'
+import { resolveColor, claveColor, esColorIgnorable, type CatalogColor } from '@/lib/color-match'
 
 export interface N8nColorRow {
   raw: string
@@ -27,6 +27,36 @@ export interface SeededColor {
   estado: EstadoColor
   color_id?: number | null
   via?: string | null
+}
+
+export interface EntradaMapaResuelto {
+  id: number
+  nombre: string
+}
+
+/**
+ * Mapa display para matrices: raw resuelto (existente/mapeado/creado con id)
+ * -> {id, nombre ES}. Indexado por clave(raw) Y clave(nombre destino), asi la
+ * fila muestra el ES ya corregido y el icono rojo queda SOLO para nuevos
+ * (sin id). Al mapear/crear en el modal, el id automatico se intercambia por
+ * el nuevo y la matriz lo refleja sin tocar la estructura.
+ */
+export function mapaNombresResueltos(
+  seed: Array<{ raw: string; estado: EstadoColor; color_id?: number | null }>,
+  catalogo: Array<{ id: number; nombre: string }>,
+): Record<string, EntradaMapaResuelto> {
+  const porId = new Map<number, string>()
+  for (const c of catalogo || []) porId.set(c.id, c.nombre)
+  const out: Record<string, EntradaMapaResuelto> = {}
+  for (const s of seed || []) {
+    if ((s.estado === 'existente' || s.estado === 'mapeado' || s.estado === 'creado') && typeof s.color_id === 'number') {
+      const nombre = porId.get(s.color_id) ?? String(s.raw || '').trim().toUpperCase()
+      const entry = { id: s.color_id, nombre }
+      out[claveColor(s.raw)] = entry
+      out[claveColor(nombre)] = entry
+    }
+  }
+  return out
 }
 
 /** Siguiente letra de pack (PACK B -> PACK C); si no es letra, sufija B. */
@@ -227,6 +257,8 @@ export function seedColoresPorConfirmar(
   const push = (rawInput: string, en?: string | null, es?: string | null, cajas?: string[], fuente?: string) => {
     const raw = String(rawInput || '').trim()
     if (!raw) return
+    // Fase 1: tela/material o patron puro (FUR, 11321-121) no es color: se ignora.
+    if (esColorIgnorable(raw)) return
     // Llave insensible a case, acentos y espacios: "Cafe Claro" == "CAFE  CLARO".
     const key = claveColor(raw)
     if (seen.has(key)) {
@@ -234,9 +266,13 @@ export function seedColoresPorConfirmar(
       if (cajas && cajas.length > 0) {
         prev.cajas = Array.from(new Set([...(prev.cajas ?? []), ...cajas])).slice(0, 25)
       }
+      // Fase 1: si el duplicado trae tripletes IA y el previo no, adoptarlos.
+      if (!prev.en && en) prev.en = en
+      if (!prev.es && es) prev.es = es
       return
     }
-    const m = resolveColor(raw, catalog)
+    // Fase 1: el match usa los tripletes IA (en/es), no solo el raw.
+    const m = resolveColor(raw, catalog, en ?? null, es ?? null)
     seen.set(key, {
       raw,
       en: en ?? null,

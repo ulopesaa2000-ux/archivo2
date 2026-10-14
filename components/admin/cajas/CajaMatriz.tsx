@@ -13,8 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Trash, Sparkles, Info, Package, Wand2 } from 'lucide-react'
+import { Trash, Sparkles, Info, Package, Wand2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { claveColor } from '@/lib/color-match'
 import { ColorCombobox } from './ColorCombobox'
 import type { SharedCajaContenidoMap } from '@/modules/cajas/types'
 import type { CatalogoItem } from '@/modules/catalogo/types'
@@ -59,6 +60,14 @@ interface CajaMatrizProps {
   onCantidadChange: (colorId: number | string, tallaNombre: string, valor: string) => void
   onAutoRecommendTallas: () => void
   onAutoFillFila: (colorId: number) => void
+  /** Correccion de fila sin ID: abre el panel/modal de colores. */
+  onAbrirColores?: (colorNombre: string) => void
+  /**
+   * Resueltos del seed/modal por clave (raw y nombre destino): la fila muestra
+   * el ES corregido y el rojo queda SOLO para nuevos (sin id). Si se omite,
+   * se usa la regla local (id temporal / Nuevo color).
+   */
+  mapaResueltos?: Record<string, { id: number; nombre: string }>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -84,6 +93,8 @@ export function CajaMatriz({
   onCantidadChange,
   onAutoRecommendTallas,
   onAutoFillFila,
+  onAbrirColores,
+  mapaResueltos,
 }: CajaMatrizProps) {
   // Mostrar sección solo si hay datos o estamos en edición
   if (!contenidoMap && !isEditing) {
@@ -204,11 +215,16 @@ export function CajaMatriz({
             <tbody className="divide-y divide-border/50">
               {editFilas.map((fila) => {
                 const { nombreEsp, isNewColor } = standardizeColorName(fila.colorNombre, coloresDisponibles)
+                // Resuelto del seed/modal manda: muestra ES corregido.
+                const res = mapaResueltos?.[claveColor(fila.colorNombre)]
+                const nombreMostrar = res?.nombre ?? nombreEsp
+                // Rojo SOLO sin id (nuevo). Con mapa: sin entrada resuelta.
+                const sinId = mapaResueltos ? !res?.id : !(fila.colorId > 0)
                 return (
                   <tr key={fila.colorId} className="group hover:bg-muted/20 transition-colors">
                     <td className="border px-3 py-2 font-medium text-foreground flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span>{nombreEsp}</span>
+                        <span>{nombreMostrar}</span>
                         {isNewColor && (
                           <Badge
                             variant="outline"
@@ -218,6 +234,18 @@ export function CajaMatriz({
                             <Sparkles className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400" />
                             Nuevo color
                           </Badge>
+                        )}
+                        {sinId && onAbrirColores && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onAbrirColores(fila.colorNombre)}
+                            className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                            title={`SIN ID: corregir "${fila.colorNombre}" en el panel de colores`}
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                         <Button
                           type="button"
@@ -311,13 +339,16 @@ export function CajaMatriz({
             <tbody>
               {contenidoMap!.colores.map((colorRaw) => {
                 const { nombreEsp, isNewColor } = standardizeColorName(colorRaw, coloresDisponibles)
+                const resV = mapaResueltos?.[claveColor(colorRaw)]
+                const nombreMostrarV = resV?.nombre ?? nombreEsp
+                const sinIdV = mapaResueltos ? !resV?.id : isNewColor
                 const fila = contenidoMap!.matriz[colorRaw] ?? {}
                 const totalFila = Object.values(fila).reduce((a, b) => a + b, 0)
                 return (
                   <tr key={colorRaw} className="hover:bg-muted/30 transition-colors">
                     <td className="border px-3 py-2 font-bold text-foreground/80">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span>{nombreEsp}</span>
+                        <span>{nombreMostrarV}</span>
                         {isNewColor && (
                           <Badge
                             variant="outline"
@@ -327,6 +358,18 @@ export function CajaMatriz({
                             <Sparkles className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400" />
                             Nuevo color
                           </Badge>
+                        )}
+                        {sinIdV && onAbrirColores && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onAbrirColores(colorRaw)}
+                            className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                            title={`SIN ID: corregir "${colorRaw}" en el panel de colores`}
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                       </div>
                     </td>
