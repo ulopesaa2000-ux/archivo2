@@ -3454,7 +3454,7 @@ export function FamiliasOrganizerClient({
             <h4 className="font-bold text-[10px] text-primary uppercase tracking-wider mb-2 flex items-center gap-1">
               <Package className="h-3 w-3" />
               Producto Seleccionado
-              {inspectedProduct && (
+              {inspectedProduct && imagenExpandida && (
                 <span className="font-mono normal-case tracking-wider text-foreground/80">
                   ({inspectedProduct.sku_base}
                   <a

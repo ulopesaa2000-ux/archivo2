@@ -22,10 +22,17 @@ export default async function FamiliasPage() {
     redirect('/unauthorized')
   }
 
-  // Cargar resumen de familias y catálogos de soporte en paralelo
+  // Cargar resumen de familias y catálogos de soporte en paralelo.
+  // Los catálogos son soporte del popover: si fallan, la página no debe caerse.
   const [familias, catalogos] = await Promise.all([
     fetchResumenFamilias(),
-    fetchCatalogosParaFiltros(),
+    fetchCatalogosParaFiltros().catch(() => ({
+      marcas: [],
+      generos: [],
+      telas: [],
+      edades: [],
+      tipos_prenda: [],
+    })),
   ])
 
   // Saber si el usuario tiene permiso para editar (mover/renombrar)
