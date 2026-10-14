@@ -16,6 +16,7 @@ interface PageProps {
     q?: string
     estado_web?: string
     tiene_foto?: string
+    especial?: string
     marca_id?: string
     genero_id?: string
     tipo_prenda_id?: string
@@ -32,6 +33,7 @@ async function ProductosWebSection({ searchParams }: PageProps) {
     q: params.q,
     estado_web: params.estado_web as any,
     tiene_foto: params.tiene_foto as any,
+    especial: (params.especial as any) || 'todos',
     marca_id: params.marca_id ? Number(params.marca_id) : undefined,
     genero_id: params.genero_id ? Number(params.genero_id) : undefined,
     tipo_prenda_id: params.tipo_prenda_id ? Number(params.tipo_prenda_id) : undefined,

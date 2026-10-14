@@ -188,6 +188,15 @@ export async function fetchProductosWebAdmin(
     productos = productos.filter((p) => !p.tiene_foto)
   }
 
+  // Filtro especial único (uno a la vez): en_oferta | destacados | nuevos
+  if (filtros.especial === 'en_oferta') {
+    productos = productos.filter((p) => p.en_oferta)
+  } else if (filtros.especial === 'destacados') {
+    productos = productos.filter((p) => p.destacado)
+  } else if (filtros.especial === 'nuevos') {
+    productos = productos.filter((p) => p.nuevo)
+  }
+
   // Ordenamiento (Por defecto: recientes con foto primero)
   const ordenarPor = filtros.ordenar_por || 'recientes_con_foto'
 

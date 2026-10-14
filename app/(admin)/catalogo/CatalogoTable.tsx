@@ -166,8 +166,8 @@ function CatalogoTableInner({
     {
       key: 'descripcion',
       header: 'Descripción',
-      headerClassName: 'min-w-[260px]',
-      className: 'min-w-[260px]',
+      headerClassName: 'w-[340px] max-w-[340px] min-w-[300px] text-left',
+      className: 'w-[340px] max-w-[340px] min-w-[300px] text-left',
       cell: (row: ProductoListItem) => (
         <QuickEditPopover
           field={(quickEditFields ?? []).find(f => f.key === 'descripcion')!}
@@ -182,9 +182,13 @@ function CatalogoTableInner({
           catalogos={catalogos}
           onSaveRecord={handleQuickEditRecordSave}
           onSaveGlobal={handleQuickEditSave}
+          className="justify-start text-left [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
         >
-          <span className="text-sm block truncate w-full" title={row.descripcion ?? row.nombre ?? ''}>
-            {row.descripcion ?? row.nombre ?? '—'}
+          <span
+            className="text-[13px] block w-full text-left line-clamp-3 break-words whitespace-normal leading-snug overflow-hidden"
+            title={row.descripcion ?? row.nombre ?? ''}
+          >
+            {truncate(row.descripcion ?? row.nombre, 140)}
           </span>
         </QuickEditPopover>
       ),
@@ -193,16 +197,18 @@ function CatalogoTableInner({
       key: 'familia',
       header: 'Familia',
       sortKey: 'familia',
-      headerClassName: 'w-[120px] min-w-[110px]',
-      className: 'w-[120px] min-w-[110px]',
+      headerClassName: 'w-[100px] min-w-[95px] text-center',
+      className: 'w-[100px] min-w-[95px] text-center',
       cell: (row: ProductoListItem) => (
         <QuickEditPopover
           field={(quickEditFields ?? []).find(f => f.key === 'familia')!}
           value={row.familia}
           rowId={row.id}
+          align="center"
           onSaveGlobal={handleQuickEditSave}
+          className="[&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
         >
-          <span className="text-sm text-muted-foreground block truncate">{row.familia ?? '—'}</span>
+          <span className="font-mono text-[13px] text-muted-foreground block w-full text-center truncate">{row.familia ?? '—'}</span>
         </QuickEditPopover>
       ),
     },

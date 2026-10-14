@@ -118,6 +118,8 @@ export interface FiltrosProductoWeb {
   tipo?: string
   estado_web?: 'todos' | 'publicados' | 'no_publicados' | 'pausados'
   tiene_foto?: 'todos' | 'con_foto' | 'sin_foto'
+  /** Filtro especial único (uno a la vez): en_oferta | destacados | nuevos */
+  especial?: 'todos' | 'en_oferta' | 'destacados' | 'nuevos'
   ordenar_por?: 'recientes_con_foto' | 'recientes' | 'antiguos' | 'sku_asc' | 'precio_desc' | 'precio_asc'
   page?: number
 }
