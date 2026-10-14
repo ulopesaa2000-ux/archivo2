@@ -2,7 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { TABLAS_SOPORTE_CONFIG, type TablaSoporteKey } from './types'
 
 export type ActionResponse = {
@@ -37,6 +37,8 @@ export async function createTablaSoporteRecordAction(
     }
 
     revalidatePath('/configuracion/tablas-soporte')
+    // Invalida catálogos cacheados (marcas, géneros, prendas, edades, telas) al momento.
+    revalidateTag('catalogo-filtros', 'max')
     return {
       success: true,
       message: `Registro creado exitosamente en ${TABLAS_SOPORTE_CONFIG[tabla]?.label || tabla}`,
@@ -77,6 +79,8 @@ export async function updateTablaSoporteRecordAction(
     }
 
     revalidatePath('/configuracion/tablas-soporte')
+    // Invalida catálogos cacheados (marcas, géneros, prendas, edades, telas) al momento.
+    revalidateTag('catalogo-filtros', 'max')
     return {
       success: true,
       message: `Registro #${id} actualizado correctamente en ${TABLAS_SOPORTE_CONFIG[tabla]?.label || tabla}`,
@@ -106,6 +110,8 @@ export async function toggleActiveTablaSoporteRecordAction(
     }
 
     revalidatePath('/configuracion/tablas-soporte')
+    // Invalida catálogos cacheados (marcas, géneros, prendas, edades, telas) al momento.
+    revalidateTag('catalogo-filtros', 'max')
     return {
       success: true,
       message: `Estado de registro #${id} cambiado a ${newActiveState ? 'Activo' : 'Inactivo'}`,
@@ -133,6 +139,8 @@ export async function deleteTablaSoporteRecordAction(
     }
 
     revalidatePath('/configuracion/tablas-soporte')
+    // Invalida catálogos cacheados (marcas, géneros, prendas, edades, telas) al momento.
+    revalidateTag('catalogo-filtros', 'max')
     return {
       success: true,
       message: `Registro #${id} eliminado correctamente de ${TABLAS_SOPORTE_CONFIG[tabla]?.label || tabla}`,
