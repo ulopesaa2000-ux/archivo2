@@ -1,6 +1,6 @@
 // app/(admin)/catalogo/familias/page.tsx
 import type { Metadata } from 'next'
-import { fetchResumenFamilias } from '@/modules/catalogo/queries'
+import { fetchResumenFamilias, fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { redirect } from 'next/navigation'
 import { can } from '@/lib/auth/permissions'
@@ -22,8 +22,11 @@ export default async function FamiliasPage() {
     redirect('/unauthorized')
   }
 
-  // Cargar resumen de familias desde la BD
-  const familias = await fetchResumenFamilias()
+  // Cargar resumen de familias y catálogos de soporte en paralelo
+  const [familias, catalogos] = await Promise.all([
+    fetchResumenFamilias(),
+    fetchCatalogosParaFiltros(),
+  ])
 
   // Saber si el usuario tiene permiso para editar (mover/renombrar)
   const puedeEditar = can(user, 'catalogo_productos', 'puede_editar')
@@ -32,6 +35,7 @@ export default async function FamiliasPage() {
     <FamiliasOrganizerClient
       initialFamilias={familias}
       puedeEditar={puedeEditar}
+      catalogos={catalogos}
     />
   )
 }

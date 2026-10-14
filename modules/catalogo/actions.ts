@@ -57,4 +57,6 @@ export {
 export {
   moverProductosDeFamiliaAction,
   renombrarFamiliaAction,
+  fetchAtributosDescripcionAction,
+  updateDescripcionRapidaAction,
 } from './actions/familias'
