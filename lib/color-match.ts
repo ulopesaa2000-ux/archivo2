@@ -16,6 +16,8 @@ export type ColorMatchVia =
   | 'nombre'
   | 'normalizado'
   | 'base'
+  | 'doble'
+  | 'compuesto'
   | 'parcial'
   | null
 
@@ -248,6 +250,9 @@ export function claveColor(raw: string): string {
 export function extraerBaseColor(raw: string): { base: string; esPatron: boolean } {
   let s = cleanColorRaw(raw)
   if (!s) return { base: '', esPatron: false }
+  // Separar "/" primero para que las reglas por token vean cada lado
+  // ("BELL119/GREY" -> "BELL119 / GREY").
+  s = s.replace(/\//g, ' / ')
   // Parentesis con digitos: "(120)", "(57)", "(125)", "(47", "127 )".
   s = s.replace(/\([^()]*\d[^()]*\)/g, ' ')
   s = s.replace(/[()]/g, ' ')
@@ -270,7 +275,7 @@ export function extraerBaseColor(raw: string): { base: string; esPatron: boolean
     })
     .filter(Boolean)
     .join(' ')
-  s = s.replace(/[\s/-]+/g, ' ').replace(/^[/\s-]+|[/\s-]+$/g, '').trim()
+  s = s.replace(/[\s-]+/g, ' ').replace(/\s*\/\s*/g, '/').replace(/^[/\s-]+|[/\s-]+$/g, '').trim()
   if (!s) {
     const teniaLetras = /[A-Z\u00C0-\u00FF]/.test(cleanColorRaw(raw))
     return { base: '', esPatron: !teniaLetras }
@@ -362,16 +367,51 @@ export function resolveColor(
   const aiEnClean = cleanColorRaw(aiEn || '')
   const aiEsClean = String(aiEs || '').trim().toUpperCase()
   const lados = splitCompoundColor(clean)
+  // Compuesto con "/": primero coteja entrada DOBLE del catalogo
+  // ("NAVY/WINE" -> Marino/Vino). Si no hay, resuelve por lados.
+  if (lados.length > 1) {
+    const doble = matchDoble(lados, catalog, aiEnClean, aiEsClean)
+    if (doble) return doble
+  }
   // Tripletes IA solo aplican al raw completo (no por lado de compuesto).
   const porLado = lados.length > 1 ? { en: '', es: '' } : { en: aiEnClean, es: aiEsClean }
   const resultados = lados.map((lado) => resolveSingle(lado, catalog, porLado.en, porLado.es))
   if (resultados.every((r) => r.found)) {
-    // Compuesto donde todos los lados matchean: devolver el primero con trazabilidad.
     const primero = resultados[0]
-    return { ...primero, candidatos: resultados.flatMap((r) => r.candidatos) }
+    const candidatos = resultados.flatMap((r) => r.candidatos)
+    if (lados.length === 1) return { ...primero, candidatos }
+    // Compuesto donde todos los lados matchean sin entrada DOBLE: auto con
+    // el primer lado (no bloquea) + marca para el listado ambar de dobles,
+    // donde el usuario deja solido o crea el DOBLE.
+    return { ...primero, via: 'compuesto', candidatos }
   }
   const simple = resolveSingle(clean, catalog, aiEnClean, aiEsClean)
   return simple
+}
+
+/**
+ * Coteja un compuesto "A/B" contra entradas DOBLE del catalogo
+ * (nombre/intern/codigo con "/": "Marino/Vino", "Navy/Wine", "NVY-WIN").
+ * Lados limpios (sin Pantone/numeros) + tripletes IA como candidatos.
+ */
+function matchDoble(
+  lados: string[],
+  catalog: CatalogColor[],
+  aiEn = '',
+  aiEs = '',
+): ColorMatch | null {
+  const bases = lados.map((l) => {
+    const { base } = extraerBaseColor(l)
+    return base || l
+  }).filter(Boolean)
+  if (bases.length < 2) return null
+  const ENs = uniqStr([bases.map((b) => canonicalEn(b)).join('/'), aiEn])
+  const ESs = uniqStr([bases.map((b) => suggestEs(canonicalEn(b))).join('/'), aiEs])
+  const RAWs = uniqStr([bases.join('/'), bases.join(' / ')])
+  const hit = matchExactoNormalizado({ ENs, ESs, RAWs }, catalog)
+  if (!hit) return null
+  const candidatos = Array.from(new Set([...RAWs, ...ENs, ...ESs]))
+  return { found: true, id: hit.catalog.id, via: 'doble', catalog: hit.catalog, candidatos }
 }
 
 interface SetCandidatos {
@@ -437,22 +477,37 @@ function resolveSingle(clean: string, catalog: CatalogColor[], aiEn = '', aiEs =
   const hit1 = matchExactoNormalizado(primario, catalog)
   if (hit1) return { found: true, id: hit1.catalog.id, via: hit1.via, catalog: hit1.catalog, candidatos }
 
-  // Nivel 2: base limpia (sin Pantone/numeros) y sin stopwords.
+  // Nivel 2: base limpia (sin Pantone/numeros, conserva "/") y sin stopwords.
   const { base, esPatron } = extraerBaseColor(clean)
   if (!esPatron) {
     const sinStop = quitarStopwords(base)
     const bases = uniqStr([base, sinStop].filter((b) => b && b !== clean))
-    if (bases.length > 0) {
+    // Lados de "/" por separado: SOLO aportan al parcial, nunca al exacto
+    // ("BLACK/STONE" no debe matchear NEGRO; el compuesto lo decide por lados).
+    const todas = uniqStr([
+      ...bases,
+      ...bases.flatMap((b) => b.split('/').map((s) => quitarStopwords(s.trim())).filter((s) => s && s !== clean)),
+    ])
+    if (todas.length > 0) {
       const ENs: string[] = []
       const ESs: string[] = []
-      for (const b of bases) {
+      for (const b of todas) {
         const e = canonicalEn(b)
         if (e) ENs.push(e)
         const s = suggestEs(e || b)
         if (s) ESs.push(s)
       }
-      const hit2 = matchExactoNormalizado({ ENs: uniqStr(ENs), ESs: uniqStr(ESs), RAWs: bases }, catalog)
-      candidatos.push(...bases, ...ENs, ...ESs)
+      // Exacto/normalizado solo con bases completas (con "/" intacto).
+      const ENsBase: string[] = []
+      const ESsBase: string[] = []
+      for (const b of bases) {
+        const e = canonicalEn(b)
+        if (e) ENsBase.push(e)
+        const s = suggestEs(e || b)
+        if (s) ESsBase.push(s)
+      }
+      const hit2 = matchExactoNormalizado({ ENs: uniqStr(ENsBase), ESs: uniqStr(ESsBase), RAWs: bases }, catalog)
+      candidatos.push(...todas, ...ENs, ...ESs)
       if (hit2) {
         return {
           found: true,
@@ -510,8 +565,10 @@ export function inferirCodigoHexTipo(nombreEs: string): { codigo: string; hex_co
   if (codigo.length < 2) codigo = 'COL'
   const palabras = norm.split(' ')
   if (palabras.length > 1) codigo = palabras.map((p) => p[0]).join('').slice(0, 3)
-  // Fase 2: biblioteca primero; negro #000000 solo si no hay match (no traba).
-  const hex = hexBiblioteca(norm) ?? '#000000'
+  // Fase dobles: HEX del PRIMER lado ("NEGRO/GRIS" -> NEGRO, "GRIS/NEGRO" -> GRIS).
+  // Luego biblioteca completa; negro #000000 solo si no hay match (no traba).
+  const primerLado = norm.split('/')[0].trim()
+  const hex = hexBiblioteca(primerLado) ?? hexBiblioteca(norm) ?? '#000000'
   let tipo = 'SOLIDO'
   if (norm.includes('ESTAMPADO') || norm.includes('CAMUFLAJE') || norm.includes('LEOPARDO')) tipo = 'ESTAMPADO'
   else if (norm.includes('MEZCLA') || norm.includes('HEATHER') || norm.includes('MELANGE')) tipo = 'MEZCLA'
@@ -537,10 +594,17 @@ export function buildColorDraft(raw: string, aiEn?: string | null, aiEs?: string
 } {
   const clean = cleanColorRaw(raw)
   // Fase 1: prefill sobre la base limpia (sin Pantone/numeros), no el raw sucio.
+  // Dobles: EN/ES por lado para conservar "/" ("BLACK /SAND" -> "NEGRO/ARENA").
   const { base } = extraerBaseColor(clean)
   const baseLimpia = quitarStopwords(base || clean) || clean
-  const en = cleanColorRaw(aiEn || '') || canonicalEn(baseLimpia)
-  const es = (aiEs || '').trim().toUpperCase() || suggestEs(en)
+  const ladosBase = baseLimpia.split('/').map((s) => quitarStopwords(s.trim())).filter(Boolean)
+  const esDoble = ladosBase.length > 1
+  const en = cleanColorRaw(aiEn || '') || (esDoble
+    ? ladosBase.map((b) => canonicalEn(b)).join('/')
+    : canonicalEn(baseLimpia))
+  const es = (aiEs || '').trim().toUpperCase() || (esDoble
+    ? ladosBase.map((b) => suggestEs(canonicalEn(b))).join('/')
+    : suggestEs(en))
   const sug = inferirCodigoHexTipo(es)
   return { raw: clean, nombre: es, nombre_intern: en, codigo: sug.codigo, hex_code: sug.hex_code, tipo_color: sug.tipo }
 }

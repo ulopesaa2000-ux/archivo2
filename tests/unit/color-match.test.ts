@@ -341,8 +341,7 @@ describe('color-match Fase 2: biblioteca HEX (verificados API)', () => {
   })
 })
 
-describe('clasificarColorLibre: texto libre de caja (resolve-o-inerte)', () => {
-  const CAT: CatalogColor[] = [
+describe('clasificarColorLibre: texto libre de caja (resolve-o-inerte)', () => {  const CAT: CatalogColor[] = [
     { id: 1, nombre: 'NEGRO', codigo: 'BLK', nombre_intern: null },
     { id: 129, nombre: 'MALVA', codigo: 'MAUVE', nombre_intern: 'Mauve' },
     { id: 132, nombre: 'MALVA PÁLIDO', codigo: 'PALMAU', nombre_intern: 'Pale Mauve' },
@@ -367,5 +366,55 @@ describe('clasificarColorLibre: texto libre de caja (resolve-o-inerte)', () => {
     const { clasificarColorLibre } = await import('@/lib/color-match')
     expect(clasificarColorLibre('BOLOÑESA', CAT)).toEqual({ kind: 'inerte', texto: 'BOLOÑESA' })
     expect(clasificarColorLibre('  ', CAT).kind).toBe('inerte')
+  })
+})
+
+describe('dobles con "/": entrada DOBLE vs lados (BONNIE 18-2026)', () => {
+  const DOBLE_CAT: CatalogColor[] = [
+    { id: 1, nombre: 'NEGRO', codigo: 'BLK', nombre_intern: null },
+    { id: 5, nombre: 'GRIS', codigo: 'GRY', nombre_intern: null },
+    { id: 16, nombre: 'ARENA', codigo: 'SAND', nombre_intern: 'Sand' },
+    { id: 58, nombre: 'CAMPANILLA AZUL', codigo: 'BLUBEL', nombre_intern: 'Blue Bell' },
+    { id: 134, nombre: 'MARINO', codigo: 'NVY', nombre_intern: 'Navy' },
+    { id: 236, nombre: 'VINO', codigo: 'WINE', nombre_intern: 'Wine' },
+    { id: 244, nombre: 'MARINO/VINO', codigo: 'NVY-WIN', nombre_intern: 'Navy/Wine' },
+  ]
+
+  it('compuesto con entrada DOBLE -> via doble', () => {
+    expect(resolveColor('NAVY/WINE', DOBLE_CAT)).toMatchObject({ found: true, id: 244, via: 'doble' })
+    expect(resolveColor('navy / wine', DOBLE_CAT)).toMatchObject({ found: true, id: 244, via: 'doble' })
+    // Con ruido tambien llega al DOBLE por lados limpios
+    expect(resolveColor('NAVY 123/WINE', DOBLE_CAT)).toMatchObject({ found: true, id: 244, via: 'doble' })
+  })
+
+  it('sin entrada DOBLE -> auto primer lado + marca compuesto (ambar)', () => {
+    expect(resolveColor('BLACK/GREY', DOBLE_CAT)).toMatchObject({ found: true, id: 1, via: 'compuesto' })
+    expect(resolveColor('BLACK /SAND', DOBLE_CAT)).toMatchObject({ found: true, id: 1, via: 'compuesto' })
+    expect(resolveColor('BLUE BELL119/GREY', DOBLE_CAT)).toMatchObject({ found: true, id: 58, via: 'compuesto' })
+  })
+
+  it('lado fallido -> nuevo (no falso positivo)', () => {
+    expect(resolveColor('BLACK/STONE', DOBLE_CAT).found).toBe(false)
+  })
+
+  it('HEX del PRIMER lado en dobles', async () => {
+    const { inferirCodigoHexTipo } = await import('@/lib/color-match')
+    expect(inferirCodigoHexTipo('NEGRO/GRIS').hex_code).toBe('#000000')
+    expect(inferirCodigoHexTipo('GRIS/NEGRO').hex_code).toBe('#808080')
+    expect(inferirCodigoHexTipo('NEGRO/GRIS').tipo).toBe('DOBLE')
+    expect(inferirCodigoHexTipo('NEGRO/GRIS').codigo).toBe('NEG-GRI')
+  })
+
+  it('draft conserva "/" con ES/EN por lado', () => {
+    expect(buildColorDraft('BLACK /SAND')).toMatchObject({
+      nombre: 'NEGRO/ARENA',
+      nombre_intern: 'BLACK/SAND',
+      codigo: 'NEG-ARE',
+      tipo_color: 'DOBLE',
+    })
+    expect(buildColorDraft('BLUE BELL119/GREY')).toMatchObject({
+      nombre: 'CAMPANILLA AZUL/GRIS',
+      nombre_intern: 'BLUE BELL/GREY',
+    })
   })
 })

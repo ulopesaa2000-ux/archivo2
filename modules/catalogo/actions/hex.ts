@@ -40,10 +40,15 @@ export async function resolverHexColorAction(nombreEs: string, nombreIntern?: st
   const user = await getCurrentUser()
   if (!user) return { hex: HEX_NEGRO, fuente: 'negro', nombreApi: null }
 
-  const deLib = hexBiblioteca(nombreEs || '')
-  if (deLib) return { hex: deLib.toUpperCase(), fuente: 'biblioteca', nombreApi: null }
+  const deLibFull = hexBiblioteca(nombreEs || '')
+  if (deLibFull) return { hex: deLibFull.toUpperCase(), fuente: 'biblioteca', nombreApi: null }
 
-  const en = cleanColorRaw(nombreIntern || '')
+  // Dobles: biblioteca y API van con el PRIMER lado ("BLACK/GREY" -> BLACK).
+  const esBase = String(nombreEs || '').split('/')[0].trim()
+  const deLibBase = esBase ? hexBiblioteca(esBase) : null
+  if (deLibBase) return { hex: deLibBase.toUpperCase(), fuente: 'biblioteca', nombreApi: null }
+
+  const en = cleanColorRaw(String(nombreIntern || '').split('/')[0] || '')
   if (!en || en.length < 3) return { hex: HEX_NEGRO, fuente: 'negro', nombreApi: null }
   const hitCache = cacheApi.get(en)
   if (hitCache) return hitCache
