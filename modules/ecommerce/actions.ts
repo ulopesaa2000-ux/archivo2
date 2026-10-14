@@ -291,6 +291,259 @@ export async function toggleDestacadoProductoWebAction(
   }
 }
 
+export async function toggleNuevoProductoWebAction(
+  productoId: number,
+  actualmenteNuevo: boolean,
+  productoWebId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const nuevoValor = !actualmenteNuevo
+
+    if (productoWebId) {
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .update({
+          nuevo: nuevoValor,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productoWebId)
+
+      if (error) return { success: false, error: error.message }
+    } else {
+      const { data: prod } = await (supabase as any)
+        .from('productos')
+        .select('nombre, descripcion, sku_base, precio_ec')
+        .eq('id', productoId)
+        .single()
+
+      const precioPublico = prod?.precio_ec && Number(prod.precio_ec) > 0 ? Number(prod.precio_ec) : 1
+      const baseText = prod?.nombre || prod?.descripcion || `producto-${productoId}`
+      const baseSlug = slugify(`${baseText}-${prod?.sku_base || ''}`) || `producto-${productoId}`
+      let slug = baseSlug
+
+      const { data: existente } = await (supabase as any)
+        .from('productos_web')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle()
+
+      if (existente) {
+        slug = `${baseSlug}-${Date.now()}`
+      }
+
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .insert({
+          producto_id: productoId,
+          slug,
+          precio_publico: precioPublico,
+          activo: false,
+          en_oferta: false,
+          destacado: false,
+          nuevo: nuevoValor,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+
+      if (error) return { success: false, error: error.message }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al cambiar nuevo.' }
+  }
+}
+
+export async function toggleOfertaProductoWebAction(
+  productoId: number,
+  actualmenteEnOferta: boolean,
+  productoWebId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const nuevoValor = !actualmenteEnOferta
+
+    // Activar exige precio_oferta válido y menor al público (regla estricta)
+    if (nuevoValor) {
+      if (!productoWebId) {
+        return {
+          success: false,
+          error: 'Fija primero precio público y de oferta (≥ $1) en el modal de precios.',
+        }
+      }
+      const { data: row } = await (supabase as any)
+        .from('productos_web')
+        .select('id, precio_publico, precio_oferta')
+        .eq('id', productoWebId)
+        .maybeSingle()
+
+      const pub = Number(row?.precio_publico ?? 0)
+      const of = Number(row?.precio_oferta ?? 0)
+      if (!Number.isFinite(of) || of < 1) {
+        return { success: false, error: 'Fija un precio de oferta ≥ $1 para activar oferta.' }
+      }
+      if (!Number.isFinite(pub) || pub < 1 || of >= pub) {
+        return { success: false, error: 'La oferta debe ser ≥ $1 y menor al precio público.' }
+      }
+    }
+
+    if (productoWebId) {
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .update({
+          en_oferta: nuevoValor,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productoWebId)
+
+      if (error) return { success: false, error: error.message }
+    } else {
+      // Solo se permite quitar (ya está en false); activar sin registro se hace vía modal de precios
+      if (nuevoValor) {
+        return { success: false, error: 'Fija primero precio público y de oferta (≥ $1).' }
+      }
+      return { success: true }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al cambiar oferta.' }
+  }
+}
+
+export type FlagsMasivoInput = {
+  destacado?: boolean | null
+  nuevo?: boolean | null
+  en_oferta?: boolean | null
+}
+
+/**
+ * Acción Masiva: asignar o quitar flags especiales (destacado / nuevo / en_oferta).
+ * null/undefined = sin cambio. Crea registro en productos_web si no existe
+ * (precio_publico = precio_ec ?? 1, activo=false para no publicar solo).
+ * Si en_oferta=true exige precioOferta >= 1 y menor al público (estricto).
+ */
+export async function actualizarFlagsMasivoAction(
+  productoIds: number[],
+  flags: FlagsMasivoInput,
+  precioOferta?: number | null
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    if (!productoIds || productoIds.length === 0) {
+      return { success: false, count: 0, error: 'No hay productos seleccionados.' }
+    }
+    const quiereOferta = flags.en_oferta === true
+    const quiereQuitarOferta = flags.en_oferta === false
+    const quiereDestacado = flags.destacado !== undefined && flags.destacado !== null
+    const quiereNuevo = flags.nuevo !== undefined && flags.nuevo !== null
+
+    if (!quiereOferta && !quiereQuitarOferta && !quiereDestacado && !quiereNuevo) {
+      return { success: false, count: 0, error: 'Elige al menos un flag para actualizar.' }
+    }
+
+    let numOferta: number | null = null
+    if (quiereOferta) {
+      numOferta = precioOferta != null ? Number(precioOferta) : NaN
+      if (!Number.isFinite(numOferta) || numOferta < 1) {
+        return { success: false, count: 0, error: 'Para activar oferta fija un precio de oferta ≥ $1.' }
+      }
+    }
+
+    const supabase = await createClient()
+
+    const { data: existentes } = await (supabase as any)
+      .from('productos_web')
+      .select('id, producto_id, precio_publico, precio_oferta')
+      .in('producto_id', productoIds)
+
+    const existentesMap = new Map<number, { id: number; precio_publico: number; precio_oferta: number | null }>()
+    for (const row of ((existentes || []) as any[])) {
+      existentesMap.set(row.producto_id, {
+        id: row.id,
+        precio_publico: Number(row.precio_publico ?? 0),
+        precio_oferta: row.precio_oferta != null ? Number(row.precio_oferta) : null,
+      })
+    }
+
+    // 1. Actualizar los que ya tienen registro
+    const updates: Promise<any>[] = []
+    const nowIso = new Date().toISOString()
+    for (const row of existentesMap.values()) {
+      const patch: Record<string, any> = { updated_at: nowIso }
+      if (quiereDestacado) patch.destacado = flags.destacado
+      if (quiereNuevo) patch.nuevo = flags.nuevo
+      if (quiereQuitarOferta) patch.en_oferta = false
+      if (quiereOferta) {
+        const pub = Number(row.precio_publico ?? 0)
+        if (!Number.isFinite(pub) || pub < 1 || (numOferta as number) >= pub) {
+          return {
+            success: false,
+            count: 0,
+            error: `La oferta ($${(numOferta as number).toLocaleString('es-MX')}) debe ser ≥ $1 y menor al precio público. Revisa precios primero.`,
+          }
+        }
+        patch.precio_oferta = numOferta
+        patch.en_oferta = true
+      }
+      updates.push((supabase as any).from('productos_web').update(patch).eq('id', row.id))
+    }
+    if (updates.length > 0) {
+      const results = await Promise.all(updates)
+      const firstError = results.find((r) => r?.error)?.error
+      if (firstError) return { success: false, count: 0, error: firstError.message }
+    }
+
+    // 2. Crear registro para nunca publicados (activo=false, precio 1 si no hay precio_ec)
+    const idsInsertar = productoIds.filter((pid) => !existentesMap.has(pid))
+    if (idsInsertar.length > 0) {
+      const { data: prods } = await (supabase as any)
+        .from('productos')
+        .select('id, nombre, descripcion, sku_base, precio_ec')
+        .in('id', idsInsertar)
+
+      const inserts = ((prods || []) as any[]).map((p: any) => {
+        const precioPublico = p.precio_ec && Number(p.precio_ec) > 0 ? Number(p.precio_ec) : 1
+        if (quiereOferta && (numOferta as number) >= precioPublico) {
+          throw new Error(
+            `La oferta ($${(numOferta as number).toLocaleString('es-MX')}) debe ser menor al precio público ($${precioPublico.toLocaleString('es-MX')}). Sube el precio público primero.`
+          )
+        }
+        const baseText = p.nombre || p.descripcion || `producto-${p.id}`
+        const baseSlug = slugify(`${baseText}-${p.sku_base}`) || `producto-${p.id}`
+        const slug = `${baseSlug}-${Date.now().toString(36).substring(4)}`
+        return {
+          producto_id: p.id,
+          slug,
+          precio_publico: precioPublico,
+          precio_oferta: quiereOferta ? numOferta : null,
+          activo: false,
+          en_oferta: quiereOferta ? true : false,
+          destacado: quiereDestacado ? (flags.destacado as boolean) : false,
+          nuevo: quiereNuevo ? (flags.nuevo as boolean) : true,
+          created_at: nowIso,
+          updated_at: nowIso,
+        }
+      })
+
+      if (inserts.length > 0) {
+        const { error } = await (supabase as any).from('productos_web').insert(inserts)
+        if (error) return { success: false, count: 0, error: error.message }
+      }
+    }
+
+    revalidatePath('/ecommerce/productos-web')
+    revalidatePath('/shop')
+    return { success: true, count: productoIds.length }
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Error al actualizar flags.' }
+  }
+}
+
 
 /**
  * Accion Masiva: Publicar lote de productos seleccionados

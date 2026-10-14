@@ -10,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Search, X, SlidersHorizontal, Image as ImageIcon, ArrowUpDown, Tag, Users, Shirt,
+  Search, X, SlidersHorizontal, Image as ImageIcon, ArrowUpDown, Tag, Users, Shirt, Star, Sparkles, BadgePercent,
 } from 'lucide-react'
 import { CatalogoPdfModal } from './CatalogoPdfModal'
 
@@ -64,6 +64,7 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
   const hasActiveFilters =
     searchParams.has('q') ||
     searchParams.has('estado_web') ||
+    searchParams.has('especial') ||
     searchParams.has('marca_id') ||
     searchParams.has('genero_id') ||
     searchParams.has('tipo_prenda_id') ||
@@ -89,6 +90,13 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
     if (val === 'con_foto') return '📷 Con foto'
     if (val === 'sin_foto') return '🚫 Sin foto'
     return 'Todas las fotos'
+  }
+
+  const getEspecialLabel = (val: string | null) => {
+    if (val === 'en_oferta') return 'En oferta'
+    if (val === 'destacados') return 'Destacados'
+    if (val === 'nuevos') return 'Nuevos'
+    return 'Todos'
   }
 
   const getMarcaLabel = (val: string | null) => {
@@ -149,8 +157,8 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
 
       {/* Grid de Filtros */}
       <div className="space-y-3">
-        {/* Fila 1: Búsqueda, Estado, Fotos y Orden */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        {/* Fila 1: Búsqueda, Estado, Especiales, Fotos y Orden */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {/* 1. Buscador */}
           <div className="space-y-1 sm:col-span-2">
             <Label className="text-xs text-muted-foreground font-medium">Buscar por SKU, Descripción o Marca</Label>
@@ -195,7 +203,43 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
             </Select>
           </div>
 
-          {/* 3. Filtro Foto */}
+          {/* 3. Especiales (uno a la vez) */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+              <BadgePercent className="h-3 w-3" />
+              Especiales
+            </Label>
+            <Select
+              value={searchParams.get('especial') || 'all'}
+              onValueChange={(val) => updateQueryParam('especial', val)}
+            >
+              <SelectTrigger className="h-9 text-xs w-full">
+                <SelectValue>
+                  {getEspecialLabel(searchParams.get('especial'))}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className={popoverContentClass}>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="en_oferta">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5 text-emerald-600" /> En oferta
+                  </span>
+                </SelectItem>
+                <SelectItem value="destacados">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="h-3.5 w-3.5 text-amber-500" /> Destacados
+                  </span>
+                </SelectItem>
+                <SelectItem value="nuevos">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-purple-500" /> Nuevos
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 4. Filtro Foto */}
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground font-medium flex items-center gap-1">
               <ImageIcon className="h-3 w-3" />
@@ -218,7 +262,7 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
             </Select>
           </div>
 
-          {/* 4. Ordenar por */}
+          {/* 5. Ordenar por */}
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground flex items-center gap-1 font-semibold text-primary">
               <ArrowUpDown className="h-3 w-3" />

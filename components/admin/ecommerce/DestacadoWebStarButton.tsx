@@ -1,7 +1,7 @@
 // components/admin/ecommerce/DestacadoWebStarButton.tsx
 'use client'
 
-import { useState, useTransition, MouseEvent } from 'react'
+import { useState, useTransition, useEffect, MouseEvent } from 'react'
 import { Star, Loader2 } from 'lucide-react'
 import { toggleDestacadoProductoWebAction } from '@/modules/ecommerce/actions'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,11 @@ export function DestacadoWebStarButton({
 }: DestacadoWebStarButtonProps) {
   const [isDestacado, setIsDestacado] = useState<boolean>(initialDestacado)
   const [isPending, startTransition] = useTransition()
+
+  // Sincronizar con el servidor tras refresh (ej. cambio masivo de flags)
+  useEffect(() => {
+    setIsDestacado(initialDestacado)
+  }, [initialDestacado])
 
   const handleToggle = (e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault()

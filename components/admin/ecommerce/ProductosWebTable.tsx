@@ -17,17 +17,23 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Pagination } from '@/components/admin/Pagination'
 import {
-  Package, ExternalLink, Image as ImageIcon, Loader2, Sparkles, Tag, Check, X, Globe, DollarSign, Edit,
+  Package, ExternalLink, Image as ImageIcon, Loader2, Check, X, Globe, DollarSign, Edit, Flag,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DestacadoWebStarButton } from './DestacadoWebStarButton'
+import { NuevoSparkleButton } from './NuevoSparkleButton'
+import { OfertaTagButton } from './OfertaTagButton'
 import type { ProductoWebExtendido } from '@/modules/ecommerce/types'
 import {
   togglePublicarProductoWebAction,
   publicarProductosMasivoAction,
   despublicarProductosMasivoAction,
   actualizarPreciosMasivoAction,
+  actualizarFlagsMasivoAction,
 } from '@/modules/ecommerce/actions'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 
 interface ProductosWebTableProps {
   productos: ProductoWebExtendido[]
@@ -49,6 +55,14 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
   const [editingSingleProduct, setEditingSingleProduct] = useState<ProductoWebExtendido | null>(null)
   const [singlePrecioPublico, setSinglePrecioPublico] = useState<string>('')
   const [singlePrecioOferta, setSinglePrecioOferta] = useState<string>('')
+  const [singleEnOferta, setSingleEnOferta] = useState(false)
+
+  // Modal masivo de flags especiales (destacado / nuevo / en_oferta)
+  const [isFlagsModalOpen, setIsFlagsModalOpen] = useState(false)
+  const [flagDestacado, setFlagDestacado] = useState<'sin_cambio' | 'activar' | 'quitar'>('sin_cambio')
+  const [flagNuevo, setFlagNuevo] = useState<'sin_cambio' | 'activar' | 'quitar'>('sin_cambio')
+  const [flagOferta, setFlagOferta] = useState<'sin_cambio' | 'activar' | 'quitar'>('sin_cambio')
+  const [flagsPrecioOferta, setFlagsPrecioOferta] = useState<string>('')
 
   // Toggle individual
   const handleToggleSelect = (id: number) => {
@@ -133,22 +147,48 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
     })
   }
 
+  // Validación de precios: público ≥ $1; si en oferta, oferta ≥ $1 y < público (estricto)
+  const numPublicoBulk = Number(precioPublico)
+  const numOfertaBulk = precioOferta ? Number(precioOferta) : NaN
+  const bulkPublicoValido = Number.isFinite(numPublicoBulk) && numPublicoBulk >= 1
+  const bulkOfertaValida =
+    !enOferta ||
+    (Number.isFinite(numOfertaBulk) && numOfertaBulk >= 1 && numOfertaBulk < numPublicoBulk)
+  const bulkPreciosValidos = bulkPublicoValido && bulkOfertaValida
+  const bulkOfertaError =
+    enOferta && precioOferta
+      ? !Number.isFinite(numOfertaBulk) || numOfertaBulk < 1
+        ? 'La oferta debe ser ≥ $1.'
+        : numOfertaBulk >= numPublicoBulk
+          ? 'La oferta debe ser menor al precio público.'
+          : null
+      : null
+
   // Guardar Precios Masivos ($)
   const handleBulkPriceSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
 
-    const numPublico = Number(precioPublico)
-    if (isNaN(numPublico) || numPublico <= 0) {
-      toast.error('Por favor ingresa un precio público válido mayor a $0.')
+    if (!bulkPublicoValido) {
+      toast.error('Ingresa un precio público ≥ $1.')
       return
     }
+    if (enOferta) {
+      if (!Number.isFinite(numOfertaBulk) || numOfertaBulk < 1) {
+        toast.error('Activa oferta solo con precio de oferta ≥ $1.')
+        return
+      }
+      if (numOfertaBulk >= numPublicoBulk) {
+        toast.error('La oferta debe ser menor al precio público.')
+        return
+      }
+    }
 
-    const numOferta = precioOferta ? Number(precioOferta) : null
+    const numOferta = enOferta ? numOfertaBulk : null
 
     startTransition(async () => {
-      const res = await actualizarPreciosMasivoAction(ids, numPublico, numOferta, enOferta)
+      const res = await actualizarPreciosMasivoAction(ids, numPublicoBulk, numOferta, enOferta)
       if (res.success) {
         toast.success(`Precios actualizados para ${res.count} productos.`)
         setIsPriceModalOpen(false)
@@ -163,25 +203,43 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
     })
   }
 
+  // Validación modal individual
+  const numSinglePublico = Number(singlePrecioPublico)
+  const numSingleOferta = singlePrecioOferta ? Number(singlePrecioOferta) : NaN
+  const singlePublicoValido = Number.isFinite(numSinglePublico) && numSinglePublico >= 1
+  const singleOfertaValida =
+    !singleEnOferta ||
+    (Number.isFinite(numSingleOferta) && numSingleOferta >= 1 && numSingleOferta < numSinglePublico)
+  const singlePreciosValidos = singlePublicoValido && singleOfertaValida
+
   // Guardar Precio de Producto Individual al hacer clic en la columna de precios
   const handleSinglePriceSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingSingleProduct) return
 
-    const numPublico = Number(singlePrecioPublico)
-    if (isNaN(numPublico) || numPublico <= 0) {
-      toast.error('Por favor ingresa un precio público válido mayor a $0.')
+    if (!singlePublicoValido) {
+      toast.error('Ingresa un precio público ≥ $1.')
       return
     }
+    if (singleEnOferta) {
+      if (!Number.isFinite(numSingleOferta) || numSingleOferta < 1) {
+        toast.error('Activa oferta solo con precio de oferta ≥ $1.')
+        return
+      }
+      if (numSingleOferta >= numSinglePublico) {
+        toast.error('La oferta debe ser menor al precio público.')
+        return
+      }
+    }
 
-    const numOferta = singlePrecioOferta ? Number(singlePrecioOferta) : null
+    const numOferta = singleEnOferta ? numSingleOferta : null
 
     startTransition(async () => {
       const res = await actualizarPreciosMasivoAction(
         [editingSingleProduct.producto_id],
-        numPublico,
+        numSinglePublico,
         numOferta,
-        !!numOferta
+        singleEnOferta
       )
 
       if (res.success) {
@@ -192,6 +250,69 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
         toast.error(res.error || 'Error al guardar precio.')
       }
     })
+  }
+
+  // Resumen de flags en la selección (para decidir activar/quitar con datos)
+  const selectedProductos = productos.filter((p) => selectedIds.has(p.producto_id))
+  const selConDestacado = selectedProductos.filter((p) => p.destacado).length
+  const selConNuevo = selectedProductos.filter((p) => p.nuevo).length
+  const selConOferta = selectedProductos.filter((p) => p.en_oferta).length
+
+  // Guardar Flags Especiales en lote (crea registro si nunca publicado)
+  const numFlagsOferta = flagsPrecioOferta ? Number(flagsPrecioOferta) : NaN
+  const flagsOfertaValida =
+    flagOferta !== 'activar' ||
+    (Number.isFinite(numFlagsOferta) && numFlagsOferta >= 1)
+  const flagsTieneCambio =
+    flagDestacado !== 'sin_cambio' || flagNuevo !== 'sin_cambio' || flagOferta !== 'sin_cambio'
+  const flagsValidas = flagsTieneCambio && flagsOfertaValida
+
+  const handleBulkFlagsSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    if (!flagsTieneCambio) {
+      toast.error('Elige al menos un flag para actualizar.')
+      return
+    }
+    if (flagOferta === 'activar' && (!Number.isFinite(numFlagsOferta) || numFlagsOferta < 1)) {
+      toast.error('Para activar oferta fija un precio de oferta ≥ $1.')
+      return
+    }
+
+    const toBool = (v: 'sin_cambio' | 'activar' | 'quitar') =>
+      v === 'sin_cambio' ? null : v === 'activar'
+
+    startTransition(async () => {
+      const res = await actualizarFlagsMasivoAction(
+        ids,
+        {
+          destacado: toBool(flagDestacado),
+          nuevo: toBool(flagNuevo),
+          en_oferta: toBool(flagOferta),
+        },
+        flagOferta === 'activar' ? numFlagsOferta : null
+      )
+      if (res.success) {
+        toast.success(`Flags actualizados para ${res.count} productos (borrador si era necesario).`)
+        setIsFlagsModalOpen(false)
+        setFlagDestacado('sin_cambio')
+        setFlagNuevo('sin_cambio')
+        setFlagOferta('sin_cambio')
+        setFlagsPrecioOferta('')
+        setSelectedIds(new Set())
+        router.refresh()
+      } else {
+        toast.error(res.error || 'Error al actualizar flags.')
+      }
+    })
+  }
+
+  const openSinglePriceModal = (producto: ProductoWebExtendido) => {
+    setEditingSingleProduct(producto)
+    setSinglePrecioPublico(producto.precio_publico ? String(producto.precio_publico) : '')
+    setSinglePrecioOferta(producto.precio_oferta ? String(producto.precio_oferta) : '')
+    setSingleEnOferta(producto.en_oferta ?? false)
   }
 
   if (productos.length === 0) {
@@ -223,7 +344,7 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
               <TableHead className="w-[120px]">SKU</TableHead>
               <TableHead>Descripción & Marca</TableHead>
               <TableHead>Categoría</TableHead>
-              <TableHead className="w-[140px]">Precios Web (Clic para editar)</TableHead>
+              <TableHead className="w-[140px]" title="Clic en el precio para editar">Precio</TableHead>
               <TableHead className="w-[130px]">Estado Web</TableHead>
               <TableHead className="text-right w-[160px]">Acciones</TableHead>
             </TableRow>
@@ -266,12 +387,12 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                     )}
                   </TableCell>
 
-                  {/* SKU Base + Estrella Destacado */}
+                  {/* SKU Base + Flags rápidos (destacado / oferta / nuevo) */}
                   <TableCell className="font-mono text-xs font-bold">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       <Link
                         href={`/catalogo/${producto.producto_id}`}
-                        className="hover:text-primary hover:underline transition-colors"
+                        className="hover:text-primary hover:underline transition-colors mr-0.5"
                       >
                         {producto.sku_base}
                       </Link>
@@ -281,13 +402,26 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                         initialDestacado={producto.destacado}
                         skuBase={producto.sku_base}
                       />
+                      <OfertaTagButton
+                        productoId={producto.producto_id}
+                        productoWebId={producto.producto_web_id}
+                        initialEnOferta={producto.en_oferta}
+                        skuBase={producto.sku_base}
+                        onNeedsPrice={() => openSinglePriceModal(producto)}
+                      />
+                      <NuevoSparkleButton
+                        productoId={producto.producto_id}
+                        productoWebId={producto.producto_web_id}
+                        initialNuevo={producto.nuevo}
+                        skuBase={producto.sku_base}
+                      />
                     </div>
                   </TableCell>
 
-                  {/* Descripción y Marca */}
-                  <TableCell>
-                    <div className="space-y-0.5">
-                      <p className="font-semibold text-xs text-foreground line-clamp-2" title={producto.descripcion || producto.nombre}>
+                  {/* Descripción y Marca (máx 3 líneas + marca, sin scroll horizontal) */}
+                  <TableCell className="min-w-0">
+                    <div className="space-y-0.5 min-w-0 max-w-[360px]">
+                      <p className="font-semibold text-xs text-foreground line-clamp-3 break-words whitespace-normal leading-snug overflow-hidden" title={producto.descripcion || producto.nombre}>
                         {producto.descripcion || producto.nombre}
                       </p>
                       <p className="text-[11px] text-muted-foreground font-medium">
@@ -316,22 +450,22 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                   <TableCell>
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditingSingleProduct(producto)
-                        setSinglePrecioPublico(producto.precio_publico ? String(producto.precio_publico) : '')
-                        setSinglePrecioOferta(producto.precio_oferta ? String(producto.precio_oferta) : '')
-                      }}
+                      onClick={() => openSinglePriceModal(producto)}
                       className="text-left group/price p-1.5 rounded-md hover:bg-primary/10 transition-colors w-full cursor-pointer flex items-center justify-between"
                       title="Haz clic para editar precio"
                     >
                       {producto.precio_publico ? (
                         <div className="text-xs font-semibold">
                           <span>${producto.precio_publico.toLocaleString('es-MX')}</span>
-                          {producto.precio_oferta && (
-                            <p className="text-[10px] text-destructive line-through font-normal">
-                              ${producto.precio_oferta.toLocaleString('es-MX')}
+                          {producto.en_oferta && producto.precio_oferta ? (
+                            <p className="text-[10px] text-emerald-600 font-semibold">
+                              Oferta ${producto.precio_oferta.toLocaleString('es-MX')}
                             </p>
-                          )}
+                          ) : producto.precio_oferta ? (
+                            <p className="text-[10px] text-muted-foreground font-normal">
+                              Oferta ${producto.precio_oferta.toLocaleString('es-MX')} (off)
+                            </p>
+                          ) : null}
                         </div>
                       ) : (
                         <span className="text-[11px] text-muted-foreground italic flex items-center gap-1">
@@ -438,6 +572,18 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                 <span>Fijar Precios ($)</span>
               </Button>
 
+              {/* Botón Flags especiales */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-purple-500/30 text-purple-700 dark:text-purple-400 hover:bg-purple-50 font-semibold text-xs gap-1.5 h-9"
+                onClick={() => setIsFlagsModalOpen(true)}
+                disabled={isPending}
+              >
+                <Flag className="h-4 w-4 text-purple-600" />
+                <span>Flags</span>
+              </Button>
+
               {/* Botón Publicar Selección */}
               <Button
                 size="sm"
@@ -488,13 +634,13 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
           <form onSubmit={handleBulkPriceSubmit} className="space-y-4 pt-2">
             <div className="space-y-1.5">
               <Label htmlFor="precioPublico" className="text-xs font-semibold">
-                Precio Público ($ MXN) *
+                Precio Público ($ MXN) * mín $1
               </Label>
               <Input
                 id="precioPublico"
                 type="number"
                 step="0.01"
-                min="0"
+                min="1"
                 placeholder="Ej: 350.00"
                 value={precioPublico}
                 onChange={(e) => setPrecioPublico(e.target.value)}
@@ -502,39 +648,157 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
               />
             </div>
 
+            <div className="flex items-center justify-between border rounded-lg px-3 py-2 bg-muted/30">
+              <Label htmlFor="enOferta" className="text-xs font-medium cursor-pointer">
+                Poner en oferta en la tienda
+              </Label>
+              <Switch
+                id="enOferta"
+                checked={enOferta}
+                onCheckedChange={(v) => {
+                  setEnOferta(v)
+                  if (!v) setPrecioOferta('')
+                }}
+              />
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="precioOferta" className="text-xs font-semibold">
-                Precio Oferta ($ MXN) (Opcional)
+                Precio Oferta ($ MXN) {enOferta ? '* mín $1 y menor al público' : '(activa el check para usarlo)'}
               </Label>
               <Input
                 id="precioOferta"
                 type="number"
                 step="0.01"
-                min="0"
+                min="1"
                 placeholder="Ej: 299.00"
                 value={precioOferta}
                 onChange={(e) => setPrecioOferta(e.target.value)}
+                disabled={!enOferta}
+                required={enOferta}
               />
-            </div>
-
-            <div className="flex items-center justify-between border-t pt-3">
-              <Label htmlFor="enOferta" className="text-xs font-medium cursor-pointer">
-                Marcar como "En Oferta" en la tienda
-              </Label>
-              <Switch
-                id="enOferta"
-                checked={enOferta}
-                onCheckedChange={setEnOferta}
-              />
+              {bulkOfertaError && (
+                <p className="text-[11px] text-destructive font-medium">{bulkOfertaError}</p>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t">
               <Button type="button" variant="outline" size="sm" onClick={() => setIsPriceModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" size="sm" disabled={isPending} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
+              <Button type="submit" size="sm" disabled={isPending || !bulkPreciosValidos} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
                 {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Aplicar Precios a los {selectedIds.size} Productos
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Modal: Flags especiales en lote (crea borrador si nunca publicado) */}
+      <Dialog open={isFlagsModalOpen} onOpenChange={setIsFlagsModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Flag className="h-5 w-5 text-purple-600" />
+              Flags para {selectedIds.size} Productos
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleBulkFlagsSubmit} className="space-y-4 pt-2">
+            <p className="text-[11px] text-muted-foreground">
+              Si el producto nunca se publicó se crea el registro en borrador (pausado) con precio $1 si no tiene precio.
+            </p>
+            {selectedIds.size > 0 && (
+              <div className="rounded-lg bg-muted/40 border px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                De los <strong className="text-foreground">{selectedIds.size}</strong> seleccionados:{" "}
+                <strong className="text-foreground">{selConDestacado}</strong> destacados ·{" "}
+                <strong className="text-foreground">{selConNuevo}</strong> nuevos ·{" "}
+                <strong className="text-foreground">{selConOferta}</strong> en oferta.
+                {flagNuevo === 'quitar' && selConNuevo === 0 && (
+                  <span className="block text-amber-600 font-medium pt-0.5">
+                    Ninguno tiene Nuevo: quitar no hará cambios.
+                  </span>
+                )}
+                {flagDestacado === 'quitar' && selConDestacado === 0 && (
+                  <span className="block text-amber-600 font-medium pt-0.5">
+                    Ninguno es Destacado: quitar no hará cambios.
+                  </span>
+                )}
+                {flagOferta === 'quitar' && selConOferta === 0 && (
+                  <span className="block text-amber-600 font-medium pt-0.5">
+                    Ninguno está en oferta: quitar no hará cambios.
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Destacado (estrella)</Label>
+              <Select value={flagDestacado} onValueChange={(v: any) => setFlagDestacado(v)}>
+                <SelectTrigger className="h-9 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sin_cambio">Sin cambio</SelectItem>
+                  <SelectItem value="activar">Activar destacado</SelectItem>
+                  <SelectItem value="quitar">Quitar destacado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Nuevo / Novedad (sparkles)</Label>
+              <Select value={flagNuevo} onValueChange={(v: any) => setFlagNuevo(v)}>
+                <SelectTrigger className="h-9 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sin_cambio">Sin cambio</SelectItem>
+                  <SelectItem value="activar">Marcar como nuevo</SelectItem>
+                  <SelectItem value="quitar">Quitar nuevo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">En oferta (etiqueta)</Label>
+              <Select value={flagOferta} onValueChange={(v: any) => setFlagOferta(v)}>
+                <SelectTrigger className="h-9 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sin_cambio">Sin cambio</SelectItem>
+                  <SelectItem value="activar">Poner en oferta</SelectItem>
+                  <SelectItem value="quitar">Quitar oferta</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {flagOferta === 'activar' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="flagsPrecioOferta" className="text-xs font-semibold">
+                  Precio Oferta ($ MXN) * mín $1 y menor al público de cada producto
+                </Label>
+                <Input
+                  id="flagsPrecioOferta"
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  placeholder="Ej: 299.00"
+                  value={flagsPrecioOferta}
+                  onChange={(e) => setFlagsPrecioOferta(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsFlagsModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" disabled={isPending || !flagsValidas} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
+                {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Aplicar Flags
               </Button>
             </div>
           </form>
@@ -555,13 +819,13 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
             <form onSubmit={handleSinglePriceSubmit} className="space-y-4 pt-2">
               <div className="space-y-1.5">
                 <Label htmlFor="singlePrecioPublico" className="text-xs font-semibold">
-                  Precio Público ($ MXN) *
+                  Precio Público ($ MXN) * mín $1
                 </Label>
                 <Input
                   id="singlePrecioPublico"
                   type="number"
                   step="0.01"
-                  min="0"
+                  min="1"
                   placeholder="Ej: 350.00"
                   value={singlePrecioPublico}
                   onChange={(e) => setSinglePrecioPublico(e.target.value)}
@@ -570,26 +834,48 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                 />
               </div>
 
+              <div className="flex items-center justify-between border rounded-lg px-3 py-2 bg-muted/30">
+                <Label htmlFor="singleEnOferta" className="text-xs font-medium cursor-pointer">
+                  Poner en oferta en la tienda
+                </Label>
+                <Switch
+                  id="singleEnOferta"
+                  checked={singleEnOferta}
+                  onCheckedChange={(v) => {
+                    setSingleEnOferta(v)
+                    if (!v) setSinglePrecioOferta('')
+                  }}
+                />
+              </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="singlePrecioOferta" className="text-xs font-semibold">
-                  Precio Oferta ($ MXN) (Opcional)
+                  Precio Oferta ($ MXN) {singleEnOferta ? '* mín $1 y menor al público' : '(activa el check para usarlo)'}
                 </Label>
                 <Input
                   id="singlePrecioOferta"
                   type="number"
                   step="0.01"
-                  min="0"
+                  min="1"
                   placeholder="Ej: 299.00"
                   value={singlePrecioOferta}
                   onChange={(e) => setSinglePrecioOferta(e.target.value)}
+                  disabled={!singleEnOferta}
+                  required={singleEnOferta}
                 />
+                {singleEnOferta && singlePrecioOferta && (!Number.isFinite(numSingleOferta) || numSingleOferta < 1) && (
+                  <p className="text-[11px] text-destructive font-medium">La oferta debe ser ≥ $1.</p>
+                )}
+                {singleEnOferta && Number.isFinite(numSingleOferta) && numSingleOferta >= 1 && numSingleOferta >= numSinglePublico && (
+                  <p className="text-[11px] text-destructive font-medium">La oferta debe ser menor al precio público.</p>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <Button type="button" variant="outline" size="sm" onClick={() => setEditingSingleProduct(null)}>
                   Cancelar
                 </Button>
-                <Button type="submit" size="sm" disabled={isPending} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
+                <Button type="submit" size="sm" disabled={isPending || !singlePreciosValidos} className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white">
                   {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Guardar Precio
                 </Button>
