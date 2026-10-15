@@ -26,7 +26,8 @@ import {
 import {
   Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
-  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste
+  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste,
+  Layers
 } from 'lucide-react'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
@@ -840,6 +841,11 @@ export function NoteDraftBuilder({
 
   // Estado para alternar visibilidad de las columnas secundarias (Caja física y Piezas)
   const [showExtraCols, setShowExtraCols] = useState<boolean>(false)
+
+  // Toggle para ver columna Pz en modo solo cajas (solo lectura, las piezas van en 0)
+  const [mostrarPiezas, setMostrarPiezas] = useState<boolean>(false)
+  // Sin modo solo cajas la rige showExtraCols; con modo solo cajas la rige mostrarPiezas
+  const verPiezas = !modoSoloCajas ? showExtraCols : mostrarPiezas
 
   // Estado y manejador para pegar productos desde Excel / Portapapeles
   const [showPasteExcelModal, setShowPasteExcelModal] = useState<boolean>(false)
@@ -1903,6 +1909,22 @@ export function NoteDraftBuilder({
                 </>
               )}
             </Button>
+
+            {/* Toggle columna Pz en modo solo cajas (solo lectura) */}
+            {modoSoloCajas && (
+              <Button
+                type="button"
+                variant={mostrarPiezas ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setMostrarPiezas((v) => !v)}
+                aria-pressed={mostrarPiezas}
+                className="h-8 text-xs font-bold gap-1.5 rounded-xl border shadow-xs"
+                title={mostrarPiezas ? 'Ocultar columna de piezas sueltas' : 'Mostrar columna de piezas sueltas'}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>Pz</span>
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -2180,7 +2202,7 @@ export function NoteDraftBuilder({
                     <th className="px-4 py-3 text-left">Producto</th>
                     {showExtraCols && <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>}
                     <th className="px-4 py-3 text-center min-w-[140px]">Cajas</th>
-                    {showExtraCols && !modoSoloCajas && <th className="px-4 py-3 text-center">Piezas</th>}
+                    {verPiezas && <th className="px-4 py-3 text-center">Piezas</th>}
                     <th className="px-4 py-3 text-right">Total est.</th>
                     <th className="px-4 py-3 w-[50px]"></th>
                   </tr>
@@ -2393,9 +2415,17 @@ export function NoteDraftBuilder({
                           </div>
                         </td>
 
-                        {/* Columna Ocultable de Piezas (oculta en modo solo cajas) */}
-                        {showExtraCols && !modoSoloCajas && (
+                        {/* Columna de Piezas (editable sin modo solo cajas; solo lectura con Pz en modo solo cajas) */}
+                        {verPiezas && (
                           <td className="px-4 py-3 text-center">
+                            {modoSoloCajas ? (
+                              <span
+                                className="font-mono text-xs tabular-nums text-muted-foreground"
+                                title="Piezas bloqueadas por modo solo cajas (0)"
+                              >
+                                {p.piezas_sueltas}
+                              </span>
+                            ) : (
                             <Input
                               type="number"
                               min="0"
@@ -2416,6 +2446,7 @@ export function NoteDraftBuilder({
                               className="h-7 w-14 text-center font-mono text-xs px-1 rounded-lg border tabular-nums mx-auto"
                               disabled={todoBloqueado || soloEditaDestino}
                             />
+                            )}
                           </td>
                         )}
 
@@ -2461,7 +2492,7 @@ export function NoteDraftBuilder({
                         <span className="text-lg">{totalCajas}</span>
                       )}
                     </td>
-                    <td colSpan={showExtraCols ? 3 : 2}></td>
+                    <td colSpan={2 + (showExtraCols ? 1 : 0) + (verPiezas ? 1 : 0)}></td>
                   </tr>
                 </tfoot>
               </table>

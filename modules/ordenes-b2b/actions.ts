@@ -1245,9 +1245,12 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     const boxDetails = payload.detalles.filter(
       (d: any) => String(d.codigo_caja_temporal).toUpperCase() === code.toUpperCase()
     )
+    // Omision silenciosa: celdas en cero no se insertan (CHECK cantidad>0 en
+    // BD; el packing lista colores con 0 en remanentes). Solo celdas > 0.
+    const boxDetailsPositivos = boxDetails.filter((d: any) => Number(d.cantidad_por_caja ?? 0) > 0)
 
-    if (boxDetails.length > 0) {
-      const payloadDetails = boxDetails.map((d: any) => {
+    if (boxDetailsPositivos.length > 0) {
+      const payloadDetails = boxDetailsPositivos.map((d: any) => {
         const rawTalla = String(d.talla_codigo || '').trim().toUpperCase()
         const stdTalla = standardizeTallaNameAction(rawTalla)
         let tallaId = tallasMap.get(stdTalla) || tallasMap.get(rawTalla) || null
