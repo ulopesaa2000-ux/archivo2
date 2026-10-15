@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useTransition, useCallback, useEffect, useRef } from 'react'
+import { usePanZoom, useNativeWheel } from '@/hooks/use-pan-zoom'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
@@ -24,7 +25,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle,
+  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle, CalendarClock,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
   ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste,
   Layers
@@ -49,7 +50,7 @@ import type {
   ProductoSustitutoFamilia, ProductoSustitutoAmpliado
 } from '@/modules/inventario/types'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
-import { cn, todayMX, formatForDateInput } from '@/lib/utils'
+import { cn, todayMX, formatForDateInput, formatDate } from '@/lib/utils'
 import { NotaFechaPicker } from '@/components/admin/NotaFechaPicker'
 
 const NO_CAJA_VALUE = '_none'
@@ -152,16 +153,10 @@ export function NoteDraftBuilder({
     }
   }
 
-  const [zoomScale, setZoomScale] = useState(1)
-  const [rotateDeg, setRotateDeg] = useState(0)
-
-  const handleZoomIn = () => setZoomScale(s => Math.min(s + 0.25, 3))
-  const handleZoomOut = () => setZoomScale(s => Math.max(s - 0.25, 0.5))
-  const handleRotate = () => setRotateDeg(d => (d + 90) % 360)
-  const handleReset = () => {
-    setZoomScale(1)
-    setRotateDeg(0)
-  }
+  // Visor OCR: pan + zoom unificado (mouse y táctil); la rueda normal scrollea
+  const visor = usePanZoom({ max: 3, wheel: 'ctrl' })
+  const visorRef = useRef<HTMLDivElement | null>(null)
+  useNativeWheel(visorRef, visor.handleWheel)
 
   const esCreador = mode === 'create' || initialData?.cabecera.usuario_id === usuarioId
   const esAdmin = currentUserLevel <= 2
@@ -1075,8 +1070,60 @@ export function NoteDraftBuilder({
   const hayDeficitStock = productosConDeficit.length > 0
 
   // Confirmación rápida de stock negativo cuando está permitido
-  const [showNegativeStockConfirmDialog, setShowNegativeStockConfirmDialog] = useState(false)
   const [pendingConfirmState, setPendingConfirmState] = useState<boolean>(false)
+
+  // ── Avisos informativos pre-guardado (nunca bloquean, como negativo permitido) ──
+  const BODEGA_DURAZNO_ID = 5
+  const BODEGA_COCINA_ID = 10
+  const [showRevisionDialog, setShowRevisionDialog] = useState(false)
+  // Fecha ya advertida en esta sesión: no repetir si no la cambió
+  const fechaAdvertidaRef = useRef<string | null>(null)
+
+  const ladoDurazno = (): 'origen' | 'destino' | 'ambos' | null => {
+    const o = draft.bodega_origen_id === BODEGA_DURAZNO_ID
+    const d = draft.bodega_destino_id === BODEGA_DURAZNO_ID
+    if (o && d) return 'ambos'
+    if (o) return 'origen'
+    if (d) return 'destino'
+    return null
+  }
+
+  const hayAvisoFecha = (): boolean => {
+    const f = (draft.fecha_nota ?? '').trim()
+    return !!f && f > todayMX() && fechaAdvertidaRef.current !== f
+  }
+
+  const hayAvisosRevision = (): boolean =>
+    (hayDeficitStock && permitirStockNegativo) || hayAvisoFecha() || !!ladoDurazno()
+
+  const finalizarAdvertencias = (confirmar: boolean) => {
+    if (confirmar) {
+      setShowConfirmDialog(true)
+      return
+    }
+    doSave(false)
+  }
+
+  const handleCambiarACocina = async () => {
+    const lado = ladoDurazno()
+    setShowRevisionDialog(false)
+    if (!lado) {
+      return
+    }
+    if (lado === 'destino' || lado === 'ambos') {
+      setDraft((prev) => ({
+        ...prev,
+        bodega_destino_id: prev.bodega_destino_id === BODEGA_DURAZNO_ID ? BODEGA_COCINA_ID : prev.bodega_destino_id,
+      }))
+    }
+    if (lado === 'origen' || lado === 'ambos') {
+      // Reutiliza el cambio con recálculo de existencias; no auto-guardar (draft aún no refleja el cambio)
+      await applyBodegaOrigenChange(BODEGA_COCINA_ID)
+    } else {
+      toast.success('Bodega destino actualizada a "Cocina".')
+    }
+    toast.info('Revisa los datos y vuelve a guardar la nota.')
+  }
 
   const doSearchSwap = useDebouncedCallback(async (term: string) => {
     const clean = term.trim()
@@ -1231,12 +1278,14 @@ export function NoteDraftBuilder({
           `Operación bloqueada: Hay ${productosConDeficit.length} producto(s) en rojo con existencias insuficientes en la bodega origen. La configuración actual prohíbe generar saldos negativos.`
         )
         return
-      } else {
-        // Permitir stock negativo activo: Confirmación rápida sin bloqueo permanente
-        setPendingConfirmState(confirmar)
-        setShowNegativeStockConfirmDialog(true)
-        return
       }
+    }
+
+    // Avisos informativos en un solo panel (déficit permitido, fecha futura, Durazno)
+    if (hayAvisosRevision()) {
+      setPendingConfirmState(confirmar)
+      setShowRevisionDialog(true)
+      return
     }
 
     if (confirmar) {
@@ -1322,6 +1371,9 @@ export function NoteDraftBuilder({
       : selectedProductStock.cajas - cajasNum
   ) : 0
 
+  // Visor OCR/comprobante fijo a la izquierda en desktop (una columna en móvil)
+  const hasViewer = !!(ocrProposalId || comprobantePreview)
+
   return (
     <div className="space-y-6">
       {/* Mensajes */}
@@ -1338,7 +1390,10 @@ export function NoteDraftBuilder({
         </div>
       )}
 
-      <div className="w-full max-w-4xl mx-auto space-y-6">
+      <div className={hasViewer ? "w-full max-w-[110rem] mx-auto" : "w-full max-w-4xl mx-auto space-y-6"}>
+        {/* Grid visor fijo izquierda en desktop cuando hay comprobante/OCR */}
+        <div className={hasViewer ? "grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start" : "space-y-6 min-w-0"}>
+          <div className={hasViewer ? "order-1 lg:order-2 lg:col-span-7 xl:col-span-8 space-y-6 min-w-0" : "space-y-6 min-w-0"}>
         {/* ── Configuración de la nota ────────────────────── */}
         <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
           <CardHeader className="pb-4">
@@ -2505,10 +2560,11 @@ export function NoteDraftBuilder({
           )}
         </CardContent>
       </Card>
+        </div>
 
-      {/* ── Visor de Nota Original (OCR / Comprobante) en flujo vertical ── */}
+      {/* ── Visor de Nota Original (OCR / Comprobante): izquierda fija en desktop ── */}
       {(ocrProposalId || comprobantePreview) && (
-        <Card className="w-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden">
+        <Card className="w-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden order-2 lg:order-1 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24 lg:self-start lg:z-10 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
           <CardHeader className="pb-2 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2 space-y-0">
             <div>
               <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground">
@@ -2537,7 +2593,7 @@ export function NoteDraftBuilder({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-lg"
-                onClick={handleZoomOut}
+                onClick={visor.zoomOut}
                 title="Alejar"
               >
                 <ZoomOut className="h-4 w-4" />
@@ -2547,7 +2603,7 @@ export function NoteDraftBuilder({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-lg"
-                onClick={handleZoomIn}
+                onClick={visor.zoomIn}
                 title="Acercar"
               >
                 <ZoomIn className="h-4 w-4" />
@@ -2557,7 +2613,7 @@ export function NoteDraftBuilder({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-lg"
-                onClick={handleRotate}
+                onClick={visor.rotate}
                 title="Rotar 90°"
               >
                 <RotateCw className="h-4 w-4" />
@@ -2567,7 +2623,7 @@ export function NoteDraftBuilder({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-lg"
-                onClick={handleReset}
+                onClick={visor.reset}
                 title="Restaurar"
               >
                 <RotateCcw className="h-4 w-4" />
@@ -2585,13 +2641,22 @@ export function NoteDraftBuilder({
               )}
             </div>
           </CardHeader>
-          <CardContent className="p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[250px] max-h-[480px]">
+          <CardContent
+            ref={visorRef}
+            onPointerDown={visor.onPointerDown}
+            onPointerMove={visor.onPointerMove}
+            onPointerUp={visor.onPointerUp}
+            onPointerCancel={visor.onPointerCancel}
+            onPointerLeave={visor.onPointerUp}
+            className="p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[250px] max-h-[480px] touch-none select-none"
+            style={{ cursor: visor.dragging ? 'grabbing' : 'grab' }}
+          >
             {comprobantePreview ? (
               <div className="w-full h-full overflow-auto flex items-center justify-center relative min-h-[250px] max-h-[450px]">
-                <div 
-                  className="relative w-full h-[400px] transition-transform duration-200 ease-out"
+                <div
+                  className="relative w-full h-[400px] transition-transform duration-75 ease-out"
                   style={{
-                    transform: `scale(${zoomScale}) rotate(${rotateDeg}deg)`,
+                    transform: visor.transform,
                     transformOrigin: 'center center',
                   }}
                 >
@@ -2601,6 +2666,8 @@ export function NoteDraftBuilder({
                     fill
                     className="object-contain"
                     unoptimized
+                    draggable={false}
+                    onDragStart={(e) => e.preventDefault()}
                   />
                 </div>
               </div>
@@ -2613,6 +2680,7 @@ export function NoteDraftBuilder({
           </CardContent>
         </Card>
       )}
+        </div>
 
       {/* ── Acciones Finales ── */}
       <div className="flex flex-col gap-3 pt-4 border-t">
@@ -2874,44 +2942,92 @@ export function NoteDraftBuilder({
         onReasignarProducto={handleReasignarProducto}
       />
 
-      {/* ── Diálogo de Advertencia Rápida para Stock Negativo ─ */}
-      <AlertDialog open={showNegativeStockConfirmDialog} onOpenChange={setShowNegativeStockConfirmDialog}>
+      {/* ── Revisión pre-guardado: negativo permitido, fecha futura y Durazno en un solo panel ─ */}
+      <AlertDialog open={showRevisionDialog} onOpenChange={setShowRevisionDialog}>
         <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-              Advertencia: Saldo Negativo Proyectado
+            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <Sparkles className="h-5 w-5 text-primary shrink-0" />
+              Revisar antes de guardar
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
-              <span>
-                Esta nota contiene{' '}
-                <strong className="text-foreground">{productosConDeficit.length} producto(s)</strong> que superan el stock físico disponible en{' '}
-                <strong className="text-foreground">
-                  {catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre || 'la bodega origen'}
-                </strong>.
-              </span>
-              <span className="block text-xs font-medium text-amber-900 dark:text-amber-200 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
-                ⚠️ Debido a que la configuración del sistema tiene <strong>habilitado el stock negativo</strong>, la operación se procesará dejando existencias menores a 0.
-              </span>
+            <AlertDialogDescription className="text-sm text-muted-foreground pt-1">
+              Hay puntos a revisar en esta nota. Son solo avisos: puedes corregir o continuar.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3 py-1">
+            {hayDeficitStock && permitirStockNegativo && (
+              <div className="text-xs font-medium text-amber-900 dark:text-amber-200 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                  Saldo negativo proyectado
+                </p>
+                <p>
+                  <strong className="text-foreground">{productosConDeficit.length} producto(s)</strong> superan el stock de{' '}
+                  <strong className="text-foreground">
+                    {catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre || 'la bodega origen'}
+                  </strong>. Con stock negativo habilitado quedarán existencias menores a 0.
+                </p>
+              </div>
+            )}
+            {hayAvisoFecha() && (
+              <div className="text-xs font-medium text-sky-900 dark:text-sky-200 bg-sky-500/10 border border-sky-500/20 p-3 rounded-xl space-y-2">
+                <p className="font-bold flex items-center gap-1.5">
+                  <CalendarClock className="h-4 w-4 text-sky-500 shrink-0" />
+                  Nota a futuro: movimiento programado
+                </p>
+                <p>
+                  Fecha de la nota: <strong className="font-mono">{formatDate(draft.fecha_nota) || draft.fecha_nota}</strong>
+                  {' '}· Hoy: <strong className="font-mono">{formatDate(todayMX())}</strong>.
+                  Si no es el caso puede cambiar la fecha aquí:
+                </p>
+                <Input
+                  type="date"
+                  value={draft.fecha_nota || todayMX()}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, fecha_nota: e.target.value }))}
+                  className="h-9 rounded-xl font-mono text-xs bg-background"
+                />
+              </div>
+            )}
+            {ladoDurazno() && (
+              <div className="text-xs font-medium text-violet-900 dark:text-violet-200 bg-violet-500/10 border border-violet-500/20 p-3 rounded-xl space-y-2">
+                <p className="font-bold flex items-center gap-1.5">
+                  <ArrowLeftRight className="h-4 w-4 text-violet-500 shrink-0" />
+                  Bodega Durazno unificada con Cocina
+                </p>
+                <p>
+                  ¿Seguro que la nota desea que esté en{' '}
+                  <strong className="text-foreground">
+                    Durazno ({ladoDurazno() === 'ambos' ? 'origen y destino' : ladoDurazno()})
+                  </strong>
+                  ? ¿Desea cambiarlo a Cocina?
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCambiarACocina}
+                  className="h-8 text-xs font-bold gap-1.5 rounded-xl"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  Cambiar a Cocina
+                </Button>
+              </div>
+            )}
+          </div>
           <AlertDialogFooter className="mt-4 gap-2">
             <AlertDialogCancel
-              onClick={() => setShowNegativeStockConfirmDialog(false)}
+              onClick={() => setShowRevisionDialog(false)}
               className="rounded-xl font-bold uppercase text-xs tracking-wider"
             >
               Revisar / Modificar
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                setShowNegativeStockConfirmDialog(false)
-                if (pendingConfirmState) {
-                  setShowConfirmDialog(true)
-                } else {
-                  doSave(false)
-                }
+                fechaAdvertidaRef.current = (draft.fecha_nota ?? '').trim()
+                setShowRevisionDialog(false)
+                finalizarAdvertencias(pendingConfirmState)
               }}
-              className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold uppercase text-xs tracking-wider shadow-md"
+              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase text-xs tracking-wider shadow-md"
             >
               Continuar y Guardar
             </AlertDialogAction>

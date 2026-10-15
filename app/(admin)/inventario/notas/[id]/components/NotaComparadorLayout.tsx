@@ -24,12 +24,12 @@ export function NotaComparadorLayout({ comprobanteUrl, children }: NotaComparado
         ? "max-w-5xl mx-auto" 
         : "grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
     )}>
-      {/* Left panel: Sticky Image Comparador */}
+      {/* Left panel: Sticky Image Comparador (sticky sobre el item del grid) */}
       <div className={cn(
         "transition-all duration-300",
-        isCollapsed 
-          ? "w-0 h-0 overflow-hidden lg:hidden" 
-          : "lg:col-span-5 xl:col-span-5 w-full"
+        isCollapsed
+          ? "w-0 h-0 overflow-hidden lg:hidden"
+          : "w-full lg:col-span-5 xl:col-span-5 lg:sticky lg:top-24 lg:self-start lg:z-10"
       )}>
         <NotaComparador 
           comprobanteUrl={comprobanteUrl} 

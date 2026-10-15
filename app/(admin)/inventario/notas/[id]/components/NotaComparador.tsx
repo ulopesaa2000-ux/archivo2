@@ -1,7 +1,7 @@
 // app/(admin)/inventario/notas/[id]/components/NotaComparador.tsx
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { 
@@ -14,6 +14,7 @@ import {
   EyeOff,
   Move
 } from 'lucide-react'
+import { usePanZoom, useNativeWheel } from '@/hooks/use-pan-zoom'
 import Image from 'next/image'
 
 interface NotaComparadorProps {
@@ -22,13 +23,11 @@ interface NotaComparadorProps {
 }
 
 export function NotaComparador({ comprobanteUrl, onCollapseToggle }: NotaComparadorProps) {
-  const [scale, setScale] = useState(1.0)
-  const [rotate, setRotate] = useState(0)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
+  // Pan + zoom unificado (mouse y táctil); la rueda siempre hace zoom aquí
+  const visor = usePanZoom({ max: 4, wheel: 'always' })
+  const visorRef = useRef<HTMLDivElement | null>(null)
+  useNativeWheel(visorRef, visor.handleWheel)
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const dragStart = useRef({ x: 0, y: 0 })
-  const containerRef = useRef<HTMLDivElement>(null)
 
   // Notify parent on collapse toggle
   useEffect(() => {
@@ -36,45 +35,6 @@ export function NotaComparador({ comprobanteUrl, onCollapseToggle }: NotaCompara
       onCollapseToggle(isCollapsed)
     }
   }, [isCollapsed, onCollapseToggle])
-
-  const handleZoomIn = () => setScale(prev => Math.min(prev + 0.25, 4))
-  const handleZoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.5))
-  const handleRotate = () => setRotate(prev => (prev + 90) % 360)
-  const handleReset = () => {
-    setScale(1.0)
-    setRotate(0)
-    setPosition({ x: 0, y: 0 })
-  }
-
-  // Mouse wheel zoom
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    const zoomFactor = 0.1
-    if (e.deltaY < 0) {
-      setScale(prev => Math.min(prev + zoomFactor, 4))
-    } else {
-      setScale(prev => Math.max(prev - zoomFactor, 0.5))
-    }
-  }
-
-  // Drag and Pan handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-    dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y }
-  }
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return
-    setPosition({
-      x: e.clientX - dragStart.current.x,
-      y: e.clientY - dragStart.current.y
-    })
-  }
-
-  const handleMouseUpOrLeave = () => {
-    setIsDragging(false)
-  }
 
   if (isCollapsed) {
     return (
@@ -91,20 +51,20 @@ export function NotaComparador({ comprobanteUrl, onCollapseToggle }: NotaCompara
   }
 
   return (
-    <Card className="border shadow-xl shadow-black/5 bg-card overflow-hidden flex flex-col h-[40vh] lg:h-[calc(100vh-140px)] sticky top-24 z-30">
+    <Card className="border shadow-xl shadow-black/5 bg-card overflow-hidden flex flex-col h-[40vh] lg:h-[calc(100vh-140px)] z-30">
       {/* Toolbar */}
       <div className="flex items-center justify-between p-3 border-b bg-muted/40 shrink-0">
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={handleZoomIn} title="Acercar" className="h-8 w-8 rounded-lg">
+          <Button variant="ghost" size="icon" onClick={visor.zoomIn} title="Acercar" className="h-8 w-8 rounded-lg">
             <ZoomIn className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleZoomOut} title="Alejar" className="h-8 w-8 rounded-lg">
+          <Button variant="ghost" size="icon" onClick={visor.zoomOut} title="Alejar" className="h-8 w-8 rounded-lg">
             <ZoomOut className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleRotate} title="Rotar 90°" className="h-8 w-8 rounded-lg">
+          <Button variant="ghost" size="icon" onClick={visor.rotate} title="Rotar 90°" className="h-8 w-8 rounded-lg">
             <RotateCw className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleReset} title="Restablecer" className="h-8 w-8 rounded-lg">
+          <Button variant="ghost" size="icon" onClick={visor.reset} title="Restablecer" className="h-8 w-8 rounded-lg">
             <Maximize2 className="h-4 w-4" />
           </Button>
         </div>
@@ -122,19 +82,20 @@ export function NotaComparador({ comprobanteUrl, onCollapseToggle }: NotaCompara
       </div>
 
       {/* Viewer Area */}
-      <CardContent 
-        ref={containerRef}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUpOrLeave}
-        onMouseLeave={handleMouseUpOrLeave}
-        className="p-0 flex-1 relative bg-black overflow-hidden select-none cursor-grab active:cursor-grabbing flex items-center justify-center"
+      <CardContent
+        ref={visorRef}
+        onPointerDown={visor.onPointerDown}
+        onPointerMove={visor.onPointerMove}
+        onPointerUp={visor.onPointerUp}
+        onPointerCancel={visor.onPointerCancel}
+        onPointerLeave={visor.onPointerUp}
+        className="p-0 flex-1 relative bg-black overflow-hidden select-none touch-none flex items-center justify-center"
+        style={{ cursor: visor.dragging ? 'grabbing' : 'grab' }}
       >
-        <div 
+        <div
           className="absolute transition-transform duration-75 ease-out w-full h-full flex items-center justify-center"
           style={{
-            transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotate}deg)`,
+            transform: visor.transform,
             transformOrigin: 'center center'
           }}
         >
