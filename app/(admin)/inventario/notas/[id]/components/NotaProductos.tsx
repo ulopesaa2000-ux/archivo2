@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Package, Copy, Check } from 'lucide-react'
+import { Package, Copy, Check, Layers } from 'lucide-react'
 import { toast } from 'sonner'
 import type { NotaDetalleResuelto } from '@/modules/inventario/types'
 
@@ -14,6 +14,10 @@ export function NotaProductos({
   detalles: NotaDetalleResuelto[]
 }) {
   const [copied, setCopied] = useState(false)
+  // Oculto por defecto cuando todo viene en 0 (modo solo cajas); visible si hay sueltas reales
+  const [mostrarPiezas, setMostrarPiezas] = useState(() =>
+    (detalles ?? []).some((d) => (d.piezas_sueltas ?? 0) !== 0)
+  )
 
   if (!detalles || detalles.length === 0) {
     return (
@@ -74,6 +78,18 @@ export function NotaProductos({
               </>
             )}
           </Button>
+          <Button
+            type="button"
+            variant={mostrarPiezas ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setMostrarPiezas((v) => !v)}
+            aria-pressed={mostrarPiezas}
+            className="h-8 px-3 text-xs font-bold gap-1.5 rounded-xl border shadow-sm transition-all"
+            title={mostrarPiezas ? 'Ocultar columna de piezas sueltas' : 'Mostrar columna de piezas sueltas'}
+          >
+            <Layers className="h-4 w-4" />
+            <span className="font-bold">Pz</span>
+          </Button>
         </div>
       </div>
 
@@ -85,7 +101,7 @@ export function NotaProductos({
               <th className="px-4 py-2.5 text-left">Producto</th>
               <th className="px-4 py-2.5 text-left hidden sm:table-cell">Caja</th>
               <th className="px-4 py-2.5 text-center">Cajas</th>
-              <th className="px-4 py-2.5 text-center">Piezas</th>
+              {mostrarPiezas && <th className="px-4 py-2.5 text-center">Piezas</th>}
               <th className="px-4 py-2.5 text-right">Total est.</th>
             </tr>
           </thead>
@@ -118,7 +134,9 @@ export function NotaProductos({
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-center tabular-nums font-bold text-sm">{d.cajas}</td>
-                  <td className="px-4 py-2.5 text-center tabular-nums text-muted-foreground">{d.piezas_sueltas}</td>
+                  {mostrarPiezas && (
+                    <td className="px-4 py-2.5 text-center tabular-nums text-muted-foreground">{d.piezas_sueltas}</td>
+                  )}
                   <td className="px-4 py-2.5 text-right tabular-nums font-bold text-sm">{totalEst}</td>
                 </tr>
               )

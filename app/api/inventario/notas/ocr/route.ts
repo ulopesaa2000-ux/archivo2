@@ -1,6 +1,8 @@
 // app/api/inventario/notas/ocr/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionOptional } from '@/lib/dal'
+import { fetchConfigInventarioLive, fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { isModoSoloCajas, DEFAULT_CONFIG_INVENTARIO } from '@/modules/inventario/config-types'
 
 export const maxDuration = 120 // Permitir hasta 2 minutos para procesamiento de IA/OCR
 
@@ -40,6 +42,21 @@ export async function POST(request: NextRequest) {
     const destinoHint = String(incomingForm.get('destino_hint') || incomingForm.get('destino') || '')
     const fechaHint = String(incomingForm.get('fecha_hint') || incomingForm.get('fecha') || '')
     const priorizarIa = incomingForm.get('priorizar_ia')
+    const modoSoloCajasRaw = incomingForm.get('modo_solo_cajas')
+
+    // Modo solo cajas: default TRUE si no se envía o si falla config (evita piezas sueltas por error)
+    let modoSoloCajas = DEFAULT_CONFIG_INVENTARIO.modo_solo_cajas
+    if (modoSoloCajasRaw !== null && modoSoloCajasRaw !== undefined && String(modoSoloCajasRaw) !== '') {
+      const v = String(modoSoloCajasRaw).toLowerCase().trim()
+      modoSoloCajas = !(v === 'false' || v === '0' || v === 'no' || v === 'off')
+    } else {
+      try {
+        const cfg = await fetchConfigInventarioLive().catch(() => fetchConfigInventario())
+        modoSoloCajas = isModoSoloCajas(cfg)
+      } catch {
+        modoSoloCajas = true
+      }
+    }
 
     // 3. Optimizar imagen con Sharp preservando máxima nitidez para OCR
     const rawBuffer = Buffer.from(await foto.arrayBuffer())
@@ -86,6 +103,8 @@ export async function POST(request: NextRequest) {
     if (fechaHint) {
       n8nForm.append('fecha_hint', fechaHint)
     }
+    // Siempre enviar modo_solo_cajas explícito (default true) para que n8n ignore piezas sueltas pre-DB
+    n8nForm.append('modo_solo_cajas', String(modoSoloCajas))
 
     // 5. Reenviar al webhook de n8n
     console.log(`Enviando propuesta OCR optimizada a n8n: ID ${clientRequestId} (${(optimizedBuffer.length / 1024).toFixed(1)} KB vs original ${(rawBuffer.length / 1024).toFixed(1)} KB)`)
