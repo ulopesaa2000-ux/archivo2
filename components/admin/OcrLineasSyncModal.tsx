@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect, useTransition, useCallback, useRef } from 'react'
+import { usePanZoom, useNativeWheel } from '@/hooks/use-pan-zoom'
 import Image from 'next/image'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -46,37 +47,11 @@ export function OcrLineasSyncModal({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // ── Controles y Arrastre (Pan) de Imagen ──────────────────
-  const [zoomScale, setZoomScale] = useState(1)
-  const [rotateDeg, setRotateDeg] = useState(0)
-  const [panPos, setPanPos] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-
-  const handleZoomIn = () => setZoomScale((s) => Math.min(s + 0.25, 3))
-  const handleZoomOut = () => setZoomScale((s) => Math.max(s - 0.25, 0.5))
-  const handleRotate = () => setRotateDeg((d) => (d + 90) % 360)
-  const handleResetZoom = () => {
-    setZoomScale(1)
-    setRotateDeg(0)
-    setPanPos({ x: 0, y: 0 })
-  }
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-    setDragStart({ x: e.clientX - panPos.x, y: e.clientY - panPos.y })
-  }
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return
-    setPanPos({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    })
-  }
-
-  const handleMouseUp = () => setIsDragging(false)
+  // ── Visor de imagen: pan + zoom unificado (mouse y táctil) ──
+  const visor = usePanZoom({ max: 3, wheel: 'always' })
+  const { reset: resetVisor } = visor
+  const visorRef = useRef<HTMLDivElement | null>(null)
+  useNativeWheel(visorRef, visor.handleWheel)
 
   // ── Buscador Rápido de Productos Fijo sobre Imagen ─────────
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -217,9 +192,7 @@ export function OcrLineasSyncModal({
       setSearchTerm('')
       setSearchResults([])
       setSelectedIndex(null)
-      setPanPos({ x: 0, y: 0 })
-      setZoomScale(1)
-      setRotateDeg(0)
+      resetVisor()
 
       const mapped: Array<{
         index: number
@@ -255,7 +228,7 @@ export function OcrLineasSyncModal({
         setLineas([])
       }
     }
-  }, [open, initialLineas])
+  }, [open, initialLineas, resetVisor])
 
   // Re-sincronizar SKUs manualmente
   const handleSync = async () => {
@@ -524,7 +497,7 @@ export function OcrLineasSyncModal({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={handleZoomOut}
+                  onClick={visor.zoomOut}
                   title="Alejar"
                 >
                   <ZoomOut className="h-3.5 w-3.5" />
@@ -534,7 +507,7 @@ export function OcrLineasSyncModal({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={handleZoomIn}
+                  onClick={visor.zoomIn}
                   title="Acercar"
                 >
                   <ZoomIn className="h-3.5 w-3.5" />
@@ -544,7 +517,7 @@ export function OcrLineasSyncModal({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={handleRotate}
+                  onClick={visor.rotate}
                   title="Rotar 90°"
                 >
                   <RotateCw className="h-3.5 w-3.5" />
@@ -554,7 +527,7 @@ export function OcrLineasSyncModal({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 rounded-md"
-                  onClick={handleResetZoom}
+                  onClick={visor.reset}
                   title="Restaurar"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
@@ -577,13 +550,15 @@ export function OcrLineasSyncModal({
             <div className="flex-1 relative border rounded-lg bg-zinc-950/40 overflow-hidden flex items-center justify-center min-h-[220px]">
               {comprobanteUrl ? (
                 <div
-                  className="w-full h-full flex items-center justify-center p-2 select-none overflow-hidden"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
+                  ref={visorRef}
+                  className="w-full h-full flex items-center justify-center p-2 select-none overflow-hidden touch-none"
+                  onPointerDown={visor.onPointerDown}
+                  onPointerMove={visor.onPointerMove}
+                  onPointerUp={visor.onPointerUp}
+                  onPointerCancel={visor.onPointerCancel}
+                  onPointerLeave={visor.onPointerUp}
                   style={{
-                    cursor: isDragging ? 'grabbing' : 'grab',
+                    cursor: visor.dragging ? 'grabbing' : 'grab',
                   }}
                 >
                   <img
@@ -592,7 +567,7 @@ export function OcrLineasSyncModal({
                     draggable={false}
                     className="max-w-full max-h-full object-contain rounded select-none shadow-2xl transition-transform duration-75"
                     style={{
-                      transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomScale}) rotate(${rotateDeg}deg)`,
+                      transform: visor.transform,
                     }}
                   />
                 </div>
