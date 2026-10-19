@@ -87,6 +87,10 @@ const PARSEAR_HELPERS = String.raw`function normalizarSku(raw) {
 }
 
 const RE_AND_SLASH_OCR = /^AND(\d{2})\s*\/\s*(\d{4})([A-Z]{0,4})$/i;
+// Un codigo con espacios alrededor de la barra NO debe fragmentarse:
+// "B0248 / 1CAC" -> "B0248/1CAC", "MK26 / 08 SW" -> "MK26/08SW".
+// La familia debe empezar por letra para no absorber dos codigos distintos.
+const RE_CODIGO_CON_BARRA_OCR = /^[A-Z][A-Z0-9]{0,7}\/[A-Z0-9]{1,10}$/;
 function canonicalizarAndOcr(v) {
   const raw = String(v || '').trim();
   const m = raw.match(RE_AND_SLASH_OCR);
@@ -99,6 +103,10 @@ function separarCodigosOcr(v) {
   if (RE_AND_SLASH_OCR.test(raw)) return [canonicalizarAndOcr(raw)];
   raw = raw.replace(/\bAND\s+([\d\s]{5,})\b/gi, function(_m, d) { return 'AND' + d.replace(/\s+/g, ''); });
   raw = raw.replace(/\bAND\s*(\d{2})\s*\/\s*(\d{4})\s*([A-Z]{0,4})\b/gi, function(_m, a, f) { return 'AND' + a + f; });
+  // Si TODO el texto (sin espacios) es un unico codigo con barra, no lo fragmentes.
+  const _compacto = raw.replace(/\s+/g, '').toUpperCase();
+  if (RE_CODIGO_CON_BARRA_OCR.test(_compacto)) return [_compacto];
+
   raw = raw.replace(/\b([A-Z]{2,4}\d{2})\s*\/\s*([A-Z0-9]{1,8})\b/gi, function(_m, fam, mod) { return fam + '/' + mod; });
   return raw.split(/\s+/).map(function(t) { return t.replace(/^\/+/, '').replace(/\/+$/, ''); }).filter(Boolean).map(canonicalizarAndOcr);
 }
@@ -213,9 +221,6 @@ function patchParsear(js) {
   // a un solo backslash antes de parchear la sección de SKU.
   let out = js.replace(/\\\\/g, '\\');
 
-  const helpersMarker = 'const FAMILIA_CONFUSIONES_OCR =';
-  if (out.includes(helpersMarker)) return { code: js, changed: false };
-
   const genStart = out.indexOf('function generarVariantesSkuOcr(raw, variantesIa) {');
   if (genStart >= 0) {
     // Ya existe la versión anterior del bloque de SKU: se reemplaza por esta versión.
@@ -224,6 +229,9 @@ function patchParsear(js) {
     if (genEnd < 0) return { code: js, changed: false };
     const normStart = out.lastIndexOf('function normalizarSku(raw) {', genStart);
     const start = normStart >= 0 ? normStart : genStart;
+    // Idempotente: si el bloque ya es identico al desired, no se reescribe.
+    const yaAplicado = out.slice(start, genEnd + genEndMarker.length) === PARSEAR_HELPERS;
+    if (yaAplicado) return { code: js, changed: false };
     out = out.slice(0, start) + PARSEAR_HELPERS + out.slice(genEnd + genEndMarker.length);
     return { code: out, changed: true };
   }

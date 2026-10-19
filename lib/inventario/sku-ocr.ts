@@ -7,6 +7,11 @@ const RE_AND_CON_SLASH = /^AND(\d{2})\s*\/\s*(\d{4})([A-Z]{0,4})$/i
 // La familia puede traer un dígito leído por error (ej. Y526/07MCL -> YS26/07MCL).
 const RE_MODERNO = /^([A-Z0-9]{1,5})(\d{2})\/(\d{2})([A-Z0-9]*)$/i
 const RE_AND_CANONICO = /^AND\d{6}$/
+// Un código con espacios alrededor de la barra NO debe fragmentarse:
+// "B0248 / 1CAC" -> "B0248/1CAC", "MK26 / 08 SW" -> "MK26/08SW",
+// "BO / 2C SETAF" -> "BO/2CSETAF". La familia debe empezar por letra para no
+// absorber dos códigos distintos ("3VT8489 /AND250032").
+const RE_CODIGO_CON_BARRA = /^[A-Z][A-Z0-9]{0,7}\/[A-Z0-9]{1,10}$/
 
 // Confusiones de OCR dentro de la familia (prefijo). Solo dígito -> letra:
 // el caso real es Y5 -> YS; B0 -> BO.
@@ -93,6 +98,12 @@ export function separarCodigos(value: string | null | undefined): string[] {
     /\bAND\s*(\d{2})\s*\/\s*(\d{4})\s*([A-Z]{0,4})\b/gi,
     (_m, anio: string, folio: string) => `AND${anio}${folio}`
   )
+
+  // Si TODO el texto (sin espacios) es un unico codigo con barra, no lo fragmentes.
+  // Sin esta regla "B0248 / 1CAC" se parte en "B0248" + "1CAC" y el SKU real se
+  // pierde; ademas el fragmento "1CAC" arrastra candidatos ajenos al codigo.
+  const compacto = raw.replace(/\s+/g, '').toUpperCase()
+  if (RE_CODIGO_CON_BARRA.test(compacto)) return [compacto]
 
   // Espacios alrededor de la barra en familias modernas: "JA24 / 4DAML" -> "JA24/4DAML".
   // No toca "3VT8489 /AND250032" porque el código no empieza con letras+2 dígitos.
