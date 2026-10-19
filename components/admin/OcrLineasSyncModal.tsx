@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { sincronizarLineasOcrAction, actualizarPropuestaOcrLineasAction } from '@/modules/inventario/actions'
 import type {
-  NotaOcrPropuestaLineRaw, NotaOcrLineaSincronizada, DraftProducto, ProductoBusqueda
+  NotaOcrCandidatoSku, NotaOcrPropuestaLineRaw, NotaOcrLineaSincronizada, DraftProducto, ProductoBusqueda
 } from '@/modules/inventario/types'
 import { cn } from '@/lib/utils'
 
@@ -91,7 +91,6 @@ export function OcrLineasSyncModal({
           i === selectedIndex
             ? {
                 ...l,
-                estilo_raw: prod.sku_base,
                 producto_id: prod.id,
                 producto_sku: prod.sku_base,
                 producto_nombre: prod.descripcion ?? prod.nombre ?? '',
@@ -102,9 +101,10 @@ export function OcrLineasSyncModal({
                 propuesta_producto_sku: null,
                 propuesta_producto_nombre: null,
                 propuesta_producto_pz_en_caja: null,
-                confianza: 1.0,
                 score: 1.0,
                 metodo: 'MANUAL',
+                manual: true,
+                candidatos_sku: [],
               }
             : l
         )
@@ -149,13 +149,40 @@ export function OcrLineasSyncModal({
               producto_pz_en_caja: l.propuesta_producto_pz_en_caja ?? null,
               encontrado: true,
               es_propuesta: false,
-              confianza: 1.0,
+              manual: true,
             }
           : l
       )
     )
     const target = lineas[index]
     setSuccess(`Línea #${index + 1}: Propuesta ${target?.propuesta_producto_sku} aceptada.`)
+  }
+
+  // Elegir una variante/candidato de la lista visible
+  const handleSelectCandidate = (index: number, candidato: NotaOcrCandidatoSku) => {
+    setLineas((prev) =>
+      prev.map((l, i) =>
+        i === index
+          ? {
+              ...l,
+              producto_id: candidato.producto_id,
+              producto_sku: candidato.sku_base,
+              producto_nombre: candidato.descripcion ?? '',
+              producto_pz_en_caja: candidato.pz_en_caja ?? null,
+              encontrado: true,
+              es_propuesta: false,
+              propuesta_producto_id: null,
+              propuesta_producto_sku: null,
+              propuesta_producto_nombre: null,
+              propuesta_producto_pz_en_caja: null,
+              score: candidato.score,
+              metodo: candidato.metodo,
+              manual: true,
+            }
+          : l
+      )
+    )
+    setSuccess(`Línea #${index + 1}: ${candidato.sku_base} seleccionado.`)
   }
 
   // Desvincular / Limpiar producto asignado a una línea
@@ -175,8 +202,10 @@ export function OcrLineasSyncModal({
               propuesta_producto_sku: null,
               propuesta_producto_nombre: null,
               propuesta_producto_pz_en_caja: null,
-              confianza: 0.5,
               score: 0,
+              metodo: null,
+              manual: false,
+              candidatos_sku: [],
             }
           : l
       )
@@ -200,12 +229,20 @@ export function OcrLineasSyncModal({
         cantidad_cajas: number
         piezas_por_caja?: number | null
         confianza?: number
+        confianza_ia?: number | null
+        descripcion_raw?: string | null
+        sku?: string | null
+        posibles_variantes?: string[] | null
       }> = (initialLineas || []).map((l, i) => ({
         index: i,
         estilo_raw: l.estilo_raw ?? '',
         cantidad_cajas: l.cantidad_cajas ?? 1,
         piezas_por_caja: l.piezas_por_caja ?? null,
-        confianza: l.confianza ?? 0.85,
+        confianza: l.confianza_ia ?? l.confianza ?? 0.85,
+        confianza_ia: l.confianza_ia ?? null,
+        descripcion_raw: l.descripcion_raw ?? null,
+        sku: l.sku ?? null,
+        posibles_variantes: l.posibles_variantes ?? null,
       }))
 
       if (mapped.length > 0) {
@@ -242,13 +279,25 @@ export function OcrLineasSyncModal({
       cantidad_cajas: l.cantidad_cajas,
       piezas_por_caja: l.piezas_por_caja,
       confianza: l.confianza,
+      descripcion_raw: l.descripcion_raw ?? null,
+      sku: l.producto_sku ?? null,
+      posibles_variantes: l.candidatos_sku?.map((c) => c.sku_base) ?? null,
     }))
 
     const res = await sincronizarLineasOcrAction(payload)
     setIsSyncing(false)
 
     if (res.success && res.data) {
-      setLineas(res.data)
+      // Las líneas que el usuario ya eligió/confirmó no se pisan al re-sincronizar.
+      const manuales = lineas.filter((l) => l.manual)
+      setLineas(
+        res.data.map((nueva) => {
+          const manual = manuales.find(
+            (m) => m.index === nueva.index || m.estilo_raw === nueva.estilo_raw
+          )
+          return manual ? { ...nueva, ...manual, index: nueva.index } : nueva
+        })
+      )
       setSuccess('Líneas sincronizadas con Supabase exitosamente.')
     } else {
       setError(res.error ?? 'Error al sincronizar líneas.')
@@ -296,6 +345,9 @@ export function OcrLineasSyncModal({
         descripcion_raw: l.descripcion_raw ?? l.estilo_raw,
         piezas_por_caja: l.piezas_por_caja ?? null,
         confianza: l.confianza,
+        confianza_ia: l.confianza ?? null,
+        sku: l.producto_sku ?? null,
+        posibles_variantes: l.candidatos_sku?.map((c) => c.sku_base) ?? null,
       }))
 
       if (ocrProposalId) {
@@ -636,7 +688,7 @@ export function OcrLineasSyncModal({
                     <th className="px-2.5 py-2 text-left">Texto OCR (`estilo_raw`)</th>
                     <th className="px-2.5 py-2 text-center w-[80px]">Cajas</th>
                     <th className="px-2.5 py-2 text-left">Resolución en Catálogo</th>
-                    <th className="px-2.5 py-2 text-center w-[65px]">Score</th>
+                    <th className="px-2.5 py-2 text-center w-[78px]">DB / IA</th>
                     <th className="px-2.5 py-2 text-center w-[45px]"></th>
                   </tr>
                 </thead>
@@ -648,7 +700,11 @@ export function OcrLineasSyncModal({
                       const isProposal = !line.encontrado && line.es_propuesta && !!line.propuesta_producto_sku
                       const isNotFound = !isConfirmed && !isProposal
 
-                      const scorePct = Math.round((line.score || line.confianza || 0) * 100)
+                      const dbPct = typeof line.score === 'number' ? Math.round(line.score * 100) : null
+                      const iaPct = Math.round((line.confianza ?? 0) * 100)
+                      const scorePct = dbPct ?? iaPct
+                      const scoreTitle = `IA ${iaPct}%${dbPct !== null ? ` · DB ${dbPct}%` : ''}`
+                      const variantes = line.candidatos_sku ?? []
 
                       return (
                         <tr
@@ -810,14 +866,51 @@ export function OcrLineasSyncModal({
                                 </Button>
                               </div>
                             )}
+
+                            {/* Variantes/candidatos visibles para cambiar con un clic */}
+                            {variantes.length > 0 && (variantes.length > 1 || !isConfirmed) && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-muted-foreground">
+                                  Variantes
+                                </span>
+                                {variantes.slice(0, 6).map((candidato) => {
+                                  const seleccionado =
+                                    line.producto_id === candidato.producto_id ||
+                                    line.propuesta_producto_id === candidato.producto_id
+                                  return (
+                                    <button
+                                      key={`${candidato.producto_id}-${candidato.sku_base}`}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleSelectCandidate(idx, candidato)
+                                      }}
+                                      title={candidato.metodo ?? 'Candidato de catálogo'}
+                                      className={cn(
+                                        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold transition-colors',
+                                        seleccionado
+                                          ? 'border-primary bg-primary text-primary-foreground'
+                                          : 'border-muted bg-background hover:bg-muted'
+                                      )}
+                                    >
+                                      <span>{candidato.sku_base}</span>
+                                      <span className={seleccionado ? 'opacity-80' : 'text-muted-foreground'}>
+                                        {Math.round(candidato.score * 100)}%
+                                      </span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </td>
 
                           {/* Score de confianza */}
                           <td className="px-2.5 py-1.5 text-center">
                             <Badge
                               variant="outline"
+                              title={scoreTitle}
                               className={cn(
-                                'font-mono font-bold text-[9px] py-0.5',
+                                'font-mono font-bold text-[9px] py-0.5 whitespace-nowrap',
                                 isConfirmed
                                   ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300'
                                   : isProposal
@@ -825,7 +918,7 @@ export function OcrLineasSyncModal({
                                   : 'bg-destructive/10 text-destructive border-destructive/30'
                               )}
                             >
-                              {scorePct}%
+                              {dbPct !== null ? `DB ${scorePct}%` : `${scorePct}%`}
                             </Badge>
                           </td>
 
