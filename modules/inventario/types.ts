@@ -269,12 +269,28 @@ export type CajaParaSelector = {
 }
 
 // ── Propuestas OCR ──────────────────────────────────────────
+export type NotaOcrCandidatoSku = {
+  producto_id: number
+  sku_base: string
+  descripcion: string | null
+  pz_en_caja: number | null
+  score: number
+  metodo: string | null
+  origen?: string | null
+}
+
 export type NotaOcrPropuestaLineRaw = {
   cantidad_cajas: number | null
   piezas_por_caja: number | null
   estilo_raw: string | null
   descripcion_raw: string | null
   confianza: number
+  /** Confianza original de la IA (se conserva aunque la BD dé un score distinto). */
+  confianza_ia?: number | null
+  /** Código canónico propuesto por la IA (puede diferir de estilo_raw). */
+  sku?: string | null
+  /** Variantes sugeridas por la IA o por el normalizador OCR. */
+  posibles_variantes?: string[] | null
 }
 
 export type NotaOcrLineaSincronizada = {
@@ -294,8 +310,13 @@ export type NotaOcrLineaSincronizada = {
   propuesta_producto_sku?: string | null
   propuesta_producto_nombre?: string | null
   propuesta_producto_pz_en_caja?: number | null
+  /** Score de coincidencia en base de datos (0-1). */
   score?: number | null
   metodo?: string | null
+  /** Todas las coincidencias devueltas por la RPC para mostrar variantes. */
+  candidatos_sku?: NotaOcrCandidatoSku[]
+  /** El usuario eligió/confirmó manualmente: no se pisa al re-sincronizar. */
+  manual?: boolean
 }
 
 export type NotaOcrPropuestaLineConfirmed = {

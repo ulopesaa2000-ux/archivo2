@@ -12,6 +12,7 @@ import { dateInputToMexicoUTC } from '@/lib/utils'
 import type {
   DraftNota,
   DraftProducto,
+  NotaOcrCandidatoSku,
   NotaOcrLineaSincronizada,
   NotaOcrPropuestaLineRaw,
   FiltrosStock,
@@ -21,6 +22,7 @@ import type {
 } from './types'
 import type { BodegaRow } from '@/lib/types/tables'
 import { isModoSoloCajas } from './config-types'
+import { construirConsultaSku } from '@/lib/inventario/sku-ocr'
 
 export type ActionResult = {
   success: boolean
@@ -1199,31 +1201,116 @@ export async function sincronizarLineasOcrAction(
     cantidad_cajas: number
     piezas_por_caja?: number | null
     confianza?: number
-    descripcion_texto?: string
-    descripcion_raw?: string
+    descripcion_texto?: string | null
+    descripcion_raw?: string | null
+    sku?: string | null
+    posibles_variantes?: string[] | null
   }>
 ): Promise<{ success: boolean; data?: NotaOcrLineaSincronizada[]; error?: string }> {
   const supabase = await createClient()
   const resultados: NotaOcrLineaSincronizada[] = []
 
-  const payload = lineas.map((item, idx) => ({
-    index: item.index ?? idx,
-    sku: item.estilo_raw,
-    estilo_raw: item.estilo_raw,
-    descripcion_texto: item.descripcion_texto || item.descripcion_raw || '',
-    descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
+  const consultas = lineas.map((item, idx) => ({
+    item,
+    itemIndex: item.index ?? idx,
+    consulta: construirConsultaSku(item.estilo_raw, item.sku, item.posibles_variantes),
   }))
 
-  const { data: candidates, error: rpcError } = await (supabase as any).rpc('fn_buscar_candidatos_sku_ocr', {
-    p_lineas: payload,
+  const aLista = (data: unknown): any[] => (Array.isArray(data) ? data : [])
+
+  const descripcion = (item: (typeof lineas)[number]) =>
+    item.descripcion_texto || item.descripcion_raw || ''
+
+  // Pasada 1: código canónico/raw + variantes de sufijo/confusión.
+  const payloadPrincipal = consultas.flatMap(({ item, itemIndex, consulta }) =>
+    consulta.principales.map((sku, posicion) => ({
+      index: itemIndex,
+      sku,
+      estilo_raw: consulta.raw,
+      descripcion_texto: descripcion(item),
+      descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
+      ...(posicion === 0 && consulta.variantes.length > 0
+        ? { posibles_variantes: consulta.variantes }
+        : {}),
+    }))
+  )
+
+  const { data: principalData, error: principalError } = await (supabase as any).rpc(
+    'fn_buscar_candidatos_sku_ocr',
+    { p_lineas: payloadPrincipal }
+  )
+  if (principalError) {
+    return { success: false, error: principalError.message }
+  }
+
+  let candList = aLista(principalData)
+
+  const candidatosPorLinea = (index: number) =>
+    candList.filter((c: any) => Number(c.linea_index) === index)
+
+  // Pasada 2: solo para líneas sin candidato útil, probar secuencia ±1.
+  const lineasSinCandidato = consultas.filter(({ itemIndex, consulta }) => {
+    if (consulta.vecinos.length === 0) return false
+    const cands = candidatosPorLinea(itemIndex)
+    return !cands.some((c: any) => Number(c.score) >= 0.70)
   })
 
-  const candList: any[] = Array.isArray(candidates) ? candidates : []
+  const indicesFallback = new Set<number>()
 
-  for (const item of lineas) {
-    const rawText = item.estilo_raw?.trim() ?? ''
+  if (lineasSinCandidato.length > 0) {
+    const payloadVecinos = lineasSinCandidato.flatMap(({ item, itemIndex, consulta }) => {
+      indicesFallback.add(itemIndex)
+      return consulta.principales.slice(0, 1).map((sku) => ({
+        index: itemIndex,
+        sku,
+        estilo_raw: consulta.raw,
+        descripcion_texto: descripcion(item),
+        descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
+        posibles_variantes: consulta.vecinos,
+      }))
+    })
+
+    const { data: vecinosData, error: vecinosError } = await (supabase as any).rpc(
+      'fn_buscar_candidatos_sku_ocr',
+      { p_lineas: payloadVecinos }
+    )
+    if (!vecinosError) {
+      candList = [...candList, ...aLista(vecinosData)]
+    }
+  }
+
+  const dedupeCandidatos = (index: number): NotaOcrCandidatoSku[] => {
+    const porProducto = new Map<number, any>()
+
+    for (const candidato of candidatosPorLinea(index)) {
+      const productoId = Number(candidato.producto_id)
+      if (!Number.isFinite(productoId)) continue
+
+      const score = Number(candidato.score) || 0
+      const previo = porProducto.get(productoId)
+      const scorePrevio = previo ? Number(previo.score) || 0 : -1
+
+      if (!previo || score > scorePrevio || (score === scorePrevio && candidato.metodo === 'EXACTO')) {
+        porProducto.set(productoId, candidato)
+      }
+    }
+
+    return Array.from(porProducto.values())
+      .sort((a: any, b: any) => (Number(b.score) || 0) - (Number(a.score) || 0))
+      .map((c: any) => ({
+        producto_id: Number(c.producto_id),
+        sku_base: String(c.sku_base ?? ''),
+        descripcion: c.descripcion ?? null,
+        pz_en_caja: c.pz_en_caja ?? null,
+        score: Number(c.score) || 0,
+        metodo: c.metodo ?? null,
+        origen: c.sku_buscado ?? null,
+      }))
+  }
+
+  for (const { item, itemIndex, consulta } of consultas) {
+    const rawText = consulta.raw
     const cajas = item.cantidad_cajas ?? 0
-    const itemIndex = item.index
 
     if (!rawText) {
       resultados.push({
@@ -1236,21 +1323,28 @@ export async function sincronizarLineasOcrAction(
       continue
     }
 
-    // Filtrar candidatos para esta línea ordenados por score descendente
-    const cands = candList
-      .filter((c: any) => c.linea_index === itemIndex || c.sku_buscado === rawText)
-      .sort((a: any, b: any) => Number(b.score) - Number(a.score))
-    const topCand = cands.length > 0 ? cands[0] : null
-    const topScore = topCand ? Number(topCand.score) : 0
+    const candidatos = dedupeCandidatos(itemIndex)
+    const topCand = candidatos[0] ?? null
+    const topScore = topCand?.score ?? 0
+    const exactos = candidatos.filter((c) => c.score >= 0.99)
+    const elegibles = candidatos.filter((c) => c.score >= 0.85)
 
-    if (topCand && topScore >= 0.95) {
-      // 🟢 Match Exacto Confirmado (100%)
+    // Auto si hay un único exacto, o un único candidato >= 0.85.
+    // Si hay dos o más >= 0.85, queda como propuesta para elegir.
+    const auto =
+      !!topCand &&
+      !indicesFallback.has(itemIndex) &&
+      ((topScore >= 0.99 && exactos.length === 1) ||
+        (topScore >= 0.85 && elegibles.length === 1))
+
+    if (auto && topCand) {
       resultados.push({
         index: itemIndex,
         estilo_raw: rawText,
+        descripcion_raw: item.descripcion_raw ?? null,
         cantidad_cajas: cajas,
         piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
-        confianza: 1.0,
+        confianza: Number(item.confianza ?? 0.85),
         producto_id: topCand.producto_id,
         producto_sku: topCand.sku_base,
         producto_nombre: topCand.descripcion,
@@ -1259,15 +1353,16 @@ export async function sincronizarLineasOcrAction(
         es_propuesta: false,
         score: topScore,
         metodo: topCand.metodo,
+        candidatos_sku: candidatos,
       })
     } else if (topCand && topScore >= 0.70) {
-      // 🟡 Propuesta Inteligente de Segundo Repaso (Género, Patrón OCR, Similitud)
       resultados.push({
         index: itemIndex,
         estilo_raw: rawText,
+        descripcion_raw: item.descripcion_raw ?? null,
         cantidad_cajas: cajas,
         piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
-        confianza: topScore,
+        confianza: Number(item.confianza ?? 0.85),
         producto_id: null,
         producto_sku: null,
         producto_nombre: null,
@@ -1280,15 +1375,16 @@ export async function sincronizarLineasOcrAction(
         propuesta_producto_pz_en_caja: topCand.pz_en_caja,
         score: topScore,
         metodo: topCand.metodo,
+        candidatos_sku: candidatos,
       })
     } else {
-      // 🔴 No Encontrado / Sin Coincidencia Confiable
       resultados.push({
         index: itemIndex,
         estilo_raw: rawText,
+        descripcion_raw: item.descripcion_raw ?? null,
         cantidad_cajas: cajas,
         piezas_por_caja: item.piezas_por_caja ?? null,
-        confianza: item.confianza ?? 0.5,
+        confianza: Number(item.confianza ?? 0.5),
         producto_id: null,
         producto_sku: null,
         producto_nombre: null,
@@ -1297,12 +1393,14 @@ export async function sincronizarLineasOcrAction(
         es_propuesta: false,
         score: topScore,
         metodo: null,
+        candidatos_sku: candidatos.length > 0 ? candidatos : undefined,
       })
     }
   }
 
   return { success: true, data: resultados }
 }
+
 
 export async function actualizarPropuestaOcrLineasAction(
   propuestaId: string,
