@@ -3,9 +3,10 @@
  * Validación END-TO-END del motor de Stock Histórico contra la BD real.
  * SOLO LECTURA. Se salta automáticamente si no hay credenciales.
  *
- * Números de referencia (verificados el 2026-10-20):
- *   corte 2026-09-30 → total empresa 23,849.5 hoy → 21,783.5 al corte (descuento 2,066)
- *   17 de 20 bodegas cuadran con el rollback; 3 con ajuste directo fuera de notas.
+ * Los asserts son INVARIANTES (relaciones que siempre se cumplen), no números
+ * fijos: la base es viva y confirma notas a diario, así que un total absoluto
+ * se volvería obsoleto. Los valores de referencia del modelo MD sirven como
+ * documentación, no como assert.
  */
 
 import { describe, expect, it, vi, beforeAll } from 'vitest'
@@ -48,11 +49,9 @@ vi.mock('@/lib/supabase/server', async () => {
 })
 
 const CORTE = '2026-09-30'
-const TOTAL_HOY = 23849.5
-const TOTAL_CORTE = 21783.5
 
 describe.skipIf(!HAY_CREDENCIALES)('Stock Histórico contra la BD real', () => {
-  let res: Awaited<ReturnType<typeof import('@/modules/inventario/historico-queries').fetchStockHistorico>>
+  let res: any
   let bodegasMeta: any[]
 
   beforeAll(async () => {
@@ -62,73 +61,96 @@ describe.skipIf(!HAY_CREDENCIALES)('Stock Histórico contra la BD real', () => {
     const { data } = await supabase.from('bodegas').select('*').eq('activa', true).order('id')
     bodegasMeta = (data ?? []) as any[]
     const bodegaIds = bodegasMeta.map((b) => b.id)
-    res = await fetchStockHistorico({ fechaCorte: CORTE, bodegaIds, bodegas: bodegasMeta })
+    res = await fetchStockHistorico({
+      fechaCorte: CORTE,
+      bodegaIds,
+      bodegas: bodegasMeta,
+      page: 1,
+      limit: 5000,
+    })
   }, 120000)
 
-  it('el total de hoy coincide con la suma de inventario_stock', () => {
-    expect(res.totales.hoy).toBeCloseTo(TOTAL_HOY, 3)
+  it('el total de hoy coincide con la suma de inventario_stock', async () => {
+    const { createClient } = await import('@/lib/supabase/server')
+    const supabase = await createClient()
+    const { data } = await supabase.from('inventario_stock').select('cajas, bodega_id').is('caja_id', null)
+    const ids = res.porBodega.map((b: number) => b.bodega_id)
+    const suma = (data ?? [])
+      .filter((r: any) => ids.includes(Number(r.bodega_id)))
+      .reduce((s: number, r: any) => s + Number(r.cajas || 0), 0)
+    expect(res.totales.hoy).toBeCloseTo(suma, 2)
   })
 
-  it('el total al corte coincide con el valor de referencia', () => {
-    expect(res.totales.historico).toBeCloseTo(TOTAL_CORTE, 3)
+  it('el total al corte = hoy + ajuste (invariante)', () => {
+    expect(res.totales.historico).toBeCloseTo(res.totales.hoy + res.totales.ajuste, 3)
   })
 
-  it('el ajuste es la diferencia entre hoy y el corte', () => {
-    expect(res.totales.ajuste).toBeCloseTo(TOTAL_CORTE - TOTAL_HOY, 3)
-  })
-
-  it('no detecta ajustes directos POSTERIORES al corte', () => {
-    // Todos los Updates masivos posteriores al 30-sep tienen una nota confirmada del
-    // mismo día (importaciones masivas retro-datan la fecha de la nota), así que
-    // la cifra al corte no se ve afectada por ajustes fuera de notas.
-    expect(res.ajustesDirectos).toHaveLength(0)
-  })
-
-  it('reporta las 3 bodegas con descuadre histórico (stock vs notas)', () => {
-    const ids = res.descuadres.map((d) => d.bodega_id).sort((a, b) => a - b)
-    expect(ids).toEqual([5, 10, 16]) // DURAZNO, COCINA, RI&KA
-    const b5 = res.descuadres.find((d) => d.bodega_id === 5)
-    expect(b5?.dif).toBeCloseTo(-629.5, 1)
-    // Sin ajuste directo posterior al corte → no marca riesgo en la cifra al corte.
-    expect(res.descuadres.every((d) => d.tieneAjusteDirectoPostCorte === false)).toBe(true)
-  })
-
-  it('las 17 bodegas sanas cuadran con el rollback (ajuste = 0 salvo movimientos reales)', () => {
-    // Bodega 8 SAN DIEGO 2 no tuvo movimientos posteriores al corte → ajuste 0 exacto.
-    const b8 = res.porBodega.find((b) => b.bodega_id === 8)
-    expect(b8?.ajuste).toBe(0)
-    expect(b8?.historico).toBeCloseTo(3328, 3)
-  })
-
-  it('revierte 41 notas CONF posteriores al corte', () => {
-    expect(res.notasRevertidas).toBe(41)
+  it('revierte notas CONF posteriores al corte', () => {
+    expect(res.notasRevertidas).toBeGreaterThan(0)
+    expect(res.nMovimientos).toBeGreaterThanOrEqual(res.notasRevertidas)
   })
 
   it('marca las filas que quedaron en negativo sin truncarlas', () => {
-    expect(res.negativos).toBeGreaterThan(0)
-    const negativas = res.filas.filter((f) => f.cajas_historicas < 0)
+    const negativas = res.filas.filter((f: any) => f.cajas_historicas < 0)
     // `filas` es la página actual; `negativos` cuenta sobre todas.
     expect(negativas.length).toBeLessThanOrEqual(res.negativos)
+    expect(negativas.every((f: any) => f.valor_inconsistente)).toBe(true)
   })
 
   it('la suma por bodega cuadra con el total', () => {
-    const suma = res.porBodega.reduce((s, b) => s + b.historico, 0)
+    const suma = res.porBodega.reduce((s: number, b: any) => s + b.historico, 0)
     expect(suma).toBeCloseTo(res.totales.historico, 3)
   })
 
   it('la suma por ciudad cuadra con el total', () => {
-    const suma = res.porCiudad.reduce((s, c) => s + c.historico, 0)
+    const suma = res.porCiudad.reduce((s: number, c: any) => s + c.historico, 0)
     expect(suma).toBeCloseTo(res.totales.historico, 3)
   })
 
-  it('SAN MARTIN al 30-sep = 9,531 cajas', () => {
-    const sm = res.porCiudad.find((c) => c.ciudad === 'SAN MARTIN')
-    expect(sm?.historico).toBeCloseTo(9531, 3)
+  it('cada fila con ajuste tiene el desglose de entradas/salidas', () => {
+    for (const f of res.filas as any[]) {
+      const neto = f.entradas_posteriores - f.salidas_posteriores
+      expect(f.ajuste).toBeCloseTo(-neto, 3)
+    }
   })
 
-  it('TOLUCA al 30-sep = 5,501.5 cajas', () => {
-    const tol = res.porCiudad.find((c) => c.ciudad === 'TOLUCA')
-    expect(tol?.historico).toBeCloseTo(5501.5, 3)
+  it('la matriz agrupada cuadra con los totales del alcance', async () => {
+    const { fetchStockHistorico } = await import('@/modules/inventario/historico-queries')
+    const m = await fetchStockHistorico({
+      fechaCorte: CORTE,
+      bodegaIds: bodegasMeta.map((b) => b.id),
+      bodegas: bodegasMeta,
+      page: 1,
+      limit: 5000,
+      modo: 'agrupado',
+      columnasPor: 'ciudad',
+    })
+
+    expect(m.modo).toBe('agrupado')
+    expect(m.matriz).not.toBeNull()
+    const sumaColumnas = m.matriz!.columnas.reduce((s: number, c: any) => s + c.total_historicas, 0)
+    expect(sumaColumnas).toBeCloseTo(m.totales.historico, 3)
+    expect(m.matriz!.totales.historicas).toBeCloseTo(m.totales.historico, 3)
+    // Una columna por ciudad del alcance
+    expect(m.matriz!.columnas.length).toBe(
+      new Set(bodegasMeta.map((b: any) => (b.ciudad || 'VIRTUAL').toUpperCase())).size
+    )
+  })
+
+  it('con una sola bodega la vista es individual', async () => {
+    const { fetchStockHistorico } = await import('@/modules/inventario/historico-queries')
+    const una = bodegasMeta[0]
+    const m = await fetchStockHistorico({
+      fechaCorte: CORTE,
+      bodegaIds: [una.id],
+      bodegas: [una],
+      page: 1,
+      limit: 5000,
+    })
+    expect(m.modo).toBe('individual')
+    expect(m.matriz).toBeNull()
+    expect(m.totalProductos).toBeGreaterThan(0)
+    expect(m.totalFilas).toBeGreaterThanOrEqual(m.totalProductos)
   })
 })
 
@@ -145,7 +167,7 @@ describe.skipIf(!HAY_CREDENCIALES)('Kardex — verificación cruzada con el Cort
     bodegasMeta = (data ?? []) as any[]
     const bodegaIds = bodegasMeta.map((b) => b.id)
     corte = await fetchStockHistorico({
-      fechaCorte: '2026-09-30',
+      fechaCorte: CORTE,
       bodegaIds,
       bodegas: bodegasMeta,
       page: 1,
@@ -153,7 +175,7 @@ describe.skipIf(!HAY_CREDENCIALES)('Kardex — verificación cruzada con el Cort
     })
     kardex = await fetchKardexHistorico({
       desde: '2026-09-01',
-      hasta: '2026-09-30',
+      hasta: CORTE,
       bodegaIds,
       bodegas: bodegasMeta,
       page: 1,
@@ -207,10 +229,5 @@ describe.skipIf(!HAY_CREDENCIALES)('Kardex — verificación cruzada con el Cort
 
     expect(comparadas).toBeGreaterThan(100)
     expect(maxDiff).toBeLessThan(0.01)
-  })
-
-  it('el corte sin paginar cuadra con el total de referencia', () => {
-    expect(corte.totales.historico).toBeCloseTo(21783.5, 3)
-    expect(corte.totalFilas).toBe(corte.filas.length)
   })
 })

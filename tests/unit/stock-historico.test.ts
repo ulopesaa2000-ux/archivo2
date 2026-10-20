@@ -10,10 +10,13 @@ import {
   efectoEnBodega,
   efectoRollback,
   esMovimientoAplicable,
+  idsProductosUnicos,
   inicioDesde,
   normalizaFecha,
   normalizaHasta,
+  pivotarMatriz,
   resumenPorBodega,
+  type FilaPlanaHistorico,
   type MovimientoHistorico,
 } from '@/lib/inventario/stock-historico'
 
@@ -230,6 +233,103 @@ describe('construirKardex — saldo acumulado', () => {
     const k = construirKardex(movimientos, { desde: '2026-09-01', hasta: '2026-09-30' }, saldoInicial)
     const ultimo = k[k.length - 1]
     expect(ultimo.saldo).toBe(filas[0].cajas_historicas + ultimo.efecto)
+  })
+})
+
+describe('pivotarMatriz — vista agrupada', () => {
+  const columnas = [
+    { key: 'b:6', tipo: 'bodega' as const, id: 6, nombre: 'SAN DIEGO 1', ciudad: 'SAN MARTIN', orden: 1 },
+    { key: 'b:7', tipo: 'bodega' as const, id: 7, nombre: 'TORTILLA', ciudad: 'SAN MARTIN', orden: 2 },
+  ]
+
+  const fila = (over: Partial<FilaPlanaHistorico>): FilaPlanaHistorico => ({
+    bodega_id: 6,
+    bodega_nombre: 'SAN DIEGO 1',
+    ciudad: 'SAN MARTIN',
+    producto_id: 100,
+    producto_sku: 'BRI-03',
+    producto_descripcion: 'Abrigo',
+    producto_familia: 'F001-000A',
+    marca_nombre: 'ALEXIA',
+    pz_en_caja: 1,
+    cajas_hoy: 10,
+    ajuste: -4,
+    cajas_historicas: 6,
+    entradas_posteriores: 4,
+    salidas_posteriores: 0,
+    n_notas: 1,
+    valor_inconsistente: false,
+    ...over,
+  })
+
+  it('acumula una columna por bodega y una fila por producto', () => {
+    const m = pivotarMatriz(
+      [
+        fila({}),
+        fila({ bodega_id: 7, bodega_nombre: 'TORTILLA', cajas_hoy: 5, ajuste: 0, cajas_historicas: 5, n_notas: 0 }),
+      ],
+      columnas,
+      'bodega'
+    )
+
+    expect(m.filas).toHaveLength(1)
+    expect(m.filas[0].celdas['b:6'].cajas_historicas).toBe(6)
+    expect(m.filas[0].celdas['b:7'].cajas_historicas).toBe(5)
+    expect(m.filas[0].total_historicas).toBe(11)
+    expect(m.columnas).toHaveLength(2)
+    expect(m.columnas[0].total_historicas).toBe(6)
+    expect(m.columnas[1].total_historicas).toBe(5)
+    expect(m.totales.historicas).toBe(11)
+  })
+
+  it('agrupa por ciudad cuando la agrupación es por ciudad', () => {
+    const m = pivotarMatriz(
+      [
+        fila({}),
+        fila({ bodega_id: 7, bodega_nombre: 'TORTILLA', cajas_hoy: 5, ajuste: 0, cajas_historicas: 5 }),
+      ],
+      [{ key: 'c:SAN MARTIN', tipo: 'ciudad', id: 'SAN MARTIN', nombre: 'SAN MARTIN', ciudad: 'SAN MARTIN', orden: 1 }],
+      'ciudad'
+    )
+
+    expect(m.filas).toHaveLength(1)
+    expect(m.filas[0].celdas['c:SAN MARTIN'].cajas_historicas).toBe(11)
+    expect(m.filas[0].celdas['c:SAN MARTIN'].cajas_hoy).toBe(15)
+  })
+
+  it('conserva el desglose de entradas/salidas posteriores en la celda', () => {
+    const m = pivotarMatriz(
+      [fila({ ajuste: -4, entradas_posteriores: 4, salidas_posteriores: 0 })],
+      columnas,
+      'bodega'
+    )
+    const celda = m.filas[0].celdas['b:6']
+    expect(celda.entradas_posteriores).toBe(4)
+    expect(celda.salidas_posteriores).toBe(0)
+    // El ajuste es el inverso del neto de movimientos: entradas - salidas = 4 → ajuste = -4
+    expect(celda.ajuste).toBe(-(celda.entradas_posteriores - celda.salidas_posteriores))
+  })
+
+  it('marca la fila inconsistente si alguna celda queda en negativo', () => {
+    const m = pivotarMatriz(
+      [fila({ cajas_historicas: -2, valor_inconsistente: true })],
+      columnas,
+      'bodega'
+    )
+    expect(m.filas[0].valor_inconsistente).toBe(true)
+    expect(m.filas[0].celdas['b:6'].valor_inconsistente).toBe(true)
+  })
+
+  it('ignora filas cuya columna no está en las definiciones', () => {
+    const m = pivotarMatriz([fila({ bodega_id: 99 })], columnas, 'bodega')
+    expect(m.filas).toHaveLength(0)
+    expect(m.totales.historicas).toBe(0)
+  })
+})
+
+describe('idsProductosUnicos', () => {
+  it('devuelve los ids de producto sin repetir y en orden de aparición', () => {
+    expect(idsProductosUnicos([{ producto_id: 3 }, { producto_id: 1 }, { producto_id: 3 }])).toEqual([3, 1])
   })
 })
 
