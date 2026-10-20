@@ -1,7 +1,7 @@
 // app/(admin)/inventario/stock/historico/_components/TablaHistoricoAgrupada.tsx
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { compareFamiliaAsc, compareSkuAsc } from '@/lib/inventario/familias-orden'
@@ -60,9 +60,6 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
     })
   }
 
-  const stickyDesc = muestraDescripcion
-    ? 'sticky left-[300px] bg-background z-10 shadow-[1px_0_0_0_#e2e8f0]'
-    : ''
 
   return (
     <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
@@ -84,10 +81,7 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
                 SKU
               </th>
               {muestraDescripcion && (
-                <th
-                  rowSpan={2}
-                  className="px-4 py-3 text-left sticky left-[300px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] min-w-[250px] border-l font-semibold"
-                >
+                <th rowSpan={2} className="px-4 py-3 text-left min-w-[250px] border-l font-semibold">
                   Descripción
                 </th>
               )}
@@ -96,17 +90,19 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
                   Marca
                 </th>
               )}
-              <th
-                colSpan={columnas.length + 1}
-                className="px-3 py-2 text-center border-l bg-primary/10 text-primary font-bold text-[11px] uppercase tracking-wide"
-              >
-                Stock al {fechaCorte}
-              </th>
-              <th
-                colSpan={columnas.length}
-                className="px-3 py-2 text-center border-l bg-amber-500/10 text-amber-900 dark:text-amber-300 font-bold text-[11px] uppercase tracking-wide"
-              >
-                Movimientos posteriores
+              {/* Cada columna agrupa su par: stock al corte + movimientos posteriores */}
+              {columnas.map((c) => (
+                <th
+                  key={`grp-${c.key}`}
+                  colSpan={2}
+                  className="px-3 py-2 text-center border-l font-semibold"
+                  title={c.ciudad ? `${c.nombre} · ${c.ciudad}` : c.nombre}
+                >
+                  <span className="block truncate max-w-[200px]">{c.nombre}</span>
+                </th>
+              ))}
+              <th rowSpan={2} className="px-2 py-3 text-center border-l min-w-[92px] font-bold text-primary">
+                TOTAL
               </th>
               {muestraHoy && (
                 <th rowSpan={2} className="px-3 py-3 text-right border-l min-w-[90px] font-semibold">
@@ -120,28 +116,23 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
               )}
               {muestraNotas && <th rowSpan={2} className="px-3 py-3 text-center border-l font-semibold">Notas</th>}
             </tr>
-            {/* Nivel 2: columnas por bodega/ciudad */}
+            {/* Nivel 2: AL CORTE | MOVIMIENTOS por cada columna */}
             <tr className="bg-muted/50 text-muted-foreground border-b">
               {columnas.map((c) => (
-                <th
-                  key={`stock-${c.key}`}
-                  className="px-2 py-2 text-center border-l min-w-[92px] font-semibold"
-                  title={c.ciudad ? `${c.nombre} · ${c.ciudad}` : c.nombre}
-                >
-                  <span className="block truncate max-w-[120px]">{c.nombre}</span>
-                </th>
-              ))}
-              <th className="px-2 py-2 text-center border-l min-w-[92px] font-bold text-primary">
-                TOTAL
-              </th>
-              {columnas.map((c) => (
-                <th
-                  key={`mov-${c.key}`}
-                  className="px-2 py-2 text-center border-l min-w-[92px] font-semibold bg-amber-500/5"
-                  title={c.ciudad ? `${c.nombre} · ${c.ciudad}` : c.nombre}
-                >
-                  <span className="block truncate max-w-[120px]">{c.nombre}</span>
-                </th>
+                <Fragment key={`par-${c.key}`}>
+                  <th
+                    className="px-2 py-2 text-center border-l min-w-[92px] font-semibold text-[9px] uppercase tracking-wide"
+                    title={`Stock al cierre de ${fechaCorte} en ${c.nombre}`}
+                  >
+                    <span className="block truncate max-w-[110px]">Al {fechaCorte}</span>
+                  </th>
+                  <th
+                    className="px-2 py-2 text-center border-l min-w-[92px] font-semibold text-[9px] uppercase tracking-wide bg-amber-500/15 text-amber-900 dark:text-amber-200"
+                    title={`Movimientos de mercancía posteriores al ${fechaCorte} en ${c.nombre}`}
+                  >
+                    <span className="block truncate max-w-[110px]">Movimientos</span>
+                  </th>
+                </Fragment>
               ))}
             </tr>
           </thead>
@@ -165,7 +156,7 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
                     onToggle={() => toggleFamilia(g.familia)}
                     columnas={columnas}
                     flags={{ muestraDescripcion, muestraMarca, muestraHoy, muestraAjuste, muestraNotas }}
-                    stickyDesc={stickyDesc}
+                   
                     fechaCorte={fechaCorte}
                   />
                 ))
@@ -175,7 +166,7 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
                     fila={f}
                     columnas={columnas}
                     flags={{ muestraDescripcion, muestraMarca, muestraHoy, muestraAjuste, muestraNotas }}
-                    stickyDesc={stickyDesc}
+                   
                     fechaCorte={fechaCorte}
                   />
                 ))}
@@ -193,21 +184,21 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
                 TOTALES
               </td>
               {columnas.map((c) => (
-                <td key={`t-stock-${c.key}`} className="px-2 py-3 text-right font-mono tabular-nums border-l">
-                  {num(c.total_historicas)}
-                </td>
+                <Fragment key={`t-par-${c.key}`}>
+                  <td className="px-2 py-3 text-right font-mono tabular-nums border-l">
+                    {num(c.total_historicas)}
+                  </td>
+                  <td className="px-2 py-3 text-right font-mono tabular-nums border-l bg-amber-500/10">
+                    <Movimiento valor={c.total_entradas - c.total_salidas} />
+                  </td>
+                </Fragment>
               ))}
-              <td data-testid="total-corte" className="px-2 py-3 text-right font-mono tabular-nums border-l font-bold text-primary">
+              <td
+                data-testid="total-corte"
+                className="px-2 py-3 text-right font-mono tabular-nums border-l font-bold text-primary"
+              >
                 {num(matriz.totales.historicas)}
               </td>
-              {columnas.map((c) => (
-                <td
-                  key={`t-mov-${c.key}`}
-                  className="px-2 py-3 text-right font-mono tabular-nums border-l bg-amber-500/5"
-                >
-                  <Movimiento valor={c.total_entradas - c.total_salidas} />
-                </td>
-              ))}
               {muestraHoy && (
                 <td data-testid="total-hoy" className="px-3 py-3 text-right font-mono tabular-nums border-l">{num(matriz.totales.hoy)}</td>
               )}
@@ -282,13 +273,11 @@ function FilaProducto({
   fila,
   columnas,
   flags,
-  stickyDesc,
   fechaCorte,
 }: {
   fila: FilaMatriz
   columnas: MatrizHistorica['columnas']
   flags: Flags
-  stickyDesc: string
   fechaCorte: string
 }) {
   const f = flags
@@ -302,7 +291,7 @@ function FilaProducto({
       </td>
       {f.muestraDescripcion && (
         <td
-          className={`px-4 py-2 text-[11px] text-muted-foreground max-w-[260px] truncate border-l ${stickyDesc}`}
+          className="px-4 py-2 text-[11px] text-muted-foreground max-w-[260px] truncate border-l"
           title={fila.producto_descripcion ?? ''}
         >
           {fila.producto_descripcion ?? '—'}
@@ -312,7 +301,10 @@ function FilaProducto({
         <td className="px-4 py-2 text-[11px] text-muted-foreground border-l">{fila.marca_nombre ?? '—'}</td>
       )}
       {columnas.map((c) => (
-        <CeldaStock key={`s-${c.key}`} celda={fila.celdas[c.key]} nombre={c.nombre} />
+        <Fragment key={`par-${c.key}`}>
+          <CeldaStock celda={fila.celdas[c.key]} nombre={c.nombre} />
+          <CeldaMovimiento celda={fila.celdas[c.key]} nombre={c.nombre} />
+        </Fragment>
       ))}
       <td
         className="px-2 py-2 text-right font-mono tabular-nums border-l font-bold text-primary"
@@ -320,9 +312,6 @@ function FilaProducto({
       >
         {num(fila.total_historicas)}
       </td>
-      {columnas.map((c) => (
-        <CeldaMovimiento key={`m-${c.key}`} celda={fila.celdas[c.key]} nombre={c.nombre} />
-      ))}
       {f.muestraHoy && (
         <td className="px-3 py-2 text-right font-mono tabular-nums border-l">{num(fila.total_hoy)}</td>
       )}
@@ -350,7 +339,6 @@ function FamiliaRow({
   onToggle,
   columnas,
   flags,
-  stickyDesc,
   fechaCorte,
 }: {
   familia: string
@@ -366,7 +354,6 @@ function FamiliaRow({
   onToggle: () => void
   columnas: MatrizHistorica['columnas']
   flags: Flags
-  stickyDesc: string
   fechaCorte: string
 }) {
   const f = flags
@@ -388,31 +375,31 @@ function FamiliaRow({
         {f.muestraDescripcion && <td className="px-4 py-2 border-l" />}
         {f.muestraMarca && <td className="px-4 py-2 border-l" />}
         {columnas.map((c) => (
-          <td key={`s-${c.key}`} className="px-2 py-2 text-right font-mono tabular-nums border-l font-bold">
-            {num(
-              items.reduce(
-                (s, f2) => s + (f2.celdas[c.key]?.cajas_historicas ?? 0),
-                0
-              )
-            )}
-          </td>
+          <Fragment key={`s-par-${c.key}`}>
+            <td className="px-2 py-2 text-right font-mono tabular-nums border-l font-bold">
+              {num(
+                items.reduce(
+                  (s, f2) => s + (f2.celdas[c.key]?.cajas_historicas ?? 0),
+                  0
+                )
+              )}
+            </td>
+            <td className="px-2 py-2 text-right font-mono tabular-nums border-l bg-amber-500/10">
+              <Movimiento
+                valor={items.reduce(
+                  (s, f2) =>
+                    s +
+                    (f2.celdas[c.key]?.entradas_posteriores ?? 0) -
+                    (f2.celdas[c.key]?.salidas_posteriores ?? 0),
+                  0
+                )}
+              />
+            </td>
+          </Fragment>
         ))}
         <td className="px-2 py-2 text-right font-mono tabular-nums border-l font-bold text-primary">
           {num(totales.total_corte)}
         </td>
-        {columnas.map((c) => (
-          <td
-            key={`m-${c.key}`}
-            className="px-2 py-2 text-right font-mono tabular-nums border-l bg-amber-500/5"
-          >
-            <Movimiento
-              valor={items.reduce(
-                (s, f2) => s + (f2.celdas[c.key]?.entradas_posteriores ?? 0) - (f2.celdas[c.key]?.salidas_posteriores ?? 0),
-                0
-              )}
-            />
-          </td>
-        ))}
         {f.muestraHoy && (
           <td className="px-3 py-2 text-right font-mono tabular-nums border-l">{num(totales.total_hoy)}</td>
         )}
@@ -428,7 +415,7 @@ function FamiliaRow({
             fila={f2}
             columnas={columnas}
             flags={f}
-            stickyDesc={stickyDesc}
+           
             fechaCorte={fechaCorte}
           />
         ))}
