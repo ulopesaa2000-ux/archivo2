@@ -1,26 +1,43 @@
 // lib/inventario/excel-historico.ts
 /**
- * Constructor del Excel del Stock Histórico (puro, sin React).
+ * Builder del Excel del Stock Histórico (puro, sin React).
  * Se carga con `dynamic import` porque exceljs es pesado (AGENTS.md 3.7.3).
  *
  * Hojas:
- *   1. "Stock a la fecha"    → una fila por producto × bodega
- *   2. "Movimientos revertidos" → notas CONF posteriores al corte que se deshacen
- *   3. "Resumen"             → por bodega y por ciudad (+ ajustes directos)
- * En modo kardex: "Movimientos" + "Resumen" de periodo.
+ *   1. "Formato Impresión" → matriz agrupada, calcada del reporte global de Stock,
+ *      con el par AL CORTE | MOVIMIENTOS por columna (solo vista agrupada).
+ *   2. "Datos"             → una fila por producto × columna.
+ *   3. "Movimientos"       → detalle de las notas CONF posteriores al corte, con el
+ *                            saldo acumulado por producto × columna.
+ *   4. "Resumen"           → totales por bodega/ciudad + avisos de descuadre.
+ *
+ * Todo en CAJAS (el modelo ignora piezas sueltas).
  */
 
-export type FilaExcelCorte = {
-  producto_familia: string | null
-  producto_sku: string
-  producto_descripcion: string | null
-  marca_nombre: string | null
+export type TipoColumnaExcel = 'bodega' | 'ciudad'
+
+export type ColumnaExcel = {
+  key: string
+  tipo: TipoColumnaExcel
+  id: number | string
+  nombre: string
+  ciudad: string | null
+}
+
+export type FilaExcel = {
+  producto_id: number
+  bodega_id: number
+  familia: string | null
+  sku: string
+  descripcion: string | null
+  descripcion_general: string | null
+  marca: string | null
   pz_en_caja: number | null
   bodega_nombre: string
   ciudad: string
   cajas_hoy: number
   ajuste: number
-  cajas_historicas: number
+  cajas_corte: number
   entradas_posteriores: number
   salidas_posteriores: number
   n_notas: number
@@ -33,14 +50,14 @@ export type MovimientoExcel = {
   numero_nota: string
   tipo_codigo: string
   estado_codigo: string
+  bodega_origen_id: number
   bodega_origen_nombre: string
+  bodega_destino_id: number | null
   bodega_destino_nombre: string | null
-  bodega_nombre: string
-  producto_sku: string
-  producto_descripcion: string | null
+  producto_id: number
   cajas: number
+  /** Efecto firmado sobre la bodega afectada (+ entra / − sale). */
   efecto: number
-  saldo?: number
 }
 
 export type ResumenExcel = {
@@ -50,13 +67,16 @@ export type ResumenExcel = {
   hoy: number
   ajuste: number
   historico: number
+  entradas: number
+  salidas: number
+  n_notas: number
 }
 
-export type ResumenCiudadExcel = {
-  ciudad: string
-  hoy: number
-  ajuste: number
-  historico: number
+export type DescuadreExcel = {
+  bodega_nombre: string
+  dif: number
+  claves: number
+  tiene_ajuste_directo_post_corte: boolean
 }
 
 export type AjusteDirectoExcel = {
@@ -66,247 +86,89 @@ export type AjusteDirectoExcel = {
   usuario_id: number | null
 }
 
-export type DatosExcelCorte = {
+export type DatosExcelHistorico = {
+  modo: 'individual' | 'agrupado'
   fechaCorte: string
-  filas: FilaExcelCorte[]
-  totales: { hoy: number; ajuste: number; historico: number; entradas?: number; salidas?: number }
+  alcanceLabel: string
+  /** Etiqueta del tipo de columna: "BODEGA" o "CIUDAD". */
+  tipoColumna: TipoColumnaExcel
+  columnas: ColumnaExcel[]
+  /** bodega_id → key de columna (para ubicar cada movimiento). */
+  bodegaAColumna: Record<number, string>
+  filas: FilaExcel[]
+  totales: { hoy: number; ajuste: number; historicas: number; entradas: number; salidas: number }
   porBodega: ResumenExcel[]
-  porCiudad: ResumenCiudadExcel[]
+  porCiudad: ResumenExcel[]
+  movimientos: MovimientoExcel[]
   ajustesDirectos: AjusteDirectoExcel[]
-  movimientosRevertidos: MovimientoExcel[]
+  descuadres: DescuadreExcel[]
   notasRevertidas: number
+  negativos: number
+  /** Descripciones canónicas por familia (como en el reporte de Stock). */
+  descripcionesCanonicas: Record<string, string>
 }
 
-export type DatosExcelKardex = {
-  desde: string
-  hasta: string
-  filas: MovimientoExcel[]
-  totales: { entradas: number; salidas: number; saldoInicial: number; saldoFinal: number }
-  notasDistintas: number
-  totalFilas: number
-}
-
-const AZUL = 'FF1E40AF'
-const AZUL_OSCURO = 'FF1E3A8A'
-
-function num(n: number): number {
+export function num(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
-function encabezado(sheet: any, titulo: string) {
-  sheet.pageSetup.orientation = 'landscape'
-  sheet.pageSetup.fitToPage = true
-  sheet.pageSetup.fitToWidth = 1
-  sheet.pageSetup.fitToHeight = 0
-  const row = sheet.getRow(1)
-  row.getCell(1).value = titulo
-  row.getCell(1).font = { bold: true, size: 13, color: { argb: AZUL_OSCURO } }
-  row.height = 22
+export function formatearNumero(n: number): string {
+  return n.toLocaleString('es-MX', { maximumFractionDigits: 2 })
 }
 
-function estiloCabecera(sheet: any, fila: number) {
-  const row = sheet.getRow(fila)
-  row.height = 28
-  row.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-  row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-  row.eachCell((cell: any) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL } }
-    cell.border = { bottom: { style: 'medium', color: { argb: AZUL_OSCURO } } }
-  })
+/** Igual que en el reporte de Stock: F000-000C / Sin Familia al final y sin combinar. */
+export function esFamiliaSinAsignar(familia: string | null | undefined): boolean {
+  if (!familia) return true
+  const n = familia.trim().toUpperCase()
+  return (
+    n === 'F000-000C' ||
+    n === 'F000-000' ||
+    n === 'SIN FAMILIA' ||
+    n === 'SIN FAMILIA' ||
+    n === 'SIN ASIGNAR' ||
+    n === 'SIN CLASIFICAR' ||
+    n === '—' ||
+    n === '-' ||
+    n === 'NULL' ||
+    n === 'UNDEFINED'
+  )
 }
 
-/** Genera el .xlsx del corte (stock a la fecha). */
-export async function construirExcelCorte(datos: DatosExcelCorte): Promise<ArrayBuffer> {
-  const ExcelJS = (await import('exceljs')).default
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'Idol Navy — Stock Histórico'
-  wb.created = new Date()
-
-  const d = datos
-
-  // ── Hoja 1 ──
-  const sheet = wb.addWorksheet('Stock a la fecha')
-  encabezado(sheet, `Stock al cierre de ${d.fechaCorte} (cajas) — solo notas CONF/MODF activas`)
-  sheet.addRow([])
-  sheet.addRow([
-    'FAMILIA', 'SKU', 'DESCRIPCIÓN', 'MARCA', 'PZ/CJA', 'BODEGA', 'CIUDAD',
-    'CAJAS HOY', 'AJUSTE AL CORTE', `CAJAS AL ${d.fechaCorte}`, 'ENTRÓ POST.', 'SALIÓ POST.', 'NOTAS', '⚠ INCONSISTENTE',
-  ])
-  estiloCabecera(sheet, 3)
-  for (const f of d.filas) {
-    sheet.addRow([
-      f.producto_familia ?? '',
-      f.producto_sku,
-      f.producto_descripcion ?? '',
-      f.marca_nombre ?? '',
-      f.pz_en_caja ?? '',
-      f.bodega_nombre,
-      f.ciudad,
-      num(f.cajas_hoy),
-      num(f.ajuste),
-      num(f.cajas_historicas),
-      num(f.entradas_posteriores),
-      num(f.salidas_posteriores),
-      f.n_notas,
-      f.valor_inconsistente ? 'SI' : '',
-    ])
-  }
-  sheet.columns = [
-    { width: 14 }, { width: 18 }, { width: 38 }, { width: 16 }, { width: 8 },
-    { width: 20 }, { width: 16 }, { width: 12 }, { width: 16 }, { width: 16 },
-    { width: 13 }, { width: 13 }, { width: 8 }, { width: 14 },
-  ]
-  sheet.getColumn(8).numFmt = '#,##0.##'
-  sheet.getColumn(9).numFmt = '+#,##0.##;-#,##0.##;0'
-  sheet.getColumn(10).numFmt = '#,##0.##'
-  sheet.getColumn(10).font = { bold: true }
-  sheet.getColumn(11).numFmt = '#,##0.##'
-  sheet.getColumn(12).numFmt = '#,##0.##'
-
-  const totalRowIdx = sheet.rowCount + 1
-  sheet.getRow(totalRowIdx).values = [
-    '', '', 'TOTALES', '', '', '', '',
-    num(d.totales.hoy), num(d.totales.ajuste), num(d.totales.historico),
-    num(d.totales.entradas ?? 0), num(d.totales.salidas ?? 0), d.notasRevertidas, '',
-  ]
-  const tr = sheet.getRow(totalRowIdx)
-  tr.font = { bold: true, size: 11 }
-  tr.eachCell((cell: any) => {
-    cell.border = { top: { style: 'thin' }, bottom: { style: 'double' } }
-  })
-  sheet.getCell(totalRowIdx, 8).numFmt = '#,##0.##'
-  sheet.getCell(totalRowIdx, 9).numFmt = '+#,##0.##;-#,##0.##;0'
-  sheet.getCell(totalRowIdx, 10).numFmt = '#,##0.##'
-
-  // ── Hoja 2 ──
-  const ms = wb.addWorksheet('Movimientos revertidos')
-  encabezado(ms, `Movimientos CONF posteriores al ${d.fechaCorte} que se revierten para llegar al corte`)
-  ms.addRow([])
-  ms.addRow([
-    'FECHA NOTA', 'FECHA CONFIRMACIÓN', 'NOTA', 'TIPO', 'ESTADO', 'ORIGEN', 'DESTINO',
-    'PRODUCTO', 'DESCRIPCIÓN', 'CAJAS', 'EFECTO EN BODEGA',
-  ])
-  estiloCabecera(ms, 3)
-  for (const m of d.movimientosRevertidos) {
-    ms.addRow([
-      m.fecha_nota,
-      m.fecha_confirmacion ?? '',
-      m.numero_nota,
-      m.tipo_codigo,
-      m.estado_codigo,
-      m.bodega_origen_nombre,
-      m.bodega_destino_nombre ?? '',
-      m.producto_sku,
-      m.producto_descripcion ?? '',
-      num(m.cajas),
-      num(m.efecto),
-    ])
-  }
-  ms.columns = [
-    { width: 20 }, { width: 22 }, { width: 18 }, { width: 8 }, { width: 10 },
-    { width: 20 }, { width: 20 }, { width: 18 }, { width: 34 }, { width: 10 }, { width: 16 },
-  ]
-  ms.getColumn(10).numFmt = '#,##0.##'
-  ms.getColumn(11).numFmt = '+#,##0.##;-#,##0.##;0'
-
-  // ── Hoja 3 ──
-  const rs = wb.addWorksheet('Resumen')
-  encabezado(rs, `Resumen por bodega y ciudad al ${d.fechaCorte}`)
-  rs.addRow([])
-  rs.addRow(['BODEGA', 'CIUDAD', 'CAJAS HOY', 'AJUSTE', `CAJAS AL ${d.fechaCorte}`, 'DIFERENCIA', 'ESTADO'])
-  estiloCabecera(rs, 3)
-  const conAjuste = new Set(d.ajustesDirectos.map((a) => a.bodega_nombre))
-  for (const b of d.porBodega) {
-    rs.addRow([
-      b.bodega_nombre, b.ciudad, num(b.hoy), num(b.ajuste), num(b.historico),
-      num(b.historico - b.hoy),
-      conAjuste.has(b.bodega_nombre) ? 'AJUSTE DIRECTO (aproximado)' : 'ok',
-    ])
-  }
-  rs.addRow([])
-  rs.addRow(['CIUDAD', '', 'CAJAS HOY', 'AJUSTE', `CAJAS AL ${d.fechaCorte}`, 'DIFERENCIA', ''])
-  estiloCabecera(rs, rs.rowCount)
-  for (const c of d.porCiudad) {
-    rs.addRow([c.ciudad, '', num(c.hoy), num(c.ajuste), num(c.historico), num(c.historico - c.hoy), ''])
-  }
-  rs.columns = [
-    { width: 26 }, { width: 18 }, { width: 14 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 28 },
-  ]
-  rs.getColumn(3).numFmt = '#,##0.##'
-  rs.getColumn(4).numFmt = '+#,##0.##;-#,##0.##;0'
-  rs.getColumn(5).numFmt = '#,##0.##'
-  rs.getColumn(6).numFmt = '+#,##0.##;-#,##0.##;0'
-
-  if (d.ajustesDirectos.length > 0) {
-    rs.addRow([])
-    rs.addRow(['AJUSTES DIRECTOS (fuera de notas): el histórico de estas bodegas es aproximado'])
-    rs.getRow(rs.rowCount).font = { bold: true, color: { argb: 'FFB06000' } }
-    rs.addRow(['BODEGA', 'FECHA', 'FILAS AFECTADAS', 'USUARIO'])
-    estiloCabecera(rs, rs.rowCount)
-    for (const a of d.ajustesDirectos) {
-      rs.addRow([a.bodega_nombre, a.fecha, a.filas_afectadas, a.usuario_id ?? ''])
-    }
-  }
-
-  return (await wb.xlsx.writeBuffer()) as ArrayBuffer
+/** Orden canónico de familias (A→Z, F000-000C al final). */
+export function compareFamiliaAsc(a: string, b: string): number {
+  if (esFamiliaSinAsignar(a) && !esFamiliaSinAsignar(b)) return 1
+  if (!esFamiliaSinAsignar(a) && esFamiliaSinAsignar(b)) return -1
+  return a.localeCompare(b, 'es', { sensitivity: 'base' })
 }
 
-/** Genera el .xlsx del kardex (movimientos del periodo). */
-export async function construirExcelKardex(datos: DatosExcelKardex): Promise<ArrayBuffer> {
-  const ExcelJS = (await import('exceljs')).default
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'Idol Navy — Stock Histórico'
-  wb.created = new Date()
-
-  const k = datos
-  const sheet = wb.addWorksheet('Movimientos')
-  encabezado(sheet, `Movimientos confirmados del ${k.desde} al ${k.hasta} (cajas)`)
-  sheet.addRow([])
-  sheet.addRow([
-    'FECHA NOTA', 'FECHA CONFIRMACIÓN', 'NOTA', 'TIPO', 'ESTADO', 'ORIGEN', 'DESTINO',
-    'BODEGA', 'PRODUCTO', 'DESCRIPCIÓN', 'CAJAS', 'EFECTO', 'SALDO',
-  ])
-  estiloCabecera(sheet, 3)
-  for (const f of k.filas) {
-    sheet.addRow([
-      f.fecha_nota,
-      f.fecha_confirmacion ?? '',
-      f.numero_nota,
-      f.tipo_codigo,
-      f.estado_codigo,
-      f.bodega_origen_nombre,
-      f.bodega_destino_nombre ?? '',
-      f.bodega_nombre,
-      f.producto_sku,
-      f.producto_descripcion ?? '',
-      num(f.cajas),
-      num(f.efecto),
-      num(f.saldo ?? 0),
-    ])
-  }
-  sheet.columns = [
-    { width: 20 }, { width: 22 }, { width: 18 }, { width: 8 }, { width: 10 },
-    { width: 20 }, { width: 20 }, { width: 20 }, { width: 18 }, { width: 32 },
-    { width: 10 }, { width: 12 }, { width: 12 },
-  ]
-  sheet.getColumn(11).numFmt = '#,##0.##'
-  sheet.getColumn(12).numFmt = '+#,##0.##;-#,##0.##;0'
-  sheet.getColumn(13).numFmt = '#,##0.##'
-
-  const rs = wb.addWorksheet('Resumen')
-  encabezado(rs, `Resumen del periodo ${k.desde} — ${k.hasta}`)
-  rs.addRow([])
-  rs.addRow(['SALDO INICIAL', 'ENTRADAS', 'SALIDAS', 'SALDO FINAL', 'NOTAS', 'MOVIMIENTOS'])
-  estiloCabecera(rs, 3)
-  rs.addRow([
-    num(k.totales.saldoInicial),
-    num(k.totales.entradas),
-    num(k.totales.salidas),
-    num(k.totales.saldoFinal),
-    k.notasDistintas,
-    k.totalFilas,
-  ])
-  rs.columns = [{ width: 18 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 12 }, { width: 16 }]
-
-  return (await wb.xlsx.writeBuffer()) as ArrayBuffer
+export function compareSkuAsc(a: string | null | undefined, b: string | null | undefined): number {
+  return (a || '').localeCompare(b || '', 'es', { sensitivity: 'base' })
 }
+
+// ── Paleta (misma del reporte global de Stock) ──────────────────────────────
+export const COLOR = {
+  titulo: 'FFFFFDF5',
+  tituloFuente: 'FF0F172A',
+  descripcion: 'FFB4C6E7',
+  estilo: 'FFF1F5F9',
+  columna: 'FFDDEBF7',
+  global: 'FFFEE2E2',
+  globalFuente: 'FFDC2626',
+  familia: 'FFDDEBF7',
+  familiaFuente: 'FF1E40AF',
+  movimiento: 'FFFDE68A',
+  movimientoOscuro: 'FF92400E',
+  corte: 'FFE2E8F0',
+  total: 'FFF1F5F9',
+  totalFuente: 'FF0F172A',
+  zebra: 'FFF9FAFB',
+  blanco: 'FFFFFFFF',
+  vacio: 'FFD1D5DB',
+  negativo: 'FFDC2626',
+  bordeFino: 'FFE2E8F0',
+  bordeHeader: 'FF94A3B8',
+  bordeFuerte: 'FF475569',
+} as const
+
+export const NUM_FMT = '#,##0.##'
+export const NUM_FMT_FIRMA = '+#,##0.##;-#,##0.##;0'

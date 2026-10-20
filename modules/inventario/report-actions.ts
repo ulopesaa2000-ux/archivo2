@@ -3,6 +3,8 @@
 
 import { fetchNotasParaReporte, fetchResumenReporteNotas } from './queries'
 import { fetchKardexHistorico, fetchStockHistorico } from './historico-queries'
+import { fetchDescripcionesCanonicasFamilias } from '@/modules/catalogo/queries'
+import { fetchCatalogosInventario } from './queries'
 import type { FiltrosNotas, NotaListItem } from './types'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
@@ -111,6 +113,9 @@ export async function getReporteStockHistoricoAction(opts: {
   | {
       ok: true
       corte: Awaited<ReturnType<typeof fetchStockHistorico>>
+      descripcionesCanonicas: Record<string, string>
+      /** Nombres de todas las bodegas activas (para el origen/destino de los movimientos). */
+      nombresBodega: Record<number, string>
     }
   | { ok: false; error: string }
 > {
@@ -119,14 +124,27 @@ export async function getReporteStockHistoricoAction(opts: {
     if (bodegas.length === 0) {
       return { ok: false, error: 'No tienes bodegas disponibles en ese alcance.' }
     }
-    const corte = await fetchStockHistorico({
-      fechaCorte: opts.fechaCorte,
-      bodegaIds: bodegas.map((b) => b.id),
-      bodegas,
-      page: 1,
-      limit: 100000,
-    })
-    return { ok: true, corte }
+    // Modo y tipo de columna según el alcance (misma regla que la vista).
+    const modo: 'individual' | 'agrupado' = bodegas.length > 1 ? 'agrupado' : 'individual'
+    const columnasPor: 'bodega' | 'ciudad' = opts.alcance?.ciudad ? 'bodega' : 'ciudad'
+
+    const [corte, descripcionesCanonicas, catalogos] = await Promise.all([
+      fetchStockHistorico({
+        fechaCorte: opts.fechaCorte,
+        bodegaIds: bodegas.map((b) => b.id),
+        bodegas,
+        page: 1,
+        limit: 100000,
+        modo,
+        columnasPor,
+      }),
+      fetchDescripcionesCanonicasFamilias(),
+      fetchCatalogosInventario(),
+    ])
+    const nombresBodega: Record<number, string> = {}
+    for (const b of catalogos.bodegas) nombresBodega[b.id] = b.nombre
+    for (const b of bodegas) nombresBodega[b.id] = b.nombre
+    return { ok: true, corte, descripcionesCanonicas, nombresBodega }
   } catch (error) {
     console.error('Error getReporteStockHistoricoAction:', error)
     return { ok: false, error: 'Error al generar el reporte de stock histórico.' }
