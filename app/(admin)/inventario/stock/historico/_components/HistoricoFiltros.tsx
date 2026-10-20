@@ -1,20 +1,16 @@
 // app/(admin)/inventario/stock/historico/_components/HistoricoFiltros.tsx
 'use client'
 
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { CalendarClock, History, ListOrdered, Warehouse, MapPin, Layers, X } from 'lucide-react'
+import { CalendarClock, History, ListOrdered, X } from 'lucide-react'
 import { useFilterParams } from '@/components/admin/useFilterParams'
 import { SearchInput } from '@/components/admin/SearchInput'
+import { AlcanceCombobox } from './AlcanceCombobox'
+import { ColumnasPanel } from './ColumnasPanel'
 import type { BodegaRow } from '@/lib/types/tables'
 
 type Props = {
@@ -43,23 +39,71 @@ function primerDiaDe(fecha: string): string {
   return `${fecha.slice(0, 7)}-01`
 }
 
+/**
+ * Estado local sincronizado con un prop (patrón de React "adjusting state when
+ * a prop changes", sin `setState` dentro de un effect).
+ *
+ * Hace falta porque los props vienen del Server Component y tardan en llegar:
+ * sin estado local, el input controlado se resetea al valor viejo mientras
+ * navega y el usuario ve cómo la fecha "vuelve" al valor anterior.
+ */
+function useValorLocal(valor: string): [string, (v: string) => void] {
+  const [local, setLocal] = useState(valor)
+  const [previo, setPrevio] = useState(valor)
+  if (previo !== valor) {
+    setPrevio(valor)
+    setLocal(valor)
+  }
+  return [local, setLocal]
+}
+
 export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, hasta }: Props) {
-  const { updateParam, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
+  const { updateParam, updateParams, clearAll, searchParam, isPending, hasFilters } = useFilterParams()
 
   const q = searchParam('q')
   const bodegaSel = searchParam('bodega')
   const ciudadSel = searchParam('ciudad')
 
-  const ciudades = Array.from(
-    new Set(bodegas.map((b) => (b.ciudad || 'VIRTUAL').trim().toUpperCase()))
-  ).sort()
+  // El alcance/vista se leen de la URL (respuesta inmediata al hacer clic);
+  // los props son solo el fallback del primer render.
+  const alcanceUrl = searchParam('alcance')
+  const alcanceActual: 'bodega' | 'ciudad' | 'todas' =
+    alcanceUrl === 'bodega' || alcanceUrl === 'ciudad' ? alcanceUrl : alcance
+  const vistaUrl = searchParam('vista')
+  const vistaActual: 'corte' | 'kardex' = vistaUrl === 'kardex' ? vistaUrl : vista
 
+  // Estado local optimista de las fechas: el prop viene del Server Component y
+  // tarda en llegar, así que si el input fuera controlado por el prop se
+  // "revierte" visualmente mientras navega.
+  const [fechaLocal, setFechaLocal] = useValorLocal(fechaCorte)
+  const [desdeLocal, setDesdeLocal] = useValorLocal(desde)
+  const [hastaLocal, setHastaLocal] = useValorLocal(hasta)
+
+  /** Cambia la fecha de corte y sincroniza el periodo del kardex. */
   const cambioFecha = (nueva: string) => {
     if (!nueva) return
-    updateParam('fecha', nueva)
-    // El kardex sigue por defecto el mes de la fecha de corte.
-    updateParam('desde', primerDiaDe(nueva))
-    updateParam('hasta', nueva)
+    setFechaLocal(nueva)
+    setDesdeLocal(primerDiaDe(nueva))
+    setHastaLocal(nueva)
+    updateParams({
+      fecha: nueva,
+      desde: primerDiaDe(nueva),
+      hasta: nueva,
+    })
+  }
+
+  /** En el kardex, el cierre del periodo es también la fecha de corte. */
+  const cambioHasta = (nuevo: string) => {
+    if (!nuevo) return
+    setHastaLocal(nuevo)
+    setFechaLocal(nuevo)
+    updateParams({ hasta: nuevo, fecha: nuevo })
+  }
+
+  const cambioDesde = (nuevo: string) => {
+    if (!nuevo) return
+    setDesdeLocal(nuevo)
+    updateParams({ desde: nuevo })
   }
 
   const hoy = new Date()
@@ -77,7 +121,7 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
         <div className="flex items-center rounded-lg border bg-muted/40 p-0.5 shadow-sm">
           <Button
             type="button"
-            variant={vista === 'corte' ? 'default' : 'ghost'}
+            variant={vistaActual === 'corte' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => updateParam('vista', null)}
             className="h-8 text-xs font-semibold px-3 gap-1.5"
@@ -87,7 +131,7 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
           </Button>
           <Button
             type="button"
-            variant={vista === 'kardex' ? 'default' : 'ghost'}
+            variant={vistaActual === 'kardex' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => updateParam('vista', 'kardex')}
             className="h-8 text-xs font-semibold px-3 gap-1.5"
@@ -97,103 +141,30 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
           </Button>
         </div>
 
-        {/* Selector de alcance */}
-        <div className="flex items-center rounded-lg border bg-muted/40 p-0.5 shadow-sm">
-          <Button
-            type="button"
-            variant={alcance === 'todas' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => {
-              updateParam('alcance', null)
-              updateParam('bodega', null)
-              updateParam('ciudad', null)
-            }}
-            className="h-8 text-xs font-semibold px-3 gap-1.5"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            Todas
-          </Button>
-          <Button
-            type="button"
-            variant={alcance === 'ciudad' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => {
-              updateParam('alcance', 'ciudad')
-              updateParam('bodega', null)
-            }}
-            className="h-8 text-xs font-semibold px-3 gap-1.5"
-          >
-            <MapPin className="h-3.5 w-3.5" />
-            Ciudad
-          </Button>
-          <Button
-            type="button"
-            variant={alcance === 'bodega' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => {
-              updateParam('alcance', 'bodega')
-              updateParam('ciudad', null)
-            }}
-            className="h-8 text-xs font-semibold px-3 gap-1.5"
-          >
-            <Warehouse className="h-3.5 w-3.5" />
-            Bodega
-          </Button>
-        </div>
-
-        {/* Bodega (alcance = bodega) */}
-        {alcance === 'bodega' && (
-          <div className="space-y-1 min-w-[200px]">
-            <Label className="text-[11px] text-muted-foreground">Bodega</Label>
-            <Select
-              value={bodegaSel || undefined}
-              onValueChange={(v) => updateParam('bodega', v)}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Selecciona bodega" />
-              </SelectTrigger>
-              <SelectContent>
-                {bodegas.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)} className="text-xs">
-                    {b.nombre} · {(b.ciudad || 'VIRTUAL').toUpperCase()}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Ciudad (alcance = ciudad) */}
-        {alcance === 'ciudad' && (
-          <div className="space-y-1 min-w-[180px]">
-            <Label className="text-[11px] text-muted-foreground">Ciudad</Label>
-            <Select
-              value={ciudadSel || undefined}
-              onValueChange={(v) => updateParam('ciudad', v)}
-            >
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Selecciona ciudad" />
-              </SelectTrigger>
-              <SelectContent>
-                {ciudades.map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {/* Selector de alcance (combobox: ciudad → bodega) */}
+        <AlcanceCombobox
+          bodegas={bodegas}
+          alcance={alcanceActual}
+          ciudad={ciudadSel || null}
+          bodegaId={bodegaSel ? parseInt(bodegaSel, 10) || null : null}
+          onCambiar={(params) =>
+            updateParams({
+              alcance: params.alcance === 'todas' ? null : params.alcance,
+              ciudad: params.ciudad ?? null,
+              bodega: params.bodegaId != null ? String(params.bodegaId) : null,
+            })
+          }
+        />
 
         {/* Fecha de corte */}
         <div className="space-y-1">
           <Label htmlFor="hist-fecha" className="text-[11px] text-muted-foreground">
-            {vista === 'corte' ? 'Stock al cierre de' : 'Corte'}
+            {vistaActual === 'corte' ? 'Stock al cierre de' : 'Corte'}
           </Label>
           <Input
             id="hist-fecha"
             type="date"
-            value={fechaCorte}
+            value={fechaLocal}
             onChange={(e) => cambioFecha(e.target.value)}
             className="h-9 w-[170px] text-xs"
           />
@@ -208,7 +179,7 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
               variant="outline"
               size="sm"
               onClick={() => cambioFecha(p.valor)}
-              className={`h-9 text-xs ${fechaCorte === p.valor ? 'border-primary bg-primary/5 font-bold' : ''}`}
+              className={`h-9 text-xs ${fechaLocal === p.valor ? 'border-primary bg-primary/5 font-bold' : ''}`}
             >
               <CalendarClock className="h-3.5 w-3.5" />
               {p.label}
@@ -217,6 +188,8 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
         </div>
 
         <div className="flex-1" />
+
+        <ColumnasPanel mostrarAgrupar={vistaActual === 'corte'} />
 
         {hasFilters && (
           <Button
@@ -243,7 +216,7 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
           controlled
         />
 
-        {vista === 'kardex' && (
+        {vistaActual === 'kardex' && (
           <div className="flex items-end gap-2">
             <div className="space-y-1">
               <Label htmlFor="hist-desde" className="text-[11px] text-muted-foreground">
@@ -252,8 +225,8 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
               <Input
                 id="hist-desde"
                 type="date"
-                value={desde}
-                onChange={(e) => updateParam('desde', e.target.value)}
+                value={desdeLocal}
+                onChange={(e) => cambioDesde(e.target.value)}
                 className="h-9 w-[160px] text-xs"
               />
             </div>
@@ -264,8 +237,8 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
               <Input
                 id="hist-hasta"
                 type="date"
-                value={hasta}
-                onChange={(e) => updateParam('hasta', e.target.value)}
+                value={hastaLocal}
+                onChange={(e) => cambioHasta(e.target.value)}
                 className="h-9 w-[160px] text-xs"
               />
             </div>
@@ -273,7 +246,7 @@ export function HistoricoFiltros({ bodegas, fechaCorte, alcance, vista, desde, h
         )}
 
         <Badge variant="outline" className="h-7 px-2 text-[11px] font-mono">
-          corte: {fechaCorte}
+          corte: {fechaLocal}
         </Badge>
       </div>
     </div>

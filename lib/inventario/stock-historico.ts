@@ -120,6 +120,263 @@ export type ResumenBodega = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Matriz (vista agrupada): producto × columnas (bodega o ciudad)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Fila plana que devuelve la capa de datos: un producto en una bodega. */
+export type FilaPlanaHistorico = {
+  bodega_id: number
+  bodega_nombre: string
+  ciudad: string
+  producto_id: number
+  producto_sku: string
+  producto_descripcion: string | null
+  producto_familia: string | null
+  marca_nombre: string | null
+  pz_en_caja: number | null
+  cajas_hoy: number
+  /** Ajuste aplicado para llegar al corte (se suma a `cajas_hoy`). */
+  ajuste: number
+  cajas_historicas: number
+  /** Cajas que ENTRARON después del corte (se revierten → restan). */
+  entradas_posteriores: number
+  /** Cajas que SALIERON después del corte (se revierten → suman). */
+  salidas_posteriores: number
+  n_notas: number
+  valor_inconsistente: boolean
+}
+
+export type TipoAgrupacionMatriz = 'bodega' | 'ciudad'
+
+export type DefinicionColumnaMatriz = {
+  /** `b:<id>` para bodega, `c:<ciudad>` para ciudad. */
+  key: string
+  tipo: TipoAgrupacionMatriz
+  id: number | string
+  nombre: string
+  ciudad: string | null
+  orden: number
+}
+
+export type CeldaMatriz = {
+  cajas_hoy: number
+  ajuste: number
+  cajas_historicas: number
+  entradas_posteriores: number
+  salidas_posteriores: number
+  n_notas: number
+  valor_inconsistente: boolean
+}
+
+export type FilaMatriz = {
+  producto_id: number
+  producto_sku: string
+  producto_descripcion: string | null
+  producto_familia: string | null
+  marca_nombre: string | null
+  pz_en_caja: number | null
+  celdas: Record<string, CeldaMatriz>
+  total_hoy: number
+  total_ajuste: number
+  total_historicas: number
+  total_entradas: number
+  total_salidas: number
+  n_notas: number
+  valor_inconsistente: boolean
+}
+
+export type ColumnaMatriz = DefinicionColumnaMatriz & {
+  total_hoy: number
+  total_ajuste: number
+  total_historicas: number
+  total_entradas: number
+  total_salidas: number
+}
+
+export type MatrizHistorica = {
+  filas: FilaMatriz[]
+  columnas: ColumnaMatriz[]
+  totales: {
+    hoy: number
+    ajuste: number
+    historicas: number
+    entradas: number
+    salidas: number
+  }
+}
+
+/** Columna a la que pertenece una fila, según la agrupación pedida. */
+export function claveColumnaMatriz(
+  fila: Pick<FilaPlanaHistorico, 'bodega_id' | 'ciudad'>,
+  tipo: TipoAgrupacionMatriz
+): string {
+  return tipo === 'ciudad' ? `c:${fila.ciudad}` : `b:${fila.bodega_id}`
+}
+
+/**
+ * Convierte las filas planas (producto × bodega) en una matriz producto × columnas.
+ *
+ * - La agrupación decide si cada columna es una bodega o una ciudad.
+ * - Las celdas acumulan: cajas de hoy, ajuste, cajas al corte y el desglose de
+ *   movimientos posteriores (entradas/salidas revertidas).
+ * - Las columnas se devuelven con sus totales (pie de la tabla).
+ */
+export function pivotarMatriz(
+  filas: FilaPlanaHistorico[],
+  definiciones: DefinicionColumnaMatriz[],
+  tipo: TipoAgrupacionMatriz
+): MatrizHistorica {
+  const columnasPorKey = new Map<string, ColumnaMatriz>()
+  for (const d of definiciones) {
+    columnasPorKey.set(d.key, {
+      ...d,
+      total_hoy: 0,
+      total_ajuste: 0,
+      total_historicas: 0,
+      total_entradas: 0,
+      total_salidas: 0,
+    })
+  }
+
+  const porProducto = new Map<number, FilaMatriz>()
+  const ordenProductos: number[] = []
+
+  for (const f of filas) {
+    const key = claveColumnaMatriz(f, tipo)
+    const columna = columnasPorKey.get(key)
+    if (!columna) continue
+
+    let fila = porProducto.get(f.producto_id)
+    if (!fila) {
+      fila = {
+        producto_id: f.producto_id,
+        producto_sku: f.producto_sku,
+        producto_descripcion: f.producto_descripcion,
+        producto_familia: f.producto_familia,
+        marca_nombre: f.marca_nombre,
+        pz_en_caja: f.pz_en_caja,
+        celdas: {},
+        total_hoy: 0,
+        total_ajuste: 0,
+        total_historicas: 0,
+        total_entradas: 0,
+        total_salidas: 0,
+        n_notas: 0,
+        valor_inconsistente: false,
+      }
+      porProducto.set(f.producto_id, fila)
+      ordenProductos.push(f.producto_id)
+    }
+
+    const celda = fila.celdas[key] ?? {
+      cajas_hoy: 0,
+      ajuste: 0,
+      cajas_historicas: 0,
+      entradas_posteriores: 0,
+      salidas_posteriores: 0,
+      n_notas: 0,
+      valor_inconsistente: false,
+    }
+    celda.cajas_hoy += f.cajas_hoy
+    celda.ajuste += f.ajuste
+    celda.cajas_historicas += f.cajas_historicas
+    celda.entradas_posteriores += f.entradas_posteriores
+    celda.salidas_posteriores += f.salidas_posteriores
+    celda.n_notas += f.n_notas
+    celda.valor_inconsistente = celda.valor_inconsistente || f.valor_inconsistente
+    fila.celdas[key] = celda
+
+    fila.total_hoy += f.cajas_hoy
+    fila.total_ajuste += f.ajuste
+    fila.total_historicas += f.cajas_historicas
+    fila.total_entradas += f.entradas_posteriores
+    fila.total_salidas += f.salidas_posteriores
+    fila.n_notas += f.n_notas
+    fila.valor_inconsistente = fila.valor_inconsistente || f.valor_inconsistente
+
+    columna.total_hoy += f.cajas_hoy
+    columna.total_ajuste += f.ajuste
+    columna.total_historicas += f.cajas_historicas
+    columna.total_entradas += f.entradas_posteriores
+    columna.total_salidas += f.salidas_posteriores
+  }
+
+  const filasMatriz = ordenProductos.map((id) => porProducto.get(id)!)
+  const columnas = Array.from(columnasPorKey.values()).sort((a, b) => a.orden - b.orden)
+
+  const totales = filasMatriz.reduce(
+    (acc, f) => ({
+      hoy: acc.hoy + f.total_hoy,
+      ajuste: acc.ajuste + f.total_ajuste,
+      historicas: acc.historicas + f.total_historicas,
+      entradas: acc.entradas + f.total_entradas,
+      salidas: acc.salidas + f.total_salidas,
+    }),
+    { hoy: 0, ajuste: 0, historicas: 0, entradas: 0, salidas: 0 }
+  )
+
+  return { filas: filasMatriz, columnas, totales }
+}
+
+/**
+ * Totales por columna sobre el conjunto COMPLETO de filas (sin materializar la
+ * matriz completa). Se usa para que el pie de la tabla muestre los totales de
+ * todo el alcance y no solo los de la página visible.
+ */
+export function totalesPorColumna(
+  filas: FilaPlanaHistorico[],
+  definiciones: DefinicionColumnaMatriz[],
+  tipo: TipoAgrupacionMatriz
+): { columnas: ColumnaMatriz[]; totales: MatrizHistorica['totales'] } {
+  const columnasPorKey = new Map<string, ColumnaMatriz>()
+  for (const d of definiciones) {
+    columnasPorKey.set(d.key, {
+      ...d,
+      total_hoy: 0,
+      total_ajuste: 0,
+      total_historicas: 0,
+      total_entradas: 0,
+      total_salidas: 0,
+    })
+  }
+
+  const totales = { hoy: 0, ajuste: 0, historicas: 0, entradas: 0, salidas: 0 }
+
+  for (const f of filas) {
+    const columna = columnasPorKey.get(claveColumnaMatriz(f, tipo))
+    if (!columna) continue
+    columna.total_hoy += f.cajas_hoy
+    columna.total_ajuste += f.ajuste
+    columna.total_historicas += f.cajas_historicas
+    columna.total_entradas += f.entradas_posteriores
+    columna.total_salidas += f.salidas_posteriores
+    totales.hoy += f.cajas_hoy
+    totales.ajuste += f.ajuste
+    totales.historicas += f.cajas_historicas
+    totales.entradas += f.entradas_posteriores
+    totales.salidas += f.salidas_posteriores
+  }
+
+  const columnas = Array.from(columnasPorKey.values()).sort((a, b) => a.orden - b.orden)
+  return { columnas, totales }
+}
+
+/**
+ * Agrupa las filas planas por producto (para paginar por producto y no por
+ * producto×bodega). Devuelve los ids de producto en el orden de aparición.
+ */
+export function idsProductosUnicos(filas: { producto_id: number }[]): number[] {
+  const vistos = new Set<number>()
+  const out: number[] = []
+  for (const f of filas) {
+    if (vistos.has(f.producto_id)) continue
+    vistos.add(f.producto_id)
+    out.push(f.producto_id)
+  }
+  return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Fechas
 // ─────────────────────────────────────────────────────────────────────────────
 

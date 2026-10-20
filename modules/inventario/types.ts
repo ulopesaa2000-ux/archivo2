@@ -207,6 +207,8 @@ export type CatalogosInventario = {
 }
 
 // ── Stock Histórico (punto en el tiempo) ─────────────────────
+import type { MatrizHistorica } from '@/lib/inventario/stock-historico'
+
 export type AlcanceHistorico = {
   /** 'bodega' | 'ciudad' | 'todas' */
   tipo: 'bodega' | 'ciudad' | 'todas'
@@ -230,6 +232,10 @@ export type StockHistoricoFila = {
   ajuste: number
   /** Cajas al cierre de la fecha de corte. */
   cajas_historicas: number
+  /** Cajas que ENTRARON después del corte (se revierten → restan). */
+  entradas_posteriores: number
+  /** Cajas que SALIERON después del corte (se revierten → suman). */
+  salidas_posteriores: number
   /** Notas revertidas que afectan esta fila. */
   n_notas: number
   /** El corte documental dejó la fila en negativo → se marca, no se trunca. */
@@ -278,11 +284,18 @@ export type MovimientoRevertido = {
 
 export type StockHistoricoResultado = {
   fechaCorte: string
-  /** Filas de la página actual (el total va en `totalFilas`). */
+  /** 'individual' = una bodega (tabla simple). 'agrupado' = matriz por columnas. */
+  modo: 'individual' | 'agrupado'
+  /** Filas de la página actual (el total va en `totalFilas`/`totalProductos`). */
   filas: StockHistoricoFila[]
+  /** Filas planas del producto (producto × columna) de la página actual. */
   totalFilas: number
+  /** Productos distintos de la página (la paginación es por producto). */
+  totalProductos: number
   pagina: number
   limite: number
+  /** Matriz pivoteada (solo en modo 'agrupado'). */
+  matriz: MatrizHistorica | null
   totales: ResumenHistorico
   porBodega: (ResumenHistorico & { bodega_id: number; bodega_nombre: string; ciudad: string })[]
   porCiudad: (ResumenHistorico & { ciudad: string })[]

@@ -47,6 +47,33 @@ export function useFilterParams() {
   )
 
   /**
+   * Actualiza VARIOS parámetros en una sola navegación (atómico).
+   *
+   * OBLIGATORIO cuando un filtro cambia más de un parámetro: `updateParam` lee
+   * `searchParams` del render actual, así que dos llamadas seguidas se pisan
+   * (la segunda reconstruye la URL desde el estado viejo y borra el cambio de
+   * la primera). Con `updateParams` todo se aplica en un solo `push`.
+   */
+  const updateParams = useCallback(
+    (updates: Record<string, string | null | undefined>) => {
+      startTransition(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        for (const [key, value] of Object.entries(updates)) {
+          if (value === null || value === undefined || value === '' || value === '_all') {
+            params.delete(key)
+          } else {
+            params.set(key, value)
+          }
+        }
+        params.delete('page')
+        const qs = params.toString()
+        router.push(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false })
+      })
+    },
+    [searchParams, pathname, router]
+  )
+
+  /**
    * Elimina todos los filtros de la URL.
    * Opcionalmente limpiar inputs pasando sus IDs de elemento.
    */
@@ -83,6 +110,7 @@ export function useFilterParams() {
 
   return {
     updateParam,
+    updateParams,
     clearAll,
     searchParam,
     isPending,

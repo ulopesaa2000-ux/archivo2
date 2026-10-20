@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   output: 'standalone',
   typedRoutes: true,
+  // Next 16 bloquea los recursos de desarrollo desde orígenes no permitidos.
+  // Sin esto, abrir la app en http://127.0.0.1:3000 (baseURL por defecto de
+  // Playwright) deja la página SIN JS: no hidrata y los filtros/controles no
+  // responden. localhost ya está permitido por defecto.
+  allowedDevOrigins: ['127.0.0.1', 'localhost', '0.0.0.0'],
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',

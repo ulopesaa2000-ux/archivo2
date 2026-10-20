@@ -6,7 +6,8 @@ import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { fetchKardexHistorico, fetchStockHistorico } from '@/modules/inventario/historico-queries'
 import { HistoricoFiltros } from './_components/HistoricoFiltros'
-import { TablaCorte } from './_components/TablaCorte'
+import { TablaHistoricoAgrupada } from './_components/TablaHistoricoAgrupada'
+import { TablaHistoricoIndividual } from './_components/TablaHistoricoIndividual'
 import { TablaKardex } from './_components/TablaKardex'
 import { HistoricoAvisos } from './_components/HistoricoAvisos'
 import { HistoricoExcelButton } from './_components/HistoricoExcelButton'
@@ -87,7 +88,8 @@ async function HistorialCorte({
   q,
   page,
   pageSize,
-  mostrarBodega,
+  modo,
+  columnasPor,
 }: {
   fechaCorte: string
   bodegaIds: number[]
@@ -95,7 +97,8 @@ async function HistorialCorte({
   q?: string
   page: number
   pageSize: number
-  mostrarBodega: boolean
+  modo: 'individual' | 'agrupado'
+  columnasPor: 'bodega' | 'ciudad'
 }) {
   if (bodegaIds.length === 0) {
     return (
@@ -105,7 +108,16 @@ async function HistorialCorte({
     )
   }
 
-  const res = await fetchStockHistorico({ fechaCorte, bodegaIds, bodegas, q, page, limit: pageSize })
+  const res = await fetchStockHistorico({
+    fechaCorte,
+    bodegaIds,
+    bodegas,
+    q,
+    page,
+    limit: pageSize,
+    modo,
+    columnasPor,
+  })
 
   return (
     <div className="space-y-4">
@@ -119,13 +131,12 @@ async function HistorialCorte({
         porCiudad={res.porCiudad}
         fechaCorte={fechaCorte}
       />
-      <TablaCorte
-        filas={res.filas}
-        totales={res.totales}
-        fechaCorte={fechaCorte}
-        mostrarBodega={mostrarBodega}
-      />
-      <Pagination total={res.totalFilas} pageSize={pageSize} />
+      {res.modo === 'agrupado' && res.matriz ? (
+        <TablaHistoricoAgrupada matriz={res.matriz} fechaCorte={fechaCorte} />
+      ) : (
+        <TablaHistoricoIndividual filas={res.filas} fechaCorte={fechaCorte} />
+      )}
+      <Pagination total={res.totalProductos} pageSize={pageSize} />
     </div>
   )
 }
@@ -240,6 +251,11 @@ export default async function StockHistoricoPage({
   // Con más de una bodega en el alcance hay que mostrar la columna (si no, filas indistinguibles).
   const mostrarBodega = bodegaIds.length > 1
 
+  // Modo de la vista de corte: individual (1 bodega) o agrupado (matriz).
+  const modoCorte: 'individual' | 'agrupado' = bodegaIds.length > 1 ? 'agrupado' : 'individual'
+  // En "general" las columnas son ciudades (legible); en una ciudad, las bodegas.
+  const columnasPor: 'bodega' | 'ciudad' = alcance === 'todas' ? 'ciudad' : 'bodega'
+
   return (
     <div className="space-y-4 pb-12">
       {/* ── Encabezado ── */}
@@ -296,7 +312,8 @@ export default async function StockHistoricoPage({
             q={q}
             page={page}
             pageSize={PAGE_SIZE}
-            mostrarBodega={mostrarBodega}
+            modo={modoCorte}
+            columnasPor={columnasPor}
           />
         )}
       </Suspense>

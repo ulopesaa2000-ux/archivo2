@@ -21,8 +21,13 @@ import {
   diaAnterior,
   detectarAjustesDirectos,
   efectoEnBodega,
+  idsProductosUnicos,
   inicioDesde,
+  pivotarMatriz,
   reconciliarPorBodega,
+  totalesPorColumna,
+  type DefinicionColumnaMatriz,
+  type MatrizHistorica,
   type MovimientoHistorico,
   type StockRow,
 } from '@/lib/inventario/stock-historico'
@@ -62,6 +67,46 @@ function metaBodegas(bodegas: BodegaRow[]): Map<number, BodegaMeta> {
     })
   }
   return map
+}
+
+/**
+ * Definiciones de columnas de la matriz agrupada.
+ * - `bodega`: una columna por bodega del alcance.
+ * - `ciudad`: una columna por ciudad (agrupa las bodegas de la ciudad).
+ */
+function definicionesColumnas(
+  bodegas: BodegaRow[],
+  por: 'bodega' | 'ciudad'
+): DefinicionColumnaMatriz[] {
+  const meta = metaBodegas(bodegas)
+  if (por === 'bodega') {
+    return bodegas.map((b, i) => ({
+      key: `b:${b.id}`,
+      tipo: 'bodega' as const,
+      id: b.id,
+      nombre: b.nombre,
+      ciudad: meta.get(b.id)?.ciudad ?? 'VIRTUAL',
+      orden: i + 1,
+    }))
+  }
+
+  const porCiudad = new Map<string, BodegaRow[]>()
+  for (const b of bodegas) {
+    const cd = meta.get(b.id)?.ciudad ?? 'VIRTUAL'
+    const arr = porCiudad.get(cd) ?? []
+    arr.push(b)
+    porCiudad.set(cd, arr)
+  }
+  return Array.from(porCiudad.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([ciudad, bs], i) => ({
+      key: `c:${ciudad}`,
+      tipo: 'ciudad' as const,
+      id: ciudad,
+      nombre: ciudad,
+      ciudad,
+      orden: i + 1,
+    }))
 }
 
 function normalizaTipo(codigo: unknown): MovimientoHistorico['tipo_codigo'] | null {
@@ -365,6 +410,10 @@ export async function fetchStockHistorico(opts: {
   q?: string
   page?: number
   limit?: number
+  /** 'individual' = tabla simple de una bodega. 'agrupado' = matriz por columnas. */
+  modo?: 'individual' | 'agrupado'
+  /** En la matriz agrupada: columnas por bodega o por ciudad. */
+  columnasPor?: 'bodega' | 'ciudad'
 }): Promise<StockHistoricoResultado> {
   const corte = corteHasta(opts.fechaCorte)
   const bodegaIds = opts.bodegaIds
@@ -381,9 +430,41 @@ export async function fetchStockHistorico(opts: {
   const rollback = calcularRollback(movimientos, corte)
   const base = aplicarRollback(stockRes.filas, rollback)
 
+  // ── Movimientos revertidos (notas posteriores al corte) ──
+  const notasRevertidas = new Set<number>()
+  const movimientosRevertidos: MovimientoRevertido[] = []
+  // Desglose por (bodega, producto): entradas/salidas posteriores al corte.
+  const flujosPosteriores = new Map<string, { entradas: number; salidas: number }>()
+  for (const [clave, entry] of rollback.entries()) {
+    const bodegaId = Number(clave.split('|')[0])
+    for (const n of entry.notas) {
+      notasRevertidas.add(n.nota_id)
+      const efecto = efectoEnBodega(n, bodegaId)
+      movimientosRevertidos.push({
+        nota_id: n.nota_id,
+        numero_nota: n.numero_nota,
+        fecha_nota: n.fecha_nota,
+        fecha_confirmacion: n.fecha_confirmacion,
+        tipo_codigo: n.tipo_codigo,
+        estado_codigo: n.estado_codigo,
+        bodega_origen_id: n.bodega_origen_id,
+        bodega_destino_id: n.bodega_destino_id,
+        producto_id: n.producto_id,
+        cajas: n.cajas,
+        efecto,
+      })
+      const claveFlujo = `${bodegaId}|${n.producto_id}`
+      const flujo = flujosPosteriores.get(claveFlujo) ?? { entradas: 0, salidas: 0 }
+      if (efecto > 0) flujo.entradas += efecto
+      else if (efecto < 0) flujo.salidas += Math.abs(efecto)
+      flujosPosteriores.set(claveFlujo, flujo)
+    }
+  }
+
   let filas: StockHistoricoFila[] = base.map((f) => {
     const prod = stockRes.productos.get(f.producto_id)
     const bod = metaBod.get(f.bodega_id)
+    const flujo = flujosPosteriores.get(`${f.bodega_id}|${f.producto_id}`)
     return {
       bodega_id: f.bodega_id,
       bodega_nombre: bod?.nombre ?? `Bodega ${f.bodega_id}`,
@@ -397,6 +478,8 @@ export async function fetchStockHistorico(opts: {
       cajas_hoy: f.cajas_hoy,
       ajuste: f.ajuste,
       cajas_historicas: f.cajas_historicas,
+      entradas_posteriores: flujo?.entradas ?? 0,
+      salidas_posteriores: flujo?.salidas ?? 0,
       n_notas: f.n_notas,
       valor_inconsistente: f.valor_inconsistente,
     }
@@ -478,47 +561,60 @@ export async function fetchStockHistorico(opts: {
     }))
     .sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif))
 
-  const notasRevertidas = new Set<number>()
-  const movimientosRevertidos: MovimientoRevertido[] = []
-  for (const [clave, entry] of rollback.entries()) {
-    const bodegaId = Number(clave.split('|')[0])
-    for (const n of entry.notas) {
-      notasRevertidas.add(n.nota_id)
-      movimientosRevertidos.push({
-        nota_id: n.nota_id,
-        numero_nota: n.numero_nota,
-        fecha_nota: n.fecha_nota,
-        fecha_confirmacion: n.fecha_confirmacion,
-        tipo_codigo: n.tipo_codigo,
-        estado_codigo: n.estado_codigo,
-        bodega_origen_id: n.bodega_origen_id,
-        bodega_destino_id: n.bodega_destino_id,
-        producto_id: n.producto_id,
-        cajas: n.cajas,
-        efecto: efectoEnBodega(n, bodegaId),
-      })
-    }
-  }
-
+  const notasRevertidasCount = notasRevertidas.size
   const conStock = new Set(filas.map((f) => f.bodega_id))
   const totalFilas = filas.length
+
+  // ── Paginación por PRODUCTO (la matriz pivota producto → columnas) ──
   const limit = Math.max(opts.limit ?? 50, 1)
   const page = Math.max(opts.page ?? 1, 1)
-  const filasPagina = filas.slice((page - 1) * limit, page * limit)
+  const idsProductos = idsProductosUnicos(filas)
+  const totalProductos = idsProductos.length
+  const idsPagina = new Set(idsProductos.slice((page - 1) * limit, page * limit))
+  const filasPagina = filas.filter((f) => idsPagina.has(f.producto_id))
+
+  // ── Modo: individual (1 bodega) vs agrupado (matriz) ──
+  const modo: 'individual' | 'agrupado' = opts.modo ?? (bodegaIds.length > 1 ? 'agrupado' : 'individual')
+  const tipoColumnas: 'bodega' | 'ciudad' = opts.columnasPor ?? 'bodega'
+  let matriz: MatrizHistorica | null = null
+  if (modo === 'agrupado') {
+    const definiciones = definicionesColumnas(opts.bodegas, tipoColumnas)
+    matriz = pivotarMatriz(filasPagina, definiciones, tipoColumnas)
+    // Los totales del pie son de TODO el alcance, no solo de la página visible.
+    const globales = totalesPorColumna(filas, definiciones, tipoColumnas)
+    const porKey = new Map(globales.columnas.map((c) => [c.key, c]))
+    matriz.columnas = matriz.columnas.map((c) => {
+      const g = porKey.get(c.key)
+      return g
+        ? {
+            ...c,
+            total_hoy: g.total_hoy,
+            total_ajuste: g.total_ajuste,
+            total_historicas: g.total_historicas,
+            total_entradas: g.total_entradas,
+            total_salidas: g.total_salidas,
+          }
+        : c
+    })
+    matriz.totales = globales.totales
+  }
 
   return {
     fechaCorte: opts.fechaCorte,
+    modo,
     filas: filasPagina,
     totalFilas,
+    totalProductos,
     pagina: page,
     limite: limit,
+    matriz,
     totales,
     porBodega: Array.from(porBodegaMap.values()).sort((a, b) => a.bodega_id - b.bodega_id),
     porCiudad: Array.from(porCiudadMap.values()).sort((a, b) => a.ciudad.localeCompare(b.ciudad)),
     ajustesDirectos,
     descuadres,
     negativos: filas.filter((f) => f.valor_inconsistente).length,
-    notasRevertidas: notasRevertidas.size,
+    notasRevertidas: notasRevertidasCount,
     movimientosRevertidos,
     nMovimientos: movimientos.length,
     bodegasSinStock: bodegaIds.filter((id) => !conStock.has(id)).length,

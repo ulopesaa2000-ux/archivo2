@@ -21,6 +21,8 @@ export type FilaExcelCorte = {
   cajas_hoy: number
   ajuste: number
   cajas_historicas: number
+  entradas_posteriores: number
+  salidas_posteriores: number
   n_notas: number
   valor_inconsistente: boolean
 }
@@ -67,7 +69,7 @@ export type AjusteDirectoExcel = {
 export type DatosExcelCorte = {
   fechaCorte: string
   filas: FilaExcelCorte[]
-  totales: { hoy: number; ajuste: number; historico: number }
+  totales: { hoy: number; ajuste: number; historico: number; entradas?: number; salidas?: number }
   porBodega: ResumenExcel[]
   porCiudad: ResumenCiudadExcel[]
   ajustesDirectos: AjusteDirectoExcel[]
@@ -128,7 +130,7 @@ export async function construirExcelCorte(datos: DatosExcelCorte): Promise<Array
   sheet.addRow([])
   sheet.addRow([
     'FAMILIA', 'SKU', 'DESCRIPCIÓN', 'MARCA', 'PZ/CJA', 'BODEGA', 'CIUDAD',
-    'CAJAS HOY', 'AJUSTE AL CORTE', `CAJAS AL ${d.fechaCorte}`, 'NOTAS', '⚠ INCONSISTENTE',
+    'CAJAS HOY', 'AJUSTE AL CORTE', `CAJAS AL ${d.fechaCorte}`, 'ENTRÓ POST.', 'SALIÓ POST.', 'NOTAS', '⚠ INCONSISTENTE',
   ])
   estiloCabecera(sheet, 3)
   for (const f of d.filas) {
@@ -143,23 +145,29 @@ export async function construirExcelCorte(datos: DatosExcelCorte): Promise<Array
       num(f.cajas_hoy),
       num(f.ajuste),
       num(f.cajas_historicas),
+      num(f.entradas_posteriores),
+      num(f.salidas_posteriores),
       f.n_notas,
       f.valor_inconsistente ? 'SI' : '',
     ])
   }
   sheet.columns = [
     { width: 14 }, { width: 18 }, { width: 38 }, { width: 16 }, { width: 8 },
-    { width: 20 }, { width: 16 }, { width: 12 }, { width: 16 }, { width: 16 }, { width: 8 }, { width: 14 },
+    { width: 20 }, { width: 16 }, { width: 12 }, { width: 16 }, { width: 16 },
+    { width: 13 }, { width: 13 }, { width: 8 }, { width: 14 },
   ]
   sheet.getColumn(8).numFmt = '#,##0.##'
   sheet.getColumn(9).numFmt = '+#,##0.##;-#,##0.##;0'
   sheet.getColumn(10).numFmt = '#,##0.##'
   sheet.getColumn(10).font = { bold: true }
+  sheet.getColumn(11).numFmt = '#,##0.##'
+  sheet.getColumn(12).numFmt = '#,##0.##'
 
   const totalRowIdx = sheet.rowCount + 1
   sheet.getRow(totalRowIdx).values = [
     '', '', 'TOTALES', '', '', '', '',
-    num(d.totales.hoy), num(d.totales.ajuste), num(d.totales.historico), d.notasRevertidas, '',
+    num(d.totales.hoy), num(d.totales.ajuste), num(d.totales.historico),
+    num(d.totales.entradas ?? 0), num(d.totales.salidas ?? 0), d.notasRevertidas, '',
   ]
   const tr = sheet.getRow(totalRowIdx)
   tr.font = { bold: true, size: 11 }
