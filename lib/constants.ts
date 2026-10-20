@@ -72,6 +72,7 @@ export const ADMIN_ROUTES = {
     notaDetalle: (id: number) => `/inventario/notas/${id}`,
     notaPropuestas: '/inventario/notas/propuestas',
     stock: '/inventario/stock',
+    historico: '/inventario/stock/historico',
     trazabilidad: '/inventario/trazabilidad',
     bodegas: '/inventario/bodegas',
     config: '/inventario/config',

@@ -2,9 +2,11 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Upload, Package, TrendingUp } from 'lucide-react'
+import { Upload, Package, TrendingUp, History } from 'lucide-react'
 import { ImportarAjusteDialog } from './ImportarAjusteDialog'
+import { ADMIN_ROUTES } from '@/lib/constants'
 import type { BodegaRow } from '@/lib/types/tables'
 
 type Props = {
@@ -16,6 +18,8 @@ type Props = {
   totalCajas?: number
   totalCajasPronosticadas?: number
   isPronostico?: boolean
+  /** Muestra el acceso al histórico (stock a una fecha). */
+  showHistorico?: boolean
 }
 
 export function StockPageHeader({
@@ -27,6 +31,7 @@ export function StockPageHeader({
   totalCajas,
   totalCajasPronosticadas,
   isPronostico = false,
+  showHistorico = false,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false)
 
@@ -58,6 +63,14 @@ export function StockPageHeader({
         </div>
         <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
+      {showHistorico && (
+        <Button variant="outline" size="sm" asChild className="gap-1.5 shrink-0">
+          <Link href={ADMIN_ROUTES.inventario.historico}>
+            <History className="size-3.5" />
+            Stock a la fecha
+          </Link>
+        </Button>
+      )}
       {showImport && (
         <>
           <Button

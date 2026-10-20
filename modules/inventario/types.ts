@@ -206,6 +206,146 @@ export type CatalogosInventario = {
   ciudades?: string[]
 }
 
+// ── Stock Histórico (punto en el tiempo) ─────────────────────
+export type AlcanceHistorico = {
+  /** 'bodega' | 'ciudad' | 'todas' */
+  tipo: 'bodega' | 'ciudad' | 'todas'
+  bodegaId?: number | null
+  ciudad?: string | null
+}
+
+export type StockHistoricoFila = {
+  bodega_id: number
+  bodega_nombre: string
+  ciudad: string
+  producto_id: number
+  producto_sku: string
+  producto_descripcion: string | null
+  producto_familia: string | null
+  marca_nombre: string | null
+  pz_en_caja: number | null
+  /** Cajas actuales en la bodega (nivel producto). */
+  cajas_hoy: number
+  /** Ajuste aplicado para llegar a la fecha de corte (se suma a `cajas_hoy`). */
+  ajuste: number
+  /** Cajas al cierre de la fecha de corte. */
+  cajas_historicas: number
+  /** Notas revertidas que afectan esta fila. */
+  n_notas: number
+  /** El corte documental dejó la fila en negativo → se marca, no se trunca. */
+  valor_inconsistente: boolean
+}
+
+export type ResumenHistorico = {
+  hoy: number
+  ajuste: number
+  historico: number
+}
+
+export type AjusteDirectoHistorico = {
+  bodega_id: number
+  bodega_nombre: string
+  fecha: string
+  filas_afectadas: number
+  usuario_id: number | null
+}
+
+export type DescuadreBodega = {
+  bodega_id: number
+  bodega_nombre: string
+  ciudad: string
+  /** Stock actual − suma de efectos de las notas activas (cajas sin explicar). */
+  dif: number
+  claves_descuadradas: number
+  /** La bodega tiene Updates directos POSTERIORES al corte → la cifra histórica puede diferir. */
+  tieneAjusteDirectoPostCorte: boolean
+}
+
+export type MovimientoRevertido = {
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string
+  fecha_confirmacion: string | null
+  tipo_codigo: string
+  estado_codigo: string
+  bodega_origen_id: number
+  bodega_destino_id: number | null
+  producto_id: number
+  cajas: number
+  /** Efecto firmado sobre la bodega del alcance (positivo = entró después del corte). */
+  efecto: number
+}
+
+export type StockHistoricoResultado = {
+  fechaCorte: string
+  /** Filas de la página actual (el total va en `totalFilas`). */
+  filas: StockHistoricoFila[]
+  totalFilas: number
+  pagina: number
+  limite: number
+  totales: ResumenHistorico
+  porBodega: (ResumenHistorico & { bodega_id: number; bodega_nombre: string; ciudad: string })[]
+  porCiudad: (ResumenHistorico & { ciudad: string })[]
+  ajustesDirectos: AjusteDirectoHistorico[]
+  /** Bodegas cuyo stock actual no cuadra con la suma de sus notas activas. */
+  descuadres: DescuadreBodega[]
+  /** Filas que quedaron en negativo con el corte documental. */
+  negativos: number
+  /** Notas CONF/MODF posteriores al corte que se revirtieron. */
+  notasRevertidas: number
+  /** Detalle de los movimientos revertidos (una fila por nota × producto × bodega). */
+  movimientosRevertidos: MovimientoRevertido[]
+  /** Movimientos CONF/MODF leídos para el cálculo. */
+  nMovimientos: number
+  /** Bodegas del alcance sin ninguna fila de stock. */
+  bodegasSinStock: number
+}
+
+// ── Kardex (movimientos de un periodo con saldo acumulado) ───
+export type KardexFila = {
+  clave: string
+  bodega_id: number
+  bodega_nombre: string
+  ciudad: string
+  producto_id: number
+  producto_sku: string
+  producto_descripcion: string | null
+  producto_familia: string | null
+  nota_id: number
+  numero_nota: string
+  fecha_nota: string
+  fecha_confirmacion: string | null
+  tipo_codigo: string
+  tipo_nombre: string
+  estado_codigo: string
+  bodega_origen_id: number
+  bodega_origen_nombre: string
+  bodega_destino_id: number | null
+  bodega_destino_nombre: string | null
+  cajas: number
+  /** Efecto firmado sobre la bodega del alcance. */
+  efecto: number
+  /** Saldo acumulado del producto × bodega después de este movimiento. */
+  saldo: number
+}
+
+export type KardexResultado = {
+  desde: string
+  hasta: string
+  /** Filas de la página actual (el total va en `totalFilas`). */
+  filas: KardexFila[]
+  totalFilas: number
+  pagina: number
+  limite: number
+  totales: {
+    entradas: number
+    salidas: number
+    saldoInicial: number
+    saldoFinal: number
+  }
+  notasDistintas: number
+}
+
 // ── Sustituto Inteligente por Familia y Similitud ───────────
 export type ProductoSustitutoAmpliado = {
   id: number

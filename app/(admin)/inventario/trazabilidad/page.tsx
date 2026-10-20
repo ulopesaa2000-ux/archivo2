@@ -3,7 +3,8 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { requirePermission } from '@/lib/dal'
-import { Route, Layers, Sparkles, Workflow } from 'lucide-react'
+import { Route, Layers, Sparkles, Workflow, History } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { fetchTrazabilidadData, type TrazabilidadFiltros } from '@/modules/inventario/trazabilidad'
 import { TrazabilidadHeaderControls } from './components/TrazabilidadHeaderControls'
 import { TrazabilidadRotacionCards } from './components/TrazabilidadRotacionCards'
@@ -66,6 +67,23 @@ export default async function TrazabilidadPage({ searchParams }: TrazabilidadPag
     return s ? `/inventario/trazabilidad?${s}` : '/inventario/trazabilidad'
   }
 
+  // Enlace al histórico: mismo alcance y periodo, con el corte al final del periodo.
+  const fechaHastaDia = (data.filtrosAplicados.fechaHasta || '').slice(0, 10)
+  const fechaDesdeDia = (data.filtrosAplicados.fechaDesde || '').slice(0, 10)
+  const histParams = new URLSearchParams()
+  histParams.set('vista', 'kardex')
+  if (fechaHastaDia) histParams.set('fecha', fechaHastaDia)
+  if (fechaDesdeDia) histParams.set('desde', fechaDesdeDia)
+  if (fechaHastaDia) histParams.set('hasta', fechaHastaDia)
+  if (data.filtrosAplicados.bodegaId) {
+    histParams.set('alcance', 'bodega')
+    histParams.set('bodega', String(data.filtrosAplicados.bodegaId))
+  } else if (data.filtrosAplicados.ciudad) {
+    histParams.set('alcance', 'ciudad')
+    histParams.set('ciudad', data.filtrosAplicados.ciudad)
+  }
+  const historicoHref = `/inventario/stock/historico?${histParams.toString()}`
+
   return (
     <div className="space-y-6 pb-12">
       
@@ -86,6 +104,12 @@ export default async function TrazabilidadPage({ searchParams }: TrazabilidadPag
             </div>
           </div>
         </div>
+        <Button variant="outline" size="sm" asChild className="gap-1.5 shrink-0">
+          <Link href={historicoHref}>
+            <History className="w-3.5 h-3.5" />
+            Ver stock al cierre del periodo
+          </Link>
+        </Button>
       </div>
 
       {/* ── Barra de Controles y Filtros ── */}

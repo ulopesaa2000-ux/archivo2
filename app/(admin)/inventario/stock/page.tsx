@@ -307,6 +307,7 @@ async function StockPageContent({
           bodegaActivaId={bodegaActivaId}
           totalCajas={totalCajasMatriz}
           showImport={canImport}
+          showHistorico
         />
 
         {/* ── Filtros fijos y estables (NUNCA se desmontan) ── */}
@@ -367,6 +368,7 @@ async function StockPageContent({
         isPronostico={isPronostico}
         totalCajas={totalCajasBodega}
         showImport={canImport}
+        showHistorico
       />
 
       {/* ── Filtros fijos y estables (NUNCA se desmontan) ── */}
