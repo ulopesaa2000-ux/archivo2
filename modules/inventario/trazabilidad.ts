@@ -243,6 +243,20 @@ function resolverRangoFechas(filtros: TrazabilidadFiltros): { desde: string; has
   }
 }
 
+/**
+ * Ids de estados por código (CONF/MODF, CANC, PEND/PROC).
+ *
+ * El filtro debe hacerse por `notas_inventario.estado_id` (FK) y NO por
+ * `notas_inventario.cat_estados_nota.codigo`: un filtro sobre un embed anidado
+ * lo aplica PostgREST con LEFT JOIN (deja la fila y anula el embed), así que las
+ * notas PEND/PROC/CANC se colaban como si fueran CONF.
+ */
+async function fetchEstadoIdsPorCodigo(codigos: string[]): Promise<number[]> {
+  const supabase = await createClient()
+  const { data } = await supabase.from('cat_estados_nota').select('id').in('codigo', codigos)
+  return (data ?? []).map((e) => Number(e.id))
+}
+
 export async function fetchTrazabilidadData(
   filtros: TrazabilidadFiltros
 ): Promise<TrazabilidadCompletaRespuesta> {
@@ -456,7 +470,7 @@ export async function fetchTrazabilidadData(
     .gte('notas_inventario.fecha_nota', desde)
     .lte('notas_inventario.fecha_nota', hasta)
     .eq('notas_inventario.activo', true)
-    .in('notas_inventario.cat_estados_nota.codigo', ['CONF', 'MODF'])
+    .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['CONF', 'MODF']))
     .order('id')
 
   if (movError) throw movError
@@ -507,7 +521,7 @@ export async function fetchTrazabilidadData(
         .gte('notas_inventario.fecha_nota', desde)
         .lte('notas_inventario.fecha_nota', hasta)
         .eq('notas_inventario.activo', true)
-        .eq('notas_inventario.cat_estados_nota.codigo', 'CANC')
+        .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['CANC']))
         .order('id')
         .limit(500)
       canceladas = ((cancRaw || []) as any[])
@@ -563,7 +577,7 @@ export async function fetchTrazabilidadData(
         `)
         .in('producto_id', productosIds)
         .eq('notas_inventario.activo', true)
-        .in('notas_inventario.cat_estados_nota.codigo', ['PEND', 'PROC'])
+        .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['PEND', 'PROC']))
         .order('id')
         .limit(2000)
       ;((pendRaw || []) as any[]).forEach((m: any) => {
@@ -642,7 +656,8 @@ export async function fetchTrazabilidadData(
     const nota = m.notas_inventario
     // Blindaje defensivo: aunque el filtro SQL ya excluye, nunca sumar CANC ni activo=false.
     if (nota?.activo === false) return
-    const estadoCod = String(nota?.cat_estados_nota?.codigo || 'CONF').toUpperCase()
+    const estadoCod = String(nota?.cat_estados_nota?.codigo || '').toUpperCase()
+    if (!estadoCod) return
     if (estadoCod !== 'CONF' && estadoCod !== 'MODF') return
     const tipo = nota?.cat_tipos_movimiento?.codigo || 'OTRO'
     const cajas = Number(m.cajas) || 0
@@ -974,7 +989,8 @@ export async function fetchProductoTimeline(
     const nota = m.notas_inventario
     // activo=false nunca sale (borrado suave admin)
     if (nota?.activo === false) return false
-    const est = String(nota?.cat_estados_nota?.codigo || 'CONF').toUpperCase()
+    const est = String(nota?.cat_estados_nota?.codigo || '').toUpperCase()
+    if (!est) return false
     // Base: CONF/MODF normal + PEND/PROC amarillo. CANC solo con toggle ON.
     if (est === 'CANC') return incluirCanceladas
     return true
@@ -990,7 +1006,7 @@ export async function fetchProductoTimeline(
       numero_nota: nota.numero_nota,
       tipo_codigo: nota.cat_tipos_movimiento?.codigo || 'SAL',
       tipo_nombre: nota.cat_tipos_movimiento?.nombre || 'Movimiento',
-      estado_codigo: nota.cat_estados_nota?.codigo || 'CONF',
+      estado_codigo: nota.cat_estados_nota?.codigo ?? '',
       producto_id: m.producto_id,
       sku_base: m.productos?.sku_base || '',
       descripcion: m.productos?.descripcion || null,
@@ -1118,7 +1134,7 @@ export async function fetchMovimientosPorCiudad(
       )
     `)
     .eq('notas_inventario.activo', true)
-    .in('notas_inventario.cat_estados_nota.codigo', estados)
+    .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(estados))
     .order('id', { ascending: false })
 
   if (fechaDesde) query = query.gte('notas_inventario.fecha_nota', fechaDesde)
@@ -1150,7 +1166,7 @@ export async function fetchMovimientosPorCiudad(
       fecha_nota: nota.fecha_nota,
       tipo_codigo: nota.cat_tipos_movimiento?.codigo || 'SAL',
       tipo_nombre: nota.cat_tipos_movimiento?.nombre || 'Movimiento',
-      estado_codigo: nota.cat_estados_nota?.codigo || 'CONF',
+      estado_codigo: nota.cat_estados_nota?.codigo ?? '',
       producto_id: m.producto_id,
       sku_base: prod?.sku_base || '',
       cajas: Number(m.cajas) || 0,
@@ -1261,7 +1277,7 @@ export async function fetchNotasCelda(opts: {
         )
       `)
       .eq('notas_inventario.activo', true)
-      .in('notas_inventario.cat_estados_nota.codigo', estados)
+      .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(estados))
       .order('id', { ascending: false })
     if (opts.productoId) query = query.eq('producto_id', opts.productoId)
     if (conFechas) {
@@ -1296,7 +1312,7 @@ export async function fetchNotasCelda(opts: {
         numero_nota: String(nota.numero_nota || ''),
         fecha_nota: nota.fecha_nota,
         tipo_codigo: tipoCod.toUpperCase(),
-        estado_codigo: String(nota?.cat_estados_nota?.codigo || 'CONF'),
+        estado_codigo: String(nota?.cat_estados_nota?.codigo ?? ''),
         producto_id: m.producto_id,
         sku_base: prod?.sku_base || '',
         cajas: Number(m.cajas) || 0,

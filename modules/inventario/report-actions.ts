@@ -2,6 +2,7 @@
 'use server'
 
 import { fetchNotasParaReporte, fetchResumenReporteNotas } from './queries'
+import { fetchKardexHistorico, fetchStockHistorico } from './historico-queries'
 import type { FiltrosNotas, NotaListItem } from './types'
 import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
@@ -77,5 +78,88 @@ export async function getResumenReporteNotasAction(filtros: {
   } catch (error) {
     console.error('Error getResumenReporteNotasAction:', error)
     return { total: 0, porTipo: {} }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reporte de Stock Histórico (Excel) — sin paginar, con el mismo scoping por rol
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AlcanceReporte = {
+  bodegaId?: number | null
+  ciudad?: string | null
+}
+
+/** Bodegas del usuario dentro del alcance pedido (respeta la matriz de permisos). */
+async function resolverBodegasDelAlcance(alcance: AlcanceReporte) {
+  const { user } = await verifySession()
+  const permitidas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+  if (alcance.bodegaId) {
+    return permitidas.filter((b) => b.id === alcance.bodegaId)
+  }
+  if (alcance.ciudad) {
+    const cd = alcance.ciudad.trim().toUpperCase()
+    return permitidas.filter((b) => (b.ciudad || 'VIRTUAL').trim().toUpperCase() === cd)
+  }
+  return permitidas
+}
+
+export async function getReporteStockHistoricoAction(opts: {
+  fechaCorte: string
+  alcance?: AlcanceReporte
+}): Promise<
+  | {
+      ok: true
+      corte: Awaited<ReturnType<typeof fetchStockHistorico>>
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const bodegas = await resolverBodegasDelAlcance(opts.alcance ?? {})
+    if (bodegas.length === 0) {
+      return { ok: false, error: 'No tienes bodegas disponibles en ese alcance.' }
+    }
+    const corte = await fetchStockHistorico({
+      fechaCorte: opts.fechaCorte,
+      bodegaIds: bodegas.map((b) => b.id),
+      bodegas,
+      page: 1,
+      limit: 100000,
+    })
+    return { ok: true, corte }
+  } catch (error) {
+    console.error('Error getReporteStockHistoricoAction:', error)
+    return { ok: false, error: 'Error al generar el reporte de stock histórico.' }
+  }
+}
+
+export async function getReporteKardexHistoricoAction(opts: {
+  desde: string
+  hasta: string
+  alcance?: AlcanceReporte
+}): Promise<
+  | {
+      ok: true
+      kardex: Awaited<ReturnType<typeof fetchKardexHistorico>>
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const bodegas = await resolverBodegasDelAlcance(opts.alcance ?? {})
+    if (bodegas.length === 0) {
+      return { ok: false, error: 'No tienes bodegas disponibles en ese alcance.' }
+    }
+    const kardex = await fetchKardexHistorico({
+      desde: opts.desde,
+      hasta: opts.hasta,
+      bodegaIds: bodegas.map((b) => b.id),
+      bodegas,
+      page: 1,
+      limit: 100000,
+    })
+    return { ok: true, kardex }
+  } catch (error) {
+    console.error('Error getReporteKardexHistoricoAction:', error)
+    return { ok: false, error: 'Error al generar el reporte de movimientos.' }
   }
 }
