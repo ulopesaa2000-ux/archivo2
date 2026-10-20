@@ -76,8 +76,7 @@ export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
   const totalAjuste = filas.reduce((s, f) => s + f.ajuste, 0)
   const totalCorte = filas.reduce((s, f) => s + f.cajas_historicas, 0)
 
-  const stickyDesc = flags.descripcion ? 'sticky left-[300px] bg-background z-10 shadow-[1px_0_0_0_#e2e8f0]' : ''
-
+  
   return (
     <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
       <div className="overflow-x-auto">
@@ -91,9 +90,7 @@ export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
                 SKU
               </th>
               {flags.descripcion && (
-                <th className="px-4 py-3 text-left sticky left-[300px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] min-w-[250px] border-l">
-                  Descripción
-                </th>
+                <th className="px-4 py-3 text-left min-w-[250px] border-l">Descripción</th>
               )}
               {flags.marca && (
                 <th className="px-4 py-3 text-left border-l hidden lg:table-cell">Marca</th>
@@ -134,7 +131,7 @@ export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
                     abierto={!colapsadas.has(g.familia)}
                     onToggle={() => toggleFamilia(g.familia)}
                     flags={flags}
-                    stickyDesc={stickyDesc}
+                   
                   />
                 ))
               : filas.map((f) => (
@@ -142,7 +139,7 @@ export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
                     key={`${f.bodega_id}-${f.producto_id}`}
                     fila={f}
                     flags={flags}
-                    stickyDesc={stickyDesc}
+                   
                   />
                 ))}
           </tbody>
@@ -192,11 +189,9 @@ function Ajuste({ valor }: { valor: number }) {
 function FilaProducto({
   fila,
   flags,
-  stickyDesc,
 }: {
   fila: StockHistoricoFila
   flags: Flags
-  stickyDesc: string
 }) {
   const f = flags
   return (
@@ -209,7 +204,7 @@ function FilaProducto({
       </td>
       {f.descripcion && (
         <td
-          className={`px-4 py-2.5 text-xs text-muted-foreground max-w-[280px] truncate border-l ${stickyDesc}`}
+          className="px-4 py-2.5 text-xs text-muted-foreground max-w-[280px] truncate border-l"
         >
           {fila.producto_descripcion ?? '—'}
         </td>
@@ -267,7 +262,6 @@ function FamiliaRow({
   abierto,
   onToggle,
   flags,
-  stickyDesc,
 }: {
   familia: string
   items: StockHistoricoFila[]
@@ -277,7 +271,6 @@ function FamiliaRow({
   abierto: boolean
   onToggle: () => void
   flags: Flags
-  stickyDesc: string
 }) {
   const f = flags
   return (
@@ -319,7 +312,7 @@ function FamiliaRow({
             key={`${f2.bodega_id}-${f2.producto_id}`}
             fila={f2}
             flags={f}
-            stickyDesc={stickyDesc}
+           
           />
         ))}
     </>

@@ -183,19 +183,25 @@ test.describe('Stock Histórico — filtros (interacción)', () => {
       matriz.getByRole('columnheader', { name: 'SAN DIEGO 1' }).first()
     ).toBeVisible({ timeout: 60_000 })
 
-    // Bloque 1: stock al corte · Bloque 2: movimientos posteriores
-    await expect(matriz.getByRole('columnheader', { name: /STOCK AL 2026-09-30/i })).toBeVisible()
-    await expect(matriz.getByRole('columnheader', { name: /MOVIMIENTOS POSTERIORES/i })).toBeVisible()
+    // Cada columna agrupa su par: AL CORTE + MOVIMIENTOS (intercalados)
+    const nivel1 = await matriz.locator('thead tr').nth(0).locator('th').allInnerTexts()
+    const nivel2 = await matriz.locator('thead tr').nth(1).locator('th').allInnerTexts()
+    const nombres1 = nivel1.map((h) => h.trim()).filter(Boolean)
+    const nombres2 = nivel2.map((h) => h.trim()).filter(Boolean)
 
-    // Una columna por bodega de la ciudad (6) en cada bloque + TOTAL
-    // (el orden depende de la configuración de inventario, así que se valida el conjunto)
-    const cabeceras = await matriz.locator('thead tr').nth(1).locator('th').allInnerTexts()
-    const nombres = cabeceras.map((h) => h.trim()).filter(Boolean)
-    expect(nombres).toHaveLength(13) // 6 + TOTAL + 6
-    expect(nombres.filter((n) => n === 'TOTAL')).toHaveLength(1)
+    // Nivel 1: el nombre de cada bodega (una vez) + TOTAL
     const bodegasEsperadas = ['SAN DIEGO 1', 'TORTILLA', 'ANDRADE', 'COCINA', 'SAN DIEGO 2', 'DURAZNO']
     for (const b of bodegasEsperadas) {
-      expect(nombres.filter((n) => n === b)).toHaveLength(2) // un bloque por cada uno
+      expect(nombres1.filter((n) => n === b)).toHaveLength(1)
+    }
+    expect(nombres1.filter((n) => n === 'TOTAL')).toHaveLength(1)
+
+    // Nivel 2: un par AL CORTE / MOVIMIENTOS por columna, en el mismo orden
+    expect(nombres2.filter((n) => /al corte/i.test(n))).toHaveLength(6)
+    expect(nombres2.filter((n) => /movimientos/i.test(n))).toHaveLength(6)
+    for (let i = 0; i < 6; i++) {
+      expect(nombres2[i * 2]).toMatch(/al corte/i)
+      expect(nombres2[i * 2 + 1]).toMatch(/movimientos/i)
     }
   })
 
