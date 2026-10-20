@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { compareFamiliaAsc, compareSkuAsc } from '@/lib/inventario/familias-orden'
 import type { CeldaMatriz, FilaMatriz, MatrizHistorica } from '@/lib/inventario/stock-historico'
 import { useColumnasHistorico } from '../_hooks/use-columnas-historico'
+import { useHeaderFlotante } from '../_hooks/use-header-flotante'
+import { HeaderAgrupada } from './HeaderAgrupada'
 
 type Props = {
   matriz: MatrizHistorica
@@ -19,6 +21,7 @@ function num(n: number): string {
 
 export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
   const { visible, estado } = useColumnasHistorico()
+  const { scrollRef, headerRef, ancho, alto, onScroll } = useHeaderFlotante()
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set())
 
   const muestraDescripcion = visible('descripcion')
@@ -62,79 +65,35 @@ export function TablaHistoricoAgrupada({ matriz, fechaCorte }: Props) {
 
 
   return (
-    <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
-      <div className="overflow-x-auto">
+      <div className="rounded-lg border shadow-sm bg-card">
+      {/* Sin `overflow-hidden`: ese div seria scrolling ancestor y romperia el
+          `sticky` vertical del header flotante (debe resolverse contra el <main>). */}
+      {/* Header flotante: vive FUERA del contenedor con overflow para que su
+          `sticky` vertical se resuelva contra la ventana, y se desplaza en X
+          con translateX para seguir al scroll horizontal de la tabla. */}
+      <div className="sticky top-0 z-40 overflow-hidden bg-card" style={{ marginBottom: -alto }}>
+        <div ref={headerRef} style={{ width: ancho || '100%' }}>
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <HeaderAgrupada
+                columnas={columnas}
+                fechaCorte={fechaCorte}
+                flags={{ muestraDescripcion, muestraMarca, muestraHoy, muestraAjuste, muestraNotas }}
+              />
+            </thead>
+          </table>
+        </div>
+      </div>
+      <div ref={scrollRef} onScroll={onScroll} className="overflow-x-auto">
         <table data-testid="tabla-historico-matriz" className="w-full text-xs border-collapse">
-          <thead>
-            {/* Nivel 1: grupos (stock al corte / movimientos posteriores) */}
-            <tr className="bg-muted/60 text-muted-foreground border-b">
-              <th
-                rowSpan={2}
-                className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px] font-semibold"
-              >
-                Familia
-              </th>
-              <th
-                rowSpan={2}
-                className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[160px] min-w-[160px] border-l font-semibold"
-              >
-                SKU
-              </th>
-              {muestraDescripcion && (
-                <th rowSpan={2} className="px-4 py-3 text-left min-w-[250px] border-l font-semibold">
-                  Descripción
-                </th>
-              )}
-              {muestraMarca && (
-                <th rowSpan={2} className="px-4 py-3 text-left border-l min-w-[110px] font-semibold">
-                  Marca
-                </th>
-              )}
-              {/* Cada columna agrupa su par: stock al corte + movimientos posteriores */}
-              {columnas.map((c) => (
-                <th
-                  key={`grp-${c.key}`}
-                  colSpan={2}
-                  className="px-3 py-2 text-center border-l font-semibold"
-                  title={c.ciudad ? `${c.nombre} · ${c.ciudad}` : c.nombre}
-                >
-                  <span className="block truncate max-w-[200px]">{c.nombre}</span>
-                </th>
-              ))}
-              <th rowSpan={2} className="px-2 py-3 text-center border-l min-w-[92px] font-bold text-primary">
-                TOTAL
-              </th>
-              {muestraHoy && (
-                <th rowSpan={2} className="px-3 py-3 text-right border-l min-w-[90px] font-semibold">
-                  Hoy
-                </th>
-              )}
-              {muestraAjuste && (
-                <th rowSpan={2} className="px-3 py-3 text-right border-l min-w-[90px] font-semibold">
-                  Ajuste
-                </th>
-              )}
-              {muestraNotas && <th rowSpan={2} className="px-3 py-3 text-center border-l font-semibold">Notas</th>}
-            </tr>
-            {/* Nivel 2: AL CORTE | MOVIMIENTOS por cada columna */}
-            <tr className="bg-muted/50 text-muted-foreground border-b">
-              {columnas.map((c) => (
-                <Fragment key={`par-${c.key}`}>
-                  <th
-                    className="px-2 py-2 text-center border-l min-w-[92px] font-semibold text-[9px] uppercase tracking-wide"
-                    title={`Stock al cierre de ${fechaCorte} en ${c.nombre}`}
-                  >
-                    <span className="block truncate max-w-[110px]">Al {fechaCorte}</span>
-                  </th>
-                  <th
-                    className="px-2 py-2 text-center border-l min-w-[92px] font-semibold text-[9px] uppercase tracking-wide bg-amber-500/15 text-amber-900 dark:text-amber-200"
-                    title={`Movimientos de mercancía posteriores al ${fechaCorte} en ${c.nombre}`}
-                  >
-                    <span className="block truncate max-w-[110px]">Movimientos</span>
-                  </th>
-                </Fragment>
-              ))}
-            </tr>
+          {/* El thead real queda invisible: mantiene el alto de las columnas y
+              aporta el ancho de cada una; el header visible es el flotante. */}
+          <thead className="invisible">
+            <HeaderAgrupada
+              columnas={columnas}
+              fechaCorte={fechaCorte}
+              flags={{ muestraDescripcion, muestraMarca, muestraHoy, muestraAjuste, muestraNotas }}
+            />
           </thead>
           <tbody>
             {matriz.filas.length === 0 && (

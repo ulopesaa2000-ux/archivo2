@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { compareFamiliaAsc, compareSkuAsc } from '@/lib/inventario/familias-orden'
 import type { StockHistoricoFila } from '@/modules/inventario/types'
 import { useColumnasHistorico } from '../_hooks/use-columnas-historico'
+import { useHeaderFlotante } from '../_hooks/use-header-flotante'
+import { HeaderIndividual } from './HeaderIndividual'
 
 type Props = {
   filas: StockHistoricoFila[]
@@ -30,6 +32,7 @@ function num(n: number): string {
 
 export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
   const { visible, estado } = useColumnasHistorico()
+  const { scrollRef, headerRef, ancho, alto, onScroll } = useHeaderFlotante()
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set())
 
   const flags: Flags = {
@@ -78,37 +81,24 @@ export function TablaHistoricoIndividual({ filas, fechaCorte }: Props) {
 
   
   return (
-    <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
-      <div className="overflow-x-auto">
+    <div className="rounded-lg border shadow-sm bg-card">
+      {/* Header flotante: vive FUERA del contenedor con overflow para que su
+          `sticky` vertical se resuelva contra el <main>, y se desplaza en X
+          con translateX para seguir al scroll horizontal de la tabla. */}
+      <div className="sticky top-0 z-40 overflow-hidden bg-card" style={{ marginBottom: -alto }}>
+        <div ref={headerRef} style={{ width: ancho || '100%' }}>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <HeaderIndividual fechaCorte={fechaCorte} flags={flags} />
+            </thead>
+          </table>
+        </div>
+      </div>
+      <div ref={scrollRef} onScroll={onScroll} className="overflow-x-auto">
         <table data-testid="tabla-historico-individual" className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-muted/60 text-xs font-semibold text-muted-foreground border-b">
-              <th className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px]">
-                Familia
-              </th>
-              <th className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[160px] min-w-[160px] border-l">
-                SKU
-              </th>
-              {flags.descripcion && (
-                <th className="px-4 py-3 text-left min-w-[250px] border-l">Descripción</th>
-              )}
-              {flags.marca && (
-                <th className="px-4 py-3 text-left border-l hidden lg:table-cell">Marca</th>
-              )}
-              {flags.bodega && <th className="px-4 py-3 text-left border-l">Bodega</th>}
-              {flags.hoy && <th className="px-4 py-3 text-right border-l">Cajas hoy</th>}
-              {flags.ajuste && (
-                <th className="px-4 py-3 text-right border-l bg-amber-500/10 text-amber-900 dark:text-amber-300">
-                  Ajuste
-                </th>
-              )}
-              {flags.corte && (
-                <th className="px-4 py-3 text-right border-l bg-primary/10 text-primary font-bold">
-                  Al {fechaCorte}
-                </th>
-              )}
-              {flags.notas && <th className="px-4 py-3 text-center border-l">Notas</th>}
-            </tr>
+          {/* thead real invisible: da el alto y el ancho de cada columna */}
+          <thead className="invisible">
+            <HeaderIndividual fechaCorte={fechaCorte} flags={flags} />
           </thead>
           <tbody>
             {filas.length === 0 && (

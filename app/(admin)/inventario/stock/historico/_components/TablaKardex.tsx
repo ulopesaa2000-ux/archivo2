@@ -1,8 +1,12 @@
 // app/(admin)/inventario/stock/historico/_components/TablaKardex.tsx
+'use client'
+
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { Fecha } from '@/components/shared/Fecha'
+import { useHeaderFlotante } from '../_hooks/use-header-flotante'
+import { HeaderKardex } from './HeaderKardex'
 import type { KardexFila } from '@/modules/inventario/types'
 
 type Props = {
@@ -23,22 +27,24 @@ const TIPO_BADGE: Record<string, string> = {
 }
 
 export function TablaKardex({ filas, mostrarBodega }: Props) {
+  const { scrollRef, headerRef, ancho, alto, onScroll } = useHeaderFlotante()
   return (
-    <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
-      <div className="overflow-x-auto">
+    <div className="rounded-lg border shadow-sm bg-card">
+      {/* Header flotante: fuera del contenedor con overflow para que su `sticky`
+          vertical se resuelva contra el <main>; en X sigue al scroll de la tabla. */}
+      <div className="sticky top-0 z-40 overflow-hidden bg-card" style={{ marginBottom: -alto }}>
+        <div ref={headerRef} style={{ width: ancho || '100%' }}>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <HeaderKardex mostrarBodega={mostrarBodega} />
+            </thead>
+          </table>
+        </div>
+      </div>
+      <div ref={scrollRef} onScroll={onScroll} className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-muted/60 text-xs font-semibold text-muted-foreground border-b">
-              <th className="px-4 py-3 text-left">Fecha nota</th>
-              <th className="px-4 py-3 text-left">Nota</th>
-              <th className="px-4 py-3 text-left">Tipo</th>
-              <th className="px-4 py-3 text-left hidden lg:table-cell">Origen → Destino</th>
-              <th className="px-4 py-3 text-left">Producto</th>
-              {mostrarBodega && <th className="px-4 py-3 text-left">Bodega</th>}
-              <th className="px-4 py-3 text-right">Cajas</th>
-              <th className="px-4 py-3 text-right border-l">Efecto</th>
-              <th className="px-4 py-3 text-right border-l">Saldo</th>
-            </tr>
+          <thead className="invisible">
+            <HeaderKardex mostrarBodega={mostrarBodega} />
           </thead>
           <tbody>
             {filas.length === 0 ? (
