@@ -3,14 +3,14 @@
  * Hoja "Formato Impresión" del reporte histórico.
  *
  * Calcada del reporte GLOBAL de Stock (app/(admin)/inventario/stock/StockMatrixTable.tsx):
- *   título mergeado · fila separadora · encabezados rotados 45° · DESCRIPCIÓN
+ *   título mergeado · subtítulo · encabezados rotados 45° · DESCRIPCIÓN
  *   combinada y mergeada por familia · GLOBAL en rojo · FAMILIA al final ·
  *   zebra · borde medium al cierre de familia · filas de total.
  *
- * La diferencia: cada columna (ciudad o bodega) tiene el PAR
- *   AL CORTE | MOVIMIENTOS
- * para no perder el hilo: el stock de esa columna junto al movimiento de
- * mercancía posterior al corte.
+ * Dos variantes:
+ *   - `conMovimientos: false` → UNA columna por bodega con el stock YA revertido al
+ *     corte (el formato del inventario global de Stock, a la fecha de corte).
+ *   - `conMovimientos: true`  → el PAR "AL CORTE | MOVIMIENTOS" por columna.
  */
 
 import {
@@ -24,15 +24,18 @@ import {
   type DatosExcelHistorico,
   type FilaExcel,
 } from './excel-historico'
-import { construirHojaDatos, construirHojaMovimientos, construirHojaResumen } from './excel-hojas-historico'
 
 type WorkSheet = any
+
+export type OpcionesImpresion = {
+  /** true = par AL CORTE | MOVIMIENTOS por columna. false = una sola columna. */
+  conMovimientos?: boolean
+}
 
 type ItemAgrupado = {
   familia: string
   sku: string
   descripcion_general: string
-  /** valor por column key */
   porColumna: Record<string, { corte: number; movimiento: number; hoy: number; ajuste: number }>
   totalCorte: number
   totalMovimiento: number
@@ -46,16 +49,24 @@ function claveColumnaFila(
   return tipo === 'ciudad' ? `c:${fila.ciudad}` : `b:${fila.bodega_id}`
 }
 
-export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico): void {
+export function construirHojaImpresion(
+  workbook: any,
+  datos: DatosExcelHistorico,
+  opciones: OpcionesImpresion = {}
+): void {
+  const conMovimientos = opciones.conMovimientos !== false
   const columnas = datos.columnas
   if (columnas.length === 0) return
 
   const N = columnas.length
+  const subPorColumna = conMovimientos ? 2 : 1
   const startCol = 3 // 1=DESCRIPCION, 2=ESTILO
-  const globalCorteCol = startCol + N * 2
-  const globalMovCol = globalCorteCol + 1
-  const familiaCol = globalMovCol + 1
+  const globalCorteCol = startCol + N * subPorColumna
+  const globalMovCol = conMovimientos ? globalCorteCol + 1 : -1
+  const familiaCol = (conMovimientos ? globalMovCol : globalCorteCol) + 1
   const totalCols = familiaCol
+  const headerSubIdx = conMovimientos ? 4 : 3
+  const primeraFilaDatos = conMovimientos ? 5 : 4
 
   // ── Agrupar filas planas por producto (SKU) y luego por familia ──────────
   const porProducto = new Map<string, FilaExcel[]>()
@@ -98,7 +109,6 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
 
   const familias = Array.from(porFamiliaItems.keys()).sort(compareFamiliaAsc)
 
-  // Descripción canónica por familia (mismo criterio que el reporte de Stock).
   const descripcionFamilia: Record<string, string> = { ...datos.descripcionesCanonicas }
   for (const fam of familias) {
     if (descripcionFamilia[fam]) continue
@@ -125,7 +135,7 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
     fitToWidth: 1,
     fitToHeight: 0,
     margins: { left: 0.2, right: 0.2, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
-    printTitlesRow: '3:4',
+    printTitlesRow: conMovimientos ? '3:4' : '3:3',
   }
 
   // Fila 1: título
@@ -137,18 +147,20 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   titulo.alignment = { horizontal: 'center', vertical: 'middle' }
   titulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.titulo } }
 
-  // Fila 2: subtítulo (alcance) + separador
+  // Fila 2: subtítulo (alcance)
   sheet.getRow(2).height = 18
   sheet.mergeCells(2, 1, 2, totalCols)
   const sub = sheet.getCell(2, 1)
-  sub.value = `Alcance: ${datos.alcanceLabel}  ·  columnas por ${datos.tipoColumna.toUpperCase()}  ·  solo cajas  ·  notas CONF/MODF posteriores al corte revertidas`
+  sub.value = `Alcance: ${datos.alcanceLabel}  ·  solo cajas  ·  ${
+    datos.notasRevertidas
+  } notas CONF posteriores al corte revertidas  ·  generado el ${new Date().toLocaleString('es-MX')}`
   sub.font = { size: 10, italic: true, color: { argb: COLOR.bordeFuerte } }
   sub.alignment = { horizontal: 'center', vertical: 'middle' }
 
   // Fila 3: encabezados nivel 1
   const headerRowIdx = 3
   const headerRow = sheet.getRow(headerRowIdx)
-  headerRow.height = 62
+  headerRow.height = conMovimientos ? 62 : 95
   const borderHeader = {
     top: { style: 'thin', color: { argb: COLOR.bordeHeader } },
     bottom: { style: 'medium', color: { argb: COLOR.bordeFuerte } },
@@ -170,17 +182,17 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   cEstilo.alignment = { horizontal: 'center', vertical: 'middle' }
   cEstilo.border = borderHeader
 
-  // Nombre de cada columna, rotado 45°, mergeado sobre su par
+  // Nombre de cada columna, rotado 45° (merge sobre su par si hay pares)
   columnas.forEach((c, idx) => {
-    const col = startCol + idx * 2
-    sheet.mergeCells(headerRowIdx, col, headerRowIdx, col + 1)
+    const col = startCol + idx * subPorColumna
+    if (conMovimientos) sheet.mergeCells(headerRowIdx, col, headerRowIdx, col + 1)
     const cell = sheet.getCell(headerRowIdx, col)
     cell.value = c.nombre.toUpperCase()
     cell.font = { bold: true, size: 9, color: { argb: COLOR.tituloFuente } }
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.columna } }
     cell.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom', wrapText: false }
     cell.border = borderHeader
-    sheet.getCell(headerRowIdx, col + 1).border = borderHeader
+    if (conMovimientos) sheet.getCell(headerRowIdx, col + 1).border = borderHeader
   })
 
   const cGlobal = sheet.getCell(headerRowIdx, globalCorteCol)
@@ -190,12 +202,14 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   cGlobal.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
   cGlobal.border = borderHeader
 
-  const cGlobalMov = sheet.getCell(headerRowIdx, globalMovCol)
-  cGlobalMov.value = 'MOVIMIENTOS'
-  cGlobalMov.font = { bold: true, size: 9, color: { argb: COLOR.movimientoOscuro } }
-  cGlobalMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
-  cGlobalMov.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
-  cGlobalMov.border = borderHeader
+  if (conMovimientos) {
+    const cGlobalMov = sheet.getCell(headerRowIdx, globalMovCol)
+    cGlobalMov.value = 'MOVIMIENTOS'
+    cGlobalMov.font = { bold: true, size: 9, color: { argb: COLOR.movimientoOscuro } }
+    cGlobalMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
+    cGlobalMov.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+    cGlobalMov.border = borderHeader
+  }
 
   const cFam = sheet.getCell(headerRowIdx, familiaCol)
   cFam.value = 'FAMILIA'
@@ -204,32 +218,34 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   cFam.alignment = { horizontal: 'center', vertical: 'middle' }
   cFam.border = borderHeader
 
-  // Fila 4: sub-encabezados del par
-  const subIdx = 4
-  const subRow = sheet.getRow(subIdx)
-  subRow.height = 20
-  columnas.forEach((c, idx) => {
-    const col = startCol + idx * 2
-    const celCorte = sheet.getCell(subIdx, col)
-    celCorte.value = 'AL CORTE'
-    celCorte.font = { bold: true, size: 8, color: { argb: COLOR.tituloFuente } }
-    celCorte.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.corte } }
-    celCorte.alignment = { horizontal: 'center', vertical: 'middle' }
-    celCorte.border = borderHeader
+  // Fila 4 (solo con pares): sub-encabezados
+  if (conMovimientos) {
+    const subIdx = 4
+    const subRow = sheet.getRow(subIdx)
+    subRow.height = 20
+    columnas.forEach((c, idx) => {
+      const col = startCol + idx * 2
+      const celCorte = sheet.getCell(subIdx, col)
+      celCorte.value = 'AL CORTE'
+      celCorte.font = { bold: true, size: 8, color: { argb: COLOR.tituloFuente } }
+      celCorte.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.corte } }
+      celCorte.alignment = { horizontal: 'center', vertical: 'middle' }
+      celCorte.border = borderHeader
 
-    const celMov = sheet.getCell(subIdx, col + 1)
-    celMov.value = 'MOVIMIENTOS'
-    celMov.font = { bold: true, size: 8, color: { argb: COLOR.movimientoOscuro } }
-    celMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
-    celMov.alignment = { horizontal: 'center', vertical: 'middle' }
-    celMov.border = borderHeader
-  })
-  sheet.getCell(subIdx, globalCorteCol).border = borderHeader
-  sheet.getCell(subIdx, globalMovCol).border = borderHeader
-  sheet.getCell(subIdx, familiaCol).border = borderHeader
+      const celMov = sheet.getCell(subIdx, col + 1)
+      celMov.value = 'MOVIMIENTOS'
+      celMov.font = { bold: true, size: 8, color: { argb: COLOR.movimientoOscuro } }
+      celMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
+      celMov.alignment = { horizontal: 'center', vertical: 'middle' }
+      celMov.border = borderHeader
+    })
+    sheet.getCell(subIdx, globalCorteCol).border = borderHeader
+    sheet.getCell(subIdx, globalMovCol).border = borderHeader
+    sheet.getCell(subIdx, familiaCol).border = borderHeader
+  }
 
   // ── Filas de datos ───────────────────────────────────────────────────────
-  let currentRowIdx = 5
+  let currentRowIdx = primeraFilaDatos
   let familiasReales = 0
 
   familias.forEach((familia, fIdx) => {
@@ -276,11 +292,11 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
       celEstilo.font = { size: 10.5, bold: true, color: { argb: COLOR.tituloFuente } }
       celEstilo.border = thinBorder
 
-      // Cols 3..N: pares AL CORTE | MOVIMIENTOS
+      // Cols 3..N: valor al corte (y opcionalmente el par de movimientos)
       let totalCorteFila = 0
       let totalMovFila = 0
       columnas.forEach((c, cIdx) => {
-        const col = startCol + cIdx * 2
+        const col = startCol + cIdx * subPorColumna
         const valorCorte = item.porColumna[c.key]?.corte ?? 0
         const valorMov = item.porColumna[c.key]?.movimiento ?? 0
         totalCorteFila += valorCorte
@@ -299,17 +315,19 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
         celCorte.border = thinBorder
         celCorte.numFmt = NUM_FMT
 
-        const celMov = sheet.getCell(currentRowIdx, col + 1)
-        celMov.value = valorMov !== 0 ? valorMov : null
-        celMov.alignment = { horizontal: 'center', vertical: 'middle' }
-        celMov.font = {
-          size: 10,
-          bold: valorMov !== 0,
-          color: { argb: valorMov > 0 ? 'FF15803D' : valorMov < 0 ? COLOR.negativo : COLOR.vacio },
+        if (conMovimientos) {
+          const celMov = sheet.getCell(currentRowIdx, col + 1)
+          celMov.value = valorMov !== 0 ? valorMov : null
+          celMov.alignment = { horizontal: 'center', vertical: 'middle' }
+          celMov.font = {
+            size: 10,
+            bold: valorMov !== 0,
+            color: { argb: valorMov > 0 ? 'FF15803D' : valorMov < 0 ? COLOR.negativo : COLOR.vacio },
+          }
+          celMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+          celMov.border = thinBorder
+          celMov.numFmt = NUM_FMT_FIRMA
         }
-        celMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-        celMov.border = thinBorder
-        celMov.numFmt = NUM_FMT_FIRMA
       })
 
       granCorte += totalCorteFila
@@ -323,18 +341,20 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
       celGlobal.border = thinBorder
       celGlobal.numFmt = NUM_FMT
 
-      // GLOBAL MOVIMIENTOS
-      const celGlobalMov = sheet.getCell(currentRowIdx, globalMovCol)
-      celGlobalMov.value = totalMovFila !== 0 ? totalMovFila : null
-      celGlobalMov.font = {
-        bold: totalMovFila !== 0,
-        size: 10,
-        color: { argb: totalMovFila > 0 ? 'FF15803D' : totalMovFila < 0 ? COLOR.negativo : COLOR.vacio },
+      // GLOBAL MOVIMIENTOS (solo en la variante con pares)
+      if (conMovimientos) {
+        const celGlobalMov = sheet.getCell(currentRowIdx, globalMovCol)
+        celGlobalMov.value = totalMovFila !== 0 ? totalMovFila : null
+        celGlobalMov.font = {
+          bold: totalMovFila !== 0,
+          size: 10,
+          color: { argb: totalMovFila > 0 ? 'FF15803D' : totalMovFila < 0 ? COLOR.negativo : COLOR.vacio },
+        }
+        celGlobalMov.alignment = { horizontal: 'center', vertical: 'middle' }
+        celGlobalMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+        celGlobalMov.border = thinBorder
+        celGlobalMov.numFmt = NUM_FMT_FIRMA
       }
-      celGlobalMov.alignment = { horizontal: 'center', vertical: 'middle' }
-      celGlobalMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-      celGlobalMov.border = thinBorder
-      celGlobalMov.numFmt = NUM_FMT_FIRMA
 
       // FAMILIA (al final)
       const celFam = sheet.getCell(currentRowIdx, familiaCol)
@@ -371,7 +391,7 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   rowCorte.height = 30
   sheet.mergeCells(rowCorteIdx, 1, rowCorteIdx, 2)
   const lblCorte = sheet.getCell(rowCorteIdx, 1)
-  lblCorte.value = 'TOTAL AL CORTE'
+  lblCorte.value = 'TOTAL CAJAS'
   lblCorte.font = { bold: true, size: 11, color: { argb: COLOR.totalFuente } }
   lblCorte.alignment = { horizontal: 'right', vertical: 'middle' }
   lblCorte.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.total } }
@@ -385,7 +405,7 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   sheet.getCell(rowCorteIdx, 2).border = borderResumen
 
   columnas.forEach((c, idx) => {
-    const col = startCol + idx * 2
+    const col = startCol + idx * subPorColumna
     const cel = sheet.getCell(rowCorteIdx, col)
     cel.value = totalCortePorColumna[c.key] ?? 0
     cel.font = { bold: true, size: 11, color: { argb: COLOR.totalFuente } }
@@ -393,9 +413,11 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
     cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
     cel.border = borderResumen
     cel.numFmt = NUM_FMT
-    const celVacio = sheet.getCell(rowCorteIdx, col + 1)
-    celVacio.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-    celVacio.border = borderResumen
+    if (conMovimientos) {
+      const celVacio = sheet.getCell(rowCorteIdx, col + 1)
+      celVacio.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+      celVacio.border = borderResumen
+    }
   })
 
   const celTotGlobal = sheet.getCell(rowCorteIdx, globalCorteCol)
@@ -413,63 +435,65 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   celFamCorte.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.familia } }
   celFamCorte.border = borderResumen
 
-  // ── Pie: TOTAL MOVIMIENTOS ───────────────────────────────────────────────
-  currentRowIdx++
-  const rowMovIdx = currentRowIdx
-  const rowMov = sheet.getRow(rowMovIdx)
-  rowMov.height = 30
-  sheet.mergeCells(rowMovIdx, 1, rowMovIdx, 2)
-  const lblMov = sheet.getCell(rowMovIdx, 1)
-  lblMov.value = 'TOTAL MOVIMIENTOS POSTERIORES'
-  lblMov.font = { bold: true, size: 10, color: { argb: COLOR.movimientoOscuro } }
-  lblMov.alignment = { horizontal: 'right', vertical: 'middle' }
-  lblMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
-  lblMov.border = borderResumen
-  sheet.getCell(rowMovIdx, 2).border = borderResumen
+  // ── Pie: TOTAL MOVIMIENTOS (solo en la variante con pares) ───────────────
+  if (conMovimientos) {
+    currentRowIdx++
+    const rowMovIdx = currentRowIdx
+    const rowMov = sheet.getRow(rowMovIdx)
+    rowMov.height = 30
+    sheet.mergeCells(rowMovIdx, 1, rowMovIdx, 2)
+    const lblMov = sheet.getCell(rowMovIdx, 1)
+    lblMov.value = 'TOTAL MOVIMIENTOS POSTERIORES'
+    lblMov.font = { bold: true, size: 10, color: { argb: COLOR.movimientoOscuro } }
+    lblMov.alignment = { horizontal: 'right', vertical: 'middle' }
+    lblMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
+    lblMov.border = borderResumen
+    sheet.getCell(rowMovIdx, 2).border = borderResumen
 
-  columnas.forEach((c, idx) => {
-    const col = startCol + idx * 2
-    const cel = sheet.getCell(rowMovIdx, col + 1)
-    const v = totalMovPorColumna[c.key] ?? 0
-    cel.value = v !== 0 ? v : null
-    cel.font = {
-      bold: v !== 0,
-      size: 10,
-      color: { argb: v > 0 ? 'FF15803D' : v < 0 ? COLOR.negativo : COLOR.vacio },
+    columnas.forEach((c, idx) => {
+      const col = startCol + idx * 2
+      const cel = sheet.getCell(rowMovIdx, col + 1)
+      const v = totalMovPorColumna[c.key] ?? 0
+      cel.value = v !== 0 ? v : null
+      cel.font = {
+        bold: v !== 0,
+        size: 10,
+        color: { argb: v > 0 ? 'FF15803D' : v < 0 ? COLOR.negativo : COLOR.vacio },
+      }
+      cel.alignment = { horizontal: 'center', vertical: 'middle' }
+      cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+      cel.border = borderResumen
+      cel.numFmt = NUM_FMT_FIRMA
+      const celVacio = sheet.getCell(rowMovIdx, col)
+      celVacio.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+      celVacio.border = borderResumen
+    })
+
+    const celTotMov = sheet.getCell(rowMovIdx, globalMovCol)
+    celTotMov.value = granMov !== 0 ? granMov : null
+    celTotMov.font = {
+      bold: true,
+      size: 11,
+      color: { argb: granMov > 0 ? 'FF15803D' : granMov < 0 ? COLOR.negativo : COLOR.vacio },
     }
-    cel.alignment = { horizontal: 'center', vertical: 'middle' }
-    cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-    cel.border = borderResumen
-    cel.numFmt = NUM_FMT_FIRMA
-    const celVacio = sheet.getCell(rowMovIdx, col)
-    celVacio.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-    celVacio.border = borderResumen
-  })
+    celTotMov.alignment = { horizontal: 'center', vertical: 'middle' }
+    celTotMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
+    celTotMov.border = borderResumen
+    celTotMov.numFmt = NUM_FMT_FIRMA
 
-  const celTotMov = sheet.getCell(rowMovIdx, globalMovCol)
-  celTotMov.value = granMov !== 0 ? granMov : null
-  celTotMov.font = {
-    bold: true,
-    size: 11,
-    color: { argb: granMov > 0 ? 'FF15803D' : granMov < 0 ? COLOR.negativo : COLOR.vacio },
+    const celFamMov = sheet.getCell(rowMovIdx, familiaCol)
+    celFamMov.value = datos.notasRevertidas ? `${datos.notasRevertidas} NOTAS` : ''
+    celFamMov.font = { bold: true, size: 9, color: { argb: COLOR.familiaFuente } }
+    celFamMov.alignment = { horizontal: 'center', vertical: 'middle' }
+    celFamMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.familia } }
+    celFamMov.border = borderResumen
   }
-  celTotMov.alignment = { horizontal: 'center', vertical: 'middle' }
-  celTotMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEFCF3' } }
-  celTotMov.border = borderResumen
-  celTotMov.numFmt = NUM_FMT_FIRMA
-
-  const celFamMov = sheet.getCell(rowMovIdx, familiaCol)
-  celFamMov.value = datos.notasRevertidas ? `${datos.notasRevertidas} NOTAS` : ''
-  celFamMov.font = { bold: true, size: 9, color: { argb: COLOR.familiaFuente } }
-  celFamMov.alignment = { horizontal: 'center', vertical: 'middle' }
-  celFamMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.familia } }
-  celFamMov.border = borderResumen
 
   // ── Pie: nombres de columnas ─────────────────────────────────────────────
   currentRowIdx++
   const rowColsIdx = currentRowIdx
   const rowCols = sheet.getRow(rowColsIdx)
-  rowCols.height = 62
+  rowCols.height = conMovimientos ? 62 : 95
   sheet.mergeCells(rowColsIdx, 1, rowColsIdx, 2)
   const lblCols = sheet.getCell(rowColsIdx, 1)
   lblCols.value = datos.tipoColumna === 'ciudad' ? 'CIUDADES' : 'BODEGAS'
@@ -486,15 +510,15 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   sheet.getCell(rowColsIdx, 2).border = borderCols
 
   columnas.forEach((c, idx) => {
-    const col = startCol + idx * 2
-    sheet.mergeCells(rowColsIdx, col, rowColsIdx, col + 1)
+    const col = startCol + idx * subPorColumna
+    if (conMovimientos) sheet.mergeCells(rowColsIdx, col, rowColsIdx, col + 1)
     const cel = sheet.getCell(rowColsIdx, col)
     cel.value = c.nombre.toUpperCase()
     cel.font = { bold: true, size: 9, color: { argb: COLOR.tituloFuente } }
     cel.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom', wrapText: false }
     cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.columna } }
     cel.border = borderCols
-    sheet.getCell(rowColsIdx, col + 1).border = borderCols
+    if (conMovimientos) sheet.getCell(rowColsIdx, col + 1).border = borderCols
   })
 
   const celFootGlobal = sheet.getCell(rowColsIdx, globalCorteCol)
@@ -504,12 +528,14 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   celFootGlobal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.global } }
   celFootGlobal.border = borderCols
 
-  const celFootMov = sheet.getCell(rowColsIdx, globalMovCol)
-  celFootMov.value = 'MOVIMIENTOS'
-  celFootMov.font = { bold: true, size: 9, color: { argb: COLOR.movimientoOscuro } }
-  celFootMov.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
-  celFootMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
-  celFootMov.border = borderCols
+  if (conMovimientos) {
+    const celFootMov = sheet.getCell(rowColsIdx, globalMovCol)
+    celFootMov.value = 'MOVIMIENTOS'
+    celFootMov.font = { bold: true, size: 9, color: { argb: COLOR.movimientoOscuro } }
+    celFootMov.alignment = { textRotation: 45, horizontal: 'center', vertical: 'bottom' }
+    celFootMov.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.movimiento } }
+    celFootMov.border = borderCols
+  }
 
   const celFootFam = sheet.getCell(rowColsIdx, familiaCol)
   celFootFam.value = 'FAMILIA'
@@ -522,30 +548,10 @@ export function construirHojaImpresion(workbook: any, datos: DatosExcelHistorico
   sheet.getColumn(1).width = 42
   sheet.getColumn(2).width = 18
   for (let idx = 0; idx < N; idx++) {
-    sheet.getColumn(startCol + idx * 2).width = 11
-    sheet.getColumn(startCol + idx * 2 + 1).width = 13
+    sheet.getColumn(startCol + idx * subPorColumna).width = conMovimientos ? 11 : 13
+    if (conMovimientos) sheet.getColumn(startCol + idx * subPorColumna + 1).width = 13
   }
   sheet.getColumn(globalCorteCol).width = 12
-  sheet.getColumn(globalMovCol).width = 13
+  if (conMovimientos) sheet.getColumn(globalMovCol).width = 13
   sheet.getColumn(familiaCol).width = 16
-}
-
-/**
- * Genera el .xlsx completo del reporte histórico.
- * Hojas: "Formato Impresión" (solo agrupado) · "Datos" · "Movimientos" · "Resumen".
- */
-export async function construirExcelHistorico(datos: DatosExcelHistorico): Promise<ArrayBuffer> {
-  const ExcelJS = (await import('exceljs')).default
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'Idol Navy — Stock Histórico'
-  wb.created = new Date()
-
-  if (datos.modo === 'agrupado' && datos.columnas.length > 0) {
-    construirHojaImpresion(wb, datos)
-  }
-  construirHojaDatos(wb, datos)
-  construirHojaMovimientos(wb, datos)
-  construirHojaResumen(wb, datos)
-
-  return (await wb.xlsx.writeBuffer()) as ArrayBuffer
 }
