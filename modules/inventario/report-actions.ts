@@ -124,9 +124,10 @@ export async function getReporteStockHistoricoAction(opts: {
     if (bodegas.length === 0) {
       return { ok: false, error: 'No tienes bodegas disponibles en ese alcance.' }
     }
-    // Modo y tipo de columna según el alcance (misma regla que la vista).
+    // Modo según el alcance y columnas SIEMPRE por bodega (el reporte global de
+    // Stock tiene una columna por bodega, no por ciudad).
     const modo: 'individual' | 'agrupado' = bodegas.length > 1 ? 'agrupado' : 'individual'
-    const columnasPor: 'bodega' | 'ciudad' = opts.alcance?.ciudad ? 'bodega' : 'ciudad'
+    const columnasPor: 'bodega' | 'ciudad' = 'bodega'
 
     const [corte, descripcionesCanonicas, catalogos] = await Promise.all([
       fetchStockHistorico({

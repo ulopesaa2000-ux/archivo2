@@ -79,10 +79,10 @@ test.describe('Stock Histórico', () => {
     await expect(page.getByText('Saldo al 2026-09-30')).toBeVisible({ timeout: 30_000 })
   })
 
-  test('el botón de Excel está disponible', async ({ page }) => {
+  test('el botón Impresión / Reporte está disponible', async ({ page }) => {
     await loginToAdmin(page, '/dashboard')
     await page.goto('/inventario/stock/historico?fecha=2026-09-30')
-    await expect(page.getByRole('button', { name: /Descargar Excel/i })).toBeVisible({
+    await expect(page.getByRole('button', { name: /Impres/i }).first()).toBeVisible({
       timeout: 30_000,
     })
   })

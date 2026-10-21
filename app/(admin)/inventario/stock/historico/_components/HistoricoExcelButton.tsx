@@ -3,13 +3,13 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { FileSpreadsheet, Loader2 } from 'lucide-react'
+import { Printer, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   getReporteKardexHistoricoAction,
   getReporteStockHistoricoAction,
 } from '@/modules/inventario/report-actions'
-import { construirExcelHistorico } from '@/lib/inventario/excel-impresion-historico'
+import { construirReporteHistorico } from '@/lib/inventario/excel-reporte-historico'
 import type {
   ColumnaExcel,
   DatosExcelHistorico,
@@ -41,7 +41,7 @@ export function HistoricoExcelButton({ vista, fechaCorte, desde, hasta, bodegaId
           return
         }
         const k = res.kardex
-        const buffer = await construirExcelHistorico({
+        const buffer = await construirReporteHistorico({
           modo: 'individual',
           fechaCorte: hasta,
           alcanceLabel: `Movimientos del ${desde} al ${hasta}`,
@@ -256,12 +256,12 @@ export function HistoricoExcelButton({ vista, fechaCorte, desde, hasta, bodegaId
         descripcionesCanonicas,
       }
 
-      const buffer = await construirExcelHistorico(datos)
+      const buffer = await construirReporteHistorico(datos)
       const sufijo =
         d.modo === 'individual'
           ? (d.porBodega[0]?.bodega_nombre ?? 'Bodega')
           : (ciudad?.trim() || 'General')
-      const nombre = `Stock_Historico_${sufijo.replace(/\s+/g, '_')}_${fechaCorte}.xlsx`
+      const nombre = `Stock_Impresion_${sufijo.replace(/\s+/g, '_')}_${fechaCorte}.xlsx`
       descargarBuffer(buffer, nombre)
       toast.success('Reporte Excel generado correctamente')
     } catch (e) {
@@ -287,8 +287,8 @@ export function HistoricoExcelButton({ vista, fechaCorte, desde, hasta, bodegaId
         </>
       ) : (
         <>
-          <FileSpreadsheet className="h-3.5 w-3.5" />
-          Descargar Excel
+          <Printer className="h-3.5 w-3.5" />
+          Impresión / Reporte
         </>
       )}
     </Button>
