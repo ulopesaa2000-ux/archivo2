@@ -32,6 +32,8 @@ import type {
   AuditoriaInversaBodega,
   AuditoriaInversaProducto,
   AuditoriaInversaFamilia,
+  ClaveStock,
+  StockDisponible,
 } from './types'
 import type {
   BodegaRow,
@@ -42,6 +44,7 @@ import type {
 import { fetchConfigInventario } from './config-queries'
 import { sortBodegasWithConfig } from './config-types'
 import { compareFamiliaAsc, compareSkuAsc } from '@/lib/inventario/familias-orden'
+import { claveStock } from '@/lib/inventario/validacion-stock'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO DE NOTAS
@@ -2038,6 +2041,51 @@ export async function fetchProductoStockEnBodega(
     cajas: Number(data.cajas) || 0,
     piezas_sueltas: Number(data.piezas_sueltas) || 0,
   }
+}
+/**
+ * Stock disponible de una bodega para un conjunto de productos, indexado por
+ * `claveStock(producto_id, caja_id)` — la MISMA clave que usa el trigger
+ * `fn_procesar_nota_inventario` (NULL de caja = NULL de stock).
+ *
+ * Solo trae las columnas necesarias (AGENTS.md 3.7.2) y agrupa en memoria
+ * para no descargar el stock completo de la bodega.
+ */
+export async function fetchStockPorClaves(
+  bodegaId: number,
+  productoIds: number[]
+): Promise<Map<ClaveStock, StockDisponible>> {
+  const mapa = new Map<ClaveStock, StockDisponible>()
+
+  const ids = [...new Set(productoIds.filter((id) => Number.isFinite(id) && id > 0))]
+  if (ids.length === 0) return mapa
+
+  const supabase = await createClient()
+  const CHUNK = 200
+
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK)
+
+    const { data, error } = await supabase
+      .from('inventario_stock')
+      .select('producto_id, caja_id, cajas, piezas_sueltas')
+      .eq('bodega_id', bodegaId)
+      .in('producto_id', chunk)
+
+    if (error || !data) {
+      console.error('Error fetchStockPorClaves:', error?.message || error)
+      continue
+    }
+
+    for (const row of data) {
+      const clave = claveStock(row.producto_id, row.caja_id)
+      const actual = mapa.get(clave) ?? { cajas: 0, piezas_sueltas: 0 }
+      actual.cajas += Number(row.cajas) || 0
+      actual.piezas_sueltas += Number(row.piezas_sueltas) || 0
+      mapa.set(clave, actual)
+    }
+  }
+
+  return mapa
 }
 
 export async function fetchProductosSustitutosFamilia(

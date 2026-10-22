@@ -612,3 +612,29 @@ export type AuditoriaInversaFamilia = {
   total_notas: number
 }
 
+// ── Validación de disponibilidad de stock (pre-chequeo) ───────
+// El motor puro vive en `lib/inventario/validacion-stock.ts` (AGENTS.md 3.7.1).
+export type {
+  LineaStock,
+  ClaveStock,
+  StockDisponible,
+  ModoConsumo,
+  FaltanteStock,
+  AdvertenciaStock,
+  ResultadoValidacionStock,
+} from '@/lib/inventario/validacion-stock'
+
+import type { ResultadoValidacionStock } from '@/lib/inventario/validacion-stock'
+
+/** Resultado del pre-chequeo de una nota (borrador o confirmación). */
+export type ResultadoValidacionNota = ResultadoValidacionStock & {
+  /** Código del tipo de movimiento evaluado (ENT | SAL | TRF | AJU | DEV). */
+  tipo_movimiento_codigo: string | null
+  /** Nombre de la bodega origen contra la que se validó. */
+  bodega_origen_nombre: string | null
+  /**
+   * Stock leído de la base, indexado por `producto_id:caja_id`.
+   * Permite refrescar el snapshot del formulario (que hoy queda viejo).
+   */
+  disponible_por_clave: Record<string, { cajas: number; piezas_sueltas: number }>
+}

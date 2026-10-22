@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can } from './permissions'
-import { fetchStockByBodegaAll, fetchStockMatrixAll } from './queries'
+import { fetchStockByBodegaAll, fetchStockMatrixAll, fetchStockPorClaves } from './queries'
 import { fetchDescripcionesCanonicasFamilias } from '@/modules/catalogo/queries'
 import { fetchConfigInventario } from './config-queries'
 import { dateInputToMexicoUTC } from '@/lib/utils'
@@ -19,16 +19,278 @@ import type {
   FiltrosStockMatrix,
   StockListItem,
   StockMatrixItem,
+  LineaStock,
+  ModoConsumo,
+  FaltanteStock,
+  ResultadoValidacionNota,
 } from './types'
 import type { BodegaRow } from '@/lib/types/tables'
 import { isModoSoloCajas } from './config-types'
 import { construirConsultaSku } from '@/lib/inventario/sku-ocr'
+import { evaluarDisponibilidad } from '@/lib/inventario/validacion-stock'
 
 export type ActionResult = {
   success: boolean
   error?: string
   nota_id?: number
   numero_nota?: string
+  /** Detalle por SKU de los productos que no alcanzan el stock (pre-chequeo). */
+  faltantes?: FaltanteStock[]
+}
+
+// ════════════════════════════════════════════════════════════
+// PRE-CHEQUEO DE STOCK (agregado por producto + caja)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * POR QUÉ EXISTE
+ * --------------
+ * El trigger de base de datos `inv-tienda.fn_procesar_nota_inventario()` recorre
+ * `nota_detalle_productos` RENGLÓN POR RENGLÓN y nunca agrupa:
+ *
+ *   FOR v_det IN (SELECT * FROM nota_detalle_productos WHERE nota_id = NEW.id) LOOP
+ *     IF v_stock.cajas < v_det.cajas THEN RAISE EXCEPTION 'Stock insuficiente...'
+ *
+ * Una nota con el mismo producto en dos renglones (p. ej. 6 + 1) con 6 disponibles
+ * pasa el renglón 1 (el stock baja a 0) y revienta en el renglón 2 con un mensaje
+ * que NO menciona el SKU ("Disponible: 0 cajas...").
+ *
+ * Estas helpers replican la semántica del trigger (misma clave producto_id + caja_id)
+ * pero comparan el TOTAL de la nota contra el stock leído de la base, para avisar
+ * antes de procesar y con el detalle por código.
+ */
+
+type SupabaseCliente = Awaited<ReturnType<typeof createClient>>
+
+/** Modo de consumo según el tipo de movimiento (mismas ramas que el trigger). */
+function modoConsumoPorTipo(tipo: {
+  codigo?: string | null
+  afecta_inventario?: number | null
+  requiere_destino?: boolean | null
+} | null): ModoConsumo {
+  if (!tipo) return 'entrada'
+  if (tipo.codigo === 'SAL' || tipo.afecta_inventario === -1) return 'salida'
+  if (tipo.codigo === 'TRF' || (tipo.afecta_inventario === 0 && tipo.requiere_destino === true)) {
+    return 'salida'
+  }
+  if (tipo.codigo === 'AJU') return 'ajuste_negativo'
+  return 'entrada'
+}
+
+async function fetchTipoMovimientoParaValidacion(
+  supabase: SupabaseCliente,
+  tipoId: number | null
+): Promise<{ codigo: string; afecta_inventario: number; requiere_destino: boolean } | null> {
+  if (!tipoId) return null
+
+  const { data } = await supabase
+    .from('cat_tipos_movimiento')
+    .select('codigo, afecta_inventario, requiere_destino')
+    .eq('id', tipoId)
+    .maybeSingle()
+
+  return (data as { codigo: string; afecta_inventario: number; requiere_destino: boolean } | null) ?? null
+}
+
+/** Convierte el Map de stock a un objeto serializable (las Server Actions solo aceptan JSON). */
+function serializarStockPorClave(
+  stockPorClave: Map<string, { cajas: number; piezas_sueltas: number }>
+): Record<string, { cajas: number; piezas_sueltas: number }> {
+  const salida: Record<string, { cajas: number; piezas_sueltas: number }> = {}
+  for (const [clave, valor] of stockPorClave) {
+    salida[clave] = { cajas: valor.cajas, piezas_sueltas: valor.piezas_sueltas }
+  }
+  return salida
+}
+
+/** Valida el draft de una nota contra el stock real de la bodega origen. */
+async function validarDisponibilidadInterno(
+  supabase: SupabaseCliente,
+  draft: DraftNota
+): Promise<ResultadoValidacionNota> {
+  const tipo = await fetchTipoMovimientoParaValidacion(supabase, draft.tipo_movimiento_id)
+  const modo = modoConsumoPorTipo(tipo)
+
+  const sinConsumo: ResultadoValidacionNota = {
+    ok: true,
+    faltantes: [],
+    advertencias: [],
+    modo,
+    tipo_movimiento_codigo: tipo?.codigo ?? null,
+    bodega_origen_nombre: null,
+    disponible_por_clave: {},
+  }
+
+  if (modo === 'entrada') return sinConsumo
+  if (!draft.bodega_origen_id || !draft.productos?.length) return sinConsumo
+
+  const lineas: LineaStock[] = draft.productos.map((p) => ({
+    producto_id: p.producto_id,
+    producto_sku: p.producto_sku,
+    producto_nombre: p.producto_nombre,
+    caja_id: p.caja_id,
+    caja_codigo: p.caja_codigo,
+    cajas: p.cajas,
+    piezas_sueltas: p.piezas_sueltas,
+  }))
+
+  const [stockPorClave, bodegaNombre] = await Promise.all([
+    fetchStockPorClaves(draft.bodega_origen_id, lineas.map((l) => l.producto_id)),
+    (async () => {
+      const { data } = await supabase
+        .from('bodegas')
+        .select('nombre')
+        .eq('id', draft.bodega_origen_id!)
+        .maybeSingle()
+      return (data as { nombre: string } | null)?.nombre ?? null
+    })(),
+  ])
+
+  const resultado = evaluarDisponibilidad(lineas, stockPorClave, modo)
+
+  return {
+    ...resultado,
+    tipo_movimiento_codigo: tipo?.codigo ?? null,
+    bodega_origen_nombre: bodegaNombre,
+    disponible_por_clave: serializarStockPorClave(stockPorClave),
+  }
+}
+
+/** Valida una nota YA GUARDADA (lee sus detalles de la base). */
+async function validarDisponibilidadPorIdInterno(
+  supabase: SupabaseCliente,
+  notaId: number
+): Promise<ResultadoValidacionNota> {
+  const { data: nota } = await supabase
+    .from('notas_inventario')
+    .select('tipo_movimiento_id, bodega_origen_id')
+    .eq('id', notaId)
+    .maybeSingle()
+
+  const tipo = await fetchTipoMovimientoParaValidacion(supabase, nota?.tipo_movimiento_id ?? null)
+  const modo = modoConsumoPorTipo(tipo)
+
+  const sinConsumo: ResultadoValidacionNota = {
+    ok: true,
+    faltantes: [],
+    advertencias: [],
+    modo,
+    tipo_movimiento_codigo: tipo?.codigo ?? null,
+    bodega_origen_nombre: null,
+    disponible_por_clave: {},
+  }
+
+  if (!nota) return sinConsumo
+  if (modo === 'entrada' || !nota.bodega_origen_id) return sinConsumo
+
+  const { data: detalles } = await supabase
+    .from('nota_detalle_productos')
+    .select(
+      'producto_id, cajas, piezas_sueltas, caja_id, producto:productos!nota_detalle_productos_producto_id_fkey ( sku_base, descripcion, nombre )'
+    )
+    .eq('nota_id', notaId)
+
+  const lineas: LineaStock[] = ((detalles ?? []) as any[]).map((d) => {
+    const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
+    return {
+      producto_id: d.producto_id,
+      producto_sku: prod?.sku_base ?? '',
+      producto_nombre: prod?.descripcion ?? prod?.nombre ?? null,
+      caja_id: d.caja_id,
+      caja_codigo: null,
+      cajas: Number(d.cajas) || 0,
+      piezas_sueltas: Number(d.piezas_sueltas) || 0,
+    }
+  })
+
+  if (lineas.length === 0) return sinConsumo
+
+  const [stockPorClave, bodegaNombre] = await Promise.all([
+    fetchStockPorClaves(nota.bodega_origen_id, lineas.map((l) => l.producto_id)),
+    (async () => {
+      const { data } = await supabase
+        .from('bodegas')
+        .select('nombre')
+        .eq('id', nota.bodega_origen_id!)
+        .maybeSingle()
+      return (data as { nombre: string } | null)?.nombre ?? null
+    })(),
+  ])
+
+  const resultado = evaluarDisponibilidad(lineas, stockPorClave, modo)
+
+  return {
+    ...resultado,
+    tipo_movimiento_codigo: tipo?.codigo ?? null,
+    bodega_origen_nombre: bodegaNombre,
+    disponible_por_clave: serializarStockPorClave(stockPorClave),
+  }
+}
+
+/**
+ * Pre-chequeo tolerante a fallos: si la lectura de stock falla por cualquier
+ * motivo (red, RLS, etc.) NO se bloquea la operación — el trigger de la base
+ * sigue siendo la red de seguridad del inventario.
+ */
+async function validarDisponibilidadSeguro(
+  supabase: SupabaseCliente,
+  draft: DraftNota
+): Promise<ResultadoValidacionNota | null> {
+  try {
+    return await validarDisponibilidadInterno(supabase, draft)
+  } catch (e) {
+    console.error('Error en el pre-chequeo de stock:', e)
+    return null
+  }
+}
+
+/** Igual que `validarDisponibilidadSeguro`, pero sobre una nota ya guardada. */
+async function validarDisponibilidadPorIdSeguro(
+  supabase: SupabaseCliente,
+  notaId: number
+): Promise<ResultadoValidacionNota | null> {
+  try {
+    return await validarDisponibilidadPorIdInterno(supabase, notaId)
+  } catch (e) {
+    console.error('Error en el pre-chequeo de stock (nota guardada):', e)
+    return null
+  }
+}
+
+/** Mensaje legible con el detalle por SKU (reemplaza el error críptico del trigger). */
+function construirErrorStockInsuficiente(validacion: ResultadoValidacionNota): string {
+  const detalle = validacion.faltantes
+    .map(
+      (f) =>
+        `${f.producto_sku}: necesita ${f.solicitado_cajas} cajas, hay ${f.disponible_cajas} (faltan ${f.faltan_cajas})`
+    )
+    .join(' · ')
+
+  const bodega = validacion.bodega_origen_nombre ? ` en ${validacion.bodega_origen_nombre}` : ''
+
+  return `Stock insuficiente en ${validacion.faltantes.length} producto(s)${bodega}. ${detalle}`
+}
+
+/**
+ * Pre-chequeo de disponibilidad para el draft de una nota.
+ * Lee la base de datos y devuelve el detalle por SKU de lo que NO alcanza.
+ */
+export async function validarDisponibilidadNotaAction(
+  draft: DraftNota
+): Promise<ResultadoValidacionNota> {
+  const supabase = await createClient()
+  return validarDisponibilidadInterno(supabase, draft)
+}
+
+/**
+ * Pre-chequeo de disponibilidad sobre una nota ya guardada
+ * (los detalles se leen de `nota_detalle_productos`).
+ */
+export async function validarDisponibilidadNotaPorIdAction(
+  notaId: number
+): Promise<ResultadoValidacionNota> {
+  const supabase = await createClient()
+  return validarDisponibilidadPorIdInterno(supabase, notaId)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -99,6 +361,22 @@ export async function guardarNotaAction(
 
   if (draft.productos.length === 0) {
     return { success: false, error: 'Agrega al menos un producto.' }
+  }
+
+  // ── Pre-chequeo de stock (agregado) ─────────────────────────
+  // El trigger procesa renglón por renglón y su error no trae el SKU: aquí se
+  // compara el TOTAL de la nota contra el stock real y se devuelve el detalle.
+  // Si la nota va a quedar En Proceso (traspaso con aprobación) no se bloquea:
+  // el stock todavía no se mueve y el control real ocurre al confirmar.
+  if (confirmar && !delegarEnProceso) {
+    const validacion = await validarDisponibilidadSeguro(supabase, draft)
+    if (validacion && !validacion.ok) {
+      return {
+        success: false,
+        error: construirErrorStockInsuficiente(validacion),
+        faltantes: validacion.faltantes,
+      }
+    }
   }
 
   // ── Modo solo cajas: bloquear piezas sueltas ──────────────
@@ -342,6 +620,20 @@ export async function actualizarNotaAction(
     return { success: false, error: 'Agrega al menos un producto a la nota.' }
   }
 
+  // ── Pre-chequeo de stock (agregado) ─────────────────────────
+  // Se valida ANTES de borrar y reinsertar los detalles: si el total no alcanza,
+  // la nota se queda intacta y el error trae el detalle por SKU.
+  if (confirmar) {
+    const validacion = await validarDisponibilidadSeguro(supabase, draft)
+    if (validacion && !validacion.ok) {
+      return {
+        success: false,
+        error: construirErrorStockInsuficiente(validacion),
+        faltantes: validacion.faltantes,
+      }
+    }
+  }
+
   // ── Modo solo cajas: bloquear piezas sueltas ──────────────
   const configEdit = await fetchConfigInventario()
   const modoSoloCajasEdit = isModoSoloCajas(configEdit)
@@ -479,13 +771,35 @@ export async function confirmarNotaAction(
     return { success: false, error: 'No se encontró el estado CONF en catálogo.' }
   }
 
+  // ── Pre-chequeo de stock (agregado) ─────────────────────────
+  // El trigger `fn_procesar_nota_inventario` no agrupa renglones y su mensaje
+  // no menciona el SKU. Aquí se compara el total de la nota (leída de la base)
+  // contra el stock de la bodega origen y se devuelve el detalle por código.
+  const validacion = await validarDisponibilidadPorIdSeguro(supabase, notaId)
+  if (validacion && !validacion.ok) {
+    return {
+      success: false,
+      error: construirErrorStockInsuficiente(validacion),
+      faltantes: validacion.faltantes,
+    }
+  }
+
   const { error } = await supabase
     .from('notas_inventario')
     .update({ estado_id: estadoConf.id })
     .eq('id', notaId)
 
   if (error) {
-    // El trigger puede lanzar "Stock insuficiente para producto X..."
+    // Carrera: el stock cambió entre el pre-chequeo y el UPDATE. Se re-valida
+    // para devolver el detalle por SKU en vez del error crudo del trigger.
+    const revalidacion = await validarDisponibilidadPorIdSeguro(supabase, notaId)
+    if (revalidacion && !revalidacion.ok) {
+      return {
+        success: false,
+        error: construirErrorStockInsuficiente(revalidacion),
+        faltantes: revalidacion.faltantes,
+      }
+    }
     return { success: false, error: error.message }
   }
 

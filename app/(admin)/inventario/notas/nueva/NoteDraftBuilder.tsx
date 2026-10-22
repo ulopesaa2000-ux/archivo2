@@ -28,7 +28,8 @@ import {
   Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle, CalendarClock,
   Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
   ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste,
-  Layers
+  Layers,
+  Boxes
 } from 'lucide-react'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
@@ -42,13 +43,23 @@ import {
   guardarNotaAction,
   actualizarNotaAction,
   subirComprobanteNotaAction,
+  validarDisponibilidadNotaAction,
   type ResolvedProductoPegado,
 } from '@/modules/inventario/actions'
 import type {
   CatalogosInventario, DraftNota, DraftProducto,
   ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta,
-  ProductoSustitutoFamilia, ProductoSustitutoAmpliado
+  ProductoSustitutoFamilia, ProductoSustitutoAmpliado,
+  FaltanteStock, ResultadoValidacionNota
 } from '@/modules/inventario/types'
+import { ModalStockInsuficiente } from '@/components/admin/inventario/ModalStockInsuficiente'
+import {
+  agregarLineasPorClave,
+  ajustarLineasADisponible,
+  claveStock,
+  consolidarLineas,
+  type LineaStock,
+} from '@/lib/inventario/validacion-stock'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import { cn, todayMX, formatForDateInput, formatDate } from '@/lib/utils'
 import { NotaFechaPicker } from '@/components/admin/NotaFechaPicker'
@@ -1056,6 +1067,25 @@ export function NoteDraftBuilder({
 
   const permitirStockNegativo = config?.permitir_stock_negativo === true
 
+  // Agregado por SKU + caja: el total que de verdad se descuenta del inventario
+  // (el trigger descuenta cada renglón contra el MISMO registro de stock).
+  // Usa el mismo motor puro que valida en el servidor.
+  const agregadoPorClave = agregarLineasPorClave(
+    draft.productos.map((p) => ({
+      producto_id: p.producto_id,
+      producto_sku: p.producto_sku,
+      producto_nombre: p.producto_nombre,
+      caja_id: p.caja_id,
+      caja_codigo: p.caja_codigo,
+      cajas: p.cajas,
+      piezas_sueltas: p.piezas_sueltas,
+    }))
+  )
+
+  const hayRenglonesDuplicados = Array.from(agregadoPorClave.values()).filter(
+    (a) => a.renglones > 1
+  ).length
+
   const productosConDeficit = draft.bodega_origen_id
     ? draft.productos.filter((p) => {
         if (esMovimientoSalidaOTraslado) {
@@ -1076,6 +1106,17 @@ export function NoteDraftBuilder({
   const BODEGA_DURAZNO_ID = 5
   const BODEGA_COCINA_ID = 10
   const [showRevisionDialog, setShowRevisionDialog] = useState(false)
+
+  // ── Pre-chequeo de stock (agregado por producto + caja) ──────
+  // El trigger `fn_procesar_nota_inventario` procesa `nota_detalle_productos`
+  // renglón por renglón y NO agrupa: un SKU en dos renglones (6 + 1) revienta
+  // al confirmar con un mensaje que no dice qué código falló.
+  const [showStockModal, setShowStockModal] = useState(false)
+  const [stockFaltantes, setStockFaltantes] = useState<FaltanteStock[]>([])
+  const [stockAvisoModo, setStockAvisoModo] = useState<'confirmar' | 'borrador'>('confirmar')
+  const [pendienteConfirmar, setPendienteConfirmar] = useState(false)
+  const [isValidandoStock, setIsValidandoStock] = useState(false)
+
   // Fecha ya advertida en esta sesión: no repetir si no la cambió
   const fechaAdvertidaRef = useRef<string | null>(null)
 
@@ -1267,16 +1308,52 @@ export function NoteDraftBuilder({
     }))
   }
 
+  // ── Pre-chequeo de stock (server, con lectura real de la base) ──
+  const ejecutarPreChequeoStock = async (
+    aEvaluar: DraftNota
+  ): Promise<ResultadoValidacionNota | null> => {
+    try {
+      setIsValidandoStock(true)
+      return await validarDisponibilidadNotaAction(aEvaluar)
+    } catch {
+      // Si el pre-chequeo no responde se deja pasar el flujo: el servidor vuelve
+      // a validar al confirmar y devuelve el detalle por SKU.
+      return null
+    } finally {
+      setIsValidandoStock(false)
+    }
+  }
+
+  // Refresca el snapshot de stock del formulario (hoy queda viejo al agregar).
+  const aplicarStockFresco = (validacion: ResultadoValidacionNota) => {
+    const disponibles = validacion.disponible_por_clave
+    if (!disponibles || Object.keys(disponibles).length === 0) return
+    setDraft((prev) => ({
+      ...prev,
+      productos: prev.productos.map((p) => {
+        const d = disponibles[claveStock(p.producto_id, p.caja_id)]
+        if (!d) return p
+        return { ...p, stock_origen_cajas: d.cajas, stock_origen_piezas: d.piezas_sueltas }
+      }),
+    }))
+  }
+
   // ── Guardar ─────────────────────────────────────────────
-  const handleSave = (confirmar: boolean) => {
-    if (hayDeficitStock) {
-      if (!permitirStockNegativo) {
-        toast.error(
-          `No se puede guardar: ${productosConDeficit.length} producto(s) en rojo no tienen suficiente stock y el sistema prohíbe stock negativo. Usa el botón ✨ para seleccionar sustitutos de la misma familia.`
-        )
-        setError(
-          `Operación bloqueada: Hay ${productosConDeficit.length} producto(s) en rojo con existencias insuficientes en la bodega origen. La configuración actual prohíbe generar saldos negativos.`
-        )
+  const handleSave = async (confirmar: boolean) => {
+    // Revisión previa contra la base: el total agregado de cada SKU (todos sus
+    // renglones) se compara contra el stock real de la bodega origen. Si no
+    // alcanza, se avisa con el detalle por código en vez de que el trigger
+    // reviente con "Disponible: 0 cajas" sin decir qué SKU falló.
+    const validacion = await ejecutarPreChequeoStock(draft)
+
+    if (validacion) {
+      aplicarStockFresco(validacion)
+
+      if (!validacion.ok) {
+        setStockFaltantes(validacion.faltantes)
+        setStockAvisoModo(confirmar ? 'confirmar' : 'borrador')
+        setPendienteConfirmar(confirmar)
+        setShowStockModal(true)
         return
       }
     }
@@ -1295,23 +1372,103 @@ export function NoteDraftBuilder({
     doSave(false)
   }
 
-  const doSave = (confirmar: boolean) => {
+  // Recorta los renglones al stock disponible y vuelve a validar.
+  const ajustarYContinuar = async () => {
+    const lineas: LineaStock[] = draft.productos.map((p) => ({
+      producto_id: p.producto_id,
+      producto_sku: p.producto_sku,
+      producto_nombre: p.producto_nombre,
+      caja_id: p.caja_id,
+      caja_codigo: p.caja_codigo,
+      cajas: p.cajas,
+      piezas_sueltas: p.piezas_sueltas,
+    }))
+
+    const ajustadas = ajustarLineasADisponible(lineas, stockFaltantes)
+
+    const productosAjustados = ajustadas
+      .map((a, i) => ({
+        ...draft.productos[i],
+        cajas: a.cajas,
+        piezas_sueltas: a.piezas_sueltas ?? 0,
+      }))
+      .filter((p) => p.cajas !== 0 || (p.piezas_sueltas ?? 0) !== 0)
+
+    const nuevoDraft: DraftNota = { ...draft, productos: productosAjustados }
+    setDraft(nuevoDraft)
+
+    const revalidacion = await ejecutarPreChequeoStock(nuevoDraft)
+
+    if (revalidacion && !revalidacion.ok) {
+      setStockFaltantes(revalidacion.faltantes)
+      setShowStockModal(true)
+      return
+    }
+
+    setShowStockModal(false)
+    doSave(pendienteConfirmar, nuevoDraft)
+  }
+
+  // Fusiona renglones del mismo producto + caja (típico tras sincronizar OCR).
+  const consolidarRenglones = () => {
+    const lineas: LineaStock[] = draft.productos.map((p) => ({
+      producto_id: p.producto_id,
+      producto_sku: p.producto_sku,
+      producto_nombre: p.producto_nombre,
+      caja_id: p.caja_id,
+      caja_codigo: p.caja_codigo,
+      cajas: p.cajas,
+      piezas_sueltas: p.piezas_sueltas,
+    }))
+
+    const porClave = new Map<string, DraftProducto[]>()
+    for (const p of draft.productos) {
+      const clave = claveStock(p.producto_id, p.caja_id)
+      porClave.set(clave, [...(porClave.get(clave) ?? []), p])
+    }
+
+    const productos = consolidarLineas(lineas).map((c) => {
+      const original = porClave.get(`${c.producto_id}:${c.caja_id ?? 0}`)?.[0]
+      return {
+        ...(original as DraftProducto),
+        tempId: original?.tempId ?? crypto.randomUUID(),
+        cajas: c.cajas,
+        piezas_sueltas: c.piezas_sueltas ?? 0,
+      } as DraftProducto
+    })
+
+    setDraft((prev) => ({ ...prev, productos }))
+    toast.success('Renglones consolidados por código y caja.')
+  }
+
+  const doSave = (confirmar: boolean, draftOverride?: DraftNota) => {
     setError(null)
     setSuccess(null)
     setShowConfirmDialog(false)
 
+    const draftAGuardar = draftOverride ?? draft
+
     startTransition(async () => {
       let result
       if (mode === 'edit' && notaId) {
-        result = await actualizarNotaAction(notaId, draft, confirmar, ocrProposalId)
+        result = await actualizarNotaAction(notaId, draftAGuardar, confirmar, ocrProposalId)
       } else {
-        result = await guardarNotaAction(draft, confirmar, ocrProposalId)
+        result = await guardarNotaAction(draftAGuardar, confirmar, ocrProposalId)
       }
 
       if (!result.success) {
         const errorMsg = result.error ?? 'Error desconocido al guardar la nota.'
         setError(errorMsg)
         toast.error(errorMsg)
+
+        // El servidor devolvió el detalle por SKU (guarda server-side o carrera):
+        // se muestra el modal en vez de dejar solo el mensaje.
+        if (result.faltantes?.length) {
+          setStockFaltantes(result.faltantes)
+          setStockAvisoModo(confirmar ? 'confirmar' : 'borrador')
+          setPendienteConfirmar(confirmar)
+          setShowStockModal(true)
+        }
         return
       }
 
@@ -2246,6 +2403,26 @@ export function NoteDraftBuilder({
             </div>
           )}
 
+          {/* Renglones duplicados del mismo SKU: el inventario descuenta la suma */}
+          {hayRenglonesDuplicados > 0 && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+              <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                <strong>{hayRenglonesDuplicados}</strong> código(s) aparecen en varios renglones. El
+                inventario descuenta la <strong>suma</strong> de todos sus renglones.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={consolidarRenglones}
+                className="h-8 shrink-0 gap-1.5 rounded-xl text-xs font-bold"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Consolidar renglones
+              </Button>
+            </div>
+          )}
+
           {/* Tabla de productos en el draft */}
           {draft.productos.length > 0 ? (
             <div className="rounded-2xl border overflow-x-auto shadow-inner">
@@ -2265,9 +2442,15 @@ export function NoteDraftBuilder({
                 <tbody>
                   {draft.productos.map((p, index) => {
                     const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
+                    // El descuento real es el AGREGADO de todos los renglones del
+                    // mismo SKU + caja: el trigger descuenta cada renglón contra
+                    // el MISMO registro de stock.
+                    const agregado = agregadoPorClave.get(claveStock(p.producto_id, p.caja_id))
+                    const cajasAgregadas = agregado?.cajas ?? p.cajas
+                    const renglonesSKU = agregado?.renglones ?? 1
                     const isRowNegative = draft.bodega_origen_id !== null && (
-                      (esMovimientoSalidaOTraslado && p.cajas > (p.stock_origen_cajas ?? 0)) ||
-                      (esAjuste && p.cajas < 0 && Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0))
+                      (esMovimientoSalidaOTraslado && cajasAgregadas > (p.stock_origen_cajas ?? 0)) ||
+                      (esAjuste && cajasAgregadas < 0 && Math.abs(cajasAgregadas) > (p.stock_origen_cajas ?? 0))
                     )
 
                     return (
@@ -2368,6 +2551,21 @@ export function NoteDraftBuilder({
                             <div className="mt-1 flex items-center gap-1">
                               <span className="text-[10px] font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
                                 🏷️ Físico: <strong>{p.codigo_original}</strong>
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Mismo SKU en varios renglones: se muestra el total que se descuenta */}
+                          {renglonesSKU > 1 && (
+                            <div className="mt-1">
+                              <span className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 border",
+                                isRowNegative
+                                  ? "bg-destructive/15 text-destructive border-destructive/30"
+                                  : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                              )}>
+                                <Boxes className="h-3 w-3" />
+                                {renglonesSKU} renglones · {cajasAgregadas} cajas en total
                               </span>
                             </div>
                           )}
@@ -2702,11 +2900,11 @@ export function NoteDraftBuilder({
             <Button
               type="button"
               variant="outline"
-              disabled={isPending || draft.productos.length === 0}
+              disabled={isPending || isValidandoStock || draft.productos.length === 0}
               onClick={() => handleSave(false)}
               className="flex-1 h-11 rounded-xl text-sm font-semibold gap-2 border-muted-foreground/30 hover:bg-muted/80 shadow-xs"
             >
-              {isPending ? (
+              {isPending || isValidandoStock ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
@@ -2720,11 +2918,11 @@ export function NoteDraftBuilder({
         {puedeConfirmar ? (
           <Button
             type="button"
-            disabled={isPending || draft.productos.length === 0}
+            disabled={isPending || isValidandoStock || draft.productos.length === 0}
             onClick={() => handleSave(true)}
             className="w-full h-12 sm:h-14 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 gap-2 transition-all active:scale-[0.99]"
           >
-            {isPending ? (
+            {isPending || isValidandoStock ? (
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
               <CheckCircle2 className="h-5 w-5" />
@@ -3034,6 +3232,26 @@ export function NoteDraftBuilder({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Aviso previo: stock insuficiente (total agregado por SKU) ── */}
+      <ModalStockInsuficiente
+        open={showStockModal}
+        onOpenChange={setShowStockModal}
+        faltantes={stockFaltantes}
+        bodegaOrigenNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
+        modo={stockAvisoModo}
+        isBusy={isValidandoStock}
+        onAjustar={ajustarYContinuar}
+        onGuardarBorrador={
+          stockAvisoModo === 'borrador' ? () => doSave(false) : undefined
+        }
+        onVerSustitutos={(productoId) => {
+          const linea = draft.productos.find((p) => p.producto_id === productoId)
+          // Cierra este modal antes de abrir el de sustitutos (no se apilan diálogos).
+          setShowStockModal(false)
+          if (linea) handleOpenSustitutosModal(linea)
+        }}
+      />
     </div>
   )
 }
