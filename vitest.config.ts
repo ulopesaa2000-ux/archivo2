@@ -34,6 +34,8 @@ export default defineConfig({
       '@/components': resolve(__dirname, './components'),
       '@/lib': resolve(__dirname, './lib'),
       '@/modules': resolve(__dirname, './modules'),
+      // Next lo inyecta en runtime; en vitest no es resoluble.
+      'server-only': resolve(__dirname, './tests/mocks/server-only.ts'),
     },
   },
 })
