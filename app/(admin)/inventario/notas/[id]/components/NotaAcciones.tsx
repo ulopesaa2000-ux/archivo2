@@ -17,6 +17,8 @@ import { cambiarEstadoNotaAction } from '@/modules/inventario/actions'
 import type { NotaListItem } from '@/modules/inventario/types'
 import { ESTADO_NOTA, ESTADO_NOTA_COLORS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { obtenerInfoCambioFolio } from '@/lib/inventario/folio-nota'
+import { toast } from 'sonner'
 
 const STEPS = [
   { id: 'PEND', label: 'Pendiente', icon: Clock, color: 'text-yellow-500' },
@@ -46,6 +48,9 @@ export function NotaAcciones({
     )
   }
 
+  const infoCambio = obtenerInfoCambioFolio(nota.numero_nota, nota.tipo_codigo)
+  const isTargetingConfirm = selectedEstadoId === 'CONF' && nota.estado_codigo !== 'CONF'
+
   const handleUpdateStatus = () => {
     if (selectedEstadoId === nota.estado_codigo) return
 
@@ -62,6 +67,12 @@ export function NotaAcciones({
       if (!result.success) {
         setError(result.error ?? 'Error al actualizar el estado.')
         return
+      }
+      if (selectedEstadoId === 'CONF') {
+        const folioFinal = result.numero_nota || (infoCambio.cambiara ? infoCambio.folioNuevo : nota.numero_nota)
+        toast.success(`Nota ${folioFinal} confirmada exitosamente`)
+      } else {
+        toast.success('Estado actualizado correctamente')
       }
       router.refresh()
     })
@@ -162,6 +173,20 @@ export function NotaAcciones({
           </div>
         </div>
       </div>
+
+      {isTargetingConfirm && infoCambio.cambiara && (
+        <div className="flex items-center gap-3 p-4 rounded-2xl bg-primary/10 border border-primary/20 text-xs animate-in fade-in slide-in-from-top-1">
+          <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="font-semibold text-foreground">Aviso de asignación de folio:</span>
+            <span className="text-muted-foreground">Al guardar en estado Confirmada, el folio oficial pasará de</span>
+            <span className="font-mono line-through bg-muted/60 px-1 py-0.5 rounded text-foreground">{infoCambio.folioActual}</span>
+            <ArrowRight className="h-3 w-3 text-primary shrink-0 inline" />
+            <span className="font-mono font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">{infoCambio.folioNuevo}</span>
+            <span className="text-muted-foreground">({infoCambio.nombreTipo})</span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-4 flex items-center gap-3 p-4 rounded-2xl bg-destructive/10 border border-destructive/20 animate-in fade-in slide-in-from-top-2">

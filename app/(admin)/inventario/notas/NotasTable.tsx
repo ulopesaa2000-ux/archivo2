@@ -29,7 +29,7 @@ import {
 import { 
   MoreHorizontal, MoreVertical, Eye, FileText, Image as ImageIcon, 
   CheckCircle2, Loader2, ExternalLink, Package, Trash2, Ban,
-  Warehouse, Building2, Calendar, DollarSign, User, Clock 
+  Warehouse, Building2, Calendar, DollarSign, User, Clock, ArrowRight 
 } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { ADMIN_ROUTES, ESTADO_NOTA_COLORS, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS } from '@/lib/constants'
@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import type { NotaListItem } from '@/modules/inventario/types'
 import type { AccionEliminarNota } from '@/modules/inventario/config-types'
 import { confirmarNotaAction, getNotaDetallesAction, eliminarNotaAction } from '@/modules/inventario/actions'
+import { obtenerInfoCambioFolio } from '@/lib/inventario/folio-nota'
 import { toast } from 'sonner'
 
 type Props = {
@@ -252,11 +253,14 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
     }
   }, [row.id])
 
+  const infoCambio = obtenerInfoCambioFolio(row.numero_nota, row.tipo_codigo)
+
   const handleQuickConfirm = () => {
     startConfirmTransition(async () => {
       const res = await confirmarNotaAction(row.id)
       if (res.success) {
-        toast.success(`Nota ${row.numero_nota} confirmada exitosamente`)
+        const folioFinal = res.numero_nota || (infoCambio.cambiara ? infoCambio.folioNuevo : row.numero_nota)
+        toast.success(`Nota ${folioFinal} confirmada exitosamente`)
         router.refresh()
       } else {
         toast.error(res.error ?? 'No se pudo confirmar la nota')
@@ -317,10 +321,27 @@ function NotaFastCheckExpandedRow({ row }: { row: NotaListItem }) {
                       ? `¿Confirmar Recepción de Traspaso ${row.numero_nota}?`
                       : `¿Confirmar Nota ${row.numero_nota}?`}
                   </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {isTraspasoEnProceso
-                      ? `Esta acción confirmará la llegada de la mercancía a ${row.bodega_destino_nombre || 'la bodega destino'} e ingresará el stock transferido (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`
-                      : `Esta acción procesará el inventario en la bodega ${row.bodega_origen_nombre} (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`}
+                  <AlertDialogDescription className="space-y-3">
+                    <p>
+                      {isTraspasoEnProceso
+                        ? `Esta acción confirmará la llegada de la mercancía a ${row.bodega_destino_nombre || 'la bodega destino'} e ingresará el stock transferido (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`
+                        : `Esta acción procesará el inventario en la bodega ${row.bodega_origen_nombre} (${row.total_cajas ?? 0} cajas). Esta operación no se puede deshacer.`}
+                    </p>
+                    {infoCambio.cambiara && (
+                      <div className="p-3 rounded-xl border border-primary/25 bg-primary/5 text-xs text-foreground space-y-1">
+                        <div className="font-semibold text-primary flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Aviso: asignación de folio oficial</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground pt-0.5">
+                          <span>La nota pasará de</span>
+                          <span className="font-mono line-through bg-muted/60 px-1 py-0.5 rounded text-foreground">{infoCambio.folioActual}</span>
+                          <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+                          <span className="font-mono font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">{infoCambio.folioNuevo}</span>
+                          <span>({infoCambio.nombreTipo})</span>
+                        </div>
+                      </div>
+                    )}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
