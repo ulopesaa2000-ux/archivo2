@@ -28,6 +28,7 @@ import type { BodegaRow } from '@/lib/types/tables'
 import { isModoSoloCajas } from './config-types'
 import { construirConsultaSku } from '@/lib/inventario/sku-ocr'
 import { evaluarDisponibilidad } from '@/lib/inventario/validacion-stock'
+import { calcularFolioConfirmado } from '@/lib/inventario/folio-nota'
 
 export type ActionResult = {
   success: boolean
@@ -784,9 +785,32 @@ export async function confirmarNotaAction(
     }
   }
 
+  // ── Obtener tipo y folio actual para asignar folio definitivo ──
+  const { data: notaInfo } = await supabase
+    .from('notas_inventario')
+    .select(`
+      numero_nota,
+      cat_tipos_movimiento:tipo_movimiento_id ( codigo )
+    `)
+    .eq('id', notaId)
+    .single()
+
+  const tipoCodigo = Array.isArray((notaInfo as any)?.cat_tipos_movimiento)
+    ? (notaInfo as any)?.cat_tipos_movimiento[0]?.codigo
+    : (notaInfo as any)?.cat_tipos_movimiento?.codigo
+
+  const nuevoNumeroNota = calcularFolioConfirmado(notaInfo?.numero_nota, tipoCodigo)
+
+  const updatePayload: { estado_id: number; numero_nota?: string } = {
+    estado_id: estadoConf.id,
+  }
+  if (nuevoNumeroNota && nuevoNumeroNota !== notaInfo?.numero_nota) {
+    updatePayload.numero_nota = nuevoNumeroNota
+  }
+
   const { error } = await supabase
     .from('notas_inventario')
-    .update({ estado_id: estadoConf.id })
+    .update(updatePayload)
     .eq('id', notaId)
 
   if (error) {
@@ -807,7 +831,11 @@ export async function confirmarNotaAction(
   revalidatePath(`/inventario/notas/${notaId}`)
   revalidatePath('/inventario/stock')
 
-  return { success: true }
+  return {
+    success: true,
+    nota_id: notaId,
+    numero_nota: nuevoNumeroNota || notaInfo?.numero_nota || undefined,
+  }
 }
 
 // ════════════════════════════════════════════════════════════

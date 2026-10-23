@@ -1488,7 +1488,7 @@ export function NoteDraftBuilder({
       }
 
       const successMsg = confirmar
-        ? 'Nota confirmada exitosamente.'
+        ? `Nota confirmada exitosamente${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
         : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
 
       setSuccess(successMsg)
