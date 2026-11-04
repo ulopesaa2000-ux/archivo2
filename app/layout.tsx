@@ -4,6 +4,7 @@ import { Noto_Serif, Plus_Jakarta_Sans } from 'next/font/google'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { ChunkErrorRecovery } from '@/components/shared/ChunkErrorRecovery'
 import { ThemeProvider } from '@/components/theme-provider'
+import { DevEnvironmentBadge } from '@/components/dev-environment-badge'
 import { storeMetadata, storeViewport } from '@/lib/seo/store-metadata'
 import { cn } from '@/lib/utils'
 import { Toaster } from 'sonner'
@@ -52,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           <ErrorBoundary>
             {children}
+            <DevEnvironmentBadge />
             <Toaster
               position="top-right"
               offset={68}

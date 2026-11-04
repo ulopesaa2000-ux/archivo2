@@ -4,36 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { Database } from "../types/database.types";
 import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from "./constants";
-
-function getSupabaseEnv() {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseAnonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl) {
-    console.error(
-      "[Supabase Config Error] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL in server environment variables."
-    );
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL. Define it in Docker/Dokploy environment variables and build args."
-    );
-  }
-
-  if (!supabaseAnonKey) {
-    console.error(
-      "[Supabase Config Error] Missing NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY in server environment variables."
-    );
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY. Define it in Docker/Dokploy environment variables and build args."
-    );
-  }
-
-  return {
-    supabaseUrl,
-    supabaseAnonKey,
-  };
-}
+import { getActiveSupabaseConfig } from "./env";
 
 /**
  * Cliente dinámico con cookies.
@@ -44,8 +15,7 @@ function getSupabaseEnv() {
  */
 export async function createClient() {
   const cookieStore = await cookies();
-
-  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
+  const { supabaseUrl, supabaseAnonKey } = getActiveSupabaseConfig();
 
   return createServerClient<Database, typeof SUPABASE_SCHEMA>(
     supabaseUrl,
@@ -77,7 +47,7 @@ export async function createClient() {
  * Úsalo para datos públicos/cacheables que NO dependan del usuario.
  */
 export function createStaticClient() {
-  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
+  const { supabaseUrl, supabaseAnonKey } = getActiveSupabaseConfig();
 
   return createSupabaseClient<Database, typeof SUPABASE_SCHEMA>(
     supabaseUrl,

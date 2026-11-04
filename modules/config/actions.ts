@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getActiveSupabaseConfig } from '@/lib/supabase/env'
 import { revalidatePath } from 'next/cache'
 import type { ModuloPermiso, PermisoModulo, TipoPermiso } from './types'
 import { buildPermisosCompletos, esActorAdminInventarioRestringido, esRolBodegaGestionable } from './types'
@@ -446,14 +447,15 @@ export async function cambiarPasswordAction(
   // Nota: Esto requiere que el cliente de Supabase tenga permisos de admin.
   // Como no hay un supabase.auth.admin sin Service Role, usaremos el cliente
   // con la variable de entorno SUPABASE_SERVICE_ROLE_KEY si existe.
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  const serviceRoleKey = supabaseServiceRoleKey
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para realizar esta acción.' }
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
   const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseUrl,
     serviceRoleKey,
     {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -487,14 +489,15 @@ export async function crearUsuarioAction(payload: {
   const denied = await requireConfigPermission('puede_crear')
   if (denied) return denied
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  const serviceRoleKey = supabaseServiceRoleKey
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor para crear usuarios.' }
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
   const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseUrl,
     serviceRoleKey,
     {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -594,14 +597,15 @@ export async function sincronizarUsuarioAction(payload: {
     if (bloqueo) return bloqueo
   }
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  const serviceRoleKey = supabaseServiceRoleKey
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY.' }
   }
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
   const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseUrl,
     serviceRoleKey,
     {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -792,7 +796,8 @@ export async function invitarPersonaAction(payload: {
   const denied = await requireConfigPermission('puede_crear')
   if (denied) return denied
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  const serviceRoleKey = supabaseServiceRoleKey
   if (!serviceRoleKey) {
     return { success: false, error: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY en el servidor.' }
   }
@@ -811,7 +816,7 @@ export async function invitarPersonaAction(payload: {
 
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
   const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseUrl,
     serviceRoleKey,
     {
       auth: { autoRefreshToken: false, persistSession: false },

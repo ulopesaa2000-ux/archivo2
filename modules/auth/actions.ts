@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getActiveSupabaseConfig } from '@/lib/supabase/env'
 import { revalidatePath } from 'next/cache'
 import type { Database } from '@/lib/types/database.types'
 import { buildPermissionMatrix } from '@/lib/auth/permissions'
@@ -173,17 +174,17 @@ export async function loginAction(
  */
 export async function syncUserClaims(authUserId: string): Promise<boolean> {
   console.log('[syncUserClaims] Sincronizando claims para authUserId:', authUserId)
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    console.warn('[syncUserClaims] No se encontró SUPABASE_SERVICE_ROLE_KEY. Omitiendo actualización de claims.')
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  if (!supabaseServiceRoleKey) {
+    console.warn('[syncUserClaims] No se encontró service role key para el entorno actual. Omitiendo actualización de claims.')
     return false
   }
 
   try {
     const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
     const supabaseAdmin = createSupabaseClient<Database, 'inv-tienda'>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceRoleKey,
+      supabaseUrl,
+      supabaseServiceRoleKey,
       {
         auth: { autoRefreshToken: false, persistSession: false },
         db: { schema: 'inv-tienda' },

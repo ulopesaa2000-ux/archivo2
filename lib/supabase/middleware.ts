@@ -1,9 +1,10 @@
-// C:\Users\uriel\Downloads\enero 26\archivo2\lib\supabase\middleware.ts
+// lib/supabase/middleware.ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { permissionForPath, LEGACY_MODULE_FALLBACKS, type PermissionAction } from '@/lib/auth/permissions'
 import { Database } from '../types/database.types'
 import { SUPABASE_OPTIONS, SUPABASE_SCHEMA } from './constants'
+import { getActiveSupabaseConfig } from './env'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
@@ -26,19 +27,22 @@ const PROTECTED_ROUTES = [
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const supabaseAnonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-
   const { pathname } = request.nextUrl
   const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
     pathname.startsWith(route)
   )
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  let supabaseUrl = ''
+  let supabaseAnonKey = ''
+
+  try {
+    const config = getActiveSupabaseConfig()
+    supabaseUrl = config.supabaseUrl
+    supabaseAnonKey = config.supabaseAnonKey
+  } catch (err) {
     console.error(
-      '[Middleware] Warning: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing from environment variables.'
+      '[Middleware] Warning: Could not resolve Supabase configuration from environment variables.',
+      err
     )
     if (isProtectedRoute) {
       const url = request.nextUrl.clone()

@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getActiveSupabaseConfig } from '@/lib/supabase/env'
 import type { RolConPermisos, UsuarioConDetalle, PermisoModulo, ModuloPermiso } from './types'
 import { esActorAdminInventarioRestringido, esRolBodegaGestionable } from './types'
 import { isSuperAdmin } from '@/lib/auth/permissions'
@@ -19,13 +20,12 @@ export type ServiceRoleClient = SupabaseClient<Database, 'inv-tienda'>
  * Retorna null si falta la key en el entorno.
  */
 export async function createServiceRoleClient(): Promise<ServiceRoleClient | null> {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!serviceRoleKey || !supabaseUrl) return null
+  const { supabaseUrl, supabaseServiceRoleKey } = getActiveSupabaseConfig()
+  if (!supabaseServiceRoleKey || !supabaseUrl) return null
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
   return createSupabaseClient<Database, 'inv-tienda'>(
     supabaseUrl,
-    serviceRoleKey,
+    supabaseServiceRoleKey,
     {
       auth: { autoRefreshToken: false, persistSession: false },
       db: { schema: 'inv-tienda' },
