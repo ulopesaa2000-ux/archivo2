@@ -41,21 +41,52 @@ export function useHeaderFlotante() {
 
     const medir = () => {
       const tablaEl = tabla ?? scroller.querySelector('table')
-      const anchoTabla = tablaEl?.scrollWidth ?? 0
-      setAncho(Math.max(anchoTabla, scroller.clientWidth))
+      if (!tablaEl) return
+      const anchoTabla = Math.max(tablaEl.scrollWidth, tablaEl.offsetWidth)
+      const anchoFinal = Math.max(anchoTabla, scroller.clientWidth)
+      setAncho(anchoFinal)
+
       // Alto del header flotante: se compensa con margen negativo para que no
       // empuje al <thead> real (que queda invisible) y quede un hueco vacío.
       const headerEl = headerRef.current
-      if (headerEl) setAlto(headerEl.offsetHeight)
+      if (headerEl) {
+        setAlto(headerEl.offsetHeight)
+
+        // Sincronizar el ancho total de la tabla flotante con la tabla de datos
+        const headerTabla = headerEl.querySelector('table')
+        if (headerTabla && anchoTabla > 0) {
+          headerTabla.style.width = `${anchoTabla}px`
+          headerTabla.style.minWidth = `${anchoTabla}px`
+        }
+
+        // Sincronizar el ancho exacto de cada th (para que cuadre pixel a pixel con el cuerpo)
+        const thsReal = tablaEl.querySelectorAll<HTMLTableCellElement>('thead th')
+        const thsFlotante = headerEl.querySelectorAll<HTMLTableCellElement>('thead th')
+        if (thsReal.length > 0 && thsReal.length === thsFlotante.length) {
+          thsReal.forEach((thReal, i) => {
+            const w = thReal.getBoundingClientRect().width
+            const thF = thsFlotante[i]
+            if (thF && w > 0) {
+              const wPx = `${w}px`
+              thF.style.width = wPx
+              thF.style.minWidth = wPx
+              thF.style.maxWidth = wPx
+              thF.style.boxSizing = 'border-box'
+            }
+          })
+        }
+      }
       sincronizar()
     }
 
     medir()
+    const frameId = requestAnimationFrame(medir)
     const ro = new ResizeObserver(medir)
     if (tabla) ro.observe(tabla)
     ro.observe(scroller)
     window.addEventListener('resize', medir)
     return () => {
+      cancelAnimationFrame(frameId)
       ro.disconnect()
       window.removeEventListener('resize', medir)
     }

@@ -63,10 +63,20 @@ export default async function NotasPage({
 
   const sp = await searchParams
 
-  const bodegaOrigenIdParam = sp.bodega_origen_id ? parseInt(sp.bodega_origen_id) : undefined
-  const bodegaOrigenIdFiltro = bodegaOrigenIdParam !== undefined
-    ? (bodegaOrigenIdParam === 0 ? undefined : bodegaOrigenIdParam)
-    : (bodegaActivaId && bodegaActivaId !== 0 ? bodegaActivaId : undefined)
+  const bodegaOrigenIdRaw = sp.bodega_origen_id
+  let bodegaOrigenIdFiltro: number | undefined = undefined
+
+  if (bodegaOrigenIdRaw !== undefined && bodegaOrigenIdRaw !== '') {
+    const parsed = parseInt(bodegaOrigenIdRaw, 10)
+    if (parsed > 0) {
+      bodegaOrigenIdFiltro = parsed
+    } else {
+      // 0 o _all significa explícitamente "Todas las bodegas" (anula cookie de bodega)
+      bodegaOrigenIdFiltro = undefined
+    }
+  } else if (bodegaActivaId && bodegaActivaId !== 0) {
+    bodegaOrigenIdFiltro = bodegaActivaId
+  }
 
   const filtros: FiltrosNotas = {
     q: sp.q,
@@ -78,7 +88,7 @@ export default async function NotasPage({
     ciudad: sp.ciudad,
     fecha_desde: sp.fecha_desde,
     fecha_hasta: sp.fecha_hasta,
-    sort_by: sp.sort_by || 'fecha_nota',
+    sort_by: sp.sort_by || 'numero_nota',
     order: (sp.order === 'asc' || sp.order === 'desc') ? sp.order : 'desc',
     page: sp.page ? parseInt(sp.page) : 1,
   }
@@ -334,7 +344,7 @@ export default async function NotasPage({
       </div>
 
       {/* Filtros (Client, FIJOS) */}
-      <NotasFilters catalogos={catalogosFiltrados} />
+      <NotasFilters catalogos={catalogosFiltrados} bodegaActivaId={bodegaActivaId} />
 
       {/* Tabla (Server, se re-renderiza) */}
       <NotasTable

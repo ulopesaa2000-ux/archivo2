@@ -603,7 +603,7 @@ function NotasTableInner({
           rowKey={(row) => row.id}
           currentSortKey={sortKey}
           currentOrder={sortOrder}
-          defaultSortKey="fecha_nota"
+          defaultSortKey="numero_nota"
           emptyMessage="No se encontraron notas con los filtros aplicados."
           emptyIcon={<FileText className="h-12 w-12" />}
           renderExpanded={(row) => <NotaFastCheckExpandedRow row={row} />}

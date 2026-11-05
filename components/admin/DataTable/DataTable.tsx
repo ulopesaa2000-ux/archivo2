@@ -113,7 +113,7 @@ export function DataTable<T>({
     if (!sortable) return
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
-      if (key === defaultSortKey) {
+      if (key === defaultSortKey && direction === 'desc') {
         params.delete('sort_by')
         params.delete('order')
       } else {

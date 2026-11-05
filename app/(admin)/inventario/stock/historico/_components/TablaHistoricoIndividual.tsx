@@ -186,40 +186,41 @@ function FilaProducto({
   const f = flags
   return (
     <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-      <td className="px-4 py-2.5 font-mono text-xs sticky left-0 bg-background z-10 shadow-[1px_0_0_0_#e2e8f0]">
+      <td className="px-4 py-2.5 font-mono text-xs sticky left-0 bg-background z-10 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px] max-w-[140px] truncate">
         {fila.producto_familia ?? '—'}
       </td>
-      <td className="px-4 py-2.5 font-mono text-xs font-semibold sticky left-[140px] bg-background z-10 shadow-[1px_0_0_0_#e2e8f0] border-l">
+      <td className="px-4 py-2.5 font-mono text-xs font-semibold sticky left-[140px] bg-background z-10 shadow-[1px_0_0_0_#e2e8f0] border-l w-[160px] min-w-[160px] max-w-[160px] truncate">
         {fila.producto_sku}
       </td>
       {f.descripcion && (
         <td
-          className="px-4 py-2.5 text-xs text-muted-foreground max-w-[280px] truncate border-l"
+          className="px-4 py-2.5 text-xs text-muted-foreground min-w-[260px] max-w-[320px] truncate border-l"
+          title={fila.producto_descripcion ?? undefined}
         >
           {fila.producto_descripcion ?? '—'}
         </td>
       )}
       {f.marca && (
-        <td className="px-4 py-2.5 text-xs text-muted-foreground border-l hidden lg:table-cell">
+        <td className="px-4 py-2.5 text-xs text-muted-foreground border-l w-[130px] min-w-[130px] max-w-[150px] truncate">
           {fila.marca_nombre ?? '—'}
         </td>
       )}
       {f.bodega && (
-        <td className="px-4 py-2.5 text-xs border-l">
-          <div className="font-semibold">{fila.bodega_nombre}</div>
-          <div className="text-[10px] text-muted-foreground">{fila.ciudad}</div>
+        <td className="px-4 py-2.5 text-xs border-l w-[180px] min-w-[180px] max-w-[220px]">
+          <div className="font-semibold truncate">{fila.bodega_nombre}</div>
+          <div className="text-[10px] text-muted-foreground truncate">{fila.ciudad}</div>
         </td>
       )}
       {f.hoy && (
-        <td className="px-4 py-2.5 text-right font-mono tabular-nums border-l">{num(fila.cajas_hoy)}</td>
+        <td className="px-4 py-2.5 text-right font-mono tabular-nums border-l w-[100px] min-w-[100px]">{num(fila.cajas_hoy)}</td>
       )}
       {f.ajuste && (
-        <td className="px-4 py-2.5 text-right border-l">
+        <td className="px-4 py-2.5 text-right border-l w-[90px] min-w-[90px]">
           <Ajuste valor={fila.ajuste} />
         </td>
       )}
       {f.corte && (
-        <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold border-l">
+        <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold border-l w-[120px] min-w-[120px]">
           <span className="inline-flex items-center gap-1 justify-end">
             {num(fila.cajas_historicas)}
             {fila.valor_inconsistente && (
@@ -229,7 +230,7 @@ function FilaProducto({
         </td>
       )}
       {f.notas && (
-        <td className="px-4 py-2.5 text-center border-l">
+        <td className="px-4 py-2.5 text-center border-l w-[75px] min-w-[75px]">
           {fila.n_notas > 0 ? (
             <Badge variant="outline" className="text-[10px] font-mono">
               {fila.n_notas}
@@ -269,32 +270,34 @@ function FamiliaRow({
         className="border-b bg-blue-50/50 dark:bg-blue-900/15 font-medium hover:bg-blue-100/50 dark:hover:bg-blue-900/25 cursor-pointer transition-colors"
         onClick={onToggle}
       >
-        <td className="px-4 py-2.5 sticky left-0 bg-blue-50/90 dark:bg-blue-900/40 z-10 shadow-[1px_0_0_0_#e2e8f0]">
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 pointer-events-none">
-            {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </Button>
-          <span className="ml-1 font-mono text-xs">{familia}</span>
+        <td className="px-4 py-2.5 sticky left-0 bg-blue-50/90 dark:bg-blue-900/40 z-10 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px] max-w-[140px]">
+          <div className="flex items-center">
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 pointer-events-none shrink-0">
+              {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+            <span className="ml-1 font-mono text-xs truncate">{familia}</span>
+          </div>
         </td>
-        <td className="px-4 py-2.5 text-xs text-muted-foreground sticky left-[140px] bg-blue-50/90 dark:bg-blue-900/40 z-10 shadow-[1px_0_0_0_#e2e8f0] border-l">
+        <td className="px-4 py-2.5 text-xs text-muted-foreground sticky left-[140px] bg-blue-50/90 dark:bg-blue-900/40 z-10 shadow-[1px_0_0_0_#e2e8f0] border-l w-[160px] min-w-[160px] max-w-[160px] truncate">
           {items.length} producto{items.length !== 1 ? 's' : ''}
         </td>
-        {f.descripcion && <td className="px-4 py-2.5 border-l" />}
-        {f.marca && <td className="px-4 py-2.5 border-l" />}
-        {f.bodega && <td className="px-4 py-2.5 border-l" />}
+        {f.descripcion && <td className="px-4 py-2.5 border-l min-w-[260px] max-w-[320px]" />}
+        {f.marca && <td className="px-4 py-2.5 border-l w-[130px] min-w-[130px] max-w-[150px]" />}
+        {f.bodega && <td className="px-4 py-2.5 border-l w-[180px] min-w-[180px] max-w-[220px]" />}
         {f.hoy && (
-          <td className="px-4 py-2.5 text-right font-mono tabular-nums border-l">{num(total_hoy)}</td>
+          <td className="px-4 py-2.5 text-right font-mono tabular-nums border-l w-[100px] min-w-[100px]">{num(total_hoy)}</td>
         )}
         {f.ajuste && (
-          <td className="px-4 py-2.5 text-right border-l">
+          <td className="px-4 py-2.5 text-right border-l w-[90px] min-w-[90px]">
             <Ajuste valor={total_ajuste} />
           </td>
         )}
         {f.corte && (
-          <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold border-l text-primary">
+          <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold border-l text-primary w-[120px] min-w-[120px]">
             {num(total_corte)}
           </td>
         )}
-        {f.notas && <td className="px-4 py-2.5 border-l" />}
+        {f.notas && <td className="px-4 py-2.5 border-l w-[75px] min-w-[75px]" />}
       </tr>
       {abierto &&
         items.map((f2) => (

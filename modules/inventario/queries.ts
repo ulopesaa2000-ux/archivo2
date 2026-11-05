@@ -80,9 +80,9 @@ export async function fetchNotas(
     `, { count: 'exact' })
     .eq('activo', true)
 
-  // ── Filtro: búsqueda por numero_nota ────────────────────
+  // ── Filtro: búsqueda por numero_nota o referencia ────────
   if (filtros.q) {
-    query = query.ilike('numero_nota', `%${filtros.q}%`)
+    query = query.or(`numero_nota.ilike.%${filtros.q}%,nota_referencia.ilike.%${filtros.q}%`)
   }
 
   // ── Filtro: tipo de movimiento ──────────────────────────
@@ -168,13 +168,14 @@ export async function fetchNotas(
   }
 
   // ── Ordenamiento y paginación ───────────────────────────
-  const sortKey = filtros.sort_by || 'fecha_nota'
+  const sortKey = filtros.sort_by || 'numero_nota'
   const isAsc = filtros.order === 'asc'
 
-  let orderColumn = 'fecha_nota'
+  let orderColumn = 'id'
   switch (sortKey) {
     case 'numero_nota':
-      orderColumn = 'numero_nota'
+      // Ordena por el número después del segundo '-' (correlativo asignado secuencialmente al ID)
+      orderColumn = 'id'
       break
     case 'tipo_codigo':
       orderColumn = 'tipo_movimiento_id'
@@ -195,14 +196,23 @@ export async function fetchNotas(
       orderColumn = 'costo_total'
       break
     case 'fecha_nota':
-    default:
       orderColumn = 'fecha_nota'
+      break
+    default:
+      orderColumn = 'id'
       break
   }
 
-  query = query
-    .order(orderColumn, { ascending: isAsc })
-    .range(from, to)
+  if (orderColumn === 'id') {
+    query = query
+      .order('id', { ascending: isAsc })
+      .range(from, to)
+  } else {
+    query = query
+      .order(orderColumn, { ascending: isAsc })
+      .order('id', { ascending: isAsc })
+      .range(from, to)
+  }
 
   const { data, count, error } = await query
 
