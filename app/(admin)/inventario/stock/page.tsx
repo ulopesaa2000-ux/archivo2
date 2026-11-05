@@ -276,6 +276,10 @@ async function StockPageContent({
     canUser(user, 'inventario_stock', 'puede_crear') ||
     canUser(user, 'inventario_stock', 'puede_editar')
 
+  const canConteoOcr =
+    checkSuperAdmin(user) ||
+    ((user.rol?.nivel_acceso ?? 99) <= 2 && canImport)
+
   if (bodegaActivaId === 0) {
     const rawBodegas = parseArray(sp.bodegas)
     const rawCiudades = parseArray(sp.ciudades)
@@ -307,6 +311,7 @@ async function StockPageContent({
           bodegaActivaId={bodegaActivaId}
           totalCajas={totalCajasMatriz}
           showImport={canImport}
+          canConteoOcr={canConteoOcr}
           showHistorico
         />
 
@@ -368,6 +373,7 @@ async function StockPageContent({
         isPronostico={isPronostico}
         totalCajas={totalCajasBodega}
         showImport={canImport}
+        canConteoOcr={canConteoOcr}
         showHistorico
       />
 

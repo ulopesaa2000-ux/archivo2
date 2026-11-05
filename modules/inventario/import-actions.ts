@@ -290,3 +290,119 @@ export async function crearAjustesImportAction(
     productos_procesados: totalProcesados,
   }
 }
+
+export type FilaAjusteAplicar = {
+  producto_id: number
+  sku: string
+  delta: number
+}
+
+export type FilaSoloSistemaCero = {
+  producto_id: number
+  sku: string
+  stock_actual: number
+}
+
+/**
+ * Aplica la conciliación de Inventario Total para una bodega:
+ * - Movimientos de Entrada (ENT) para productos que aumentan o son nuevos.
+ * - Movimientos de Salida (SAL) para productos que disminuyen y los de "SOLO SISTEMA" marcados para mandar a cero.
+ * Todo se procesa con sp_crear_nota y estado CONF, cumpliendo la Regla Inquebrantable 3.1.
+ */
+export async function aplicarConciliacionInventarioTotalAction(
+  bodegaId: number,
+  bodegaNombre: string,
+  filasComparacion: FilaAjusteAplicar[],
+  soloSistemaMandarCero: FilaSoloSistemaCero[]
+): Promise<ImportAjusteResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const tiposMap = await fetchTiposMovimientoImport()
+  if (!tiposMap) {
+    return { success: false, error: 'No se encontraron los tipos de movimiento ENT y SAL en el catálogo.' }
+  }
+
+  // 1. Filtrar entradas (positivos)
+  const positivos = filasComparacion
+    .filter((f) => f.delta > 0)
+    .map((f) => ({ producto_id: f.producto_id, sku: f.sku, cajas: f.delta }))
+
+  // 2. Filtrar salidas (negativos de la comparativa + solo sistema marcados a cero)
+  const negativosComparativa = filasComparacion
+    .filter((f) => f.delta < 0)
+    .map((f) => ({ producto_id: f.producto_id, sku: f.sku, cajas: Math.abs(f.delta) }))
+
+  const negativosSoloSistema = soloSistemaMandarCero
+    .filter((s) => s.stock_actual > 0)
+    .map((s) => ({ producto_id: s.producto_id, sku: s.sku, cajas: s.stock_actual }))
+
+  const negativos = [...negativosComparativa, ...negativosSoloSistema]
+
+  if (positivos.length === 0 && negativos.length === 0) {
+    return {
+      success: true,
+      notas: [],
+      productos_procesados: 0,
+    }
+  }
+
+  const notas: NotaBodegaResult[] = []
+  let totalProcesados = 0
+
+  try {
+    // Crear nota de Entrada para los aumentos de stock
+    if (positivos.length > 0) {
+      const resEnt = await crearNotaSubconjunto(
+        supabase,
+        positivos,
+        bodegaId,
+        bodegaNombre,
+        user.id,
+        tiposMap.ENT,
+        'ENT',
+        'absoluto'
+      )
+      notas.push(resEnt)
+      totalProcesados += resEnt.productos_procesados
+    }
+
+    // Crear nota de Salida para las reducciones y mandados a cero
+    if (negativos.length > 0) {
+      const resSal = await crearNotaSubconjunto(
+        supabase,
+        negativos,
+        bodegaId,
+        bodegaNombre,
+        user.id,
+        tiposMap.SAL,
+        'SAL',
+        'absoluto'
+      )
+      notas.push(resSal)
+      totalProcesados += resSal.productos_procesados
+    }
+  } catch (err: any) {
+    revalidatePath('/inventario/notas')
+    revalidatePath('/inventario/stock')
+
+    return {
+      success: false,
+      error: err.message,
+      notas: notas.length > 0 ? notas : undefined,
+      productos_procesados: totalProcesados > 0 ? totalProcesados : undefined,
+    }
+  }
+
+  revalidatePath('/inventario/notas')
+  revalidatePath('/inventario/stock')
+
+  return {
+    success: true,
+    notas,
+    productos_procesados: totalProcesados,
+  }
+}
+

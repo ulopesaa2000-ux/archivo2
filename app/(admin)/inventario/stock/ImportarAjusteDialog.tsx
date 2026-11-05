@@ -1,7 +1,7 @@
 // app/(admin)/inventario/stock/ImportarAjusteDialog.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -15,10 +15,11 @@ import { useRouter } from 'next/navigation'
 import { ImportStepUpload } from './ImportStepUpload'
 import { ImportStepPreview } from './ImportStepPreview'
 import { ImportStepConfirm } from './ImportStepConfirm'
+import { ImportStepTotalComparison } from './ImportStepTotalComparison'
 import type { ImportFilaValida, NotaBodegaResult, ModoAjuste } from '@/modules/inventario/import-actions'
 import type { BodegaRow } from '@/lib/types/tables'
 
-type Step = 'upload' | 'preview' | 'confirm' | 'success'
+type Step = 'upload' | 'preview' | 'reconcile' | 'confirm' | 'success'
 
 type Props = {
   open: boolean
@@ -26,9 +27,20 @@ type Props = {
   bodegas: BodegaRow[]
   bodegaActivaId: number | null
   initialIsGlobalMode?: boolean
+  initialReconcileData?: {
+    bodegaId: number
+    filasValidas: ImportFilaValida[]
+  } | null
 }
 
-export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActivaId, initialIsGlobalMode = false }: Props) {
+export function ImportarAjusteDialog({
+  open,
+  onOpenChange,
+  bodegas,
+  bodegaActivaId,
+  initialIsGlobalMode = false,
+  initialReconcileData = null,
+}: Props) {
   const router = useRouter()
   const [step, setStep] = useState<Step>('upload')
   const [parsedFilas, setParsedFilas] = useState<Record<string, string>[]>([])
@@ -38,6 +50,15 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
   const [resultNotas, setResultNotas] = useState<NotaBodegaResult[]>([])
   const [resultTotal, setResultTotal] = useState(0)
   const [modo, setModo] = useState<ModoAjuste>(initialIsGlobalMode ? 'absoluto' : 'delta')
+
+  useEffect(() => {
+    if (open && initialReconcileData) {
+      setBodegaDefaultId(initialReconcileData.bodegaId)
+      setFilasValidas(initialReconcileData.filasValidas)
+      setModo('absoluto')
+      setStep('reconcile')
+    }
+  }, [open, initialReconcileData])
 
   const resetState = () => {
     setStep('upload')
@@ -65,7 +86,11 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
 
   const handleValidar = (validas: ImportFilaValida[]) => {
     setFilasValidas(validas)
-    setStep('confirm')
+    if (modo === 'absoluto' || modo === 'global') {
+      setStep('reconcile')
+    } else {
+      setStep('confirm')
+    }
   }
 
   const handleSuccess = (notas: NotaBodegaResult[], totalProductos: number) => {
@@ -79,7 +104,12 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
     router.push(`/inventario/notas/${notaId}`)
   }
 
-  const maxW = step === 'preview' ? 'sm:max-w-5xl lg:max-w-6xl' : step === 'confirm' ? 'sm:max-w-xl' : 'sm:max-w-lg'
+  const maxW =
+    step === 'reconcile' || step === 'preview'
+      ? 'sm:max-w-5xl lg:max-w-7xl w-full'
+      : step === 'confirm'
+      ? 'sm:max-w-xl'
+      : 'sm:max-w-lg'
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -113,6 +143,16 @@ export function ImportarAjusteDialog({ open, onOpenChange, bodegas, bodegaActiva
             modo={modo}
             onValidar={handleValidar}
             onBack={() => setStep('upload')}
+          />
+        )}
+
+        {step === 'reconcile' && (
+          <ImportStepTotalComparison
+            filasValidas={filasValidas}
+            bodegaDefaultId={bodegaDefaultId}
+            bodegas={bodegas}
+            onSuccess={handleSuccess}
+            onBack={() => (parsedFilas.length > 0 ? setStep('preview') : handleOpenChange(false))}
           />
         )}
 

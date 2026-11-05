@@ -4,10 +4,12 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Upload, Package, TrendingUp, History } from 'lucide-react'
+import { Upload, Package, TrendingUp, History, FileSpreadsheet } from 'lucide-react'
 import { ImportarAjusteDialog } from './ImportarAjusteDialog'
+import { ConteoFisicoOcrModal } from './ConteoFisicoOcrModal'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { BodegaRow } from '@/lib/types/tables'
+import type { ImportFilaValida } from '@/modules/inventario/import-actions'
 
 type Props = {
   title: string
@@ -15,6 +17,7 @@ type Props = {
   bodegas: BodegaRow[]
   bodegaActivaId: number | null
   showImport?: boolean
+  canConteoOcr?: boolean
   totalCajas?: number
   totalCajasPronosticadas?: number
   isPronostico?: boolean
@@ -28,12 +31,23 @@ export function StockPageHeader({
   bodegas,
   bodegaActivaId,
   showImport = true,
+  canConteoOcr = true,
   totalCajas,
   totalCajasPronosticadas,
   isPronostico = false,
   showHistorico = false,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false)
+  const [ocrOpen, setOcrOpen] = useState(false)
+  const [reconcileData, setReconcileData] = useState<{
+    bodegaId: number
+    filasValidas: ImportFilaValida[]
+  } | null>(null)
+
+  const handleIrAConciliacion = (bodegaId: number, filas: ImportFilaValida[]) => {
+    setReconcileData({ bodegaId, filasValidas: filas })
+    setImportOpen(true)
+  }
 
   return (
     <div className="flex items-start justify-between gap-4">
@@ -63,34 +77,67 @@ export function StockPageHeader({
         </div>
         <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
-      {showHistorico && (
-        <Button variant="outline" size="sm" asChild className="gap-1.5 shrink-0">
-          <Link href={ADMIN_ROUTES.inventario.historico}>
-            <History className="size-3.5" />
-            Stock a la fecha
-          </Link>
-        </Button>
-      )}
-      {showImport && (
-        <>
+
+      <div className="flex items-center gap-2 flex-wrap justify-end">
+        {showHistorico && (
+          <Button variant="outline" size="sm" asChild className="gap-1.5 shrink-0">
+            <Link href={ADMIN_ROUTES.inventario.historico}>
+              <History className="size-3.5" />
+              Stock a la fecha
+            </Link>
+          </Button>
+        )}
+
+        {canConteoOcr && (
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setImportOpen(true)}
+            onClick={() => setOcrOpen(true)}
+            className="gap-1.5 shrink-0 border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+          >
+            <FileSpreadsheet className="size-3.5 text-blue-600" />
+            Escanear inventario físico
+          </Button>
+        )}
+
+        {showImport && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setReconcileData(null)
+              setImportOpen(true)
+            }}
             className="gap-1.5 shrink-0"
           >
             <Upload className="size-3.5" />
             Importar ajuste
           </Button>
-          <ImportarAjusteDialog
-            open={importOpen}
-            onOpenChange={setImportOpen}
+        )}
+
+        {canConteoOcr && (
+          <ConteoFisicoOcrModal
+            open={ocrOpen}
+            onOpenChange={setOcrOpen}
             bodegas={bodegas}
             bodegaActivaId={bodegaActivaId}
+            onIrAConciliacion={handleIrAConciliacion}
           />
-        </>
-      )}
+        )}
+
+        {showImport && (
+          <ImportarAjusteDialog
+            open={importOpen}
+            onOpenChange={(open) => {
+              setImportOpen(open)
+              if (!open) setReconcileData(null)
+            }}
+            bodegas={bodegas}
+            bodegaActivaId={bodegaActivaId}
+            initialReconcileData={reconcileData}
+          />
+        )}
+      </div>
     </div>
   )
 }
-

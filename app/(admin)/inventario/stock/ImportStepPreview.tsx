@@ -23,6 +23,7 @@ import {
   Plus,
   Trash2,
   Search,
+  ArrowRight,
 } from 'lucide-react'
 import {
   buscarProductosPorSkuBatch,
@@ -934,8 +935,17 @@ export function ImportStepPreview({
           onClick={handleContinue}
           className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl h-10 px-5 shadow-md"
         >
-          Continuar con {okCount} producto{okCount !== 1 ? 's' : ''} válidos
-          {isTodasBodegas && bodegasInOk.length > 0 && ` en ${bodegasInOk.length} bodega${bodegasInOk.length !== 1 ? 's' : ''}`}
+          {modo === 'absoluto' || modo === 'global' ? (
+            <>
+              Continuar a Comparativa ({okCount} producto{okCount !== 1 ? 's' : ''})
+              <ArrowRight className="size-4 ml-2" />
+            </>
+          ) : (
+            <>
+              Continuar con {okCount} producto{okCount !== 1 ? 's' : ''} válidos
+              {isTodasBodegas && bodegasInOk.length > 0 && ` en ${bodegasInOk.length} bodega${bodegasInOk.length !== 1 ? 's' : ''}`}
+            </>
+          )}
         </Button>
       </div>
 
