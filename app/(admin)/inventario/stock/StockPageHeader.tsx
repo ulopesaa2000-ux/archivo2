@@ -10,6 +10,8 @@ import { ConteoFisicoOcrModal } from './ConteoFisicoOcrModal'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { BodegaRow } from '@/lib/types/tables'
 import type { ImportFilaValida } from '@/modules/inventario/import-actions'
+import { marcarHojasConteoAplicadasAction } from '@/modules/inventario/conteo-fisico-actions'
+import { toast } from 'sonner'
 
 type Props = {
   title: string
@@ -43,10 +45,33 @@ export function StockPageHeader({
     bodegaId: number
     filasValidas: ImportFilaValida[]
   } | null>(null)
+  const [activePropuestaDbIds, setActivePropuestaDbIds] = useState<string[]>([])
 
-  const handleIrAConciliacion = (bodegaId: number, filas: ImportFilaValida[]) => {
+  const handleIrAConciliacion = (
+    bodegaId: number,
+    filas: ImportFilaValida[],
+    propuestaDbIds?: string[]
+  ) => {
     setReconcileData({ bodegaId, filasValidas: filas })
+    if (propuestaDbIds && propuestaDbIds.length > 0) {
+      setActivePropuestaDbIds(propuestaDbIds)
+    }
     setImportOpen(true)
+  }
+
+  const handleAjusteCompletadoExito = async () => {
+    if (activePropuestaDbIds.length > 0) {
+      try {
+        await marcarHojasConteoAplicadasAction(activePropuestaDbIds)
+        toast.success(
+          `Se cerraron ${activePropuestaDbIds.length} hoja(s) de libreta como CONTEO_APLICADO en la base de datos.`
+        )
+      } catch (err) {
+        console.error('Error al marcar hojas aplicadas:', err)
+      } finally {
+        setActivePropuestaDbIds([])
+      }
+    }
   }
 
   return (
@@ -106,6 +131,7 @@ export function StockPageHeader({
             size="sm"
             onClick={() => {
               setReconcileData(null)
+              setActivePropuestaDbIds([])
               setImportOpen(true)
             }}
             className="gap-1.5 shrink-0"
@@ -130,11 +156,15 @@ export function StockPageHeader({
             open={importOpen}
             onOpenChange={(open) => {
               setImportOpen(open)
-              if (!open) setReconcileData(null)
+              if (!open) {
+                setReconcileData(null)
+                setActivePropuestaDbIds([])
+              }
             }}
             bodegas={bodegas}
             bodegaActivaId={bodegaActivaId}
             initialReconcileData={reconcileData}
+            onSuccessGlobal={handleAjusteCompletadoExito}
           />
         )}
       </div>

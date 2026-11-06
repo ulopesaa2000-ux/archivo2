@@ -4,6 +4,14 @@
  * Inventario Físico en hojas manuscritas de libreta cuadriculada.
  */
 
+export interface CandidatoSkuSimple {
+  producto_id: number
+  sku: string
+  nombre: string | null
+  score: number
+  metodo?: string
+}
+
 export interface RenglonConteoFisico {
   id: string
   numero_hoja: number
@@ -20,6 +28,7 @@ export interface RenglonConteoFisico {
   familia?: string | null
   match_score?: number
   modificado_manualmente?: boolean
+  candidatos?: CandidatoSkuSimple[]
 }
 
 export interface ResumenColumna {
@@ -30,9 +39,12 @@ export interface ResumenColumna {
 export interface HojaConteoFisico {
   id: string
   numero_hoja: number
+  propuesta_db_id?: string
   comprobante_url?: string
   encabezado?: string
   fecha_detectada?: string
+  creado_en?: string
+  bodega_origen_id?: number | null
   preview_data_url?: string // preview local inmediata
   resumen: {
     columna_1: ResumenColumna
@@ -49,4 +61,3 @@ export interface EstadoConteoFisico {
 }
 
 export const LOCAL_STORAGE_CONTEO_FISICO_KEY = 'inventario:conteo-fisico:v1'
-

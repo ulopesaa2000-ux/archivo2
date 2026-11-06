@@ -32,14 +32,27 @@ import {
   Warehouse,
   Layers,
   Sparkles,
+  CloudDownload,
+  CloudUpload,
+  Smartphone,
+  Save,
 } from 'lucide-react'
 import type { BodegaRow } from '@/lib/types/tables'
 import type {
   HojaConteoFisico,
   RenglonConteoFisico,
   EstadoConteoFisico,
+  CandidatoSkuSimple,
 } from '@/modules/inventario/conteo-fisico-types'
 import { LOCAL_STORAGE_CONTEO_FISICO_KEY } from '@/modules/inventario/conteo-fisico-types'
+import {
+  actualizarBorradorHojaConteoAction,
+  fetchHojasConteoPendientesAction,
+  guardarHojaConteoOcrAction,
+} from '@/modules/inventario/conteo-fisico-actions'
+import { CandidatosSkuSelectorModal } from './CandidatosSkuSelectorModal'
+import { HojasNubeSelectorModal } from './HojasNubeSelectorModal'
+import { VisorFotoHojaModal } from './VisorFotoHojaModal'
 import type { ImportFilaValida } from '@/modules/inventario/import-actions'
 
 type Props = {
@@ -47,7 +60,7 @@ type Props = {
   onOpenChange: (open: boolean) => void
   bodegas: BodegaRow[]
   bodegaActivaId: number | null
-  onIrAConciliacion: (bodegaId: number, filas: ImportFilaValida[]) => void
+  onIrAConciliacion: (bodegaId: number, filas: ImportFilaValida[], propuestaDbIds?: string[]) => void
 }
 
 export function ConteoFisicoOcrModal({
@@ -69,6 +82,19 @@ export function ConteoFisicoOcrModal({
     if (bodegaActivaId && bodegaActivaId > 0) return bodegaActivaId
     return bodegas[0]?.id ?? 0
   })
+
+  // Estado para candidatos SKU modal
+  const [candidatoModalOpen, setCandidatoModalOpen] = useState(false)
+  const [candidatoTarget, setCandidatoTarget] = useState<{
+    hojaId: string
+    renglonId: string
+    skuOriginal: string
+    estiloRaw: string
+  } | null>(null)
+
+  // Estado para sincronización en la nube (Celular <-> PC)
+  const [nubeSelectorOpen, setNubeSelectorOpen] = useState(false)
+  const [guardandoNube, setGuardandoNube] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -109,13 +135,74 @@ export function ConteoFisicoOcrModal({
 
   const limpiarTodo = () => {
     if (hojas.length === 0) return
-    if (confirm('¿Deseas borrar todas las hojas escaneadas de este borrador?')) {
+    if (confirm('¿Deseas vaciar la mesa de trabajo de este conteo?')) {
       guardarBorrador([])
-      toast.info('Borrador eliminado')
+      toast.info('Borrador local limpiado')
     }
   }
 
-  // 3. Procesar archivos de imagen con la API
+  // 3. Recepción de hojas seleccionadas desde el submodal de la nube
+  const handleHojasSeleccionadasFromNube = (seleccionadas: HojaConteoFisico[]) => {
+    const idsExistentes = new Set(hojas.map((h) => h.propuesta_db_id || h.id))
+    const nuevas = seleccionadas.filter((h) => !idsExistentes.has(h.propuesta_db_id || h.id))
+    if (nuevas.length === 0) {
+      toast.info('Las hojas seleccionadas ya estaban en la mesa de trabajo.')
+      return
+    }
+    const combinadas = [...hojas, ...nuevas].map((h, idx) => {
+      const numHoja = idx + 1
+      return {
+        ...h,
+        numero_hoja: numHoja,
+        renglones: (h.renglones || []).map((r) => ({
+          ...r,
+          numero_hoja: numHoja,
+        })),
+      }
+    })
+    guardarBorrador(combinadas)
+    setFiltroHoja('todas')
+    toast.success(`Se agregaron ${nuevas.length} hoja(s) desde la nube (${combinadas.length} hojas en mesa de trabajo).`)
+  }
+
+  // 4. Guardar cambios parciales en la base de datos (Borrador en la nube)
+  const handleGuardarBorradorNube = async () => {
+    if (hojas.length === 0) return
+    setGuardandoNube(true)
+
+    try {
+      let guardadas = 0
+      const hojasActualizadas = [...hojas]
+
+      for (let i = 0; i < hojasActualizadas.length; i++) {
+        const h = hojasActualizadas[i]
+        if (h.propuesta_db_id) {
+          const res = await actualizarBorradorHojaConteoAction(
+            h.propuesta_db_id,
+            h.renglones,
+            h.resumen
+          )
+          if (res.success) guardadas++
+        } else {
+          const res = await guardarHojaConteoOcrAction(h, bodegaDestinoId)
+          if (res.success) {
+            h.propuesta_db_id = res.data.propuestaId
+            guardadas++
+          }
+        }
+      }
+
+      guardarBorrador(hojasActualizadas)
+      toast.success(`Borrador guardado en la nube con éxito (${guardadas} hojas actualizadas).`)
+    } catch (err: any) {
+      console.error('Error al guardar borrador en la nube:', err)
+      toast.error('Error al guardar en la nube: ' + err.message)
+    } finally {
+      setGuardandoNube(false)
+    }
+  }
+
+  // 5. Procesar archivos de imagen con la API
   const procesarArchivos = async (archivos: FileList | null) => {
     if (!archivos || archivos.length === 0) return
     const listaArchivos = Array.from(archivos)
@@ -123,7 +210,7 @@ export function ConteoFisicoOcrModal({
 
     const numHojaInicial = hojas.length + 1
     const totalNuevas = listaArchivos.length
-    const nuevasHojas: HojaConteoFisico[] = [...hojas]
+    const acumuladorHojas: HojaConteoFisico[] = [...hojas]
 
     for (let i = 0; i < listaArchivos.length; i++) {
       const file = listaArchivos[i]
@@ -134,6 +221,9 @@ export function ConteoFisicoOcrModal({
       formData.append('foto', file)
       formData.append('numero_hoja', String(numActual))
       formData.append('total_hojas', String(numHojaInicial + totalNuevas - 1))
+      if (bodegaDestinoId) {
+        formData.append('bodega_id', String(bodegaDestinoId))
+      }
 
       try {
         const res = await fetch('/api/inventario/conteo-fisico/ocr', {
@@ -147,24 +237,31 @@ export function ConteoFisicoOcrModal({
         }
 
         const hoja: HojaConteoFisico = data.hoja
-        // Guardar preview local temporal en base64 para ver la foto de inmediato
         hoja.preview_data_url = URL.createObjectURL(file)
-        nuevasHojas.push(hoja)
-        guardarBorrador(nuevasHojas)
-        toast.success(`Hoja ${numActual} procesada con éxito (${hoja.renglones.length} renglones)`)
+        hoja.numero_hoja = numActual
+        hoja.renglones = (hoja.renglones || []).map((r) => ({
+          ...r,
+          numero_hoja: numActual,
+        }))
+
+        acumuladorHojas.push(hoja)
       } catch (err: any) {
         console.error('Error procesando hoja:', err)
         toast.error(`Error en Hoja ${numActual}: ${err.message}`)
       }
     }
 
+    // Consolidar de golpe todas las hojas al terminar el lote
+    guardarBorrador(acumuladorHojas)
+    setFiltroHoja('todas')
     setProcesando(false)
     setProgresoTexto('')
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (cameraInputRef.current) cameraInputRef.current.value = ''
+    toast.success(`Se procesaron y consolidaron ${acumuladorHojas.length} hojas en la mesa de trabajo.`)
   }
 
-  // 4. Modificar renglón
+  // 6. Modificar renglón
   const handleCambiarCajas = (hojaId: string, renglonId: string, nuevasCajas: number) => {
     const nextHojas = hojas.map((h) => {
       if (h.id !== hojaId) return h
@@ -176,7 +273,6 @@ export function ConteoFisicoOcrModal({
           modificado_manualmente: true,
         }
       })
-      // Recalcular subtotales de la hoja
       let c1 = 0,
         c2 = 0
       nextRenglones.forEach((r) => {
@@ -213,6 +309,34 @@ export function ConteoFisicoOcrModal({
       }
     })
     guardarBorrador(nextHojas)
+  }
+
+  // Al seleccionar un candidato desde el modal reciclado
+  const handleSelectCandidatoFromModal = (c: CandidatoSkuSimple) => {
+    if (!candidatoTarget) return
+    const { hojaId, renglonId } = candidatoTarget
+
+    const nextHojas = hojas.map((h) => {
+      if (h.id !== hojaId) return h
+      return {
+        ...h,
+        renglones: h.renglones.map((r) => {
+          if (r.id !== renglonId) return r
+          return {
+            ...r,
+            producto_id: c.producto_id,
+            sku_candidato: c.sku,
+            sku_match: c.sku,
+            descripcion: c.nombre,
+            match_score: c.score,
+            modificado_manualmente: true,
+          }
+        }),
+      }
+    })
+
+    guardarBorrador(nextHojas)
+    toast.success(`Producto vinculado: ${c.sku}`)
   }
 
   const handleEliminarRenglon = (hojaId: string, renglonId: string) => {
@@ -294,21 +418,42 @@ export function ConteoFisicoOcrModal({
     toast.success('Renglón manual agregado')
   }
 
-  // 5. Renglones aplanados y filtrados
+  // 7. Renglones aplanados y filtrados
   const todosLosRenglones = useMemo(() => {
     return hojas.flatMap((h) =>
-      h.renglones.map((r) => ({
+      (h.renglones || []).map((r) => ({
         ...r,
         hoja_id: h.id,
-        hoja_numero: h.numero_hoja,
+        hoja_numero: Number(r.numero_hoja || h.numero_hoja || 1),
         hoja_comprobante_url: h.comprobante_url || h.preview_data_url,
       }))
     )
   }, [hojas])
 
+  // Renglones pertenecientes a la hoja seleccionada (o todos) para los contadores de los botones
+  const renglonesBaseFiltroHoja = useMemo(() => {
+    if (filtroHoja === 'todas') return todosLosRenglones
+    return todosLosRenglones.filter((r) => Number(r.hoja_numero) === Number(filtroHoja))
+  }, [todosLosRenglones, filtroHoja])
+
+  // Contadores reactivos que respetan la hoja seleccionada
+  const contadoresFiltro = useMemo(() => {
+    let sinMatch = 0
+    let conFormula = 0
+    renglonesBaseFiltroHoja.forEach((r) => {
+      if (!r.producto_id) sinMatch++
+      const raw = String(r.cajas_raw || '')
+      if (raw.includes('+') || raw.includes('.')) conFormula++
+    })
+    return {
+      total: renglonesBaseFiltroHoja.length,
+      sinMatch,
+      conFormula,
+    }
+  }, [renglonesBaseFiltroHoja])
+
   const renglonesFiltrados = useMemo(() => {
-    return todosLosRenglones.filter((r) => {
-      if (filtroHoja !== 'todas' && r.hoja_numero !== filtroHoja) return false
+    return renglonesBaseFiltroHoja.filter((r) => {
       if (filtroEstado === 'sin_match' && r.producto_id) return false
       if (filtroEstado === 'con_formula' && !r.cajas_raw.includes('+') && !r.cajas_raw.includes('.'))
         return false
@@ -322,9 +467,9 @@ export function ConteoFisicoOcrModal({
       }
       return true
     })
-  }, [todosLosRenglones, filtroHoja, filtroEstado, filtroTexto])
+  }, [renglonesBaseFiltroHoja, filtroEstado, filtroTexto])
 
-  // 6. Totales globales
+  // 8. Totales globales
   const resumenGlobal = useMemo(() => {
     let totalCajas = 0
     let totalRenglones = 0
@@ -339,7 +484,7 @@ export function ConteoFisicoOcrModal({
     return { totalCajas, totalRenglones, totalHojas: hojas.length, sinMatch }
   }, [hojas])
 
-  // 7. Consolidación por SKU para exportar o pasar a Reconciliación
+  // 9. Consolidación por SKU para exportar o pasar a Reconciliación
   const consolidadoPorSku = useMemo(() => {
     const map = new Map<
       string,
@@ -375,7 +520,7 @@ export function ConteoFisicoOcrModal({
     return Array.from(map.values()).sort((a, b) => a.sku.localeCompare(b.sku))
   }, [todosLosRenglones])
 
-  // 8. Descargar Excel con ExcelJS
+  // 10. Descargar Excel con ExcelJS
   const descargarReporteExcel = async () => {
     if (hojas.length === 0) return
 
@@ -459,7 +604,7 @@ export function ConteoFisicoOcrModal({
     }
   }
 
-  // 9. Enviar directo a Conciliación Total de Bodega
+  // 11. Enviar directo a Conciliación Total de Bodega
   const handleContinuarConciliacion = () => {
     if (hojas.length === 0) {
       toast.error('No hay hojas escaneadas para conciliar')
@@ -498,8 +643,11 @@ export function ConteoFisicoOcrModal({
       )
     }
 
+    // Extraer los IDs de las propuestas de la base de datos para cerrarlas tras el ajuste
+    const propuestaDbIds = hojas.map((h) => h.propuesta_db_id).filter(Boolean) as string[]
+
     onOpenChange(false)
-    onIrAConciliacion(bodegaDestinoId, itemsValidos)
+    onIrAConciliacion(bodegaDestinoId, itemsValidos, propuestaDbIds)
   }
 
   return (
@@ -514,21 +662,51 @@ export function ConteoFisicoOcrModal({
                 Digitalizar Conteo Físico Manuscrito (Multi-Hoja)
               </DialogTitle>
               <DialogDescription className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-                Escanea hojas cuadriculadas (2 columnas, operaciones aritméticas 1.1 / 4+2), audita
-                subtotales y exporta a Excel o envía directo a conciliación de bodega.
+                Escanea hojas cuadriculadas (2 columnas, operaciones aritméticas 1.1 / 4+2), sincroniza
+                con celular en la nube y concilia stock con un clic.
               </DialogDescription>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Botón Cargar de la nube */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setNubeSelectorOpen(true)}
+                className="gap-1.5 text-xs h-8 bg-background border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-50"
+              >
+                <CloudDownload className="size-3.5 text-blue-600" />
+                Sincronizar Celular (Nube)
+              </Button>
+
+              {/* Botón Guardar en Nube */}
               {hojas.length > 0 && (
                 <Button
                   variant="outline"
+                  size="sm"
+                  disabled={guardandoNube}
+                  onClick={handleGuardarBorradorNube}
+                  className="gap-1.5 text-xs h-8 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 hover:bg-emerald-100"
+                >
+                  {guardandoNube ? (
+                    <RefreshCw className="size-3.5 animate-spin" />
+                  ) : (
+                    <CloudUpload className="size-3.5 text-emerald-600" />
+                  )}
+                  Guardar Borrador en Nube
+                </Button>
+              )}
+
+              {/* Botón Limpiar */}
+              {hojas.length > 0 && (
+                <Button
+                  variant="ghost"
                   size="sm"
                   onClick={limpiarTodo}
                   className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs h-8"
                 >
                   <Trash2 className="size-3.5" />
-                  Limpiar borrador
+                  Limpiar
                 </Button>
               )}
             </div>
@@ -557,29 +735,29 @@ export function ConteoFisicoOcrModal({
                   onChange={(e) => procesarArchivos(e.target.files)}
                 />
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-center">
                   <Button
                     size="sm"
                     disabled={procesando}
                     onClick={() => fileInputRef.current?.click()}
-                    className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                    className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm h-8 text-xs"
                   >
-                    <Upload className="size-4" />
-                    Subir hojas (Galería/Archivos)
+                    <Upload className="size-3.5" />
+                    Subir hojas (Galería)
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     disabled={procesando}
                     onClick={() => cameraInputRef.current?.click()}
-                    className="gap-1.5 border-blue-300 dark:border-blue-800"
+                    className="gap-1.5 border-blue-300 dark:border-blue-800 h-8 text-xs bg-background"
                   >
-                    <Camera className="size-4 text-blue-600" />
+                    <Camera className="size-3.5 text-blue-600" />
                     Cámara
                   </Button>
                 </div>
                 <span className="text-[11px] text-muted-foreground">
-                  Sube 1 o varias fotos a la vez. Detección automática en 2 columnas.
+                  Detección en 2 columnas. Las hojas se guardan automáticamente en la nube.
                 </span>
               </div>
 
@@ -771,7 +949,7 @@ export function ConteoFisicoOcrModal({
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Todos ({todosLosRenglones.length})
+                        Todos ({contadoresFiltro.total})
                       </button>
                       <button
                         onClick={() => setFiltroEstado('sin_match')}
@@ -781,7 +959,7 @@ export function ConteoFisicoOcrModal({
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Sin match ({resumenGlobal.sinMatch})
+                        Sin match ({contadoresFiltro.sinMatch})
                       </button>
                       <button
                         onClick={() => setFiltroEstado('con_formula')}
@@ -791,7 +969,7 @@ export function ConteoFisicoOcrModal({
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Con fórmulas (1.1 / 4+2)
+                        Con fórmulas ({contadoresFiltro.conFormula})
                       </button>
                     </div>
                   </div>
@@ -816,7 +994,7 @@ export function ConteoFisicoOcrModal({
                         <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[130px]">
                           Escrito en Hoja
                         </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[150px]">
+                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[170px]">
                           SKU Sistema (Match)
                         </th>
                         <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[200px]">
@@ -864,7 +1042,7 @@ export function ConteoFisicoOcrModal({
                                 {r.estilo_raw || '—'}
                               </td>
 
-                              {/* SKU Sistema */}
+                              {/* SKU Sistema con botón de Candidatos (Reciclado) */}
                               <td className="py-2 px-3">
                                 <div className="flex items-center gap-1.5">
                                   <input
@@ -873,13 +1051,32 @@ export function ConteoFisicoOcrModal({
                                     onChange={(e) =>
                                       handleCambiarSku(r.hoja_id, r.id, e.target.value)
                                     }
-                                    className={`h-7 px-2 font-mono text-xs font-semibold rounded border w-full max-w-[140px] ${
+                                    className={`h-7 px-2 font-mono text-xs font-semibold rounded border w-full max-w-[125px] ${
                                       tieneMatch
                                         ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300'
                                         : 'border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
                                     }`}
                                     placeholder="SKU..."
                                   />
+
+                                  {/* Botón de Candidatos SKU */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCandidatoTarget({
+                                        hojaId: r.hoja_id,
+                                        renglonId: r.id,
+                                        skuOriginal: r.sku_candidato,
+                                        estiloRaw: r.estilo_raw,
+                                      })
+                                      setCandidatoModalOpen(true)
+                                    }}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-amber-600 transition-colors"
+                                    title="Ver candidatos similares de catálogo"
+                                  >
+                                    <Sparkles className="size-3.5 text-amber-500" />
+                                  </button>
+
                                   {tieneMatch ? (
                                     <span title="Coincidencia en catálogo" className="inline-flex">
                                       <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
@@ -980,11 +1177,12 @@ export function ConteoFisicoOcrModal({
                 <FileSpreadsheet className="size-12 text-muted-foreground/30" />
                 <div className="space-y-1">
                   <p className="font-semibold text-base text-foreground">
-                    Aún no has escaneado ninguna hoja
+                    Aún no has cargado ninguna hoja
                   </p>
                   <p className="text-xs text-muted-foreground max-w-sm">
-                    Toma una foto con tu cámara o sube fotos de las páginas de tu libreta de inventario
-                    para comenzar.
+                    Toma una foto con tu cámara, sube fotos de tu libreta o presiona{' '}
+                    <strong className="text-blue-600">"Sincronizar Celular (Nube)"</strong> para traer
+                    las hojas que subiste desde tu teléfono.
                   </p>
                 </div>
               </div>
@@ -1039,56 +1237,34 @@ export function ConteoFisicoOcrModal({
         </DialogContent>
       </Dialog>
 
-      {/* MODAL VISOR DE FOTO CON ZOOM */}
-      {fotoVisorUrl && (
-        <Dialog open={Boolean(fotoVisorUrl)} onOpenChange={() => setFotoVisorUrl(null)}>
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-4">
-            <div className="flex items-center justify-between pb-3 border-b">
-              <span className="text-sm font-bold flex items-center gap-2">
-                <Eye className="size-4 text-blue-600" />
-                Auditoría Visual de Hoja de Libreta
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  onClick={() => setZoomNivel((z) => Math.min(z + 0.25, 3))}
-                  title="Acercar"
-                >
-                  <ZoomIn className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8"
-                  onClick={() => setZoomNivel((z) => Math.max(z - 0.25, 0.5))}
-                  title="Alejar"
-                >
-                  <ZoomOut className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8"
-                  onClick={() => setFotoVisorUrl(null)}
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-            </div>
+      {/* SUBMODAL SELECTOR DE HOJAS EN LA NUBE */}
+      <HojasNubeSelectorModal
+        open={nubeSelectorOpen}
+        onOpenChange={setNubeSelectorOpen}
+        bodegas={bodegas}
+        bodegaDefaultId={bodegaDestinoId}
+        onHojasSeleccionadas={handleHojasSeleccionadasFromNube}
+      />
 
-            <div className="flex-1 overflow-auto p-2 bg-slate-950/90 rounded-lg flex items-center justify-center min-h-[400px]">
-              <img
-                src={fotoVisorUrl}
-                alt="Foto de la hoja manuscrita"
-                style={{ transform: `scale(${zoomNivel})`, transformOrigin: 'top center' }}
-                className="max-w-full transition-transform duration-150 rounded"
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
+      {/* MODAL RECICLADO DE CANDIDATOS SKU */}
+      {candidatoTarget && (
+        <CandidatosSkuSelectorModal
+          open={candidatoModalOpen}
+          onOpenChange={setCandidatoModalOpen}
+          skuOriginal={candidatoTarget.skuOriginal}
+          estiloRaw={candidatoTarget.estiloRaw}
+          onSelectCandidato={handleSelectCandidatoFromModal}
+        />
       )}
+
+      {/* MODAL VISOR DE FOTO CON ZOOM Y AJUSTE PANTALLA COMPLETA */}
+      <VisorFotoHojaModal
+        open={Boolean(fotoVisorUrl)}
+        onOpenChange={(op) => {
+          if (!op) setFotoVisorUrl(null)
+        }}
+        fotoUrl={fotoVisorUrl}
+      />
     </>
   )
 }

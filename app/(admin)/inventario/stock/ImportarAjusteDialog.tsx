@@ -31,6 +31,7 @@ type Props = {
     bodegaId: number
     filasValidas: ImportFilaValida[]
   } | null
+  onSuccessGlobal?: () => void
 }
 
 export function ImportarAjusteDialog({
@@ -40,6 +41,7 @@ export function ImportarAjusteDialog({
   bodegaActivaId,
   initialIsGlobalMode = false,
   initialReconcileData = null,
+  onSuccessGlobal,
 }: Props) {
   const router = useRouter()
   const [step, setStep] = useState<Step>('upload')
@@ -97,6 +99,7 @@ export function ImportarAjusteDialog({
     setResultNotas(notas)
     setResultTotal(totalProductos)
     setStep('success')
+    onSuccessGlobal?.()
   }
 
   const handleViewNota = (notaId: number) => {

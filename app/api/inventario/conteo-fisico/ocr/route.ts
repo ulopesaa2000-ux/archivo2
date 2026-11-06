@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionOptional } from '@/lib/dal'
 import { isSuperAdmin, can } from '@/lib/auth/permissions'
 import { buscarProductosPorSkuBatch } from '@/modules/inventario/import-queries'
+import { guardarHojaConteoOcrAction } from '@/modules/inventario/conteo-fisico-actions'
 import type { HojaConteoFisico, RenglonConteoFisico } from '@/modules/inventario/conteo-fisico-types'
 
 export const maxDuration = 120 // Hasta 2 minutos para procesamiento de IA y visión
@@ -60,6 +61,10 @@ export async function POST(request: NextRequest) {
 
     const numeroHoja = parseInt(String(incomingForm.get('numero_hoja') || '1'), 10) || 1
     const totalHojas = parseInt(String(incomingForm.get('total_hojas') || '1'), 10) || 1
+    const bodegaIdRaw = incomingForm.get('bodega_id')
+    const bodegaId = bodegaIdRaw ? parseInt(String(bodegaIdRaw), 10) : null
+    const clientRequestIdRaw = incomingForm.get('client_request_id')
+    const clientRequestId = clientRequestIdRaw ? String(clientRequestIdRaw) : `hoja_${numeroHoja}_${Date.now()}`
 
     // 4. Optimizar imagen con Sharp para orientación EXIF y resolución nítida
     const rawBuffer = Buffer.from(await foto.arrayBuffer())
@@ -155,7 +160,7 @@ export async function POST(request: NextRequest) {
     })
 
     const hojaResult: HojaConteoFisico = {
-      id: `hoja_${numeroHoja}_${Date.now()}`,
+      id: clientRequestId,
       numero_hoja: numeroHoja,
       comprobante_url: n8nData.comprobante_url || undefined,
       encabezado: n8nData.encabezado || '',
@@ -175,6 +180,16 @@ export async function POST(request: NextRequest) {
         },
       },
       renglones: renglonesEnriquecidos,
+    }
+
+    // 7. Persistir automáticamente en "inv-tienda".nota_ocr_propuestas (CONTEO_PENDIENTE)
+    try {
+      const dbSaveRes = await guardarHojaConteoOcrAction(hojaResult, bodegaId)
+      if (dbSaveRes.success) {
+        hojaResult.propuesta_db_id = dbSaveRes.data.propuestaId
+      }
+    } catch (saveDbErr) {
+      console.warn('Advertencia: no se pudo persistir inmediatamente en DB propuesta:', saveDbErr)
     }
 
     return NextResponse.json({

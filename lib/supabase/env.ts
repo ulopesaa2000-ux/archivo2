@@ -1,4 +1,4 @@
-4// lib/supabase/env.ts
+// lib/supabase/env.ts
 
 export type DbTarget = 'sandbox' | 'production'
 
