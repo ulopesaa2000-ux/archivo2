@@ -13,7 +13,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Ship, Eye, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { Ship, Eye, Trash2, Loader2, ChevronDown, ChevronRight, Ban, TriangleAlert, Warehouse } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { formatCurrency, cn } from '@/lib/utils'
 import {
@@ -70,6 +70,9 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
   const router = useRouter()
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [isPendingDelete, startDelete] = useTransition()
+  const [cancelingContenedor, setCancelingContenedor] = useState<{ id: number; codigo: string } | null>(null)
+  const [pendingSurtidoContenedor, setPendingSurtidoContenedor] = useState<{ id: number; codigo: string } | null>(null)
+  const [confirmSurtidoSinStockOpen, setConfirmSurtidoSinStockOpen] = useState(false)
 
   const handleDeleteConfirm = () => {
     if (!deletingId) return
@@ -84,6 +87,69 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
       toast.success('Contenedor eliminado')
       router.refresh()
     })
+  }
+
+  const handleConfirmCancel = () => {
+    if (!cancelingContenedor) return
+    startDelete(async () => {
+      const { cambiarEstadoContenedorAction } = await import('@/modules/contenedores/actions')
+      const result = await cambiarEstadoContenedorAction(cancelingContenedor.id, 'cancelado')
+      if (!result.success) {
+        toast.error('No se pudo cancelar', { description: result.error })
+        return
+      }
+      setCancelingContenedor(null)
+      toast.success('Contenedor cancelado')
+      router.refresh()
+    })
+  }
+
+  const handleConfirmSurtidoSinStock = () => {
+    if (!pendingSurtidoContenedor) return
+    startDelete(async () => {
+      const { cambiarEstadoContenedorAction } = await import('@/modules/contenedores/actions')
+      const result = await cambiarEstadoContenedorAction(pendingSurtidoContenedor.id, 'surtido')
+      if (!result.success) {
+        toast.error('No se pudo actualizar', { description: result.error })
+        return
+      }
+      setConfirmSurtidoSinStockOpen(false)
+      setPendingSurtidoContenedor(null)
+      toast.success('Contenedor marcado como Surtido')
+      router.refresh()
+    })
+  }
+
+  const handleEstadoQuickEditSave = async (ids: number[], field: string, value: unknown) => {
+    if (field !== 'estado') {
+      return handleQuickEditSave(ids, field, value)
+    }
+
+    const nuevoEstado = String(value)
+    if (nuevoEstado === 'cancelado') {
+      const firstItem = items.find((it) => ids.includes(it.contenedor_id))
+      setCancelingContenedor({
+        id: ids[0],
+        codigo: firstItem?.codigo_contenedor ?? `ID ${ids[0]}`,
+      })
+      return
+    }
+
+    if (nuevoEstado === 'surtido') {
+      const enBodegaItem = items.find(
+        (it) => ids.includes(it.contenedor_id) && it.estado === 'en_bodega'
+      )
+      if (enBodegaItem) {
+        setPendingSurtidoContenedor({
+          id: enBodegaItem.contenedor_id,
+          codigo: enBodegaItem.codigo_contenedor,
+        })
+        return
+      }
+    }
+
+    await handleQuickEditSave(ids, field, value)
+    router.refresh()
   }
 
   const quickEditFields = (puedeEditar ? ((ctx.features.quickEdit as QuickEditField[] | null) ?? []) : [])
@@ -204,7 +270,7 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
             field={estadoField}
             value={row.estado}
             rowId={row.contenedor_id}
-            onSaveGlobal={handleQuickEditSave}
+            onSaveGlobal={handleEstadoQuickEditSave}
           >
             {badge}
           </QuickEditPopover>
@@ -214,7 +280,7 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
     {
       key: 'acciones',
       header: '',
-      headerClassName: 'w-[80px]',
+      headerClassName: 'w-[90px]',
       cell: (row) => (
         <div className="flex items-center gap-1">
           <Link
@@ -224,6 +290,21 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
           >
             <Eye className="h-3.5 w-3.5" />
           </Link>
+          {puedeEditar && row.estado !== 'cancelado' && row.estado !== 'cerrado' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+              title={`Cancelar contenedor ${row.codigo_contenedor}`}
+              aria-label={`Cancelar contenedor ${row.codigo_contenedor}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setCancelingContenedor({ id: row.contenedor_id, codigo: row.codigo_contenedor })
+              }}
+            >
+              <Ban className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {puedeEliminar && (
             <Button
               variant="ghost"
@@ -344,6 +425,137 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
             <AlertDialogAction disabled={isPendingDelete} onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal: Confirmar Cancelación de Contenedor */}
+      <AlertDialog
+        open={cancelingContenedor !== null}
+        onOpenChange={(open) => { if (!open) setCancelingContenedor(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desea cancelar este contenedor? ¿Está seguro?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm">
+              <span className="block">
+                El contenedor <strong className="text-foreground">{cancelingContenedor?.codigo}</strong> pasará a estado <strong>Cancelado</strong>.
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Esta acción indica que la operación del contenedor no continuará. Se conserva el historial del contenedor en el sistema.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPendingDelete}>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isPendingDelete}
+              onClick={handleConfirmCancel}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            >
+              {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Sí, cancelar contenedor
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal: Ventana 1 - Sugerencia formal de Surtido a Bodega Virtual */}
+      <AlertDialog
+        open={pendingSurtidoContenedor !== null && !confirmSurtidoSinStockOpen}
+        onOpenChange={(open) => { if (!open) setPendingSurtidoContenedor(null) }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <Warehouse className="h-5 w-5 text-primary" />
+              ¿Desea surtir este contenedor a bodega virtual primero?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm pt-1">
+              <span className="block">
+                El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> se encuentra actualmente <strong>En Bodega</strong>.
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Para que las cajas y piezas ingresen formalmente al stock del inventario (ej. bodega virtual tipo RI&amp;KA), el proceso de surtido debe realizarse desde el detalle del contenedor.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel onClick={() => setPendingSurtidoContenedor(null)}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmSurtidoSinStockOpen(true)}
+              className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700/50 dark:hover:bg-amber-950/30 text-xs"
+            >
+              No, cambiar sin surtir
+            </Button>
+            {pendingSurtidoContenedor && (
+              <Button
+                type="button"
+                onClick={() => {
+                  const id = pendingSurtidoContenedor.id
+                  setPendingSurtidoContenedor(null)
+                  router.push(ADMIN_ROUTES.contenedores.detalle(id))
+                }}
+                className="bg-primary text-primary-foreground font-semibold text-xs"
+              >
+                <Warehouse className="h-3.5 w-3.5 mr-1" /> Ir a surtir al contenedor
+              </Button>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal: Ventana 2 - Doble Protección Crítica al pasar a Surtido sin stock */}
+      <AlertDialog
+        open={confirmSurtidoSinStockOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmSurtidoSinStockOpen(false)
+            setPendingSurtidoContenedor(null)
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-lg border-destructive/40">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive font-bold">
+              <TriangleAlert className="h-5 w-5 text-destructive" />
+              ⚠️ Doble Protección: Pasar a Surtido sin ingresar stock
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-sm pt-2 text-foreground/90">
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive font-medium text-xs leading-relaxed">
+                El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> pasará a <strong>SURTIDO SIN SURTIR</strong> realmente ninguna bodega virtual tipo RI&amp;KA.
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>• <strong>NO se generará nota de ingreso</strong> en el módulo de inventario.</p>
+                <p>• <strong>NO se incrementará el stock</strong> de ningún producto en las bodegas.</p>
+                <p>• <strong>Este proceso no se puede deshacer</strong> una vez cambiado el estado.</p>
+              </div>
+              <p className="font-semibold text-xs pt-1 text-foreground">
+                Si está seguro de continuar presione &quot;Sí, marcar como Surtido sin stock&quot;.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setConfirmSurtidoSinStockOpen(false)
+                setPendingSurtidoContenedor(null)
+              }}
+            >
+              No, regresar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isPendingDelete}
+              onClick={handleConfirmSurtidoSinStock}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+            >
+              {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Sí, marcar como Surtido sin stock
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
