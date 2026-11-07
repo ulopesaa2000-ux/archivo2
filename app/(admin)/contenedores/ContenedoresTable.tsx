@@ -71,7 +71,11 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [isPendingDelete, startDelete] = useTransition()
   const [cancelingContenedor, setCancelingContenedor] = useState<{ id: number; codigo: string } | null>(null)
-  const [pendingSurtidoContenedor, setPendingSurtidoContenedor] = useState<{ id: number; codigo: string } | null>(null)
+  const [pendingSurtidoContenedor, setPendingSurtidoContenedor] = useState<{
+    id: number
+    codigo: string
+    estadoDestino?: 'surtido' | 'completo'
+  } | null>(null)
   const [confirmSurtidoSinStockOpen, setConfirmSurtidoSinStockOpen] = useState(false)
 
   const handleDeleteConfirm = () => {
@@ -106,16 +110,18 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
 
   const handleConfirmSurtidoSinStock = () => {
     if (!pendingSurtidoContenedor) return
+    const estadoFinal = pendingSurtidoContenedor.estadoDestino ?? 'surtido'
+    const labelFinal = ESTADO_CONTENEDOR_LABELS[estadoFinal] ?? estadoFinal
     startDelete(async () => {
       const { cambiarEstadoContenedorAction } = await import('@/modules/contenedores/actions')
-      const result = await cambiarEstadoContenedorAction(pendingSurtidoContenedor.id, 'surtido')
+      const result = await cambiarEstadoContenedorAction(pendingSurtidoContenedor.id, estadoFinal)
       if (!result.success) {
         toast.error('No se pudo actualizar', { description: result.error })
         return
       }
       setConfirmSurtidoSinStockOpen(false)
       setPendingSurtidoContenedor(null)
-      toast.success('Contenedor marcado como Surtido')
+      toast.success(`Contenedor marcado como ${labelFinal}`)
       router.refresh()
     })
   }
@@ -135,7 +141,7 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
       return
     }
 
-    if (nuevoEstado === 'surtido') {
+    if (nuevoEstado === 'surtido' || nuevoEstado === 'completo') {
       const enBodegaItem = items.find(
         (it) => ids.includes(it.contenedor_id) && it.estado === 'en_bodega'
       )
@@ -143,6 +149,7 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
         setPendingSurtidoContenedor({
           id: enBodegaItem.contenedor_id,
           codigo: enBodegaItem.codigo_contenedor,
+          estadoDestino: nuevoEstado as 'surtido' | 'completo',
         })
         return
       }
@@ -461,105 +468,115 @@ function ContenedoresTableInner({ items, sortBy, order, puedeEditar = true, pued
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Modal: Ventana 1 - Sugerencia formal de Surtido a Bodega Virtual */}
-      <AlertDialog
-        open={pendingSurtidoContenedor !== null && !confirmSurtidoSinStockOpen}
-        onOpenChange={(open) => { if (!open) setPendingSurtidoContenedor(null) }}
-      >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <Warehouse className="h-5 w-5 text-primary" />
-              ¿Desea surtir este contenedor a bodega virtual primero?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2 text-sm pt-1">
-              <span className="block">
-                El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> se encuentra actualmente <strong>En Bodega</strong>.
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Para que las cajas y piezas ingresen formalmente al stock del inventario (ej. bodega virtual tipo RI&amp;KA), el proceso de surtido debe realizarse desde el detalle del contenedor.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel onClick={() => setPendingSurtidoContenedor(null)}>
-              Cancelar
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfirmSurtidoSinStockOpen(true)}
-              className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700/50 dark:hover:bg-amber-950/30 text-xs"
-            >
-              No, cambiar sin surtir
-            </Button>
-            {pendingSurtidoContenedor && (
-              <Button
-                type="button"
-                onClick={() => {
-                  const id = pendingSurtidoContenedor.id
-                  setPendingSurtidoContenedor(null)
-                  router.push(ADMIN_ROUTES.contenedores.detalle(id))
-                }}
-                className="bg-primary text-primary-foreground font-semibold text-xs"
-              >
-                <Warehouse className="h-3.5 w-3.5 mr-1" /> Ir a surtir al contenedor
-              </Button>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Modal: Ventana 1 y 2 - Sugerencia y Doble Protección al pasar a Surtido/Completo */}
+      {(() => {
+        const estadoDestino = pendingSurtidoContenedor?.estadoDestino ?? 'surtido'
+        const labelDestino = ESTADO_CONTENEDOR_LABELS[estadoDestino] ?? estadoDestino
+        const labelMayus = labelDestino.toUpperCase()
 
-      {/* Modal: Ventana 2 - Doble Protección Crítica al pasar a Surtido sin stock */}
-      <AlertDialog
-        open={confirmSurtidoSinStockOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setConfirmSurtidoSinStockOpen(false)
-            setPendingSurtidoContenedor(null)
-          }
-        }}
-      >
-        <AlertDialogContent className="max-w-lg border-destructive/40">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive font-bold">
-              <TriangleAlert className="h-5 w-5 text-destructive" />
-              ⚠️ Doble Protección: Pasar a Surtido sin ingresar stock
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3 text-sm pt-2 text-foreground/90">
-              <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive font-medium text-xs leading-relaxed">
-                El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> pasará a <strong>SURTIDO SIN SURTIR</strong> realmente ninguna bodega virtual tipo RI&amp;KA.
-              </div>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>• <strong>NO se generará nota de ingreso</strong> en el módulo de inventario.</p>
-                <p>• <strong>NO se incrementará el stock</strong> de ningún producto en las bodegas.</p>
-                <p>• <strong>Este proceso no se puede deshacer</strong> una vez cambiado el estado.</p>
-              </div>
-              <p className="font-semibold text-xs pt-1 text-foreground">
-                Si está seguro de continuar presione &quot;Sí, marcar como Surtido sin stock&quot;.
-              </p>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => {
-                setConfirmSurtidoSinStockOpen(false)
-                setPendingSurtidoContenedor(null)
+        return (
+          <>
+            <AlertDialog
+              open={pendingSurtidoContenedor !== null && !confirmSurtidoSinStockOpen}
+              onOpenChange={(open) => { if (!open) setPendingSurtidoContenedor(null) }}
+            >
+              <AlertDialogContent className="max-w-md">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-base font-semibold">
+                    <Warehouse className="h-5 w-5 text-primary" />
+                    ¿Desea surtir este contenedor a bodega virtual primero?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="space-y-2 text-sm pt-1">
+                    <span className="block">
+                      El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> se encuentra actualmente <strong>En Bodega</strong>.
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Para que las cajas y piezas ingresen formalmente al stock del inventario (ej. bodega virtual tipo RI&amp;KA), el proceso de surtido debe realizarse desde el detalle del contenedor antes de marcarlo como <strong>{labelDestino}</strong>.
+                    </span>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                  <AlertDialogCancel onClick={() => setPendingSurtidoContenedor(null)}>
+                    Cancelar
+                  </AlertDialogCancel>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setConfirmSurtidoSinStockOpen(true)}
+                    className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700/50 dark:hover:bg-amber-950/30 text-xs"
+                  >
+                    No, cambiar a {labelDestino} sin surtir
+                  </Button>
+                  {pendingSurtidoContenedor && (
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        const id = pendingSurtidoContenedor.id
+                        setPendingSurtidoContenedor(null)
+                        router.push(ADMIN_ROUTES.contenedores.detalle(id))
+                      }}
+                      className="bg-primary text-primary-foreground font-semibold text-xs"
+                    >
+                      <Warehouse className="h-3.5 w-3.5 mr-1" /> Ir a surtir al contenedor
+                    </Button>
+                  )}
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Modal: Ventana 2 - Doble Protección Crítica al pasar a Surtido/Completo sin stock */}
+            <AlertDialog
+              open={confirmSurtidoSinStockOpen}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setConfirmSurtidoSinStockOpen(false)
+                  setPendingSurtidoContenedor(null)
+                }
               }}
             >
-              No, regresar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isPendingDelete}
-              onClick={handleConfirmSurtidoSinStock}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
-            >
-              {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              Sí, marcar como Surtido sin stock
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <AlertDialogContent className="max-w-lg border-destructive/40">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-destructive font-bold">
+                    <TriangleAlert className="h-5 w-5 text-destructive" />
+                    ⚠️ Doble Protección: Pasar a {labelDestino} sin ingresar stock
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="space-y-3 text-sm pt-2 text-foreground/90">
+                    <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive font-medium text-xs leading-relaxed">
+                      El contenedor <strong className="text-foreground">{pendingSurtidoContenedor?.codigo}</strong> pasará a <strong>{labelMayus} SIN SURTIR</strong> realmente ninguna bodega virtual tipo RI&amp;KA.
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>• <strong>NO se generará nota de ingreso</strong> en el módulo de inventario.</p>
+                      <p>• <strong>NO se incrementará el stock</strong> de ningún producto en las bodegas.</p>
+                      <p>• <strong>Este proceso no se puede deshacer</strong> una vez cambiado el estado a {labelDestino}.</p>
+                    </div>
+                    <p className="font-semibold text-xs pt-1 text-foreground">
+                      Si está seguro de continuar presione &quot;Sí, marcar como {labelDestino} sin stock&quot;.
+                    </p>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    onClick={() => {
+                      setConfirmSurtidoSinStockOpen(false)
+                      setPendingSurtidoContenedor(null)
+                    }}
+                  >
+                    No, regresar
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={isPendingDelete}
+                    onClick={handleConfirmSurtidoSinStock}
+                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+                  >
+                    {isPendingDelete && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                    Sí, marcar como {labelDestino} sin stock
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )
+      })()}
     </>
   )
 }

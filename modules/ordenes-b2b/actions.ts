@@ -1011,8 +1011,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     const sku = String(p.sku_base).trim()
     const skuUpper = sku.toUpperCase()
     let prodId = p.force_new ? null : prodIdMap.get(skuUpper)
-    // pz_en_caja desde la caja principal seleccionada (o la de mayor cantidad)
-    const pzPrincipal = resolverPiezasPrincipal(skuUpper, payload.cajas, payload.principalPorSku)
+    // pz_en_caja desde la caja principal seleccionada (o la de mayor cantidad con matriz)
+    const pzPrincipal = resolverPiezasPrincipal(skuUpper, payload.cajas, payload.principalPorSku, payload.detalles)
 
     if (prodId) {
       // Match en BD: prevalecen los valores actuales; el JSON solo rellena vacíos.
@@ -1222,8 +1222,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
       cbm: c.cbm || c.cbm_por_caja || null,
       peso_bruto_kg: c.peso_bruto_kg || null,
       peso_neto: c.peso_neto_kg || null,
-      tallas: Array.isArray(c.tallas) ? c.tallas.join('|') : (c.tallas || null),
-      colores: Array.isArray(c.colores) ? c.colores.join('|') : (c.colores || null),
+      tallas: (Array.isArray(c.tallas) ? c.tallas.filter(Boolean).join('|') : String(c.tallas ?? '').trim()) || null,
+      colores: (Array.isArray(c.colores) ? c.colores.filter(Boolean).join('|') : String(c.colores ?? '').trim()) || null,
       activo: true
     }
 
@@ -1442,20 +1442,21 @@ function extractMotiModelToken(s: string): string | null {
   return null
 }
 
-/** Mezcla fila DB (prevalece si tiene valor) con JSON (rellena vacíos). */
+/** Mezcla fila DB con valores del wizard (prevalece valor no vacío editado/sincronizado; el DB rescata si viene vacío). */
 function mezclarProductoDbJson(
   db: { nombre?: string | null; descripcion?: string | null; composicion?: string | null; marca_id?: number | null; tipo_prenda_id?: number | null; genero_id?: number | null; edad_id?: number | null } | null,
   json: { nombre?: string | null; descripcion?: string | null; composicion?: string | null; marca_id?: number | null; tipo_prenda_id?: number | null; genero_id?: number | null; edad_id?: number | null },
 ): { nombre: string | null; descripcion: string | null; composicion: string | null; marca_id: number | null; tipo_prenda_id: number | null; genero_id: number | null; edad_id: number | null } {
   const texto = (dbV: unknown, jsonV: unknown): string | null => {
-    if (typeof dbV === 'string' && dbV.trim()) return dbV
-    if (dbV != null && typeof dbV !== 'string') return dbV as string
-    if (typeof jsonV === 'string' && jsonV.trim()) return jsonV
+    if (typeof jsonV === 'string' && jsonV.trim()) return jsonV.trim()
+    if (typeof dbV === 'string' && dbV.trim()) return dbV.trim()
+    if (jsonV != null && typeof jsonV !== 'string') return String(jsonV)
+    if (dbV != null && typeof dbV !== 'string') return String(dbV)
     return null
   }
   const fk = (dbV: unknown, jsonV: unknown): number | null => {
-    if (typeof dbV === 'number' && Number.isInteger(dbV)) return dbV
-    if (typeof jsonV === 'number' && Number.isInteger(jsonV)) return jsonV
+    if (typeof jsonV === 'number' && Number.isInteger(jsonV) && jsonV > 0) return jsonV
+    if (typeof dbV === 'number' && Number.isInteger(dbV) && dbV > 0) return dbV
     return null
   }
   return {
@@ -1469,22 +1470,35 @@ function mezclarProductoDbJson(
   }
 }
 
-/** Piezas de la caja principal (selección explícita o mayor cantidad) para pz_en_caja. */
+/** Piezas de la caja principal (selección explícita, o con matriz completa > mayor cantidad) para pz_en_caja. */
 function resolverPiezasPrincipal(
   skuUpper: string,
   cajas: any[],
   principalPorSku?: Record<string, string>,
+  detalles?: any[],
 ): number | null {
   const reales = (cajas || []).filter(
     (c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen',
   )
   if (reales.length === 0) return null
   const codigo = principalPorSku?.[skuUpper]
+  const codigosConMatriz = new Set<string>()
+  for (const d of detalles || []) {
+    if (Number(d?.cantidad_por_caja ?? 0) > 0) {
+      const cd = String(d?.codigo_caja_temporal || '').trim().toUpperCase()
+      if (cd) codigosConMatriz.add(cd)
+    }
+  }
+  const tieneMatriz = (c: any) => {
+    const cod = String(c.codigo_caja || c.codigo_caja_temporal || '').trim().toUpperCase()
+    return cod && codigosConMatriz.has(cod) ? 1 : 0
+  }
   const elegida = (codigo
     ? reales.find((c: any) => String(c.codigo_caja || c.codigo_caja_temporal || '') === codigo)
     : undefined)
     ?? [...reales].sort((a: any, b: any) =>
-      (Number(b.cantidad_cajas ?? 0) - Number(a.cantidad_cajas ?? 0))
+      (tieneMatriz(b) - tieneMatriz(a))
+      || (Number(b.cantidad_cajas ?? 0) - Number(a.cantidad_cajas ?? 0))
       || (Number(b.piezas_por_caja ?? 0) - Number(a.piezas_por_caja ?? 0)),
     )[0]
   const pz = Number(elegida?.piezas_por_caja ?? 0)
@@ -1690,15 +1704,85 @@ function findBestDbSkuMatch(
   return highestScore >= 60 ? out : null
 }
 
+export interface DbProductoData {
+  id: number
+  sku_base: string
+  dbSku?: string
+  nombre?: string
+  descripcion?: string
+  composicion?: string
+  precio_usd?: number
+  marca_id?: number | null
+  marca_nombre?: string
+  tipo_prenda_id?: number | null
+  tipo_prenda_nombre?: string
+  genero_id?: number | null
+  genero_nombre?: string
+  edad_id?: number | null
+  edad_nombre?: string
+  persona_id?: number | null
+  mismaPersona?: boolean | null
+  esNuevoLoteMoti?: boolean
+  esVersionAnterior?: boolean
+  skuHeredado?: string
+}
+
 export type SkuProbable = {
   inputSku: string
   dbSku: string
   dbId: number
   score: number
   metodo: SkuMatchResult['metodo']
+  dbData?: DbProductoData
 }
 
-type DbSkuRow = { id: number; sku_base: string; persona_id: number | null }
+type DbSkuRow = {
+  id: number
+  sku_base: string
+  persona_id: number | null
+  nombre?: string | null
+  descripcion?: string | null
+  composicion?: string | null
+  precio_ec?: number | null
+  marca_id?: number | null
+  tipo_prenda_id?: number | null
+  genero_id?: number | null
+  edad_id?: number | null
+  cat_marcas?: { id: number; nombre: string } | null
+  cat_tipo_prenda?: { id: number; nombre: string } | null
+  cat_generos?: { id: number; nombre: string } | null
+  cat_edades?: { id: number; rango: string } | null
+  [key: string]: any
+}
+
+const PRODUCTO_CATALOGO_SELECT_COLS =
+  'id, sku_base, nombre, descripcion, composicion, precio_ec, marca_id, tipo_prenda_id, genero_id, edad_id, persona_id, cat_marcas ( id, nombre ), cat_tipo_prenda ( id, nombre ), cat_generos ( id, nombre ), cat_edades ( id, rango )'
+
+function mapRowToDbProductoData(row: any, mismaPersona?: boolean | null): DbProductoData {
+  const marcaObj = row?.cat_marcas
+  const prendaObj = row?.cat_tipo_prenda
+  const generoObj = row?.cat_generos
+  const edadObj = row?.cat_edades
+  return {
+    id: row.id,
+    sku_base: String(row.sku_base || ''),
+    dbSku: String(row.sku_base || ''),
+    nombre: row.nombre || '',
+    descripcion: row.descripcion || row.nombre || '',
+    composicion: row.composicion || '',
+    precio_usd: Number(row.precio_ec || 0),
+    marca_id: row.marca_id || (marcaObj ? marcaObj.id : undefined),
+    marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+    tipo_prenda_id: row.tipo_prenda_id || (prendaObj ? prendaObj.id : undefined),
+    tipo_prenda_nombre: prendaObj ? prendaObj.nombre : undefined,
+    genero_id: row.genero_id || (generoObj ? generoObj.id : undefined),
+    genero_nombre: generoObj ? generoObj.nombre : undefined,
+    edad_id: row.edad_id || (edadObj ? edadObj.id : undefined),
+    edad_nombre: edadObj ? edadObj.rango : undefined,
+    persona_id: row.persona_id ?? null,
+    mismaPersona: mismaPersona ?? null,
+  }
+}
 
 /**
  * Trae candidatos de productos por patrones ilike (una query por lote de
@@ -1732,32 +1816,40 @@ export async function verificarSkusEnBDAction(
   skusExistentes: string[]
   skuMap: Record<string, string>
   probables: SkuProbable[]
+  productosMap: Record<string, DbProductoData>
 }> {
-  if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [] }
+  if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [], productosMap: {} }
   const supabase = await createClient()
   const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
-  if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [] }
+  if (cleanSkus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [], productosMap: {} }
 
   let dbProducts: DbSkuRow[] = []
   try {
     const patterns = Array.from(new Set(cleanSkus.flatMap((s) => skuSearchPatterns(s)))).slice(0, 300)
-    dbProducts = await fetchSkuCandidates(supabase, patterns, 'id, sku_base, persona_id')
+    dbProducts = await fetchSkuCandidates(supabase, patterns, PRODUCTO_CATALOGO_SELECT_COLS)
   } catch (error) {
     console.error('Error al verificar SKUs en BD:', error)
-    return { success: false, skusExistentes: [], skuMap: {}, probables: [] }
+    return { success: false, skusExistentes: [], skuMap: {}, probables: [], productosMap: {} }
   }
 
   const skusExistentes: string[] = []
   const skuMap: Record<string, string> = {}
   const probables: SkuProbable[] = []
+  const productosMap: Record<string, DbProductoData> = {}
 
   for (const inputSku of cleanSkus) {
     const match = findBestDbSkuMatch(inputSku, dbProducts, proveedorNombre, personaId)
     if (!match) continue
+    const row = dbProducts.find((r) => r.id === match.dbId)
     if (match.exacto) {
       // Único caso con conexión automática (100 insensible a mayúsculas/separadores)
       skusExistentes.push(inputSku)
       skuMap[inputSku.toUpperCase()] = match.dbSku
+      if (row) {
+        const pData = mapRowToDbProductoData(row, match.mismaPersona)
+        productosMap[inputSku.toUpperCase()] = pData
+        productosMap[match.dbSku.toUpperCase()] = pData
+      }
     } else {
       // Probable: nace como nuevo, con opción de sincronizar manualmente
       probables.push({
@@ -1766,11 +1858,12 @@ export async function verificarSkusEnBDAction(
         dbId: match.dbId,
         score: match.score,
         metodo: match.metodo,
+        dbData: row ? mapRowToDbProductoData(row, match.mismaPersona) : undefined,
       })
     }
   }
 
-  return { success: true, skusExistentes, skuMap, probables }
+  return { success: true, skusExistentes, skuMap, probables, productosMap }
 }
 
 export type SkuBusquedaMotivo = 'SIN_CANDIDATOS' | 'VACIO'
@@ -1787,19 +1880,7 @@ export async function buscarSkuEnBDAction(
 ): Promise<{
   success: boolean
   inputSku: string
-  exacto?: {
-    id: number
-    dbSku: string
-    metodo: 'exacta' | 'normalizada'
-    nombre?: string
-    descripcion?: string
-    composicion?: string
-    precio_usd?: number
-    marca_id?: number
-    marca_nombre?: string
-    persona_id?: number | null
-    mismaPersona: boolean | null
-  }
+  exacto?: DbProductoData & { metodo: 'exacta' | 'normalizada' }
   probables: SkuProbable[]
   motivo?: SkuBusquedaMotivo
   error?: string
@@ -1812,7 +1893,7 @@ export async function buscarSkuEnBDAction(
     const rows = await fetchSkuCandidates(
       supabase,
       patterns,
-      'id, sku_base, nombre, descripcion, composicion, precio_ec, marca_id, persona_id, cat_marcas ( id, nombre )',
+      PRODUCTO_CATALOGO_SELECT_COLS,
     )
     if (rows.length === 0) return { success: true, inputSku, probables: [], motivo: 'SIN_CANDIDATOS' }
 
@@ -1822,35 +1903,41 @@ export async function buscarSkuEnBDAction(
       if (match && r.id === match.dbId) continue
       const m2 = findBestDbSkuMatch(inputSku, [r], proveedorNombre, personaId)
       if (m2 && !m2.exacto && m2.score >= 60 && probables.length < 3) {
-        probables.push({ inputSku, dbSku: m2.dbSku, dbId: m2.dbId, score: m2.score, metodo: m2.metodo })
+        probables.push({
+          inputSku,
+          dbSku: m2.dbSku,
+          dbId: m2.dbId,
+          score: m2.score,
+          metodo: m2.metodo,
+          dbData: mapRowToDbProductoData(r, m2.mismaPersona),
+        })
       }
     }
     probables.sort((a, b) => b.score - a.score)
 
     if (match && match.exacto) {
       const row = (rows as any[]).find((r) => r.id === match.dbId) as any
-      const marcaObj = row?.cat_marcas as any
+      const prodData = mapRowToDbProductoData(row, match.mismaPersona)
       return {
         success: true,
         inputSku,
         exacto: {
-          id: row.id,
-          dbSku: row.sku_base,
+          ...prodData,
           metodo: match.metodo as 'exacta' | 'normalizada',
-          nombre: row.nombre || '',
-          descripcion: row.descripcion || row.nombre || '',
-          composicion: row.composicion || '',
-          precio_usd: Number(row.precio_ec || 0),
-          marca_id: row.marca_id || (marcaObj ? marcaObj.id : undefined),
-          marca_nombre: marcaObj ? marcaObj.nombre : undefined,
-          persona_id: row.persona_id ?? null,
-          mismaPersona: match.mismaPersona,
         },
         probables,
       }
     }
     if (match && !match.exacto) {
-      probables.unshift({ inputSku, dbSku: match.dbSku, dbId: match.dbId, score: match.score, metodo: match.metodo })
+      const row = (rows as any[]).find((r) => r.id === match.dbId) as any
+      probables.unshift({
+        inputSku,
+        dbSku: match.dbSku,
+        dbId: match.dbId,
+        score: match.score,
+        metodo: match.metodo,
+        dbData: row ? mapRowToDbProductoData(row, match.mismaPersona) : undefined,
+      })
     }
     return { success: true, inputSku, probables: probables.slice(0, 4) }
   } catch (err: any) {
@@ -1865,18 +1952,7 @@ export async function obtenerDatosProductosDeBDAction(
   proveedorNombre?: string,
 ): Promise<{
   success: boolean
-  productosMap?: Record<string, {
-    id?: number
-    nombre?: string
-    descripcion?: string
-    composicion?: string
-    precio_usd?: number
-    marca_id?: number
-    marca_nombre?: string
-    esNuevoLoteMoti?: boolean
-    esVersionAnterior?: boolean
-    skuHeredado?: string
-  }>
+  productosMap?: Record<string, DbProductoData>
   error?: string
 }> {
   try {
@@ -1895,24 +1971,13 @@ export async function obtenerDatosProductosDeBDAction(
       allProducts = await fetchSkuCandidates(
         supabase,
         patterns,
-        `id, sku_base, nombre, descripcion, composicion, precio_ec, marca_id, persona_id, cat_marcas ( id, nombre )`,
+        PRODUCTO_CATALOGO_SELECT_COLS,
       )
     } catch (e) {
       throw e
     }
 
-    const productosMap: Record<string, {
-      id?: number
-      nombre?: string
-      descripcion?: string
-      composicion?: string
-      precio_usd?: number
-      marca_id?: number
-      marca_nombre?: string
-      esNuevoLoteMoti?: boolean
-      esVersionAnterior?: boolean
-      skuHeredado?: string
-    }> = {}
+    const productosMap: Record<string, DbProductoData> = {}
 
     const isMoti = isMotiSupplier(proveedorNombre)
 
@@ -1923,16 +1988,7 @@ export async function obtenerDatosProductosDeBDAction(
       const best = findBestDbSkuMatch(inputSku, allProducts, proveedorNombre, personaId)
       const exactMatch = best && best.exacto ? allProducts.find((p) => p.id === best.dbId) : undefined
       if (exactMatch) {
-        const marcaObj = exactMatch.cat_marcas as any
-        productosMap[inputUpper] = {
-          id: exactMatch.id,
-          nombre: exactMatch.nombre || '',
-          descripcion: exactMatch.descripcion || exactMatch.nombre || '',
-          composicion: exactMatch.composicion || '',
-          precio_usd: Number(exactMatch.precio_ec || 0),
-          marca_id: exactMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
-          marca_nombre: marcaObj ? marcaObj.nombre : undefined,
-        }
+        productosMap[inputUpper] = mapRowToDbProductoData(exactMatch, best?.mismaPersona)
         continue
       }
 
@@ -1946,14 +2002,9 @@ export async function obtenerDatosProductosDeBDAction(
           })
 
           if (modelMatch) {
-            const marcaObj = modelMatch.cat_marcas as any
+            const baseData = mapRowToDbProductoData(modelMatch)
             productosMap[inputUpper] = {
-              nombre: modelMatch.nombre || '',
-              descripcion: modelMatch.descripcion || modelMatch.nombre || '',
-              composicion: modelMatch.composicion || '',
-              precio_usd: Number(modelMatch.precio_ec || 0),
-              marca_id: modelMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
-              marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+              ...baseData,
               esNuevoLoteMoti: true,
               skuHeredado: modelMatch.sku_base,
             }
@@ -1977,14 +2028,9 @@ export async function obtenerDatosProductosDeBDAction(
         })
 
         if (versionMatch) {
-          const marcaObj = versionMatch.cat_marcas as any
+          const baseData = mapRowToDbProductoData(versionMatch)
           productosMap[inputUpper] = {
-            nombre: versionMatch.nombre || '',
-            descripcion: versionMatch.descripcion || versionMatch.nombre || '',
-            composicion: versionMatch.composicion || '',
-            precio_usd: Number(versionMatch.precio_ec || 0),
-            marca_id: versionMatch.marca_id || (marcaObj ? marcaObj.id : undefined),
-            marca_nombre: marcaObj ? marcaObj.nombre : undefined,
+            ...baseData,
             esVersionAnterior: true,
             skuHeredado: versionMatch.sku_base,
           }

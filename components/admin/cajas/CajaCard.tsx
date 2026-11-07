@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Pencil, Trash2, X, Check, Loader2, Calculator, Star } from 'lucide-react'
+import { Pencil, Trash2, X, Check, Loader2, Calculator, Star, AlertTriangle } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { CAT_TALLAS_MAESTRO } from '@/lib/constants'
 import { canonicalEn, suggestEs, clasificarColorLibre } from '@/lib/color-match'
@@ -330,6 +330,22 @@ export const CajaCard = memo(function CajaCard({
     ? (effectiveContenidoMap?.totalPiezas || caja.piezas_por_caja || 0) * caja.cantidad_cajas
     : (effectiveContenidoMap?.totalPiezas || caja.piezas_por_caja || 0)
 
+  const sinDesgloseMatriz = useMemo(() => {
+    if (!(Number(caja.piezas_por_caja ?? 0) > 0)) return false
+    if (!effectiveContenidoMap) return true
+    const cols = effectiveContenidoMap.colores || []
+    const tals = effectiveContenidoMap.tallas || []
+    if (cols.length === 0 || tals.length === 0) return true
+    let suma = 0
+    for (const col of cols) {
+      const fila = effectiveContenidoMap.matriz?.[col] || {}
+      for (const tal of tals) {
+        suma += Number(fila[tal] || 0)
+      }
+    }
+    return suma <= 0
+  }, [caja.piezas_por_caja, effectiveContenidoMap])
+
   // Calcular totales en tiempo real durante edición
   const totalesEdicion = useMemo(() => {
     const totalPorFila: Record<string, number> = {}
@@ -394,13 +410,13 @@ export const CajaCard = memo(function CajaCard({
     setIsSaving(true)
     try {
       // Preparar datos de detalles
-      const detalles: { 
+      const detalles: {
         talla_id: number
         color_id: number
         cantidad: number
         talla_codigo?: string
         talla_nombre?: string
-        color_nombre?: string 
+        color_nombre?: string
       }[] = []
 
       editFilas.forEach(fila => {
@@ -408,15 +424,15 @@ export const CajaCard = memo(function CajaCard({
           const cantidad = fila.cantidades[talla.nombre] || 0
           if (cantidad > 0) {
             const tallaStd = standardizeTallaName(talla.nombre)
-            const realTalla = tallasDisponibles.find(t => 
-              t.nombre?.toUpperCase() === tallaStd.toUpperCase() || 
+            const realTalla = tallasDisponibles.find(t =>
+              t.nombre?.toUpperCase() === tallaStd.toUpperCase() ||
               t.codigo?.toUpperCase() === tallaStd.toUpperCase() ||
-              t.nombre?.toUpperCase() === talla.nombre.toUpperCase() || 
+              t.nombre?.toUpperCase() === talla.nombre.toUpperCase() ||
               t.codigo?.toUpperCase() === talla.nombre.toUpperCase() ||
               (t as any).talla_us?.toUpperCase() === tallaStd.toUpperCase()
             )
             const { nombreEsp } = standardizeColorName(fila.colorNombre, coloresDisponibles)
-            const realColor = coloresDisponibles.find(c => 
+            const realColor = coloresDisponibles.find(c =>
               c.nombre?.toUpperCase() === nombreEsp.toUpperCase() ||
               c.nombre?.toUpperCase() === fila.colorNombre.toUpperCase() ||
               c.codigo?.toUpperCase() === nombreEsp.toUpperCase() ||
@@ -435,7 +451,7 @@ export const CajaCard = memo(function CajaCard({
       })
 
       const basePayload = { ...editData } as Record<string, any>;
-      
+
       // Sincronizar piezas_por_caja con los detalles si están configurados
       if (detalles.length > 0) {
         basePayload.piezas_por_caja = detalles.reduce((sum, d) => sum + d.cantidad, 0)
@@ -592,7 +608,7 @@ export const CajaCard = memo(function CajaCard({
     if (!edadNombre) return
     const txt = edadNombre.toLowerCase()
     const isInfantil = txt.includes('infantil') || txt.includes('joven') || txt.includes('adolecente')
-    
+
     let sugerencias = isInfantil
       ? ['TALLA 4', 'TALLA 6', 'TALLA 8', 'TALLA 10', 'TALLA 12', 'TALLA 14', 'TALLA 16', '4', '6', '8', '10', '12', '14', '16']
       : ['CHICA', 'MEDIANA', 'GRANDE', 'EXTRA GRANDE', 'CH', 'M', 'G', 'EG', 'XG', 'S', 'L', 'XL']
@@ -626,14 +642,14 @@ export const CajaCard = memo(function CajaCard({
 
       const firstTallaNombre = editTallas[0].nombre
       const firstVal = fila.cantidades[firstTallaNombre] || 0
-      
+
       const newCantidades = { ...fila.cantidades }
       for (let i = 1; i < editTallas.length; i++) {
         newCantidades[editTallas[i].nombre] = firstVal
       }
       return { ...fila, cantidades: newCantidades }
     }))
-    
+
     toast.success('Fila autocompletada.')
   }
 
@@ -697,6 +713,16 @@ export const CajaCard = memo(function CajaCard({
                       PRINCIPAL
                     </Badge>
                   )}
+                  {sinDesgloseMatriz && (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold text-[10px] gap-1"
+                      title="Caja guardada con piezas totales pero sin desglose talla × color. Pulsa editar (✏️) cuando tengas el detalle."
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      Sin desglose talla/color
+                    </Badge>
+                  )}
                 </>
               )}
             </CardTitle>
@@ -754,7 +780,7 @@ export const CajaCard = memo(function CajaCard({
                 )}
               </>
             )}
-            
+
             {isEditing && (
               <div className="flex items-center gap-1">
                 <Button
@@ -926,7 +952,7 @@ export const CajaCard = memo(function CajaCard({
             </div>
             <div className="p-5 rounded-xl border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-950/50 shadow-sm space-y-4 transition-all">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <MultiTagInput 
+                <MultiTagInput
                   label="Tallas de Caja (Resumen)"
                   placeholder="Buscar talla en catálogo..."
                   options={tallaOptions}
@@ -935,7 +961,7 @@ export const CajaCard = memo(function CajaCard({
                   onRemove={handleRemoveTallaSummary}
                   freeText={false}
                 />
-                <MultiTagInput 
+                <MultiTagInput
                   label="Colores de Caja (Resumen)"
                   placeholder="Colores separados por | o Enter..."
                   options={colorOptions}

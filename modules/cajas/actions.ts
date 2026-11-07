@@ -544,6 +544,7 @@ export async function updateCajaBaseAction(
   // Refrescar rutas
   revalidatePath('/(admin)/catalogo/[id]', 'page')
   revalidatePath('/(admin)/ordenes-b2b/cajas', 'page')
+  revalidatePath('/(admin)/ordenes-b2b/[id]', 'page')
 }
 
 /**
@@ -617,6 +618,7 @@ export async function updateCajaDetallesAction(
   // Refrescar rutas
   revalidatePath('/(admin)/catalogo/[id]', 'page')
   revalidatePath('/(admin)/ordenes-b2b/cajas', 'page')
+  revalidatePath('/(admin)/ordenes-b2b/[id]', 'page')
 }
 
 /**
@@ -714,6 +716,7 @@ export async function createCajaAction(
   // Refrescar rutas
   revalidatePath('/(admin)/catalogo/[id]', 'page')
   revalidatePath('/(admin)/ordenes-b2b/cajas', 'page')
+  revalidatePath('/(admin)/ordenes-b2b/[id]', 'page')
 
   return cajaId
 }

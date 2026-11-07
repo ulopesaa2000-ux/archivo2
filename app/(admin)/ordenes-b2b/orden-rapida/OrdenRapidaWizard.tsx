@@ -55,7 +55,7 @@ import type { CatalogColor } from '@/lib/color-match'
 import { seedColoresPorConfirmar, siguienteLetraPack, partirRangosCarton, stagingMinFilaPorCodigo, calcularDestinos, dedupSeparaciones, mapaNombresResueltos } from '@/lib/orden-rapida-colores'
 import { agruparCajasPorProducto, aplicarEdicionCaja, detallesDesdeMatriz, fijarPzMinima, aplicarRepartoSeparacion, aplicarMapaColoresACajas, enriquecerDetallesConMapa } from '@/lib/orden-rapida-cajas'
 import type { CajaEditPayload } from '@/lib/orden-rapida-cajas'
-import type { SkuProbable } from '@/modules/ordenes-b2b/actions'
+import type { SkuProbable, DbProductoData } from '@/modules/ordenes-b2b/actions'
 import { compararCajasLineasVsFisico } from '@/modules/contenedores/match-cajas'
 import { detectProductAttributesFromText, inferEdadFromGeneroAndText, type DetectorCatalogos } from '@/modules/catalogo/utils/detector'
 
@@ -86,6 +86,22 @@ type WizardWarning = {
   detalle?: string
 }
 
+type WizardProductoSnapshot = {
+  sku_base: string
+  nombre?: string
+  descripcion?: string
+  tipo_prenda?: string
+  tipo_prenda_id?: number | null
+  genero?: string
+  genero_id?: number | null
+  edad?: string
+  edad_id?: number | null
+  marca?: string
+  marca_id?: number | null
+  composicion?: string
+  precio_unitario_usd?: number
+}
+
 type WizardProducto = {
   temp_id?: string
   producto_id?: number | null
@@ -109,7 +125,106 @@ type WizardProducto = {
   es_nuevo?: boolean
   force_new?: boolean
   costo_promedio?: number
+  packing_original?: WizardProductoSnapshot
+  db_sincronizado?: DbProductoData | null
   [key: string]: unknown
+}
+
+function aplicarDatosDbAProducto(
+  producto: WizardProducto,
+  dbProd: DbProductoData,
+  catalogos: {
+    marcas: { id: number; nombre: string }[]
+    generos: { id: number; nombre: string }[]
+    edades: { id: number; nombre: string }[]
+    tipos_prenda: { id: number; nombre: string }[]
+  },
+): WizardProducto {
+  const brandMatch = dbProd.marca_id
+    ? catalogos.marcas.find((m) => m.id === dbProd.marca_id)
+    : dbProd.marca_nombre
+    ? catalogos.marcas.find((m) => m.nombre.toUpperCase() === dbProd.marca_nombre?.toUpperCase())
+    : null
+
+  const prendaMatch = dbProd.tipo_prenda_id
+    ? catalogos.tipos_prenda.find((t) => t.id === dbProd.tipo_prenda_id)
+    : dbProd.tipo_prenda_nombre
+    ? catalogos.tipos_prenda.find((t) => t.nombre.toUpperCase() === dbProd.tipo_prenda_nombre?.toUpperCase())
+    : null
+
+  const generoMatch = dbProd.genero_id
+    ? catalogos.generos.find((g) => g.id === dbProd.genero_id)
+    : dbProd.genero_nombre
+    ? catalogos.generos.find((g) => g.nombre.toUpperCase() === dbProd.genero_nombre?.toUpperCase())
+    : null
+
+  const edadMatch = dbProd.edad_id
+    ? catalogos.edades.find((e) => e.id === dbProd.edad_id)
+    : dbProd.edad_nombre
+    ? catalogos.edades.find((e) => e.nombre.toUpperCase() === dbProd.edad_nombre?.toUpperCase())
+    : null
+
+  const dbDataSnapshot: DbProductoData = {
+    ...dbProd,
+    marca_nombre: brandMatch?.nombre ?? dbProd.marca_nombre,
+    tipo_prenda_nombre: prendaMatch?.nombre ?? dbProd.tipo_prenda_nombre,
+    genero_nombre: generoMatch?.nombre ?? dbProd.genero_nombre,
+    edad_nombre: edadMatch?.nombre ?? dbProd.edad_nombre,
+  }
+
+  return {
+    ...producto,
+    producto_id: dbProd.id ?? producto.producto_id,
+    sku_base: dbProd.sku_base || producto.sku_base,
+    nombre: dbProd.nombre || dbProd.descripcion || producto.nombre,
+    descripcion: dbProd.descripcion || dbProd.nombre || producto.descripcion,
+    composicion: dbProd.composicion || producto.composicion,
+    precio_unitario_usd:
+      dbProd.precio_usd && dbProd.precio_usd > 0
+        ? dbProd.precio_usd
+        : producto.precio_unitario_usd,
+    marca_id: brandMatch ? brandMatch.id : (dbProd.marca_id ?? producto.marca_id),
+    marca: brandMatch ? brandMatch.nombre : (dbProd.marca_nombre || producto.marca),
+    tipo_prenda_id: prendaMatch ? prendaMatch.id : (dbProd.tipo_prenda_id ?? producto.tipo_prenda_id),
+    tipo_prenda: prendaMatch ? prendaMatch.nombre : (dbProd.tipo_prenda_nombre || producto.tipo_prenda),
+    genero_id: generoMatch ? generoMatch.id : (dbProd.genero_id ?? producto.genero_id),
+    genero: generoMatch ? generoMatch.nombre : (dbProd.genero_nombre || producto.genero),
+    edad_id: edadMatch ? edadMatch.id : (dbProd.edad_id ?? producto.edad_id),
+    edad: edadMatch ? edadMatch.nombre : (dbProd.edad_nombre || producto.edad),
+    db_sincronizado: dbDataSnapshot,
+    es_nuevo: false,
+    force_new: false,
+  }
+}
+
+function restaurarDatosPacking(producto: WizardProducto): WizardProducto {
+  if (!producto.packing_original) {
+    return {
+      ...producto,
+      es_nuevo: true,
+      force_new: true,
+    }
+  }
+
+  const p = producto.packing_original
+  return {
+    ...producto,
+    sku_base: p.sku_base,
+    nombre: p.nombre,
+    descripcion: p.descripcion,
+    tipo_prenda_id: p.tipo_prenda_id ?? null,
+    tipo_prenda: p.tipo_prenda ?? '',
+    genero_id: p.genero_id ?? null,
+    genero: p.genero ?? '',
+    edad_id: p.edad_id ?? null,
+    edad: p.edad ?? '',
+    marca_id: p.marca_id ?? null,
+    marca: p.marca ?? '',
+    composicion: p.composicion ?? '',
+    precio_unitario_usd: p.precio_unitario_usd ?? 0,
+    es_nuevo: true,
+    force_new: true,
+  }
 }
 
 type WizardCaja = {
@@ -1344,6 +1459,7 @@ export function OrdenRapidaWizard({
   // Verificación local pre-subida: snapshot + errores en tiempo real para habilitar carga a DB
   const [verificacionManual, setVerificacionManual] = useState<{ hash: string; ok: boolean; fecha: number } | null>(null)
   const [mostrarErroresSubida, setMostrarErroresSubida] = useState(false)
+  const [mostrarAdvertenciasSubida, setMostrarAdvertenciasSubida] = useState(true)
   const [codigoRenameDrafts, setCodigoRenameDrafts] = useState<Record<string, string>>({})
   const [modalLineaDrafts, setModalLineaDrafts] = useState<Record<string, string>>({})
   const [modalPackDrafts, setModalPackDrafts] = useState<Record<string, string>>({})
@@ -1472,7 +1588,17 @@ export function OrdenRapidaWizard({
     verificarSkusEnBDAction([cleanSku], proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
       if (res.success && res.skusExistentes.length > 0) {
         setDbSkusSet((prev) => new Set([...Array.from(prev), cleanSku.toUpperCase()]))
-        if (res.skuMap && res.skuMap[cleanSku.toUpperCase()]) {
+        if (res.productosMap && res.productosMap[cleanSku.toUpperCase()]) {
+          const dbData = res.productosMap[cleanSku.toUpperCase()]
+          setDbSkusSet((prev) => new Set([...Array.from(prev), String(dbData.sku_base).toUpperCase()]))
+          setEditableProductos((prev) =>
+            prev.map((p) =>
+              p.sku_base.toUpperCase() === cleanSku.toUpperCase()
+                ? aplicarDatosDbAProducto(p, dbData, { marcas, generos, edades, tipos_prenda })
+                : p,
+            ),
+          )
+        } else if (res.skuMap && res.skuMap[cleanSku.toUpperCase()]) {
           const matchedDbSku = res.skuMap[cleanSku.toUpperCase()]
           setDbSkusSet((prev) => new Set([...Array.from(prev), matchedDbSku.toUpperCase()]))
           setEditableProductos((prev) =>
@@ -1524,28 +1650,13 @@ export function OrdenRapidaWizard({
             const dbProd = res.productosMap?.[key]
             if (dbProd) {
               syncCount++
-              const selectedBrand = dbProd.marca_id
-                ? marcas.find((m) => m.id === dbProd.marca_id)
-                : dbProd.marca_nombre
-                ? marcas.find((m) => m.nombre.toUpperCase() === dbProd.marca_nombre?.toUpperCase())
-                : null
-
               if (dbProd.esNuevoLoteMoti) {
                 toast.info(`El SKU "${item.sku_base}" heredó metadatos del modelo MOTI (${dbProd.skuHeredado}).`)
               } else if (dbProd.esVersionAnterior) {
                 toast.info(`El SKU "${item.sku_base}" heredó metadatos de la versión previa de proveedor (${dbProd.skuHeredado}).`)
               }
 
-              return {
-                ...item,
-                producto_id: dbProd.id || item.producto_id,
-                descripcion: dbProd.descripcion || dbProd.nombre || item.descripcion,
-                nombre: dbProd.nombre || dbProd.descripcion || item.nombre,
-                composicion: dbProd.composicion || item.composicion,
-                precio_unitario_usd: dbProd.precio_usd || item.precio_unitario_usd,
-                marca_id: selectedBrand ? selectedBrand.id : dbProd.marca_id || item.marca_id,
-                marca: selectedBrand ? selectedBrand.nombre : dbProd.marca_nombre || item.marca,
-              }
+              return aplicarDatosDbAProducto(item, dbProd, { marcas, generos, edades, tipos_prenda })
             }
             return item
           }),
@@ -1961,19 +2072,43 @@ export function OrdenRapidaWizard({
     const prodA = editableProductos.find((p) => String(p.sku_base || '').trim().toUpperCase() === originalUp)
     if (!prodA || !prodA.temp_id) { toast.error('Producto original no encontrado en la revisión.'); return }
     const skuA = cands[0].sku
-    const nuevos: WizardProducto[] = cands.slice(1).map((c, idx) => ({
-      temp_id: `temp_split_${Date.now()}_${idx}`,
-      producto_id: null,
-      sku_base: c.sku,
-      sku_raw: [c.sku, c.alias].filter(Boolean).join(' '),
-      nombre: c.sku,
-      descripcion: prodA.descripcion,
-      marca: prodA.marca,
-      precio_yuan: prodA.precio_yuan,
-      precio_unitario_usd: prodA.precio_unitario_usd,
-      estado_temporal: 'separado_sugerido',
-      es_nuevo: true,
-    }))
+    const nuevos: WizardProducto[] = cands.slice(1).map((c, idx) => {
+      const snap: WizardProductoSnapshot = {
+        sku_base: c.sku,
+        nombre: c.sku,
+        descripcion: prodA.descripcion,
+        marca: prodA.marca,
+        marca_id: prodA.marca_id,
+        tipo_prenda: prodA.tipo_prenda,
+        tipo_prenda_id: prodA.tipo_prenda_id,
+        genero: prodA.genero,
+        genero_id: prodA.genero_id,
+        edad: prodA.edad,
+        edad_id: prodA.edad_id,
+        precio_unitario_usd: prodA.precio_unitario_usd,
+      }
+      return {
+        temp_id: `temp_split_${Date.now()}_${idx}`,
+        producto_id: null,
+        sku_base: c.sku,
+        sku_raw: [c.sku, c.alias].filter(Boolean).join(' '),
+        nombre: c.sku,
+        descripcion: prodA.descripcion,
+        marca: prodA.marca,
+        marca_id: prodA.marca_id,
+        tipo_prenda: prodA.tipo_prenda,
+        tipo_prenda_id: prodA.tipo_prenda_id,
+        genero: prodA.genero,
+        genero_id: prodA.genero_id,
+        edad: prodA.edad,
+        edad_id: prodA.edad_id,
+        precio_yuan: prodA.precio_yuan,
+        precio_unitario_usd: prodA.precio_unitario_usd,
+        estado_temporal: 'separado_sugerido',
+        es_nuevo: true,
+        packing_original: snap,
+      }
+    })
     const tempPorSku = new Map<string, string>([[skuA.toUpperCase(), prodA.temp_id]])
     for (const n of nuevos) tempPorSku.set(n.sku_base.toUpperCase(), n.temp_id!)
     const cajasOrigen = editableCajas.filter((cj) => cj.tipo_caja !== 'padre_resumen'
@@ -2032,6 +2167,18 @@ export function OrdenRapidaWizard({
     verificarSkusEnBDAction(nuevos.map((n) => n.sku_base), proveedorActual?.nombre_completo, proveedorActual ? Number(proveedorActual.id) : null).then((res) => {
       if (res.success && res.skusExistentes.length > 0) {
         setDbSkusSet((prev) => new Set([...Array.from(prev), ...res.skusExistentes.map((s) => s.toUpperCase())]))
+        if (res.productosMap && Object.keys(res.productosMap).length > 0) {
+          const pMap = res.productosMap
+          setEditableProductos((prev) =>
+            prev.map((item) => {
+              const dbData = pMap[item.sku_base.toUpperCase()]
+              if (dbData && !item.force_new) {
+                return aplicarDatosDbAProducto(item, dbData, { marcas, generos, edades, tipos_prenda })
+              }
+              return item
+            }),
+          )
+        }
       }
       if (res.success && (res.probables ?? []).length > 0) {
         setProbablesDb((prev) => [...prev, ...(res.probables ?? [])])
@@ -2205,17 +2352,33 @@ export function OrdenRapidaWizard({
             (p.marca_id && m.id === p.marca_id) ||
             (p.marca && m.nombre.toUpperCase() === p.marca.toUpperCase()),
         )
-        return {
-          ...p,
-          temp_id: tempId,
-          marca_id: matchedBrand ? matchedBrand.id : (detected.marca_id ?? p.marca_id ?? null),
-          marca: matchedBrand ? matchedBrand.nombre : (detected.marca_nombre ?? p.marca ?? ''),
+        const originalSnapshot: WizardProductoSnapshot = {
+          sku_base: p.sku_base,
+          nombre: p.nombre,
+          descripcion: p.descripcion,
           tipo_prenda_id: detected.tipo_prenda_id ?? p.tipo_prenda_id ?? null,
           tipo_prenda: detected.tipo_prenda_nombre ?? p.tipo_prenda ?? '',
           genero_id: detected.genero_id ?? p.genero_id ?? null,
           genero: detected.genero_nombre ?? p.genero ?? '',
           edad_id: detected.edad_id ?? p.edad_id ?? null,
           edad: detected.edad_nombre ?? p.edad ?? '',
+          marca_id: matchedBrand ? matchedBrand.id : (detected.marca_id ?? p.marca_id ?? null),
+          marca: matchedBrand ? matchedBrand.nombre : (detected.marca_nombre ?? p.marca ?? ''),
+          composicion: p.composicion,
+          precio_unitario_usd: p.precio_unitario_usd,
+        }
+        return {
+          ...p,
+          temp_id: tempId,
+          marca_id: originalSnapshot.marca_id,
+          marca: originalSnapshot.marca,
+          tipo_prenda_id: originalSnapshot.tipo_prenda_id,
+          tipo_prenda: originalSnapshot.tipo_prenda,
+          genero_id: originalSnapshot.genero_id,
+          genero: originalSnapshot.genero,
+          edad_id: originalSnapshot.edad_id,
+          edad: originalSnapshot.edad,
+          packing_original: originalSnapshot,
         }
       })
 
@@ -2292,12 +2455,23 @@ export function OrdenRapidaWizard({
               return next
             })
 
-            if (res.skuMap && Object.keys(res.skuMap).length > 0) {
+            if (res.productosMap && Object.keys(res.productosMap).length > 0) {
+              const pMap = res.productosMap
+              setEditableProductos((prev) =>
+                prev.map((p) => {
+                  const dbData = pMap[p.sku_base.toUpperCase()]
+                  if (dbData && !p.force_new) {
+                    return aplicarDatosDbAProducto(p, dbData, { marcas, generos, edades, tipos_prenda })
+                  }
+                  return p
+                }),
+              )
+            } else if (res.skuMap && Object.keys(res.skuMap).length > 0) {
               const skuMap = res.skuMap
               setEditableProductos(prev =>
                 prev.map(p => {
                   const matchedDbSku = skuMap[p.sku_base.toUpperCase()]
-                  if (matchedDbSku) {
+                  if (matchedDbSku && !p.force_new) {
                     return { ...p, es_nuevo: false }
                   }
                   return p
@@ -2331,11 +2505,25 @@ export function OrdenRapidaWizard({
     const up = String(prob.inputSku).trim().toUpperCase()
     setVinculosDb((prev) => ({ ...prev, [up]: { dbId: prob.dbId, dbSku: prob.dbSku } }))
     setEditableProductos((prev) =>
-      prev.map((p) =>
-        String(p.sku_base || '').trim().toUpperCase() === up
-          ? { ...p, es_nuevo: false, force_new: false }
-          : p
-      )
+      prev.map((p) => {
+        if (String(p.sku_base || '').trim().toUpperCase() === up) {
+          if (prob.dbData) {
+            return aplicarDatosDbAProducto(p, prob.dbData, { marcas, generos, edades, tipos_prenda })
+          }
+          return { ...p, sku_base: prob.dbSku, es_nuevo: false, force_new: false }
+        }
+        return p
+      })
+    )
+    // Sincronizar SKU en cajas asociadas
+    setEditableCajas((prev) =>
+      prev.map((c) => {
+        const cSku = String(c.sku_base || '').trim().toUpperCase()
+        if (cSku === up) {
+          return { ...c, sku_base: prob.dbSku }
+        }
+        return c
+      })
     )
     toast.success(`"${prob.inputSku}" sincronizado con ${prob.dbSku}.`)
   }
@@ -2348,10 +2536,17 @@ export function OrdenRapidaWizard({
       return next
     })
     setEditableProductos((prev) =>
-      prev.map((p) =>
-        String(p.sku_base || '').trim().toUpperCase() === up ? { ...p, es_nuevo: true } : p
-      )
+      prev.map((p) => {
+        if (
+          String(p.sku_base || '').trim().toUpperCase() === up ||
+          (p.db_sincronizado && String(p.db_sincronizado.sku_base).toUpperCase() === up)
+        ) {
+          return restaurarDatosPacking(p)
+        }
+        return p
+      })
     )
+    toast.info(`Vínculo de "${inputSku}" removido. Restaurado a nuevo.`)
   }
 
   // Commit de edición SKU (desde SkuEditCell): un solo update + cascada por temp_id.
@@ -2398,7 +2593,17 @@ export function OrdenRapidaWizard({
         const base = prev.filter((p) => !sin.has(String(p.inputSku).trim().toUpperCase()))
         return [...base, ...(res.probables ?? [])]
       })
-      if (res.skusExistentes.length > 0) {
+      if (res.productosMap && res.productosMap[newUp]) {
+        const dbProd = res.productosMap[newUp]
+        setEditableProductos((prev) =>
+          prev.map((item) =>
+            item.temp_id === targetTempId || item.sku_base.toUpperCase() === newUp
+              ? aplicarDatosDbAProducto(item, dbProd, { marcas, generos, edades, tipos_prenda })
+              : item,
+          ),
+        )
+        toast.success(`"${newSkuVal}" encontrado en BD. Datos vinculados.`)
+      } else if (res.skusExistentes.length > 0) {
         toast.success(`"${newSkuVal}" encontrado en BD. Vinculado.`)
       }
     })
@@ -2421,33 +2626,19 @@ export function OrdenRapidaWizard({
       const up = skuActual.toUpperCase()
       if (res.exacto) {
         const ex = res.exacto
-        setDbSkusSet((prev) => new Set([...prev, up, String(ex.dbSku).toUpperCase()]))
+        const targetSku = String(ex.sku_base || ex.dbSku || skuActual)
+        setDbSkusSet((prev) => new Set([...prev, up, targetSku.toUpperCase()]))
         setProbablesDb((prev) => prev.filter((p) => String(p.inputSku).trim().toUpperCase() !== up))
-        const marcaMatch = marcas.find((m) =>
-          (ex.marca_id && m.id === ex.marca_id) ||
-          (ex.marca_nombre && m.nombre.toUpperCase() === ex.marca_nombre.toUpperCase()),
-        )
         setEditableProductos((prev) =>
           prev.map((p) =>
             (p.temp_id || String(p.sku_base || '')) === (producto.temp_id || String(producto.sku_base || ''))
-              ? {
-                ...p,
-                producto_id: ex.id,
-                descripcion: ex.descripcion || p.descripcion,
-                nombre: ex.nombre || p.nombre,
-                composicion: ex.composicion || p.composicion,
-                precio_unitario_usd: ex.precio_usd || p.precio_unitario_usd,
-                marca_id: marcaMatch ? marcaMatch.id : (ex.marca_id ?? p.marca_id),
-                marca: marcaMatch ? marcaMatch.nombre : (ex.marca_nombre || p.marca),
-                es_nuevo: false,
-                force_new: false,
-              }
+              ? aplicarDatosDbAProducto(p, ex, { marcas, generos, edades, tipos_prenda })
               : p,
           ),
         )
         toast.success(
           ex.mismaPersona === false
-            ? `"${skuActual}" existe en BD como ${ex.dbSku} (otro proveedor). Vinculado.`
+            ? `"${skuActual}" existe en BD como ${ex.dbSku || ex.sku_base} (otro proveedor). Vinculado.`
             : `"${skuActual}" encontrado en BD (${ex.metodo}). Vinculado.`,
         )
       } else if (res.probables.length > 0) {
@@ -2707,7 +2898,7 @@ export function OrdenRapidaWizard({
     toast.success(`Se rellenaron ${huecosFisico.length} líneas desde el físico. Verifica el match antes de guardar.`)
   }
 
-  // ── Caja principal por producto (default = mayor cantidad en la orden) ──
+  // ── Caja principal por producto (default = con matriz completa > mayor cantidad > más piezas) ──
   const cajaPrincipalDe = useCallback((skuUpper: string, cajas: WizardCaja[]): WizardCaja | null => {
     const reales = (cajas || []).filter((c) => c.tipo_caja !== 'padre_resumen')
     if (reales.length === 0) return null
@@ -2716,7 +2907,17 @@ export function OrdenRapidaWizard({
       const found = reales.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === elegido)
       if (found) return found
     }
+    const tieneMatriz = (c: WizardCaja) => {
+      try {
+        return detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0]).length > 0 ? 1 : 0
+      } catch {
+        return 0
+      }
+    }
     return [...reales].sort((a, b) => {
+      const ma = tieneMatriz(a)
+      const mb = tieneMatriz(b)
+      if (mb !== ma) return mb - ma
       const qa = Number(a.cantidad_cajas ?? 0)
       const qb = Number(b.cantidad_cajas ?? 0)
       if (qb !== qa) return qb - qa
@@ -3283,10 +3484,6 @@ export function OrdenRapidaWizard({
       }
       if (!(Number(c.piezas_por_caja ?? 0) > 0)) out.push({ id: `sinpz-${cod || c.sku_base}`, codigo: 'SIN_PZ', mensaje: `Caja "${cod || '(s/código)'}" sin piezas por caja (>0 requerido).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Edita pz/caja en su tarjeta o usa Fijar 1 pza.' })
       if (!(Number(c.cantidad_cajas ?? 0) > 0)) out.push({ id: `cant-${cod || c.sku_base}`, codigo: 'CANTIDAD_INVALIDA', mensaje: `Caja "${cod || '(s/código)'}" con cantidad ${String(c.cantidad_cajas ?? 0)} (debe ser >0).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Corrige cantidad de cajas en su tarjeta.' })
-      try {
-        const dets = detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0])
-        if (dets.length === 0) out.push({ id: `matriz-${cod || c.sku_base}`, codigo: 'MATRIZ_VACIA', mensaje: `Caja "${cod || '(s/código)'}" con matriz vacía (0 detalles talla/color).`, sku: String(c.sku_base || '').trim(), codigoCaja: cod, paso: 4, fix: 'Edita la matriz en su tarjeta.' })
-      } catch { /* matriz inválida se reporta como vacía */ }
     })
     for (const [up, lista] of vistosCod) {
       if (lista.length > 1) out.push({ id: `cod-dup-${up}`, codigo: 'CODIGO_DUPLICADO', mensaje: `Código duplicado "${lista[0]}" ×${lista.length} (UNIQUE: haría upsert y mezclaría cajas).`, codigoCaja: lista[0], paso: 4, fix: 'Renómbralo aquí mismo con el editor inline.' })
@@ -3344,12 +3541,39 @@ export function OrdenRapidaWizard({
   // eslint-disable-next-line react-hooks/preserve-manual-memoization -- cadena de match con callbacks; mismo patrón que verificacionPrevia
   }, [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, editableProductos, editableCajas, coloresPorConfirmar, catalogoColores, calcularMatchCajasOrdenRapida, calcularMatchPacks])
   const erroresBloqueantes = erroresSubida
+  // Advertencias no bloqueantes (ej. cajas saldo con pz > 0 pero sin desglose talla/color en el Excel)
+  const advertenciasSubida = useMemo<ErrorSubida[]>(() => {
+    const out: ErrorSubida[] = []
+    const reales = editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen')
+    reales.forEach((c) => {
+      const cod = String(c.codigo_caja || c.codigo_caja_temporal || '').trim()
+      try {
+        const dets = detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0])
+        if (dets.length === 0) {
+          out.push({
+            id: `matriz-${cod || c.sku_base}`,
+            codigo: 'MATRIZ_VACIA',
+            mensaje: `Caja "${cod || '(s/código)'}" con matriz vacía (0 detalles talla/color). Se guardará con ${Number(c.piezas_por_caja ?? 0)} pz/caja para editar después.`,
+            sku: String(c.sku_base || '').trim(),
+            codigoCaja: cod,
+            paso: 4,
+            fix: 'Opcional: edita la matriz ahora o guárdala así y edítala después en la orden.',
+          })
+        }
+      } catch { /* matriz inválida */ }
+    })
+    return out
+  }, [editableCajas])
   // Hash de verificación: cualquier cambio invalida el "Verificado OK"
   const hashVerificacion = useMemo(() => {
     try {
       return JSON.stringify({
         p: editableProductos.map((p) => [p.temp_id || p.sku_base, p.sku_base]),
-        c: editableCajas.map((c) => [c.codigo_caja || c.codigo_caja_temporal, c.sku_base, c.cantidad_cajas, c.piezas_por_caja, c.nombre_pack]),
+        c: editableCajas.map((c) => {
+          let nDets = 0
+          try { nDets = detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0]).length } catch { nDets = 0 }
+          return [c.codigo_caja || c.codigo_caja_temporal, c.sku_base, c.cantidad_cajas, c.piezas_por_caja, c.nombre_pack, nDets]
+        }),
         le: lineaEditadaPorSku, lp: lineaEditadaPorPack, pr: principalPorSku,
         s: [selectedProveedor, selectedCliente, selectedContenedor, newContainerCode, newContainerNumber],
         col: coloresPorConfirmar.map((c) => [c.raw, c.estado, c.color_id]),
@@ -3363,7 +3587,11 @@ export function OrdenRapidaWizard({
     if (erroresBloqueantes.length === 0) {
       setVerificacionManual({ hash: hashVerificacion, ok: true, fecha: Date.now() })
       setMostrarErroresSubida(false)
-      toast.success('Verificación local OK: sin bloqueantes. Ya puedes cargar a DB.')
+      if (advertenciasSubida.length > 0) {
+        toast.success(`Verificación local OK (${advertenciasSubida.length} caja(s) con matriz vacía en advertencia). Ya puedes guardar en Supabase.`)
+      } else {
+        toast.success('Verificación local OK: sin bloqueantes. Ya puedes cargar a DB.')
+      }
     } else {
       setVerificacionManual({ hash: hashVerificacion, ok: false, fecha: Date.now() })
       setMostrarErroresSubida(true)
@@ -4307,12 +4535,22 @@ export function OrdenRapidaWizard({
                                     )}
                                     onClick={() => {
                                       setEditableProductos((prev) =>
-                                        prev.map((p, i) =>
-                                          i === index ? { ...p, force_new: !isForcedNew, es_nuevo: !isForcedNew } : p
-                                        )
+                                        prev.map((p, i) => {
+                                          if (i !== index) return p
+                                          if (!isForcedNew) {
+                                            // Pasa a ser NUEVO -> restaurar datos originales del packing
+                                            return restaurarDatosPacking(p)
+                                          } else {
+                                            // Vuelve a ser VINCULADO -> re-aplicar datos de BD si existen
+                                            if (p.db_sincronizado) {
+                                              return aplicarDatosDbAProducto(p, p.db_sincronizado, { marcas, generos, edades, tipos_prenda })
+                                            }
+                                            return { ...p, force_new: false, es_nuevo: false }
+                                          }
+                                        })
                                       )
                                       if (!isForcedNew) {
-                                        toast.info(`El SKU "${producto.sku_base}" se creará como un NUEVO producto separado en la base de datos.`)
+                                        toast.info(`El SKU "${producto.sku_base}" se restauró con los datos del packing y se creará como un NUEVO producto.`)
                                       } else {
                                         toast.success(`El SKU "${producto.sku_base}" se vinculó nuevamente al producto existente en el catálogo.`)
                                       }
@@ -6207,7 +6445,9 @@ export function OrdenRapidaWizard({
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
                 {verificadoOk ? (
-                  <Badge className="bg-emerald-600 text-white font-bold gap-1"><ShieldCheck className="h-3 w-3" /> Verificado OK · {erroresBloqueantes.length === 0 ? '0 bloqueantes' : ''}</Badge>
+                  <Badge className="bg-emerald-600 text-white font-bold gap-1">
+                    <ShieldCheck className="h-3 w-3" /> Verificado OK · 0 bloqueantes{advertenciasSubida.length > 0 ? ` · ${advertenciasSubida.length} advertencia(s)` : ''}
+                  </Badge>
                 ) : verificacionManual && !necesitaReverificar ? (
                   <Badge variant="destructive" className="font-bold gap-1"><AlertTriangle className="h-3 w-3" /> {erroresBloqueantes.length} bloqueo(s) · corrige abajo</Badge>
                 ) : verificacionManual && necesitaReverificar ? (
@@ -6215,7 +6455,9 @@ export function OrdenRapidaWizard({
                 ) : (
                   <Badge variant="outline" className="font-bold gap-1"><ScanSearch className="h-3 w-3" /> Sin verificar · pulsa Verificar local</Badge>
                 )}
-                <span className="text-muted-foreground">En vivo: {erroresBloqueantes.length} bloqueo(s) ahora mismo.</span>
+                <span className="text-muted-foreground">
+                  En vivo: {erroresBloqueantes.length} bloqueo(s){advertenciasSubida.length > 0 ? ` · ${advertenciasSubida.length} advertencia(s)` : ''} ahora mismo.
+                </span>
                 {mostrarErroresSubida || erroresBloqueantes.length > 0 ? (
                   <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] font-bold underline" onClick={() => setMostrarErroresSubida((v) => !v)}>
                     {mostrarErroresSubida ? 'Ocultar detalle' : `Ver detalle (${erroresBloqueantes.length})`}
@@ -6257,6 +6499,25 @@ export function OrdenRapidaWizard({
                       title="Asigna 1 pza/caja temporal a las cajas sin dato para no romper la lógica (revísalas después en su tarjeta)"
                     >
                       Fijar 1 pza ({verificacionPrevia.sinPz.length})
+                    </Button>
+                  )}
+                </p>
+                <p className="flex items-center gap-2 text-[11px] font-semibold">
+                  {advertenciasSubida.length === 0
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
+                  <span className={advertenciasSubida.length === 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>
+                    {advertenciasSubida.length === 0
+                      ? 'Todas las cajas con desglose talla/color'
+                      : `${advertenciasSubida.length} caja(s) con matriz vacía (0 detalles talla/color) — no bloquea el guardado`}
+                  </span>
+                  {advertenciasSubida.length > 0 && (
+                    <Button
+                      type="button" variant="ghost" size="sm"
+                      className="h-6 text-[10px] font-bold text-amber-800 dark:text-amber-300 underline ml-auto"
+                      onClick={() => setMostrarAdvertenciasSubida((v) => !v)}
+                    >
+                      {mostrarAdvertenciasSubida ? 'Ocultar advertencias' : `Ver advertencias (${advertenciasSubida.length})`}
                     </Button>
                   )}
                 </p>
@@ -6379,7 +6640,7 @@ export function OrdenRapidaWizard({
                           </Button>
                         </div>
                       ) : null}
-                      {(e.codigo === 'SIN_PZ' || e.codigo === 'CANTIDAD_INVALIDA' || e.codigo === 'MATRIZ_VACIA') && e.codigoCaja ? (
+                      {(e.codigo === 'SIN_PZ' || e.codigo === 'CANTIDAD_INVALIDA') && e.codigoCaja ? (
                         <div className="flex flex-wrap items-center gap-1.5 pl-5">
                           <span className="text-[10px] text-muted-foreground font-mono">{e.codigoCaja}</span>
                           <Input
@@ -6417,6 +6678,57 @@ export function OrdenRapidaWizard({
                   ))}
                   {erroresBloqueantes.length > 30 && (
                     <p className="text-[10px] text-muted-foreground italic">+{erroresBloqueantes.length - 30} más. Corrige estos primero y re-verifica.</p>
+                  )}
+                </div>
+              )}
+              {advertenciasSubida.length > 0 && mostrarAdvertenciasSubida && (
+                <div className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 max-h-[260px] overflow-y-auto">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Advertencias que NO bloquean la subida ({advertenciasSubida.length})
+                  </p>
+                  {advertenciasSubida.slice(0, 30).map((adv) => (
+                    <div key={adv.id} className="rounded border border-amber-500/30 bg-background/80 px-2 py-1.5 space-y-1">
+                      <div className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold leading-snug">{adv.mensaje}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">{adv.codigo} · paso {adv.paso} · {adv.fix}</p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] font-bold shrink-0" onClick={() => handleIrACorregir(adv)} title={`Ir a paso ${adv.paso} si deseas llenarla ahora`}>
+                          Ir a corregir
+                        </Button>
+                      </div>
+                      {adv.codigoCaja ? (
+                        <div className="flex flex-wrap items-center gap-1.5 pl-5">
+                          <span className="text-[10px] text-muted-foreground font-mono">{adv.codigoCaja}</span>
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalCajaNumDrafts[`${adv.codigoCaja}||cantidad_cajas`] ?? String(editableCajas.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === adv.codigoCaja)?.cantidad_cajas ?? '')}
+                            onChange={(ev) => setModalCajaNumDrafts((prev) => ({ ...prev, [`${adv.codigoCaja}||cantidad_cajas`]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                            placeholder="cjs"
+                            title="Cantidad de cajas"
+                          />
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-bold" onClick={() => handleAjustarCajaNumero(adv.codigoCaja as string, 'cantidad_cajas', modalCajaNumDrafts[`${adv.codigoCaja}||cantidad_cajas`] ?? '')}>
+                            Cantidad
+                          </Button>
+                          <Input
+                            type="number" min={0} step={1}
+                            value={modalCajaNumDrafts[`${adv.codigoCaja}||piezas_por_caja`] ?? String(editableCajas.find((c) => String(c.codigo_caja || c.codigo_caja_temporal || '') === adv.codigoCaja)?.piezas_por_caja ?? '')}
+                            onChange={(ev) => setModalCajaNumDrafts((prev) => ({ ...prev, [`${adv.codigoCaja}||piezas_por_caja`]: ev.target.value }))}
+                            className="h-7 w-20 text-right font-mono text-[11px]"
+                            placeholder="pz"
+                            title="Piezas por caja"
+                          />
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-bold" onClick={() => handleAjustarCajaNumero(adv.codigoCaja as string, 'piezas_por_caja', modalCajaNumDrafts[`${adv.codigoCaja}||piezas_por_caja`] ?? '')}>
+                            Pz/caja
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {advertenciasSubida.length > 30 && (
+                    <p className="text-[10px] text-muted-foreground italic">+{advertenciasSubida.length - 30} advertencia(s) más.</p>
                   )}
                 </div>
               )}

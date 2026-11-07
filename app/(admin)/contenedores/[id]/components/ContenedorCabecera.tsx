@@ -70,6 +70,7 @@ export function ContenedorCabecera({
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [surtirPromptOpen, setSurtirPromptOpen] = useState(false)
   const [confirmSurtidoSinStock, setConfirmSurtidoSinStock] = useState(false)
+  const [targetEstadoSinStock, setTargetEstadoSinStock] = useState<'surtido' | 'completo'>('surtido')
 
   // Surtir dialog (preview fresco en una sola solicitud al abrir)
   const [surtirOpen, setSurtirOpen] = useState(false)
@@ -98,6 +99,7 @@ export function ContenedorCabecera({
 
   const estadoColor = ESTADO_CONTENEDOR_COLORS[contenedor.estado ?? ''] ?? ''
   const transicionesPermitidas = TRANSICIONES_CONTENEDOR[contenedor.estado ?? ''] ?? []
+  const transicionesVisibles = transicionesPermitidas.filter((e) => e !== 'cancelado')
 
   // Detectar aviso de ingreso pendiente (ENT en PEND) para ofrecer el 2.º paso
   // + comprobante permanente para evitar doble surtido
@@ -163,11 +165,12 @@ export function ContenedorCabecera({
     }
 
     if (
-      nuevoEstado === 'surtido' &&
+      (nuevoEstado === 'surtido' || nuevoEstado === 'completo') &&
       contenedor.estado === 'en_bodega' &&
       !comprobanteSurtido &&
       comprobante?.estadoCodigo !== 'CONF'
     ) {
+      setTargetEstadoSinStock(nuevoEstado as 'surtido' | 'completo')
       setSurtirPromptOpen(true)
       return
     }
@@ -272,14 +275,14 @@ export function ContenedorCabecera({
             codigoContenedor={contenedor.codigo_contenedor}
           />
 
-          {/* Estado con transiciones */}
-          {canEdit && transicionesPermitidas.length > 0 && (
+          {/* Estado con transiciones (excluyendo 'cancelado' porque tiene su botón dedicado) */}
+          {canEdit && transicionesVisibles.length > 0 && (
             <Select key={contenedor.estado} onValueChange={(v: any) => { if (v) handleEstado(v) }} disabled={isPending}>
               <SelectTrigger data-testid="contenedor-estado-trigger" className="w-[180px] h-9 text-sm">
                 <SelectValue placeholder="Cambiar estado..." />
               </SelectTrigger>
               <SelectContent>
-                {transicionesPermitidas.map((e) => (
+                {transicionesVisibles.map((e) => (
                   <SelectItem key={e} value={e}>
                     → {ESTADO_CONTENEDOR_LABELS[e]}
                   </SelectItem>
@@ -425,7 +428,7 @@ export function ContenedorCabecera({
                 El contenedor se encuentra actualmente <strong>En Bodega</strong>.
               </span>
               <span className="block text-xs text-muted-foreground">
-                Para que las cajas y piezas ingresen correctamente al stock del inventario (ej. bodega virtual tipo RI&amp;KA), se recomienda realizar el surtido formal con su nota de ingreso.
+                Para que las cajas y piezas ingresen correctamente al stock del inventario (ej. bodega virtual tipo RI&amp;KA), se recomienda realizar el surtido formal con su nota de ingreso antes de marcarlo como <strong>{ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock}</strong>.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -442,7 +445,7 @@ export function ContenedorCabecera({
               }}
               className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700/50 dark:hover:bg-amber-950/30 text-xs"
             >
-              No, cambiar sin surtir
+              No, cambiar a {ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock} sin surtir
             </Button>
             {avisoPendiente ? (
               <Button
@@ -471,25 +474,25 @@ export function ContenedorCabecera({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Modal: Ventana 2 - Doble Protección Crítica al pasar a Surtido sin stock */}
+      {/* Modal: Ventana 2 - Doble Protección Crítica al pasar a Surtido/Completo sin stock */}
       <AlertDialog open={confirmSurtidoSinStock} onOpenChange={setConfirmSurtidoSinStock}>
         <AlertDialogContent className="max-w-lg border-destructive/40">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive font-bold">
               <TriangleAlert className="h-5 w-5 text-destructive" />
-              ⚠️ Doble Protección: Pasar a Surtido sin ingresar stock
+              ⚠️ Doble Protección: Pasar a {ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock} sin ingresar stock
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-3 text-sm pt-2 text-foreground/90">
               <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive font-medium text-xs leading-relaxed">
-                Este contenedor pasará a <strong>SURTIDO SIN SURTIR</strong> realmente ninguna bodega virtual tipo RI&amp;KA.
+                Este contenedor pasará a <strong>{(ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock).toUpperCase()} SIN SURTIR</strong> realmente ninguna bodega virtual tipo RI&amp;KA.
               </div>
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>• <strong>NO se generará nota de ingreso</strong> en el módulo de inventario.</p>
                 <p>• <strong>NO se incrementará el stock</strong> de ningún producto en las bodegas.</p>
-                <p>• <strong>Este proceso no se puede deshacer</strong> una vez cambiado el estado a Surtido.</p>
+                <p>• <strong>Este proceso no se puede deshacer</strong> una vez cambiado el estado a {ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock}.</p>
               </div>
               <p className="font-semibold text-xs pt-1 text-foreground">
-                Si está seguro de continuar presione &quot;Sí, marcar como Surtido sin stock&quot;.
+                Si está seguro de continuar presione &quot;Sí, marcar como {ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock} sin stock&quot;.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -501,12 +504,12 @@ export function ContenedorCabecera({
               disabled={isPending}
               onClick={() => {
                 setConfirmSurtidoSinStock(false)
-                ejecutarCambioEstado('surtido')
+                ejecutarCambioEstado(targetEstadoSinStock)
               }}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
             >
               {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              Sí, marcar como Surtido sin stock
+              Sí, marcar como {ESTADO_CONTENEDOR_LABELS[targetEstadoSinStock] ?? targetEstadoSinStock} sin stock
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
