@@ -1,5 +1,4 @@
 // modules/catalogo/queries.ts
-// modules/catalogo/queries.ts
 'use server'
 
 import { cacheLife, cacheTag } from 'next/cache'
@@ -28,7 +27,8 @@ import { buildCajaContenidoMap } from '@/modules/cajas/utils'
 // ═══════════════════════════════════════════════════════════════
 
 export async function fetchProductosCatalogo(
-  filtros: FiltrosCatalogo
+  filtros: FiltrosCatalogo,
+  preloadedCatalogos?: CatalogosParaFiltros
 ): Promise<ResultadoListado> {
   const supabase = await createClient()
   const page = filtros.page ?? 1
@@ -37,7 +37,7 @@ export async function fetchProductosCatalogo(
 
   const [scope, catalogos] = await Promise.all([
     getCommercialScope(),
-    fetchCatalogosParaFiltros(),
+    preloadedCatalogos ? Promise.resolve(preloadedCatalogos) : fetchCatalogosParaFiltros(),
   ])
 
   // ── Catálogos en paralelo (para filtros y lookup) ─────────

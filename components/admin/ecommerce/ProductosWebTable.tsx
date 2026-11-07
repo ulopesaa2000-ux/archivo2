@@ -2,9 +2,9 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -367,16 +367,16 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                     />
                   </TableCell>
 
-                  {/* Miniatura Foto */}
+                  {/* Miniatura Foto (Optimizada vía imgproxy + carga progresiva) */}
                   <TableCell>
                     {producto.imagen_principal ? (
                       <div className="relative aspect-[3/4] w-12 rounded-md overflow-hidden border border-border bg-muted/20">
-                        <Image
+                        <ProgressiveProductImage
                           src={producto.imagen_principal}
                           alt={producto.descripcion || producto.nombre || producto.sku_base}
-                          fill
-                          className="object-contain p-0.5"
+                          preset="thumbnail"
                           sizes="48px"
+                          fallbackIconClassName="h-4 w-4"
                         />
                       </div>
                     ) : (

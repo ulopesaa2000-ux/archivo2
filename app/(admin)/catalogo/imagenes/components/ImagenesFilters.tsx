@@ -3,9 +3,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTransition } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 import { SearchInput } from '@/components/admin/SearchInput'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
@@ -39,10 +37,6 @@ export function ImagenesFilters() {
     })
   }
 
-  const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term || null)
-  }, 500)
-
   const clearAll = () => {
     startTransition(() => {
       router.push('/catalogo/imagenes', { scroll: false })
@@ -51,14 +45,15 @@ export function ImagenesFilters() {
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
-      {/* Buscador */}
+      {/* Buscador con Reloj Local */}
       <SearchInput
         id="imagenes-search"
         placeholder="Buscar por SKU o nombre..."
         currentValue={currentQ}
         onSearch={(term) => updateParam('q', term)}
-        delay={500}
-        controlled
+        delay={450}
+        minLength={2}
+        showSubmitButton
       />
 
       {/* Tipo de uso */}

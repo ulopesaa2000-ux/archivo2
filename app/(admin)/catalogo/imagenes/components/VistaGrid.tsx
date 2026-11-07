@@ -3,11 +3,10 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { ADMIN_ROUTES } from '@/lib/constants'
-import { getSmartImagenUrl, IMAGEN_SIZES } from '@/lib/utils/imagen'
+import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { USO_IMAGEN_LABELS, USO_IMAGEN_COLORS } from './imagenesConstants'
 import type { ImagenGlobal } from '@/modules/catalogo/imagenes/queries'
 import { cambiarUsoImagenRapidoAction } from '@/modules/catalogo/imagenes/actions'
@@ -73,13 +72,14 @@ export function VistaGrid({ imagenes }: Props) {
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {imagenes.map((img) => {
+        {imagenes.map((img, index) => {
           const usoColor = USO_IMAGEN_COLORS[img.uso_imagen] ?? 'bg-gray-500'
           const isOculta = img.uso_imagen === 'oculta' || img.uso_imagen === 'oculto'
           
           return (
             <div
               key={img.id}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '260px 320px' }}
               className={cn(
                 'group relative rounded-xl border bg-card overflow-hidden transition-all duration-200',
                 'hover:shadow-md hover:border-primary/20',
@@ -88,14 +88,14 @@ export function VistaGrid({ imagenes }: Props) {
               )}
               onClick={() => setSelectedImagen(img)}
             >
-              {/* Imagen */}
+              {/* Imagen progresiva */}
               <div className="relative aspect-square bg-muted/30 overflow-hidden cursor-pointer">
-                <Image
-                  src={getSmartImagenUrl(img.url, 'card_lg')}
+                <ProgressiveProductImage
+                  src={img.url}
                   alt={img.alt_text ?? img.uso_imagen}
-                  fill
-                  className="object-contain transition-transform duration-300 group-hover:scale-105"
-                  sizes={IMAGEN_SIZES.card_lg}
+                  preset="card_lg"
+                  priority={index < 4}
+                  className="group-hover:scale-105"
                 />
 
                 {/* Badge principal */}

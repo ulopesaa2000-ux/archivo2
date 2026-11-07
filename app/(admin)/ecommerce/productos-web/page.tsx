@@ -1,7 +1,7 @@
 // app/(admin)/ecommerce/productos-web/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { createClient } from '@/lib/supabase/server'
+import { fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
 import { fetchProductosWebAdmin } from '@/modules/ecommerce/queries'
 import { ProductosWebFilters } from '@/components/admin/ecommerce/ProductosWebFilters'
 import { ProductosWebTable } from '@/components/admin/ecommerce/ProductosWebTable'
@@ -25,9 +25,44 @@ interface PageProps {
   }>
 }
 
-async function ProductosWebSection({ searchParams }: PageProps) {
-  const params = await searchParams
-  const supabase = await createClient()
+/**
+ * Componente asíncrono exclusivo para la tabla de resultados.
+ * La barra de filtros permanece montada fuera de `<Suspense>` para no perder foco.
+ */
+async function ProductosWebResults({ filtros }: { filtros: FiltrosProductoWeb }) {
+  const { productos, total } = await fetchProductosWebAdmin(filtros)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+        <span>
+          Mostrando <strong className="text-foreground">{productos.length}</strong> de{' '}
+          <strong className="text-foreground">{total}</strong> productos registrados
+        </span>
+        <span className="italic">
+          Orden por defecto: <strong>Con foto primero + Más recientes</strong>
+        </span>
+      </div>
+
+      <ProductosWebTable productos={productos} total={total} />
+    </div>
+  )
+}
+
+function TableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="h-4 w-64 bg-muted animate-pulse rounded" />
+      <div className="h-96 bg-muted animate-pulse rounded-xl" />
+    </div>
+  )
+}
+
+export default async function ProductosWebPage({ searchParams }: PageProps) {
+  const [params, catalogos] = await Promise.all([
+    searchParams,
+    fetchCatalogosParaFiltros(),
+  ])
 
   const filtros: FiltrosProductoWeb = {
     q: params.q,
@@ -41,53 +76,6 @@ async function ProductosWebSection({ searchParams }: PageProps) {
     page: params.page ? Number(params.page) : 1,
   }
 
-  const [
-    { productos, total },
-    { data: marcasData },
-    { data: generosData },
-    { data: tiposPrendaData },
-  ] = await Promise.all([
-    fetchProductosWebAdmin(filtros),
-    supabase.from('cat_marcas').select('id, nombre').eq('activo', true).order('nombre', { ascending: true }),
-    supabase.from('cat_generos').select('id, nombre').eq('activo', true).order('nombre', { ascending: true }),
-    supabase.from('cat_tipo_prenda').select('id, nombre').eq('activo', true).order('nombre', { ascending: true }),
-  ])
-
-  return (
-    <div className="space-y-6">
-      {/* Zona A: Filtros persistentes */}
-      <ProductosWebFilters
-        marcas={marcasData || []}
-        generos={generosData || []}
-        tiposPrenda={tiposPrendaData || []}
-      />
-
-      {/* Contador y Estado */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-        <span>
-          Mostrando <strong className="text-foreground">{productos.length}</strong> de <strong className="text-foreground">{total}</strong> productos registrados
-        </span>
-        <span className="italic">
-          Orden por defecto: <strong>Con foto primero + Más recientes</strong>
-        </span>
-      </div>
-
-      {/* Zona B: Tabla de Productos */}
-      <ProductosWebTable productos={productos} total={total} />
-    </div>
-  )
-}
-
-function TableSkeleton() {
-  return (
-    <div className="space-y-4">
-      <div className="h-20 bg-muted animate-pulse rounded-xl" />
-      <div className="h-96 bg-muted animate-pulse rounded-xl" />
-    </div>
-  )
-}
-
-export default function ProductosWebPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -97,8 +85,16 @@ export default function ProductosWebPage({ searchParams }: PageProps) {
         </p>
       </div>
 
+      {/* Zona A: Filtros persistentes (fuera de Suspense, no pierden foco) */}
+      <ProductosWebFilters
+        marcas={catalogos.marcas || []}
+        generos={catalogos.generos || []}
+        tiposPrenda={catalogos.tipos_prenda || []}
+      />
+
+      {/* Zona B: Tabla de resultados con streaming */}
       <Suspense fallback={<TableSkeleton />}>
-        <ProductosWebSection searchParams={searchParams} />
+        <ProductosWebResults filtros={filtros} />
       </Suspense>
     </div>
   )

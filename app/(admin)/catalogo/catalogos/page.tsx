@@ -1,14 +1,14 @@
 // app/(admin)/catalogo/catalogos/page.tsx
 import type { Metadata } from 'next'
-import { Pagination } from '@/components/admin/Pagination'
-import { fetchProductosCatalogo } from '@/modules/catalogo/queries'
-import type { FiltrosCatalogo, CatalogoSortBy } from '@/modules/catalogo/types'
-import { CatalogoFilters } from '@/app/(admin)/catalogo/CatalogoFilters'
-import { CatalogosReadOnlyTable } from './components/CatalogosReadOnlyTable'
-import { CatalogosReadOnlyGrid } from './components/CatalogosReadOnlyGrid'
-import { CatalogosReadOnlyVistaToggle } from './components/CatalogosReadOnlyVistaToggle'
 import { Suspense } from 'react'
+import { Pagination } from '@/components/admin/Pagination'
 import { Skeleton } from '@/components/ui/skeleton'
+import { fetchProductosCatalogo, fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
+import type { FiltrosCatalogo, CatalogoSortBy, CatalogosParaFiltros } from '@/modules/catalogo/types'
+import { CatalogoFilters } from '@/app/(admin)/catalogo/CatalogoFilters'
+import { CatalogoTable } from '@/app/(admin)/catalogo/CatalogoTable'
+import { CatalogoGrid } from '@/app/(admin)/catalogo/components/CatalogoGrid'
+import { CatalogoVistaToggle } from '@/app/(admin)/catalogo/components/CatalogoVistaToggle'
 
 export const metadata: Metadata = {
   title: 'Consulta de Catálogo',
@@ -36,66 +36,70 @@ function parseOptionalInt(value?: string) {
   return Number.isNaN(parsed) ? undefined : parsed
 }
 
-async function CatalogoData({
+/**
+ * Componente asíncrono exclusivo para resultados (Grid / Tabla + Paginación).
+ * El encabezado y los filtros permanecen montados fuera de `<Suspense>` para no perder foco.
+ */
+async function CatalogoReadOnlyData({
   filtros,
   sortBy,
   order,
   vista,
+  catalogos,
 }: {
   filtros: FiltrosCatalogo
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
   vista: 'grid' | 'tabla'
+  catalogos: CatalogosParaFiltros
 }) {
-  const { productos, total, catalogos } = await fetchProductosCatalogo(filtros)
+  const { productos, total } = await fetchProductosCatalogo(filtros, catalogos)
 
   return (
-    <>
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Consulta de Catálogo
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''} (Solo lectura)
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <CatalogosReadOnlyVistaToggle />
-        </div>
-      </div>
-
-      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {total} producto{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''} (Solo lectura)
+      </p>
 
       {vista === 'grid' ? (
-        <CatalogosReadOnlyGrid productos={productos} />
+        <CatalogoGrid productos={productos} mode="readonly" />
       ) : (
-        <CatalogosReadOnlyTable
+        <CatalogoTable
           productos={productos}
           catalogos={catalogos}
           sortBy={sortBy}
           order={order}
+          mode="readonly"
         />
       )}
 
       <Pagination total={total} />
-    </>
+    </div>
   )
 }
 
-function CatalogoSkeleton() {
+function CatalogoResultsSkeleton({ vista }: { vista: 'grid' | 'tabla' }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-32 mt-1" />
+      <Skeleton className="h-4 w-44" />
+      {vista === 'grid' ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Skeleton key={i} className="h-64 w-full rounded-xl" />
+          ))}
         </div>
-        <Skeleton className="h-9 w-24" />
-      </div>
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-[400px] w-full" />
+      ) : (
+        <div className="rounded-md border">
+          <div className="border-b bg-muted/50 p-3">
+            <Skeleton className="h-4 w-full" />
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="border-b p-3">
+              <Skeleton className="h-6 w-full" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -105,7 +109,10 @@ export default async function CatalogoReadOnlyPage({
 }: {
   searchParams: Promise<CatalogoSearchParams>
 }) {
-  const params = await searchParams
+  const [params, catalogos] = await Promise.all([
+    searchParams,
+    fetchCatalogosParaFiltros(),
+  ])
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as CatalogoSortBy)
     ? params.sort_by
@@ -128,8 +135,31 @@ export default async function CatalogoReadOnlyPage({
 
   return (
     <div className="space-y-4">
-      <Suspense fallback={<CatalogoSkeleton />}>
-        <CatalogoData filtros={filtros} sortBy={sortBy} order={order} vista={vista} />
+      {/* ── Encabezado fijo y estable ── */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Consulta de Catálogo
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <CatalogoVistaToggle />
+        </div>
+      </div>
+
+      {/* ── Filtros fijos y estables (NUNCA se desmontan al buscar) ── */}
+      <CatalogoFilters catalogos={catalogos} sortBy={sortBy} order={order} />
+
+      {/* ── Solo la tabla o grid y su paginación se suspenden dinámicamente ── */}
+      <Suspense fallback={<CatalogoResultsSkeleton vista={vista} />}>
+        <CatalogoReadOnlyData
+          filtros={filtros}
+          sortBy={sortBy}
+          order={order}
+          vista={vista}
+          catalogos={catalogos}
+        />
       </Suspense>
     </div>
   )

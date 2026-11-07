@@ -1,26 +1,35 @@
 // app/(admin)/catalogo/components/CatalogoGrid.tsx
 'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { ADMIN_ROUTES, ESTADO_PRODUCTO_COLORS } from '@/lib/constants'
 import { formatCurrency, cn } from '@/lib/utils'
-import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import type { ProductoListItem } from '@/modules/catalogo/types'
-import { Star, Pencil, Eye, Package } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { Pencil, Eye, Package } from 'lucide-react'
 import { DestacadoStarButton } from './DestacadoStarButton'
 import { ShareProductoButton } from './ShareProductoButton'
 
+export type CatalogoViewMode = 'admin' | 'readonly'
+
 interface Props {
   productos: ProductoListItem[]
+  mode?: CatalogoViewMode
 }
 
-export function CatalogoGrid({ productos }: Props) {
+/**
+ * Vista de cuadrícula unificada para Catálogo (`/catalogo` y `/catalogo/catalogos`).
+ *
+ * - Renderiza primero los datos textuales en 0ms.
+ * - Carga las imágenes progresivamente en segundo plano vía `<ProgressiveProductImage />`.
+ * - Aplica `content-visibility: auto` para aislar el pintado de tarjetas fuera del viewport.
+ */
+export function CatalogoGrid({ productos, mode = 'admin' }: Props) {
   const router = useRouter()
+  const isReadOnly = mode === 'readonly'
 
   if (productos.length === 0) {
     return (
@@ -30,7 +39,11 @@ export function CatalogoGrid({ productos }: Props) {
         </div>
         <div className="text-center">
           <p className="text-sm font-medium">No se encontraron productos</p>
-          <p className="text-xs opacity-70 mt-1">Ajusta los filtros o crea un nuevo producto</p>
+          <p className="text-xs opacity-70 mt-1">
+            {isReadOnly
+              ? 'Ajusta los filtros de búsqueda'
+              : 'Ajusta los filtros o crea un nuevo producto'}
+          </p>
         </div>
       </div>
     )
@@ -38,57 +51,62 @@ export function CatalogoGrid({ productos }: Props) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4">
-      {productos.map((producto) => {
+      {productos.map((producto, index) => {
         const estadoColor = ESTADO_PRODUCTO_COLORS[producto.estado] ?? 'bg-gray-100 text-gray-800'
+        const detalleUrl = ADMIN_ROUTES.catalogo.detalle(producto.id)
 
         return (
           <div
             key={producto.id}
+            style={{ contentVisibility: 'auto', containIntrinsicSize: '240px 340px' }}
             className="group relative rounded-xl border border-border/60 bg-card overflow-hidden transition-all duration-300 hover:shadow-lg hover:border-primary/40"
           >
-            {/* Imagen */}
-            <Link href={ADMIN_ROUTES.catalogo.detalle(producto.id)} className="block">
+            {/* Imagen progresiva (no bloquea el renderizado de datos) */}
+            <Link href={detalleUrl} className="block">
               <div className="relative aspect-[3/4] bg-muted/40 dark:bg-slate-900/50 overflow-hidden">
-                {producto.imagen_principal ? (
-                  <Image
-                    src={getSmartImagenUrl(producto.imagen_principal, 'card')}
-                    alt={producto.nombre ?? producto.sku_base}
-                    fill
-                    className="object-contain transition-transform duration-300 group-hover:scale-105"
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Package className="h-10 w-10 text-muted-foreground/30" />
-                  </div>
-                )}
+                <ProgressiveProductImage
+                  src={producto.imagen_principal}
+                  alt={producto.nombre ?? producto.sku_base}
+                  preset="card"
+                  priority={index < 4}
+                  className="group-hover:scale-105"
+                />
 
-                {/* Overlay acciones (Alto contraste para Claro y Oscuro) */}
+                {/* Overlay de acciones según el modo */}
                 <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 p-2">
-                  <Button
-                    size="sm"
-                    className="h-8 px-3 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold gap-1.5 transition-all hover:scale-105 active:scale-95"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      router.push(ADMIN_ROUTES.catalogo.detalle(producto.id))
-                    }}
-                    title="Editar producto"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    <span>Editar</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 px-3 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold gap-1.5 transition-all hover:scale-105 active:scale-95"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      window.open(ADMIN_ROUTES.catalogo.detalle(producto.id), '_blank')
-                    }}
-                    title="Ver detalle en nueva pestaña"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    <span>Ver</span>
-                  </Button>
+                  {isReadOnly ? (
+                    <div className="h-8 px-3.5 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:scale-105 active:scale-95">
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>Ver detalle</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        className="h-8 px-3 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold gap-1.5 transition-all hover:scale-105 active:scale-95"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          router.push(detalleUrl)
+                        }}
+                        title="Editar producto"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        <span>Editar</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-8 px-3 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold gap-1.5 transition-all hover:scale-105 active:scale-95"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          window.open(detalleUrl, '_blank')
+                        }}
+                        title="Ver detalle en nueva pestaña"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>Ver</span>
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 {/* Botón interactivo destacado */}
@@ -112,7 +130,7 @@ export function CatalogoGrid({ productos }: Props) {
               </div>
             </Link>
 
-            {/* Info */}
+            {/* Datos principales (renderizados de inmediato en el HTML) */}
             <div className="p-3 space-y-1.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <Badge className={cn('text-[10px] font-medium rounded-full px-2 py-0.5 border-none', estadoColor)}>
@@ -126,13 +144,16 @@ export function CatalogoGrid({ productos }: Props) {
               </div>
 
               <Link
-                href={ADMIN_ROUTES.catalogo.detalle(producto.id)}
+                href={detalleUrl}
                 className="text-xs font-mono font-bold text-foreground hover:text-primary transition-colors block truncate"
               >
                 {producto.sku_base}
               </Link>
 
-              <div className="text-xs text-muted-foreground line-clamp-2 min-h-[2.5em]" title={producto.descripcion ?? producto.nombre ?? ''}>
+              <div
+                className="text-xs text-muted-foreground line-clamp-2 min-h-[2.5em]"
+                title={producto.descripcion ?? producto.nombre ?? ''}
+              >
                 {producto.descripcion ?? producto.nombre ?? '—'}
               </div>
 

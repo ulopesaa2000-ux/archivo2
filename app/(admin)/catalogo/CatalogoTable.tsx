@@ -1,9 +1,9 @@
+// app/(admin)/catalogo/CatalogoTable.tsx
 'use client'
 
-// app/(admin)/catalogo/CatalogoTable.tsx
-
+import { useMemo } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { DataTable, DataTableProvider, useDataTableContext, BulkActionBar, QuickEditPopover } from '@/components/admin/DataTable'
 import type { ColumnDef, TableFeatures, QuickEditField, BulkAction } from '@/components/admin/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -12,8 +12,9 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreHorizontal, Eye, Pencil, Trash2, Star, Layers, Package, Sparkles } from 'lucide-react'
+import { MoreHorizontal, Eye, Pencil, Trash2, Layers, Package, Sparkles } from 'lucide-react'
 import { DestacadoStarButton } from './components/DestacadoStarButton'
+import type { CatalogoViewMode } from './components/CatalogoGrid'
 import { formatCurrency, truncate } from '@/lib/utils'
 import { ESTADO_PRODUCTO_COLORS, ADMIN_ROUTES } from '@/lib/constants'
 import type { ProductoListItem, CatalogosParaFiltros, CatalogoSortBy } from '@/modules/catalogo/types'
@@ -24,7 +25,8 @@ type Props = {
   catalogos: CatalogosParaFiltros
   sortBy: CatalogoSortBy
   order: 'asc' | 'desc'
-  initialFeatures: TableFeatures
+  initialFeatures?: TableFeatures
+  mode?: CatalogoViewMode
 }
 
 // ── Acciones masivas (definidas por la página, no acopladas) ─────────────────
@@ -68,6 +70,14 @@ const FALLBACK_FEATURES: TableFeatures = {
   columnSelector: false,
 }
 
+const READONLY_FEATURES: TableFeatures = {
+  selectable: false,
+  sortable: true,
+  quickEdit: false,
+  bulkActions: [],
+  columnSelector: false,
+}
+
 // ── QuickEdit save handler (global para todas las celdas) ────────────────────
 async function handleQuickEditSave(
   ids: number[],
@@ -102,12 +112,16 @@ function CatalogoTableInner({
   catalogos,
   sortBy,
   order,
+  mode = 'admin',
 }: Props) {
   const ctx = useDataTableContext()
   const searchParams = useSearchParams()
-  const marcasMap = new Map(catalogos.marcas.map((m) => [m.id, m.nombre]))
-  const generosMap = new Map(catalogos.generos.map((g) => [g.id, g.nombre]))
-  const edadesMap = new Map((catalogos.edades || []).map((e) => [e.id, e.nombre]))
+  const isReadOnly = mode === 'readonly'
+
+  const marcasMap = useMemo(
+    () => new Map(catalogos.marcas.map((m) => [m.id, m.nombre])),
+    [catalogos.marcas]
+  )
 
   const createModalUrl = (paramsToAdd: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -117,19 +131,26 @@ function CatalogoTableInner({
     return `/catalogo?${params.toString()}`
   }
 
-  const handleBulkDeactivate = async (ids: number[]) => {
-    const { bulkDeactivateProductsAction } = await import('@/modules/catalogo/actions')
-    return bulkDeactivateProductsAction(ids)
-  }
-
   // Construir opciones de catálogos para los campos select
-  const marcaOptions = catalogos.marcas.map(m => ({ id: m.id, label: m.nombre }))
-  const generoOptions = catalogos.generos.map(g => ({ id: g.id, label: g.nombre }))
-  const edadOptions = (catalogos.edades || []).map(e => ({ id: e.id, label: e.nombre }))
-  const prendaOptions = (catalogos.tipos_prenda || []).map(t => ({ id: t.id, label: t.nombre }))
+  const marcaOptions = useMemo(
+    () => catalogos.marcas.map(m => ({ id: m.id, label: m.nombre })),
+    [catalogos.marcas]
+  )
+  const generoOptions = useMemo(
+    () => catalogos.generos.map(g => ({ id: g.id, label: g.nombre })),
+    [catalogos.generos]
+  )
+  const edadOptions = useMemo(
+    () => (catalogos.edades || []).map(e => ({ id: e.id, label: e.nombre })),
+    [catalogos.edades]
+  )
+  const prendaOptions = useMemo(
+    () => (catalogos.tipos_prenda || []).map(t => ({ id: t.id, label: t.nombre })),
+    [catalogos.tipos_prenda]
+  )
 
   // Combina las features configuradas con los defaults de fallback para asegurar que ningún campo nuevo quede undefined
-  const activeQuickEditList = ctx.features.quickEdit === false
+  const activeQuickEditList = isReadOnly || ctx.features.quickEdit === false
     ? null
     : [
         ...(Array.isArray(ctx.features.quickEdit) ? ctx.features.quickEdit : []),
@@ -168,30 +189,37 @@ function CatalogoTableInner({
       header: 'Descripción',
       headerClassName: 'w-[340px] max-w-[340px] min-w-[300px] text-left',
       className: 'w-[340px] max-w-[340px] min-w-[300px] text-left',
-      cell: (row: ProductoListItem) => (
-        <QuickEditPopover
-          field={(quickEditFields ?? []).find(f => f.key === 'descripcion')!}
-          value={row.descripcion ?? row.nombre}
-          rowId={row.id}
-          companionFields={{
-            prenda: { value: row.tipo_prenda_id, options: prendaOptions },
-            genero: { value: row.genero_id, options: generoOptions },
-            edad: { value: row.edad_id, options: edadOptions },
-            marca: { value: row.marca_id, options: marcaOptions },
-          }}
-          catalogos={catalogos}
-          onSaveRecord={handleQuickEditRecordSave}
-          onSaveGlobal={handleQuickEditSave}
-          className="justify-start text-left [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
-        >
+      cell: (row: ProductoListItem) => {
+        const content = (
           <span
             className="text-[13px] block w-full text-left line-clamp-3 break-words whitespace-normal leading-snug overflow-hidden"
             title={row.descripcion ?? row.nombre ?? ''}
           >
             {truncate(row.descripcion ?? row.nombre, 140)}
           </span>
-        </QuickEditPopover>
-      ),
+        )
+        if (isReadOnly) return content
+
+        return (
+          <QuickEditPopover
+            field={(quickEditFields ?? []).find(f => f.key === 'descripcion')!}
+            value={row.descripcion ?? row.nombre}
+            rowId={row.id}
+            companionFields={{
+              prenda: { value: row.tipo_prenda_id, options: prendaOptions },
+              genero: { value: row.genero_id, options: generoOptions },
+              edad: { value: row.edad_id, options: edadOptions },
+              marca: { value: row.marca_id, options: marcaOptions },
+            }}
+            catalogos={catalogos}
+            onSaveRecord={handleQuickEditRecordSave}
+            onSaveGlobal={handleQuickEditSave}
+            className="justify-start text-left [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
+          >
+            {content}
+          </QuickEditPopover>
+        )
+      },
     },
     {
       key: 'familia',
@@ -199,18 +227,27 @@ function CatalogoTableInner({
       sortKey: 'familia',
       headerClassName: 'w-[100px] min-w-[95px] text-center',
       className: 'w-[100px] min-w-[95px] text-center',
-      cell: (row: ProductoListItem) => (
-        <QuickEditPopover
-          field={(quickEditFields ?? []).find(f => f.key === 'familia')!}
-          value={row.familia}
-          rowId={row.id}
-          align="center"
-          onSaveGlobal={handleQuickEditSave}
-          className="[&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
-        >
-          <span className="font-mono text-[13px] text-muted-foreground block w-full text-center truncate">{row.familia ?? '—'}</span>
-        </QuickEditPopover>
-      ),
+      cell: (row: ProductoListItem) => {
+        const content = (
+          <span className="font-mono text-[13px] text-muted-foreground block w-full text-center truncate">
+            {row.familia ?? '—'}
+          </span>
+        )
+        if (isReadOnly) return content
+
+        return (
+          <QuickEditPopover
+            field={(quickEditFields ?? []).find(f => f.key === 'familia')!}
+            value={row.familia}
+            rowId={row.id}
+            align="center"
+            onSaveGlobal={handleQuickEditSave}
+            className="[&>span:first-child]:flex-1 [&>span:first-child]:min-w-0"
+          >
+            {content}
+          </QuickEditPopover>
+        )
+      },
     },
     {
       key: 'marca',
@@ -218,18 +255,25 @@ function CatalogoTableInner({
       sortKey: 'marca_id',
       headerClassName: 'w-[130px] min-w-[120px]',
       className: 'w-[130px] min-w-[120px]',
-      cell: (row: ProductoListItem) => (
-        <QuickEditPopover
-          field={(quickEditFields ?? []).find(f => f.key === 'marca_id')!}
-          value={row.marca_id}
-          rowId={row.id}
-          onSaveGlobal={handleQuickEditSave}
-        >
+      cell: (row: ProductoListItem) => {
+        const content = (
           <span className="text-sm block truncate">
             {row.marca_id ? marcasMap.get(row.marca_id) ?? '—' : '—'}
           </span>
-        </QuickEditPopover>
-      ),
+        )
+        if (isReadOnly) return content
+
+        return (
+          <QuickEditPopover
+            field={(quickEditFields ?? []).find(f => f.key === 'marca_id')!}
+            value={row.marca_id}
+            rowId={row.id}
+            onSaveGlobal={handleQuickEditSave}
+          >
+            {content}
+          </QuickEditPopover>
+        )
+      },
     },
     {
       key: 'pz_en_caja',
@@ -247,19 +291,26 @@ function CatalogoTableInner({
       sortKey: 'precio_ec',
       headerClassName: 'w-[115px] min-w-[105px] text-right',
       className: 'w-[115px] min-w-[105px] text-right font-mono',
-      cell: (row: ProductoListItem) => (
-        <QuickEditPopover
-          field={(quickEditFields ?? []).find(f => f.key === 'precio_ec')!}
-          value={row.precio_ec}
-          rowId={row.id}
-          align="end"
-          onSaveGlobal={handleQuickEditSave}
-        >
+      cell: (row: ProductoListItem) => {
+        const content = (
           <span className="text-sm font-medium tabular-nums">
             {row.precio_ec != null ? formatCurrency(row.precio_ec) : '—'}
           </span>
-        </QuickEditPopover>
-      ),
+        )
+        if (isReadOnly) return content
+
+        return (
+          <QuickEditPopover
+            field={(quickEditFields ?? []).find(f => f.key === 'precio_ec')!}
+            value={row.precio_ec}
+            rowId={row.id}
+            align="end"
+            onSaveGlobal={handleQuickEditSave}
+          >
+            {content}
+          </QuickEditPopover>
+        )
+      },
     },
     {
       key: 'estado',
@@ -267,22 +318,29 @@ function CatalogoTableInner({
       sortKey: 'estado',
       headerClassName: 'w-[130px] min-w-[120px] text-center',
       className: 'w-[130px] min-w-[120px] text-center',
-      cell: (row: ProductoListItem) => (
-        <QuickEditPopover
-          field={(quickEditFields ?? []).find(f => f.key === 'estado')!}
-          value={row.estado}
-          rowId={row.id}
-          align="center"
-          onSaveGlobal={handleQuickEditSave}
-        >
+      cell: (row: ProductoListItem) => {
+        const badge = (
           <Badge
             variant="secondary"
             className={`text-xs ${ESTADO_PRODUCTO_COLORS[row.estado] ?? 'bg-gray-100 text-gray-800'}`}
           >
             {row.estado}
           </Badge>
-        </QuickEditPopover>
-      ),
+        )
+        if (isReadOnly) return badge
+
+        return (
+          <QuickEditPopover
+            field={(quickEditFields ?? []).find(f => f.key === 'estado')!}
+            value={row.estado}
+            rowId={row.id}
+            align="center"
+            onSaveGlobal={handleQuickEditSave}
+          >
+            {badge}
+          </QuickEditPopover>
+        )
+      },
     },
     {
       key: 'flags',
@@ -314,43 +372,51 @@ function CatalogoTableInner({
       header: '',
       headerClassName: 'w-[50px] text-right',
       className: 'w-[50px] text-right',
-      cell: (row: ProductoListItem) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
-              <span suppressHydrationWarning>
-                <MoreHorizontal className="h-4 w-4" />
-              </span>
-              <span className="sr-only">Acciones</span>
+      cell: (row: ProductoListItem) =>
+        isReadOnly ? (
+          <Link href={ADMIN_ROUTES.catalogo.detalle(row.id)}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
+              <Eye className="h-4 w-4" />
+              <span className="sr-only">Ver detalle</span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href={ADMIN_ROUTES.catalogo.detalle(row.id)}>
-                <Eye className="mr-2 h-3.5 w-3.5" />
-                Ver detalle
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={createModalUrl({ modal: 'edit', edit_id: String(row.id) })}>
-                <Pencil className="mr-2 h-3.5 w-3.5" />
-                Editar rápido
-              </Link>
-            </DropdownMenuItem>
-            {row.activo && (
+          </Link>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
+                <span suppressHydrationWarning>
+                  <MoreHorizontal className="h-4 w-4" />
+                </span>
+                <span className="sr-only">Acciones</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
-                <Link
-                  href={createModalUrl({ modal: 'delete', delete_id: String(row.id) })}
-                  className="text-destructive"
-                >
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Desactivar
+                <Link href={ADMIN_ROUTES.catalogo.detalle(row.id)}>
+                  <Eye className="mr-2 h-3.5 w-3.5" />
+                  Ver detalle
                 </Link>
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+              <DropdownMenuItem asChild>
+                <Link href={createModalUrl({ modal: 'edit', edit_id: String(row.id) })}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" />
+                  Editar rápido
+                </Link>
+              </DropdownMenuItem>
+              {row.activo && (
+                <DropdownMenuItem asChild>
+                  <Link
+                    href={createModalUrl({ modal: 'delete', delete_id: String(row.id) })}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    Desactivar
+                  </Link>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
     },
   ]
 
@@ -407,26 +473,35 @@ function CatalogoTableInner({
         emptyIcon={<Package className="h-12 w-12" />}
       />
 
-      <BulkActionBar
-        actions={tableBulkActions.map(a => ({
-          ...a,
-          onClick: async (ids: number[]) => {
-            const res = await a.onClick(ids)
-            if (res !== false) {
-              ctx.clearSelection()
-            }
-          },
-        }))}
-        label="productos"
-      />
+      {!isReadOnly && (
+        <BulkActionBar
+          actions={tableBulkActions.map(a => ({
+            ...a,
+            onClick: async (ids: number[]) => {
+              const res = await a.onClick(ids)
+              if (res !== false) {
+                ctx.clearSelection()
+              }
+            },
+          }))}
+          label="productos"
+        />
+      )}
     </>
   )
 }
 
-export function CatalogoTable({ initialFeatures, ...props }: Props) {
+export function CatalogoTable({ initialFeatures, mode = 'admin', ...props }: Props) {
+  const pathname = usePathname()
+  const isReadOnly = mode === 'readonly'
+
+  const resolvedFeatures: TableFeatures = isReadOnly
+    ? READONLY_FEATURES
+    : { ...FALLBACK_FEATURES, ...initialFeatures, bulkActions }
+
   return (
-    <DataTableProvider route="/catalogo" features={{ ...FALLBACK_FEATURES, ...initialFeatures, bulkActions }}>
-      <CatalogoTableInner {...props} sortBy={props.sortBy} order={props.order} initialFeatures={initialFeatures} />
+    <DataTableProvider route={pathname || '/catalogo'} features={resolvedFeatures}>
+      <CatalogoTableInner {...props} mode={mode} initialFeatures={resolvedFeatures} />
     </DataTableProvider>
   )
 }

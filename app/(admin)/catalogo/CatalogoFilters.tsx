@@ -51,16 +51,15 @@ export function CatalogoFilters({
 
   return (
     <div className={`space-y-4 ${isPending ? 'opacity-70' : ''}`}>
-      {/* ── Fila 1: Buscador ─────────────────────────────── */}
+      {/* ── Fila 1: Buscador con Reloj Local Calibrado ─── */}
       <SearchInput
         id="catalogo-search"
         placeholder="Buscar por SKU o descripción..."
         currentValue={currentQ}
         onSearch={(term) => updateParam('q', term)}
-        delay={300}
+        delay={450}
         minLength={2}
         showSubmitButton
-        controlled
       />
 
       {/* ── Fila 2: Selects + Checkboxes ─────────────────── */}

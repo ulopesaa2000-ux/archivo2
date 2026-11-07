@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useTransition, useState, useEffect } from 'react'
+import { useTransition, useState, useEffect, useRef } from 'react'
 import { 
   Search, 
   X, 
@@ -44,11 +44,17 @@ export function FilterSidebar() {
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   
-  const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '')
+  const currentQ = searchParams.get('q') || ''
+  const [searchTerm, setSearchTerm] = useState(currentQ)
+  const isFocusedRef = useRef(false)
+  const isTypingRef = useRef(false)
 
+  // Solo sincronizar desde la URL si el usuario NO está enfocado/escribiendo (escudo anti-corte)
   useEffect(() => {
-    setSearchTerm(searchParams.get('q') || '')
-  }, [searchParams])
+    if (!isFocusedRef.current && !isTypingRef.current) {
+      setSearchTerm(currentQ)
+    }
+  }, [currentQ])
 
   const currentGenero = searchParams.get('genero') || ''
   const currentTipo = searchParams.get('tipo') || ''
@@ -59,6 +65,7 @@ export function FilterSidebar() {
   const hasFilters = Array.from(searchParams.entries()).length > 0
 
   const debouncedSearch = useDebouncedCallback((term: string) => {
+    isTypingRef.current = false
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
       if (term.trim()) {
@@ -69,17 +76,25 @@ export function FilterSidebar() {
       params.delete('page')
       router.push(`/shop?${params.toString()}`, { scroll: false })
     })
-  }, 300)
+  }, 450)
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
+    isTypingRef.current = true
     setSearchTerm(value)
     debouncedSearch(value)
   }
 
   const handleClearSearch = () => {
+    isTypingRef.current = false
+    debouncedSearch.cancel()
     setSearchTerm('')
-    debouncedSearch('')
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('q')
+      params.delete('page')
+      router.push(`/shop?${params.toString()}`, { scroll: false })
+    })
   }
 
   const toggleParamValue = (key: string, value: string) => {
@@ -115,6 +130,8 @@ export function FilterSidebar() {
   }
 
   const clearFilters = () => {
+    isTypingRef.current = false
+    debouncedSearch.cancel()
     startTransition(() => {
       setSearchTerm('')
       router.push('/shop', { scroll: false })
@@ -122,7 +139,7 @@ export function FilterSidebar() {
   }
 
   return (
-    <div className={cn("space-y-6 pb-6", isPending && "opacity-60 pointer-events-none transition-opacity")}>
+    <div className={cn("space-y-6 pb-6 transition-opacity", isPending && "opacity-75")}>
       
       {/* Encabezado del Menú Izquierdo */}
       <div className="flex items-center justify-between pb-3 border-b border-border">
@@ -141,7 +158,7 @@ export function FilterSidebar() {
         )}
       </div>
 
-      {/* 1. Buscador Directo */}
+      {/* 1. Buscador Directo con Reloj Local */}
       <div>
         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-1.5">
           Buscar Prenda
@@ -153,6 +170,21 @@ export function FilterSidebar() {
             placeholder="Buscar por SKU o modelo..."
             value={searchTerm}
             onChange={handleSearchChange}
+            onFocus={() => {
+              isFocusedRef.current = true
+            }}
+            onBlur={() => {
+              isFocusedRef.current = false
+              isTypingRef.current = false
+              debouncedSearch.flush()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                isTypingRef.current = false
+                debouncedSearch.flush()
+              }
+            }}
             className="w-full bg-background dark:bg-zinc-900 border border-border text-xs text-foreground pl-8 pr-7 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-xs"
           />
           {searchTerm && (

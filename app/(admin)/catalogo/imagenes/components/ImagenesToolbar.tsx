@@ -13,7 +13,7 @@ const ImportarMasivoModal = dynamic(
   { ssr: false }
 )
 
-export function ImagenesToolbar({ total }: { total: number }) {
+export function ImagenesToolbar({ total }: { total?: number } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()

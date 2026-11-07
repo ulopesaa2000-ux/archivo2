@@ -3,8 +3,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Check } from 'lucide-react'
+import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { Pagination } from '@/components/admin/Pagination'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
@@ -96,7 +96,11 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
   const defaultButtonLabel = isCatalogoMode ? '+ Interés' : (config?.texto_boton_agregar || '+ Carrito')
 
   return (
-    <Link href={`/shop/${producto.slug}`} className="block group">
+    <Link
+      href={`/shop/${producto.slug}`}
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '260px 380px' }}
+      className="block group"
+    >
       <div className="bg-card dark:bg-zinc-900 rounded-lg aspect-[3/4] flex items-center justify-center text-muted-foreground dark:text-gray-400 text-[10px] tracking-[0.05em] uppercase relative overflow-hidden mb-3 border border-border dark:border-zinc-800 group-hover:border-[#2D5A3D]/40 transition-colors shadow-xs">
         <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,0,0,.015) 12px, rgba(0,0,0,.015) 13px)' }}></div>
         
@@ -117,18 +121,14 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
           />
         </div>
 
-        {producto.imagen_principal ? (
-          <Image
-            src={producto.imagen_principal}
-            alt={producto.nombre || 'Imagen del producto'}
-            fill
-            className="object-contain p-1 z-0 transition-transform group-hover:scale-105"
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            priority={priority}
-          />
-        ) : (
-          <span className="z-10">Imagen</span>
-        )}
+        <ProgressiveProductImage
+          src={producto.imagen_principal}
+          alt={producto.nombre || 'Imagen del producto'}
+          preset="card"
+          priority={priority}
+          className="p-1 z-0 group-hover:scale-105"
+          fallbackLabel="Sin Imagen"
+        />
       </div>
 
       <div className="px-1">

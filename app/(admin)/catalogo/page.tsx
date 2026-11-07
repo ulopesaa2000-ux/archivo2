@@ -66,7 +66,7 @@ async function CatalogoTableData({
   catalogos: CatalogosParaFiltros
 }) {
   const [{ productos, total }, tableConfig] = await Promise.all([
-    fetchProductosCatalogo(filtros),
+    fetchProductosCatalogo(filtros, catalogos),
     fetchUserTableConfig('/catalogo')
   ])
 

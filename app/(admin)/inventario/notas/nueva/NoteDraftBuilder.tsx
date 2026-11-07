@@ -53,6 +53,7 @@ import type {
   FaltanteStock, ResultadoValidacionNota
 } from '@/modules/inventario/types'
 import { ModalStockInsuficiente } from '@/components/admin/inventario/ModalStockInsuficiente'
+import { SkuQuickSearchInput, type SkuSearchResultItem } from '@/components/admin/SkuQuickSearchInput'
 import {
   agregarLineasPorClave,
   ajustarLineasADisponible,
@@ -2140,61 +2141,58 @@ export function NoteDraftBuilder({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Buscador */}
+          {/* Buscador de Producto con Reloj Local Calibrado */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por SKU o nombre del producto..."
+            <SkuQuickSearchInput
               value={searchTerm}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-10 pr-16 h-11 rounded-xl"
+              placeholder="Buscar por SKU o nombre del producto..."
               disabled={!draft.bodega_origen_id || todoBloqueado || soloEditaDestino}
+              inputClassName="h-11 rounded-xl text-sm"
+              layout="grid"
+              limit={10}
+              delay={280}
+              onSelectProduct={(p) => {
+                handleSelectProduct({
+                  id: p.id,
+                  sku_base: p.sku_base,
+                  nombre: p.nombre,
+                  descripcion: p.descripcion ?? null,
+                  pz_en_caja: p.pz_en_caja ?? null,
+                  marca_nombre: null,
+                  imagen_url: null,
+                })
+              }}
+              onValueChange={(val, matched) => {
+                setSearchTerm(val)
+                if (selectedProduct && val !== selectedProduct.sku_base) {
+                  setSelectedProduct(null)
+                  setSelectedProductStock(null)
+                }
+                if (matched && (!selectedProduct || selectedProduct.id !== matched.id)) {
+                  handleSelectProduct({
+                    id: matched.id,
+                    sku_base: matched.sku_base,
+                    nombre: matched.nombre,
+                    descripcion: matched.descripcion ?? null,
+                    pz_en_caja: matched.pz_en_caja ?? null,
+                    marca_nombre: null,
+                    imagen_url: null,
+                  })
+                }
+              }}
+              onClear={() => {
+                setSearchTerm('')
+                setSelectedProduct(null)
+                setSelectedProductStock(null)
+                setSearchResults([])
+              }}
             />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-              {searchTerm.length > 0 && (
-                <button
-                  type="button"
-                  className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  onClick={() => {
-                    setSearchTerm('')
-                    setSelectedProduct(null)
-                    setSelectedProductStock(null)
-                    setSearchResults([])
-                    if (searchAbortRef.current) searchAbortRef.current.abort()
-                  }}
-                  title="Limpiar búsqueda"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {isSearching && (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              )}
-            </div>
             {!draft.bodega_origen_id && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-orange-600 uppercase bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">
+              <span className="absolute right-12 top-1/2 -translate-y-1/2 text-[10px] font-bold text-orange-600 uppercase bg-orange-50 border border-orange-200 px-2 py-0.5 rounded pointer-events-none">
                 * Selecciona bodega origen primero
               </span>
             )}
           </div>
-
-          {/* Resultados de búsqueda - grid 2 columnas */}
-          {searchResults.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[250px] overflow-auto border rounded-xl p-2 bg-background shadow-lg">
-              {searchResults.slice(0, 10).map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleSelectProduct(p)}
-                  className="flex flex-col gap-1 p-3 rounded-lg border hover:bg-muted text-left transition-colors text-sm"
-                >
-                  <span className="font-mono text-xs font-bold tracking-wider text-primary">{p.sku_base}</span>
-                  <span className="text-xs text-muted-foreground line-clamp-1">{p.descripcion ?? p.nombre}</span>
-                  <span className="text-[10px] text-muted-foreground">{p.pz_en_caja ?? '?'} piezas por caja</span>
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* Formulario para producto seleccionado con stock en tiempo real */}
           {selectedProduct && (
@@ -2982,44 +2980,31 @@ export function NoteDraftBuilder({
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                autoFocus
-                placeholder="Buscar por SKU o nombre de producto..."
-                value={swapSearchTerm}
-                onChange={(e) => handleSwapSearchChange(e.target.value)}
-                className="pl-10 h-10 rounded-xl text-sm"
-              />
-              {isSearchingSwap && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-              )}
-            </div>
-
-            {swapSearchResults.length > 0 ? (
-              <div className="space-y-1.5 max-h-[280px] overflow-auto border rounded-xl p-2 bg-background">
-                {swapSearchResults.slice(0, 8).map((prod) => (
-                  <button
-                    key={prod.id}
-                    type="button"
-                    onClick={() => swapProductTempId && handleSwapProduct(swapProductTempId, prod)}
-                    className="w-full flex items-center justify-between p-2.5 rounded-lg border hover:bg-muted text-left transition-colors text-xs group"
-                  >
-                    <div className="flex flex-col truncate pr-2">
-                      <span className="font-mono font-bold text-primary group-hover:underline">{prod.sku_base}</span>
-                      <span className="text-muted-foreground truncate">{prod.descripcion ?? prod.nombre}</span>
-                    </div>
-                    <Badge variant="secondary" className="shrink-0 text-[10px]">
-                      {prod.pz_en_caja ?? '?'} pz/caja
-                    </Badge>
-                  </button>
-                ))}
-              </div>
-            ) : swapSearchTerm.length >= 2 && !isSearchingSwap ? (
-              <p className="text-xs text-center text-muted-foreground py-4">No se encontraron productos con ese SKU.</p>
-            ) : (
-              <p className="text-xs text-center text-muted-foreground py-4">Ingresa 2 o más caracteres para buscar.</p>
-            )}
+            <SkuQuickSearchInput
+              autoFocus
+              value={swapSearchTerm}
+              placeholder="Buscar por SKU o nombre de producto..."
+              inputClassName="h-10 rounded-xl text-sm"
+              delay={280}
+              onSelectProduct={(prod) => {
+                if (swapProductTempId) {
+                  handleSwapProduct(swapProductTempId, {
+                    id: prod.id,
+                    sku_base: prod.sku_base,
+                    nombre: prod.nombre,
+                    descripcion: prod.descripcion ?? null,
+                    pz_en_caja: prod.pz_en_caja ?? null,
+                    marca_nombre: null,
+                    imagen_url: null,
+                  })
+                }
+              }}
+              onValueChange={(val) => setSwapSearchTerm(val)}
+              onClear={() => {
+                setSwapSearchTerm('')
+                setSwapSearchResults([])
+              }}
+            />
           </div>
         </DialogContent>
       </Dialog>

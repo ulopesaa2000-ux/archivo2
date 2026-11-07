@@ -1,16 +1,16 @@
 // components/admin/ecommerce/ProductosWebFilters.tsx
 'use client'
 
-import { useTransition, useState, useEffect } from 'react'
+import { useTransition } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/admin/SearchInput'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Search, X, SlidersHorizontal, Image as ImageIcon, ArrowUpDown, Tag, Users, Shirt, Star, Sparkles, BadgePercent,
+  X, SlidersHorizontal, Image as ImageIcon, ArrowUpDown, Tag, Users, Shirt, Star, Sparkles, BadgePercent,
 } from 'lucide-react'
 import { CatalogoPdfModal } from './CatalogoPdfModal'
 
@@ -24,14 +24,9 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition()
 
-  // State local para el buscador con debounce
-  const [q, setQ] = useState(searchParams.get('q') || '')
-
-  useEffect(() => {
-    setQ(searchParams.get('q') || '')
-  }, [searchParams])
+  const currentQ = searchParams.get('q') || ''
 
   // Manejador genérico para actualizar query params
   const updateQueryParam = (name: string, value: string | null) => {
@@ -49,18 +44,6 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
     })
   }
 
-  // Debounce para búsqueda por texto (300ms)
-  useEffect(() => {
-    const currentParam = searchParams.get('q') || ''
-    if (q === currentParam) return
-
-    const timer = setTimeout(() => {
-      updateQueryParam('q', q)
-    }, 300)
-
-    return () => clearTimeout(timer)
-  }, [q])
-
   const hasActiveFilters =
     searchParams.has('q') ||
     searchParams.has('estado_web') ||
@@ -72,7 +55,6 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
     (searchParams.has('ordenar_por') && searchParams.get('ordenar_por') !== 'recientes_con_foto')
 
   const handleClear = () => {
-    setQ('')
     startTransition(() => {
       router.push(pathname, { scroll: false })
     })
@@ -159,27 +141,18 @@ export function ProductosWebFilters({ marcas, generos, tiposPrenda }: Props) {
       <div className="space-y-3">
         {/* Fila 1: Búsqueda, Estado, Especiales, Fotos y Orden */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {/* 1. Buscador */}
-          <div className="space-y-1 sm:col-span-2">
+          {/* 1. Buscador con Reloj Local */}
+          <div className={`space-y-1 sm:col-span-2 ${isPending ? 'opacity-70' : ''}`}>
             <Label className="text-xs text-muted-foreground font-medium">Buscar por SKU, Descripción o Marca</Label>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Ej: 8526, Chamarra Polar..."
-                className="pl-9 h-9 text-xs"
-              />
-              {q && (
-                <button
-                  type="button"
-                  onClick={() => setQ('')}
-                  className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
+            <SearchInput
+              id="productos-web-search"
+              placeholder="Ej: 8526, Chamarra Polar..."
+              currentValue={currentQ}
+              onSearch={(term) => updateQueryParam('q', term)}
+              delay={450}
+              minLength={2}
+              className="w-full max-w-none"
+            />
           </div>
 
           {/* 2. Estado Web */}

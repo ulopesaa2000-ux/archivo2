@@ -2,6 +2,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { Suspense } from 'react'
+import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { fetchPortadaColeccionHome } from '@/modules/ecommerce/banners'
 import { formatearStockDisponible } from '@/modules/ecommerce/utils'
@@ -87,21 +88,17 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
             className="bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden block group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border dark:border-zinc-800"
           >
             <div className="relative aspect-[3/4] bg-muted dark:bg-zinc-800 overflow-hidden">
-              {prod.imagen_principal ? (
-                <Image
-                  src={prod.imagen_principal}
-                  alt={prod.nombre}
-                  fill
-                  className="object-cover object-top group-hover:scale-105 transition-transform duration-500"
-                  sizes="(max-width: 768px) 50vw, 25vw"
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
-                  Sin Imagen
-                </div>
-              )}
+              <ProgressiveProductImage
+                src={prod.imagen_principal}
+                alt={prod.nombre}
+                preset="card_lg"
+                objectFit="cover"
+                sizes="(max-width: 768px) 50vw, 25vw"
+                className="object-top group-hover:scale-105 duration-500"
+                fallbackLabel="Sin Imagen"
+              />
 
-              <div className="absolute top-2.5 right-2.5 bg-black/70 backdrop-blur-xs text-amber-400 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+              <div className="absolute top-2.5 right-2.5 z-10 bg-black/70 backdrop-blur-xs text-amber-400 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
                 <Sparkles className="h-3 w-3" /> Destacado
               </div>
             </div>

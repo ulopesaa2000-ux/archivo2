@@ -44,14 +44,7 @@ function parseBool(value?: string): boolean | undefined {
 function ImagenesSkeleton({ vista = 'grid' }: { vista?: 'grid' | 'agrupado' | 'tabla' }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-32 mt-1" />
-        </div>
-        <Skeleton className="h-9 w-64" />
-      </div>
-      <Skeleton className="h-10 w-full" />
+      <Skeleton className="h-4 w-40" />
 
       {vista === 'agrupado' ? (
         <div className="space-y-3">
@@ -103,18 +96,10 @@ async function ImagenesContent({
     )
 
     return (
-      <>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Gestor de Imágenes</h1>
-            <p className="text-sm text-muted-foreground">
-              {totalGrupos} producto{totalGrupos !== 1 ? 's' : ''} agrupado{totalGrupos !== 1 ? 's' : ''} ({totalImagenes} fotos en total)
-            </p>
-          </div>
-          <ImagenesToolbar total={totalImagenes} />
-        </div>
-
-        <ImagenesFilters />
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          {totalGrupos} producto{totalGrupos !== 1 ? 's' : ''} agrupado{totalGrupos !== 1 ? 's' : ''} ({totalImagenes} fotos en total)
+        </p>
 
         <VistaAgrupada
           grupos={grupos}
@@ -123,7 +108,7 @@ async function ImagenesContent({
         />
 
         <Pagination total={totalGrupos} pageSize={PAGE_SIZE_AGRUPADO} />
-      </>
+      </div>
     )
   }
 
@@ -133,18 +118,10 @@ async function ImagenesContent({
   )
 
   return (
-    <>
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Gestor de Imágenes</h1>
-          <p className="text-sm text-muted-foreground">
-            {total} imagen{total !== 1 ? 'es' : ''} encontrada{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <ImagenesToolbar total={total} />
-      </div>
-
-      <ImagenesFilters />
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {total} imagen{total !== 1 ? 'es' : ''} encontrada{total !== 1 ? 's' : ''}
+      </p>
 
       {vista === 'grid' ? (
         <VistaGrid imagenes={imagenes} />
@@ -153,7 +130,7 @@ async function ImagenesContent({
       )}
 
       <Pagination total={total} pageSize={PAGE_SIZE_INDIVIDUAL} />
-    </>
+    </div>
   )
 }
 
@@ -173,11 +150,22 @@ export default async function ImagenesPage({
   }
 
   const vista = params.vista === 'agrupado' ? 'agrupado' : params.vista === 'tabla' ? 'tabla' : 'grid'
-  const suspenseKey = `${vista}-${filtros.page}-${filtros.q ?? ''}-${filtros.uso_imagen ?? ''}-${filtros.origen ?? ''}-${filtros.es_principal ?? ''}`
 
   return (
     <div className="space-y-4">
-      <Suspense key={suspenseKey} fallback={<ImagenesSkeleton vista={vista} />}>
+      {/* ── Encabezado y Toolbar fijos (NUNCA se desmontan al buscar) ── */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Gestor de Imágenes</h1>
+        </div>
+        <ImagenesToolbar />
+      </div>
+
+      {/* ── Filtros fijos y estables ── */}
+      <ImagenesFilters />
+
+      {/* ── Solo la galería/tabla se suspende dinámicamente ── */}
+      <Suspense fallback={<ImagenesSkeleton vista={vista} />}>
         <ImagenesContent filtros={filtros} vista={vista} />
       </Suspense>
     </div>

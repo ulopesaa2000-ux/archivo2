@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Loader2, Search } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 
 type Props = {
   placeholder?: string
@@ -16,8 +16,9 @@ type Props = {
   controlled?: boolean
   /** No consulta mientras el término sea más corto. */
   minLength?: number
-  /** Muestra un fallback explícito para confirmar la búsqueda por botón. */
+  /** Muestra un botón explícito para confirmar la búsqueda. */
   showSubmitButton?: boolean
+  className?: string
 }
 
 export function SearchInput({
@@ -25,10 +26,11 @@ export function SearchInput({
   id = 'search-input',
   currentValue = '',
   onSearch,
-  delay = 300,
-  controlled = false,
+  delay = 400,
+  controlled = true,
   minLength = 0,
   showSubmitButton = false,
+  className = '',
 }: Props) {
   const [localValue, setLocalValue] = useState(currentValue ?? '')
   const [isTyping, setIsTyping] = useState(false)
@@ -38,15 +40,14 @@ export function SearchInput({
   const isFocusedRef = useRef(false)
   const isTypingRef = useRef(false)
 
-  // Sincroniza el input cuando cambia la URL por navegación, paginación o limpiar filtros.
-  // IMPORTANTE: Si el usuario tiene el foco activo en el input y está escribiendo, NO sobrescribir
-  // su texto con respuestas de búsquedas anteriores en vuelo (previene cortes de texto).
+  // Sincroniza el input cuando cambia la URL desde afuera (navegación, limpiar filtros, etc.).
+  // CANDADO ANTIRECORTE: Si el usuario tiene el cursor en el input o está tecleando,
+  // la red o la URL tienen ESTRICTAMENTE PROHIBIDO sobrescribir o recortar lo que está en pantalla.
   if (currentValue !== prevCurrentValue) {
     setPrevCurrentValue(currentValue)
-    if (!isFocusedRef.current || !currentValue) {
+    if (!isFocusedRef.current && !isTypingRef.current) {
       setLocalValue(currentValue ?? '')
       setIsTyping(false)
-      isTypingRef.current = false
       setValidationMessage(null)
     }
   }
@@ -54,7 +55,7 @@ export function SearchInput({
   const debouncedSearch = useDebouncedCallback(
     (term: string) => {
       const normalized = term.trim()
-      if (normalized.length < minLength) {
+      if (normalized.length > 0 && normalized.length < minLength) {
         setIsTyping(false)
         isTypingRef.current = false
         return
@@ -97,10 +98,14 @@ export function SearchInput({
   )
 
   const handleChange = (value: string) => {
+    // 1. Estado local inmediato a 0ms (buffer que jamás se traba por lentitud de internet)
     setLocalValue(value)
     isTypingRef.current = true
+    setIsTyping(true)
+
     const normalized = value.trim()
 
+    // Si borró todo el texto, limpiar de inmediato sin esperar el delay
     if (!normalized) {
       debouncedSearch.cancel()
       onSearch(null)
@@ -110,16 +115,17 @@ export function SearchInput({
       return
     }
 
+    // Si aún no cumple la longitud mínima, no saturar la red con consultas genéricas (ej. 1 letra)
     if (normalized.length < minLength) {
       debouncedSearch.cancel()
       setIsTyping(false)
-      setValidationMessage(`Escribe al menos ${minLength} caracteres.`)
+      setValidationMessage(`Escribe al menos ${minLength} caracteres para buscar.`)
       return
     }
 
     setValidationMessage(null)
-    setIsTyping(true)
-    debouncedSearch(value)
+    // 2. Reloj local: cada pulsación reinicia el cronómetro de delay ms en memoria
+    debouncedSearch(normalized)
   }
 
   const handleFocus = () => {
@@ -128,11 +134,22 @@ export function SearchInput({
 
   const handleBlur = () => {
     isFocusedRef.current = false
-    isTypingRef.current = false
-    // Si al desenfocar el valor local está vacío o coincide con la URL, limpiar mensaje de validación
+    if (!isTyping) {
+      isTypingRef.current = false
+    }
     if (!localValue) {
       setValidationMessage(null)
     }
+  }
+
+  const handleClearButton = () => {
+    debouncedSearch.cancel()
+    setLocalValue('')
+    setIsTyping(false)
+    isTypingRef.current = false
+    setValidationMessage(null)
+    onSearch(null)
+    inputRef.current?.focus()
   }
 
   useEffect(() => {
@@ -153,61 +170,52 @@ export function SearchInput({
     return () => window.removeEventListener(`clear-${id}`, handleClear)
   }, [debouncedSearch, id])
 
-  if (controlled) {
-    return (
-      <div className={`flex-1 ${showSubmitButton ? 'max-w-xl' : 'max-w-sm'}`}>
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={inputRef}
-              id={id}
-              placeholder={placeholder}
-              value={localValue}
-              onChange={(e) => handleChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-              aria-describedby={`${id}-hint`}
-              className="pl-10 pr-10"
-            />
+  return (
+    <div className={`flex-1 ${showSubmitButton ? 'max-w-xl' : 'max-w-sm'} ${className}`}>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            ref={inputRef}
+            id={id}
+            placeholder={placeholder}
+            value={localValue}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            aria-describedby={`${id}-hint`}
+            className="pl-9 pr-14 h-9"
+          />
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {localValue && (
+              <button
+                type="button"
+                onClick={handleClearButton}
+                className="h-5 w-5 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Limpiar búsqueda"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
             {isTyping && (
               <Loader2
-                aria-label="Buscando"
-                className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
+                aria-label="Esperando pausa para buscar..."
+                className="h-4 w-4 animate-spin text-primary shrink-0"
               />
             )}
           </div>
-          {showSubmitButton && (
-            <Button type="button" size="sm" className="h-9 shrink-0" onClick={() => submitSearch()}>
-              <Search className="mr-1.5 h-3.5 w-3.5" />
-              Buscar
-            </Button>
-          )}
         </div>
-        <p id={`${id}-hint`} className="mt-1 text-[11px] text-muted-foreground" aria-live="polite">
-          {validationMessage ?? (showSubmitButton ? 'Búsqueda en vivo · Enter o Buscar para confirmar' : '')}
-        </p>
+        {showSubmitButton && (
+          <Button type="button" size="sm" className="h-9 shrink-0 font-medium" onClick={() => submitSearch()}>
+            <Search className="mr-1.5 h-3.5 w-3.5" />
+            Buscar
+          </Button>
+        )}
       </div>
-    )
-  }
-
-  return (
-    <div className="flex-1 max-w-sm">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          ref={inputRef}
-          id={id}
-          placeholder={placeholder}
-          defaultValue={currentValue ?? ''}
-          onChange={(e) => debouncedSearch(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          className="pl-10 pr-10"
-        />
-      </div>
+      <p id={`${id}-hint`} className="mt-1 text-[11px] text-muted-foreground" aria-live="polite">
+        {validationMessage ?? (showSubmitButton ? 'Búsqueda en tiempo real · Enter para forzar' : '')}
+      </p>
     </div>
   )
 }
