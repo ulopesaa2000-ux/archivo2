@@ -2,6 +2,7 @@
 import { ReactNode, Suspense } from 'react'
 import { StoreFooter } from '@/components/store/layout/StoreFooter'
 import { StoreHeader } from '@/components/store/layout/StoreHeader'
+import { MobileBottomNav } from '@/components/store/layout/MobileBottomNav'
 import { storeMetadata, storeViewport } from '@/lib/seo/store-metadata'
 import { verifySessionOptional } from '@/lib/dal'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
@@ -14,7 +15,12 @@ async function StoreHeaderWithUser() {
     verifySessionOptional(),
     fetchConfigEcommerce(),
   ])
-  return <StoreHeader user={session.user} initialConfig={config} />
+  return (
+    <>
+      <StoreHeader user={session.user} initialConfig={config} />
+      <MobileBottomNav config={config} />
+    </>
+  )
 }
 
 export default function StoreLayout({ children }: { children: ReactNode }) {
@@ -25,7 +31,7 @@ export default function StoreLayout({ children }: { children: ReactNode }) {
       >
         <StoreHeaderWithUser />
       </Suspense>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 pb-16 md:pb-0">{children}</main>
       <Suspense
         fallback={<footer className="bg-store-surface border-t border-store-border h-32" />}
       >

@@ -13,6 +13,8 @@ export type EditableSection =
   | 'explora_categoria'
   | 'categorias_grid'
   | 'footer_agradecimiento'
+  | 'seo_general'
+  | 'barra_rapida'
   | null
 
 interface LiveStoreEditorContextType {

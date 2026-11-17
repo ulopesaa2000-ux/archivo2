@@ -23,6 +23,11 @@ import type { Metadata } from 'next'
 
 import { LiveStoreEditorProvider } from '@/components/store/editor/LiveStoreEditorContext'
 import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
+import { StoreHomeQuickNav } from '@/components/store/home/StoreHomeQuickNav'
+import { RecomendacionesSection } from '@/components/store/home/RecomendacionesSection'
+import { FavoritosYRecientesStrip } from '@/components/store/home/FavoritosYRecientesStrip'
+import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
+import { SITE_NAME, SITE_URL } from '@/lib/seo/site'
 
 const StoreQuickEditorToolbar = dynamic(() =>
   import('@/components/store/editor/StoreQuickEditorToolbar').then((m) => m.StoreQuickEditorToolbar)
@@ -37,25 +42,46 @@ import {
   getSubtitleSizeClass,
   getContactosActivos,
   buildWhatsAppLink,
+  getSectionBgClass,
 } from '@/lib/utils/storeConfig'
 import { verifySessionOptional } from '@/lib/dal'
 import { can } from '@/lib/auth/permissions'
 
-export const metadata: Metadata = {
-  title: 'Idol Navy | Moda que te define - Colección 2026',
-  description: 'Descubre nuestra exclusiva colección de moda Idol Navy 2026. Chamarras, rompevientos, chalecos y conjuntos diseñados con los mejores materiales. Calidad y estilo en cada prenda.',
-  openGraph: {
-    title: 'Idol Navy | Moda que te define',
-    description: 'Explora nuestra colección 2026 de moda exclusiva Idol Navy. Calidad y diseño en un solo lugar.',
-    images: ['/og-image.jpg'],
+export async function generateMetadata(): Promise<Metadata> {
+  const rawConfig = await fetchConfigEcommerce()
+  const storeConfig = parseStoreConfig(rawConfig?.mensaje_precio_variable)
+
+  return {
+    title: storeConfig.seoTitle,
+    description: storeConfig.seoDescription,
+    keywords: storeConfig.seoKeywords,
+    alternates: {
+      canonical: SITE_URL,
+    },
+    openGraph: {
+      title: storeConfig.ogTitle,
+      description: storeConfig.ogDescription,
+      url: SITE_URL,
+      siteName: SITE_NAME,
+      type: 'website',
+      images: ['/og-image.jpg'],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: storeConfig.ogTitle,
+      description: storeConfig.ogDescription,
+      images: ['/og-image.jpg'],
+    },
   }
 }
 
-async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
+async function DestacadosSection({ title, titleSize, subtitle, subtitleSize, bgTheme, bgIntensity }: {
   title: string
   titleSize: string
   subtitle: string
   subtitleSize: string
+  bgTheme?: string
+  bgIntensity?: string
 }) {
   const [{ productos: destacados }, config] = await Promise.all([
     fetchProductosWebPublicos({ destacado: true, page: 1 }),
@@ -64,7 +90,7 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
   const top4 = destacados.slice(0, 4)
 
   return (
-    <div className="px-4 md:px-8 py-8 md:py-12 relative border-b border-border">
+    <div className={`px-4 md:px-8 py-8 md:py-12 relative border-b border-border transition-colors ${getSectionBgClass(bgTheme, bgIntensity)}`}>
       <div className="flex flex-col sm:flex-row items-start sm:items-baseline justify-between mb-8 gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -88,60 +114,65 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize }: {
 
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {top4.map((prod) => (
-          <Link
-            href={`/shop/${prod.slug}`}
+          <div
             key={prod.id}
-            className="bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden block group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border dark:border-zinc-800"
+            className="bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border dark:border-zinc-800 relative"
           >
-            <div className="relative aspect-[3/4] bg-muted dark:bg-zinc-800 overflow-hidden">
-              <ProgressiveProductImage
-                src={prod.imagen_principal}
-                alt={prod.nombre}
-                preset="card_lg"
-                objectFit="cover"
-                sizes="(max-width: 768px) 50vw, 25vw"
-                className="object-top group-hover:scale-105 duration-500"
-                fallbackLabel="Sin Imagen"
-              />
-
-              <div className="absolute top-2.5 right-2.5 z-10 bg-black/70 backdrop-blur-xs text-amber-400 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-                <Sparkles className="h-3 w-3" /> Destacado
-              </div>
+            <div className="absolute top-2.5 left-2.5 z-20">
+              <FavoriteButton productoWebId={prod.id} nombre={prod.nombre} />
             </div>
 
-            <div className="p-3.5">
-              <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                {config?.mostrar_sku && prod.sku_base && (
-                  <span className="text-[10px] font-mono text-muted-foreground uppercase truncate">
-                    {prod.sku_base}
+            <Link href={`/shop/${prod.slug}`} className="block">
+              <div className="relative aspect-[3/4] bg-muted dark:bg-zinc-800 overflow-hidden">
+                <ProgressiveProductImage
+                  src={prod.imagen_principal}
+                  alt={prod.nombre}
+                  preset="card_lg"
+                  objectFit="cover"
+                  sizes="(max-width: 768px) 50vw, 25vw"
+                  className="object-top group-hover:scale-105 duration-500"
+                  fallbackLabel="Sin Imagen"
+                />
+
+                <div className="absolute top-2.5 right-2.5 z-10 bg-black/70 backdrop-blur-xs text-amber-400 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> Destacado
+                </div>
+              </div>
+
+              <div className="p-3.5">
+                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                  {config?.mostrar_sku && prod.sku_base && (
+                    <span className="text-[10px] font-mono text-muted-foreground uppercase truncate">
+                      {prod.sku_base}
+                    </span>
+                  )}
+                  {Boolean(config?.mostrar_stock) && (() => {
+                    const stockInfo = formatearStockDisponible(prod, config)
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                          stockInfo.disponible
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                        }`}
+                        title={stockInfo.texto}
+                      >
+                        {stockInfo.textoCorto}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
+                  {prod.nombre}
+                </h4>
+                {prod.precio_publico && (
+                  <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">
+                    ${prod.precio_publico.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </span>
                 )}
-                {Boolean(config?.mostrar_stock) && (() => {
-                  const stockInfo = formatearStockDisponible(prod, config)
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded ${
-                        stockInfo.disponible
-                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
-                      }`}
-                      title={stockInfo.texto}
-                    >
-                      {stockInfo.textoCorto}
-                    </span>
-                  )
-                })()}
               </div>
-              <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
-                {prod.nombre}
-              </h4>
-              {prod.precio_publico && (
-                <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">
-                  ${prod.precio_publico.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                </span>
-              )}
-            </div>
-          </Link>
+            </Link>
+          </div>
         ))}
       </div>
     </div>
@@ -170,10 +201,33 @@ async function HomePageContent() {
   ])
   const storeConfig = parseStoreConfig(rawConfig?.mensaje_precio_variable)
 
+  const websiteSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: SITE_NAME,
+    url: SITE_URL,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${SITE_URL}/shop?q={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
+  }
+
   return (
     <div className="bg-background dark:bg-zinc-950 pb-12 transition-colors">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+      />
+
+      {/* Navegación rápida y buscador estilo Shein / Amazon */}
+      <StoreHomeQuickNav
+        izquierda={storeConfig.quickNavIzquierda}
+        derecha={storeConfig.quickNavDerecha}
+      />
+
       {/* 1. HERO SECTION / BIENVENIDA */}
-      <div className="relative pt-10 md:pt-16 pb-12 md:pb-16 px-4 md:px-8 grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 items-center bg-background dark:bg-zinc-950 border-b border-border">
+      <div className={`relative pt-10 md:pt-16 pb-12 md:pb-16 px-4 md:px-8 grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 items-center border-b border-border transition-colors ${getSectionBgClass(storeConfig.heroBgTheme, storeConfig.heroBgIntensity)}`}>
         <div className="absolute top-4 right-4 z-20">
           <QuickEditButton section="hero" label="Hero / Bienvenida" />
         </div>
@@ -297,7 +351,7 @@ async function HomePageContent() {
       </div>
 
       {/* 2. EXPLORA POR CATEGORÍA SECTION */}
-      <div className="px-4 md:px-8 py-10 md:py-14 border-b border-border relative">
+      <div className={`px-4 md:px-8 py-10 md:py-14 border-b border-border relative transition-colors ${getSectionBgClass(storeConfig.exploraBgTheme, storeConfig.exploraBgIntensity)}`}>
         <div className="flex flex-col sm:flex-row items-start sm:items-baseline justify-between mb-6 gap-4">
           <div className="max-w-3xl">
             <div className="flex items-center gap-3">
@@ -321,7 +375,7 @@ async function HomePageContent() {
       </div>
 
       {/* 3. CATÁLOGO POR LÍNEAS / CUADROS DE CATEGORÍA CON ICONOS (DAMA, CABALLERO E INFANTIL) */}
-      <div className="px-4 md:px-8 py-10 md:py-14 border-b border-border relative">
+      <div className={`px-4 md:px-8 py-10 md:py-14 border-b border-border relative transition-colors ${getSectionBgClass(storeConfig.categoriasBgTheme, storeConfig.categoriasBgIntensity)}`}>
         <div className="flex items-baseline justify-between mb-8">
           <div>
             <div className="flex items-center gap-3">
@@ -461,11 +515,21 @@ async function HomePageContent() {
           titleSize={storeConfig.destacadosTitleSize}
           subtitle={storeConfig.destacadosSubtitle}
           subtitleSize={storeConfig.destacadosSubtitleSize}
+          bgTheme={storeConfig.destacadosBgTheme}
+          bgIntensity={storeConfig.destacadosBgIntensity}
         />
       </Suspense>
 
+      {/* 4.5 TUS FAVORITOS Y VISTOS RECIENTEMENTE */}
+      <FavoritosYRecientesStrip config={rawConfig} />
+
+      {/* 4.6 TENDENCIAS Y RECIÉN LLEGADOS (RECOMENDACIONES) */}
+      <Suspense fallback={<DestacadosSkeleton />}>
+        <RecomendacionesSection />
+      </Suspense>
+
       {/* 5. SECCIÓN DE CONTACTOS DIRECTOS POR REGIÓN */}
-      <div id="contactos" className="relative mx-4 md:mx-8 mt-10 p-6 md:p-8 bg-card dark:bg-zinc-900 rounded-2xl border border-border shadow-sm text-card-foreground">
+      <div id="contactos" className={`relative mx-4 md:mx-8 mt-10 p-6 md:p-8 rounded-2xl border border-border shadow-sm text-card-foreground transition-colors ${getSectionBgClass(storeConfig.contactosBgTheme, storeConfig.contactosBgIntensity)}`}>
         <div className="absolute top-4 right-4 z-20">
           <QuickEditButton section="contactos_regionales" label="Contactos Regionales" />
         </div>
@@ -492,7 +556,7 @@ async function HomePageContent() {
       </div>
 
       {/* 6. BANNER DE AGRADECIMIENTO FOOTER / COMUNIDAD */}
-      <div className="relative mx-4 md:mx-8 mt-6 p-6 md:p-8 bg-gradient-to-r from-emerald-900/10 via-emerald-800/15 to-zinc-900/10 dark:from-emerald-950/40 dark:via-zinc-900/80 dark:to-emerald-950/30 rounded-2xl border border-emerald-500/20 dark:border-emerald-500/30 shadow-xs text-center overflow-hidden group">
+      <div className={`relative mx-4 md:mx-8 mt-6 p-6 md:p-8 rounded-2xl border border-border shadow-xs text-center overflow-hidden group transition-colors ${getSectionBgClass(storeConfig.footerBgTheme, storeConfig.footerBgIntensity)}`}>
         <div className="absolute top-3 right-3 z-20">
           <QuickEditButton section="footer_agradecimiento" label="Mensaje de Agradecimiento" />
         </div>

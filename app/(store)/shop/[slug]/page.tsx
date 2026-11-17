@@ -8,6 +8,8 @@ import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
 import { VariantSelector } from '@/components/store/producto/VariantSelector'
+import { RecentProductTracker } from '@/components/store/producto/RecentProductTracker'
+import { ProductCarouselRail } from '@/components/store/home/ProductCarouselRail'
 import { SITE_NAME, SITE_URL, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
 import { slugify } from '@/lib/utils'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
@@ -17,6 +19,7 @@ import {
   fetchImagenesProducto,
   fetchMedidasPublicas,
   fetchProductoWebBySlug,
+  fetchProductosRelacionadosInteligentes,
   fetchVariantesProducto,
   incrementProductoWebVisitas,
 } from '@/modules/ecommerce/queries'
@@ -70,6 +73,54 @@ async function VariantSelectorSection({
 }) {
   const variantes = await fetchVariantesProducto(productoId)
   return <VariantSelector variantes={variantes} config={config} stockDisponible={stockDisponible} />
+}
+
+async function RelatedProductsSection({
+  productoWebId,
+  tipoPrenda,
+  genero,
+  marca,
+  config,
+}: {
+  productoWebId: number
+  tipoPrenda?: string | null
+  genero?: string | null
+  marca?: string | null
+  config: Awaited<ReturnType<typeof fetchConfigEcommerce>>
+}) {
+  const relacionados = await fetchProductosRelacionadosInteligentes({
+    productoWebId,
+    tipoPrenda,
+    genero,
+    marca,
+    limit: 8,
+  })
+
+  if (relacionados.length === 0) return null
+
+  const subtitleParts = [tipoPrenda, genero, marca].filter(Boolean)
+  const subtitle =
+    subtitleParts.length > 0
+      ? `Prendas similares en ${subtitleParts.join(' · ')}`
+      : 'Selección recomendada para ti de nuestra colección'
+
+  const filterHref = genero
+    ? `/shop?genero=${encodeURIComponent(genero.toLowerCase())}`
+    : '/shop'
+
+  return (
+    <div className="mt-10 border-t border-store-border">
+      <ProductCarouselRail
+        title="Te Podría Interesar"
+        subtitle={subtitle}
+        href={filterHref}
+        hrefLabel="Ver más similares"
+        productos={relacionados}
+        config={config}
+        badgeType="recommended"
+      />
+    </div>
+  )
 }
 
 async function MeasurementsSection({ productoId }: { productoId: number }) {
@@ -268,6 +319,7 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
 
   return (
     <div className="bg-[var(--bg)] min-h-screen pb-16">
+      <RecentProductTracker productoWebId={producto.id} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
@@ -415,6 +467,15 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
           </div>
         </div>
       </div>
+      <Suspense fallback={null}>
+        <RelatedProductsSection
+          productoWebId={producto.id}
+          tipoPrenda={producto.tipo_prenda}
+          genero={producto.genero}
+          marca={producto.marca}
+          config={config}
+        />
+      </Suspense>
     </div>
   )
 }

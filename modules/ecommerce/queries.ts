@@ -834,6 +834,289 @@ export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at
   }))
 }
 
+async function hydrateProductosWebPublicos(
+  supabase: any,
+  rawRows: any[]
+): Promise<ProductoWebPublico[]> {
+  if (!rawRows || rawRows.length === 0) return []
+  const productoIds = rawRows.map((p: any) => p.producto_id)
+
+  const [imgRes, stockRes] = await Promise.all([
+    (supabase
+      .from('producto_imagenes')
+      .select('producto_id, url, url_og, es_principal, orden')
+      .in('producto_id', productoIds)
+      .order('es_principal', { ascending: false })
+      .order('orden', { ascending: true }) as any),
+    supabase
+      .from('v_stock_consolidado')
+      .select('producto_id, cajas_total_global, piezas_total_global, piezas_estimadas_global')
+      .in('producto_id', productoIds),
+  ])
+
+  const imagenesMap = (imgRes.data || []).reduce((acc: Record<number, { url: string; url_og: string | null }>, img: any) => {
+    if (!acc[img.producto_id] || img.es_principal) {
+      acc[img.producto_id] = { url: img.url, url_og: img.url_og }
+    }
+    return acc
+  }, {})
+
+  const stockMap = (stockRes.data || []).reduce((acc: Record<number, { cajas: number; piezas: number; estimadas: number }>, s: any) => {
+    acc[s.producto_id] = {
+      cajas: Number(s.cajas_total_global || 0),
+      piezas: Number(s.piezas_total_global || 0),
+      estimadas: Number(s.piezas_estimadas_global || 0),
+    }
+    return acc
+  }, {})
+
+  return rawRows.map((item: any) => {
+    const cleanNombre = cleanJsonGarbage(item.productos?.nombre)
+    const cleanDescripcion = cleanJsonGarbage(item.productos?.descripcion)
+    const cleanTituloSeo = cleanJsonGarbage(item.titulo_seo)
+    return {
+      id: item.id,
+      slug: item.slug,
+      producto_id: item.producto_id,
+      sku_base: item.productos?.sku_base,
+      nombre: cleanNombre || cleanDescripcion || cleanTituloSeo || item.productos?.sku_base || 'Producto',
+      descripcion: cleanDescripcion,
+      composicion: null,
+      titulo_seo: cleanTituloSeo,
+      descripcion_seo: null,
+      precio_publico: item.precio_publico,
+      precio_oferta: item.precio_oferta,
+      en_oferta: item.en_oferta,
+      destacado: item.destacado,
+      nuevo: item.nuevo,
+      marca: item.productos?.cat_marcas?.nombre,
+      tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
+      genero: item.productos?.cat_generos?.nombre,
+      tela_exterior: null,
+      tela_forro: null,
+      keywords: null,
+      imagen_principal: imagenesMap[item.producto_id]?.url || null,
+      url_og: imagenesMap[item.producto_id]?.url_og || null,
+      modo_override: item.modo_override,
+      unidad_venta: item.unidad_venta,
+      activo: item.activo,
+      visitas: item.visitas ?? 0,
+      stock_cajas: stockMap[item.producto_id]?.cajas ?? 0,
+      stock_piezas: stockMap[item.producto_id]?.piezas ?? 0,
+      piezas_estimadas: stockMap[item.producto_id]?.estimadas ?? 0,
+    } as ProductoWebPublico
+  })
+}
+
+/**
+ * Recomendaciones para la portada (/ e /inicio):
+ * - tendencias: productos más vistos (visitas DESC)
+ * - novedades: productos marcados como nuevo = true sin repetir tendencias ni excludeIds
+ */
+export async function fetchProductosRecomendadosHome(
+  excludeIds: number[] = []
+): Promise<{ tendencias: ProductoWebPublico[]; novedades: ProductoWebPublico[] }> {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag('ecommerce-catalogo')
+  cacheTag('ecommerce-config')
+
+  try {
+    const supabase = createStaticClient()
+    const config = await fetchConfigEcommerce()
+    const allowedProductIds = await obtenerIdsProductosVisiblesSegunModo(
+      supabase,
+      config?.modo_visibilidad_catalogo || 'todos_publicados'
+    )
+
+    if (allowedProductIds !== null && allowedProductIds.length === 0) {
+      return { tendencias: [], novedades: [] }
+    }
+
+    const selectCols = `
+      id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
+      en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+      productos!inner(
+        sku_base, nombre, descripcion,
+        cat_marcas!left(nombre),
+        cat_tipo_prenda!left(nombre),
+        cat_generos!left(nombre)
+      )
+    `
+
+    let qTendencias = (supabase.from('productos_web') as any)
+      .select(selectCols)
+      .eq('activo', true)
+      .eq('productos.activo', true)
+      .order('visitas', { ascending: false, nullsFirst: false })
+      .order('orden_display', { ascending: true })
+      .limit(16)
+
+    let qNovedades = (supabase.from('productos_web') as any)
+      .select(selectCols)
+      .eq('activo', true)
+      .eq('nuevo', true)
+      .eq('productos.activo', true)
+      .order('orden_display', { ascending: true })
+      .order('id', { ascending: false })
+      .limit(16)
+
+    if (allowedProductIds !== null && allowedProductIds.length > 0) {
+      const sliceIds = allowedProductIds.slice(0, 200)
+      qTendencias = qTendencias.in('producto_id', sliceIds)
+      qNovedades = qNovedades.in('producto_id', sliceIds)
+    }
+
+    const [tendRes, novRes] = await Promise.all([qTendencias, qNovedades])
+    const excludeSet = new Set(excludeIds)
+
+    const tendRows = ((tendRes.data || []) as any[])
+      .filter((r) => !excludeSet.has(r.id))
+      .slice(0, 8)
+    tendRows.forEach((r) => excludeSet.add(r.id))
+
+    const novRows = ((novRes.data || []) as any[])
+      .filter((r) => !excludeSet.has(r.id))
+      .slice(0, 8)
+
+    const combined = await hydrateProductosWebPublicos(supabase, [...tendRows, ...novRows])
+    const tendSet = new Set(tendRows.map((r) => r.id))
+
+    return {
+      tendencias: combined.filter((p) => tendSet.has(p.id)),
+      novedades: combined.filter((p) => !tendSet.has(p.id)),
+    }
+  } catch (err) {
+    console.error('Error fetchProductosRecomendadosHome:', err)
+    return { tendencias: [], novedades: [] }
+  }
+}
+
+/**
+ * Obtiene tarjetas ligeras de productos_web por lista de IDs (Favoritos y Vistos Recientemente).
+ */
+export async function fetchProductosWebByIds(
+  ids: number[]
+): Promise<ProductoWebPublico[]> {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag('ecommerce-catalogo')
+
+  const cleanIds = Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0))).slice(0, 16)
+  if (cleanIds.length === 0) return []
+
+  try {
+    const supabase = createStaticClient()
+    const { data, error } = await (supabase.from('productos_web') as any)
+      .select(`
+        id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
+        en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+        productos!inner(
+          sku_base, nombre, descripcion,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre)
+        )
+      `)
+      .in('id', cleanIds)
+      .eq('activo', true)
+      .eq('productos.activo', true)
+
+    if (error || !data) return []
+
+    const hydrated = await hydrateProductosWebPublicos(supabase, data)
+    const byId = new Map(hydrated.map((p) => [p.id, p]))
+    return cleanIds.map((id) => byId.get(id)).filter((p): p is ProductoWebPublico => Boolean(p))
+  } catch (err) {
+    console.error('Error fetchProductosWebByIds:', err)
+    return []
+  }
+}
+
+/**
+ * Recomendación inteligente para PDP (/shop/[slug]):
+ * Puntúa por tipo de prenda (+4), género (+3), marca (+2) y destacado (+1).
+ */
+export async function fetchProductosRelacionadosInteligentes(params: {
+  productoWebId: number
+  tipoPrenda?: string | null
+  genero?: string | null
+  marca?: string | null
+  limit?: number
+}): Promise<ProductoWebPublico[]> {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag('ecommerce-catalogo')
+  cacheTag('ecommerce-config')
+
+  try {
+    const supabase = createStaticClient()
+    const config = await fetchConfigEcommerce()
+    const allowedProductIds = await obtenerIdsProductosVisiblesSegunModo(
+      supabase,
+      config?.modo_visibilidad_catalogo || 'todos_publicados'
+    )
+
+    if (allowedProductIds !== null && allowedProductIds.length === 0) {
+      return []
+    }
+
+    let query = (supabase.from('productos_web') as any)
+      .select(`
+        id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
+        en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+        productos!inner(
+          sku_base, nombre, descripcion,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre)
+        )
+      `)
+      .eq('activo', true)
+      .eq('productos.activo', true)
+      .neq('id', params.productoWebId)
+      .order('visitas', { ascending: false, nullsFirst: false })
+      .order('orden_display', { ascending: true })
+      .limit(48)
+
+    if (allowedProductIds !== null && allowedProductIds.length > 0) {
+      query = query.in('producto_id', allowedProductIds.slice(0, 200))
+    }
+
+    const { data, error } = await query
+    if (error || !data || data.length === 0) return []
+
+    const targetTipo = params.tipoPrenda?.trim().toLowerCase() || ''
+    const targetGenero = params.genero?.trim().toLowerCase() || ''
+    const targetMarca = params.marca?.trim().toLowerCase() || ''
+
+    const scored = (data as any[]).map((row) => {
+      const rowTipo = (row.productos?.cat_tipo_prenda?.nombre || '').trim().toLowerCase()
+      const rowGenero = (row.productos?.cat_generos?.nombre || '').trim().toLowerCase()
+      const rowMarca = (row.productos?.cat_marcas?.nombre || '').trim().toLowerCase()
+
+      let score = 0
+      if (targetTipo && rowTipo === targetTipo) score += 4
+      if (targetGenero && rowGenero === targetGenero) score += 3
+      if (targetMarca && rowMarca === targetMarca) score += 2
+      if (row.destacado) score += 1
+
+      return { row, score }
+    })
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return (b.row.visitas ?? 0) - (a.row.visitas ?? 0)
+    })
+
+    const topRows = scored.slice(0, params.limit ?? 8).map((s) => s.row)
+    return hydrateProductosWebPublicos(supabase, topRows)
+  } catch (err) {
+    console.error('Error fetchProductosRelacionadosInteligentes:', err)
+    return []
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // VARIANTES DE PRODUCTO (PDP)
 // ═══════════════════════════════════════════════════════════════

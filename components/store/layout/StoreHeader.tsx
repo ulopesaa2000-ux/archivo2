@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ShoppingCart, Menu, X, LogOut, LayoutDashboard,
-  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User, Baby, Heart
+  ChevronDown, ChevronUp, LogIn, Sparkles, Phone, Tag, User, Baby, Heart, Search
 } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
@@ -38,10 +38,19 @@ export function StoreHeader({
   const { count: favCount } = useFavorites()
   const config = initialConfig
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [headerQuery, setHeaderQuery] = useState('')
   const [isDamaOpen, setIsDamaOpen] = useState(true)
   const [isCaballeroOpen, setIsCaballeroOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
+
+  const handleHeaderSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = headerQuery.trim()
+    setIsSearchOpen(false)
+    router.push(trimmed ? `/shop?q=${encodeURIComponent(trimmed)}` : '/shop')
+  }
 
   const handleCartClick = () => {
     if (config?.modo_vista_carrito === 'pagina') {
@@ -167,6 +176,17 @@ export function StoreHeader({
 
         {/* Mobile Action Trilogy (Carrito, Usuario/Login, Menú Catálogo) */}
         <div className="flex md:hidden items-center gap-1.5">
+          {/* 1a. Lupa Búsqueda Móvil */}
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen((prev) => !prev)}
+            className="p-2 rounded-xl text-zinc-900 dark:text-white hover:bg-store-bg active:scale-95 transition-all"
+            aria-label="Buscar productos"
+            title="Buscar"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+
           {/* 1. Carrito Móvil Directo */}
           <button
             type="button"
@@ -362,19 +382,28 @@ export function StoreHeader({
             </Link>
           )}
 
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen((prev) => !prev)}
+            className="relative flex items-center justify-center h-9 w-9 text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
+            title="Buscar productos"
+            aria-label="Buscar productos"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+
           <Link
             href="/favoritos"
-            className="relative flex items-center gap-2 text-[12px] md:text-[13px] text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
+            className="relative flex items-center justify-center h-9 w-9 text-store-ink dark:text-gray-100 bg-store-bg dark:bg-zinc-900 rounded-full border border-store-border dark:border-zinc-800 transition-all duration-300 hover:bg-store-surface hover:shadow-md hover:scale-105"
             title="Mis favoritos"
             aria-label="Mis favoritos"
           >
-            <Heart className="h-4 w-4 md:h-5 md:w-5 text-red-500" />
+            <Heart className="h-4 w-4 text-red-500" />
             {favCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                 {favCount}
               </span>
             )}
-            <span>Favoritos</span>
           </Link>
 
           <button
@@ -393,6 +422,39 @@ export function StoreHeader({
           </button>
         </div>
       </header>
+
+      {/* Buscador rápido desplegable desde la lupa del header fijo */}
+      {isSearchOpen && (
+        <div className="sticky top-[60px] md:top-[64px] z-40 bg-store-surface/95 backdrop-blur-md border-b border-store-border px-4 md:px-8 py-2.5 shadow-md">
+          <form onSubmit={handleHeaderSearchSubmit} className="max-w-xl mx-auto flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="search"
+                autoFocus
+                value={headerQuery}
+                onChange={(e) => setHeaderQuery(e.target.value)}
+                placeholder="Buscar prenda, modelo o SKU..."
+                className="w-full h-9 pl-9 pr-3 rounded-full bg-background dark:bg-zinc-900 border border-store-border text-xs md:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-600/40"
+              />
+            </div>
+            <button
+              type="submit"
+              className="h-9 px-4 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors"
+            >
+              Buscar
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSearchOpen(false)}
+              className="h-9 w-9 rounded-full border border-store-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+              aria-label="Cerrar buscador"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Slide-over Cart Drawer */}
       <CartDrawer config={config} />

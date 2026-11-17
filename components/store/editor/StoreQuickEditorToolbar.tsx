@@ -1,12 +1,12 @@
 // components/store/editor/StoreQuickEditorToolbar.tsx
 'use client'
 
-import { Settings2, Eye, Edit3, ShieldAlert } from 'lucide-react'
+import { Eye, Edit3, ShieldAlert, Globe, SlidersHorizontal } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useLiveStoreEditor } from './LiveStoreEditorContext'
 
 export function StoreQuickEditorToolbar() {
-  const { canEdit, isEditMode, setIsEditMode } = useLiveStoreEditor()
+  const { canEdit, isEditMode, setIsEditMode, openEditor } = useLiveStoreEditor()
 
   if (!canEdit) return null
 
@@ -16,6 +16,30 @@ export function StoreQuickEditorToolbar() {
         <ShieldAlert className="h-4 w-4 text-amber-400 animate-pulse" />
         <span>Modo Administrador</span>
       </div>
+
+      <div className="h-4 w-px bg-zinc-700" />
+
+      <button
+        type="button"
+        onClick={() => openEditor('barra_rapida')}
+        className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
+        title="Editar barra rápida (Izquierda / Buscador / Prendas)"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        <span>Barra Rápida</span>
+      </button>
+
+      <div className="h-4 w-px bg-zinc-700" />
+
+      <button
+        type="button"
+        onClick={() => openEditor('seo_general')}
+        className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer"
+        title="Ver y editar SEO general de la portada"
+      >
+        <Globe className="h-3.5 w-3.5" />
+        <span>SEO Sitio</span>
+      </button>
 
       <div className="h-4 w-px bg-zinc-700" />
 
