@@ -49,7 +49,11 @@ import {
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'motion/react'
-import { fetchProductosPorFamilia, fetchStockTotalesPorProducto, type FamiliaResumen, type FamiliaResumenSku, type StockTotalProducto } from '@/modules/catalogo/queries'
+import {
+  fetchProductosPorFamiliaAction,
+  fetchStockTotalesPorProductoAction,
+} from '@/modules/catalogo/actions/familias'
+import type { FamiliaResumen, FamiliaResumenSku, StockTotalProducto } from '@/modules/catalogo/queries'
 import { moverProductosDeFamiliaAction, renombrarFamiliaAction, createProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { cn } from '@/lib/utils'
@@ -547,7 +551,7 @@ export function FamiliasOrganizerClient({
 
     setLoadingProducts(prev => ({ ...prev, [familyCode]: true }))
     try {
-      const prods = await fetchProductosPorFamilia(familyCode)
+      const prods = await fetchProductosPorFamiliaAction(familyCode)
       setLoadedProducts(prev => ({ ...prev, [familyCode]: prods }))
       // Si el modo stock está activo, traer el stock de lo recién cargado
       if (modoStock) {
@@ -568,7 +572,7 @@ export function FamiliasOrganizerClient({
 
     setLoadingStock(true)
     try {
-      const nuevos = await fetchStockTotalesPorProducto(faltantes)
+      const nuevos = await fetchStockTotalesPorProductoAction(faltantes)
       // ids sin fila en inventario_stock = 0 explícito (para no volver a pedirlos)
       const completos: Record<number, StockTotalProducto> = {}
       for (const id of faltantes) completos[id] = nuevos[id] || { cajas: 0, piezas: 0 }
@@ -1282,7 +1286,7 @@ export function FamiliasOrganizerClient({
     try {
       const prevIds = new Set((loadedProducts['F000-000C'] || []).map(p => p.id))
       // F000-000C directo (para diff de nuevos) + resto visibles vía loader con force
-      const frescos = await fetchProductosPorFamilia('F000-000C')
+      const frescos = await fetchProductosPorFamiliaAction('F000-000C')
       setLoadedProducts(prev => ({ ...prev, ['F000-000C']: frescos }))
       const extras = Array.from(new Set([
         ...pinnedFamilies.filter(f => f !== 'F000-000C'),

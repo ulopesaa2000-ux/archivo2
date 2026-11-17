@@ -3,6 +3,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath, revalidateTag } from 'next/cache'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { canWithFallback, isClienteEcommerce, type PermissionAction } from '@/lib/auth/permissions'
 import { TABLAS_SOPORTE_CONFIG, type TablaSoporteKey } from './types'
 
 export type ActionResponse = {
@@ -11,11 +13,28 @@ export type ActionResponse = {
   error?: string
 }
 
+async function authorizeTablaSoporte(
+  tabla: TablaSoporteKey,
+  action: PermissionAction
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!Object.prototype.hasOwnProperty.call(TABLAS_SOPORTE_CONFIG, tabla)) {
+    return { ok: false, error: 'Tabla de soporte no permitida.' }
+  }
+  const user = await getCurrentUser()
+  if (!user || isClienteEcommerce(user) || !canWithFallback(user, 'config_tablas_soporte', action)) {
+    return { ok: false, error: 'No autorizado para modificar tablas de soporte.' }
+  }
+  return { ok: true }
+}
+
 export async function createTablaSoporteRecordAction(
   tabla: TablaSoporteKey,
   formDataPayload: Record<string, any>
 ): Promise<ActionResponse> {
   try {
+    const auth = await authorizeTablaSoporte(tabla, 'puede_crear')
+    if (!auth.ok) return { success: false, error: auth.error }
+
     const supabase = await createClient()
 
     // Clean payload: remove empty strings if column accepts null
@@ -55,6 +74,9 @@ export async function updateTablaSoporteRecordAction(
   formDataPayload: Record<string, any>
 ): Promise<ActionResponse> {
   try {
+    const auth = await authorizeTablaSoporte(tabla, 'puede_editar')
+    if (!auth.ok) return { success: false, error: auth.error }
+
     const supabase = await createClient()
 
     const cleanedPayload: Record<string, any> = {}
@@ -97,6 +119,9 @@ export async function toggleActiveTablaSoporteRecordAction(
   currentActive: boolean | null
 ): Promise<ActionResponse> {
   try {
+    const auth = await authorizeTablaSoporte(tabla, 'puede_editar')
+    if (!auth.ok) return { success: false, error: auth.error }
+
     const supabase = await createClient()
     const newActiveState = !currentActive
 
@@ -127,6 +152,9 @@ export async function deleteTablaSoporteRecordAction(
   id: number
 ): Promise<ActionResponse> {
   try {
+    const auth = await authorizeTablaSoporte(tabla, 'puede_eliminar')
+    if (!auth.ok) return { success: false, error: auth.error }
+
     const supabase = await createClient()
 
     const { error } = await (supabase.from(tabla as any) as any)

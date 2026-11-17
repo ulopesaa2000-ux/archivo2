@@ -1,13 +1,42 @@
 // app/api/ecommerce/catalog-image/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
+import {
+  checkCatalogImageRateLimit,
+  fetchSafeImageBuffer,
+  MAX_BATCH_URLS,
+} from '@/lib/security/safe-image-url'
 
 // NOTA: No usar `export const dynamic = 'force-dynamic'` aquí: es incompatible
 // con `cacheComponents: true` de Next 16 y hace que la ruta falle con 500.
-// Este Route Handler ya es dinámico por naturaleza (lee `searchParams` y el
-// body del POST), así que no necesita configuración adicional.
 
-const FETCH_TIMEOUT_MS = 20000
+async function authorizeCatalogImageRequest() {
+  const user = await getCurrentUser().catch(() => null)
+  if (!user) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: 'No autenticado.' }, { status: 401 }),
+    }
+  }
+  const hasPermission =
+    !isClienteEcommerce(user) &&
+    (can(user, 'ecommerce_catalogo', 'puede_leer') || can(user, 'catalogo_productos', 'puede_leer'))
+  if (!hasPermission) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: 'No autorizado.' }, { status: 403 }),
+    }
+  }
+  if (!checkCatalogImageRateLimit(user.id)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: 'Límite de peticiones excedido.' }, { status: 429 }),
+    }
+  }
+  return { ok: true as const, user }
+}
 
 async function optimizeImageBuffer(
   inputBuffer: Buffer,
@@ -55,59 +84,12 @@ async function optimizeImageBuffer(
 
 async function fetchAndOptimize(
   url: string,
-  origin: string,
+  userId: number,
   maxW: number = 500,
   quality: number = 80
 ) {
-  let targetUrl = url.trim()
-  if (targetUrl.startsWith('//')) {
-    targetUrl = `https:${targetUrl}`
-  } else if (targetUrl.startsWith('/')) {
-    targetUrl = `${origin}${targetUrl}`
-  }
-
-  let parsedUrl: URL
-  try {
-    parsedUrl = new URL(targetUrl)
-  } catch {
-    parsedUrl = new URL(encodeURI(targetUrl))
-  }
-
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-
-  let response: Response
-  try {
-    response = await fetch(parsedUrl.toString(), {
-      signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      },
-    })
-  } finally {
-    clearTimeout(timeoutId)
-  }
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText}`)
-  }
-
-  // Odoo puede devolver la página de login (text/html) si la sesión expiró o
-  // la URL es inválida: detectarlo aquí en vez de fallar dentro de sharp.
-  const contentType = response.headers.get('content-type') || ''
-  if (!contentType.includes('image/')) {
-    throw new Error(`Respuesta no-imagen (${contentType || 'sin content-type'}).`)
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
-  const inputBuffer = Buffer.from(arrayBuffer)
-  if (inputBuffer.length === 0) {
-    throw new Error('Buffer vacío (0 bytes).')
-  }
-
-  return await optimizeImageBuffer(inputBuffer, maxW, quality)
+  const { buffer } = await fetchSafeImageBuffer(url, userId)
+  return await optimizeImageBuffer(buffer, maxW, quality)
 }
 
 /**
@@ -115,6 +97,9 @@ async function fetchAndOptimize(
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await authorizeCatalogImageRequest()
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(request.url)
     const rawUrl = searchParams.get('url')
     const format = searchParams.get('format') || 'json'
@@ -128,12 +113,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const result = await fetchAndOptimize(
-      rawUrl,
-      request.nextUrl.origin,
-      maxW,
-      quality
-    )
+    const result = await fetchAndOptimize(rawUrl, auth.user.id, maxW, quality)
 
     if (format === 'json') {
       return NextResponse.json(
@@ -146,8 +126,7 @@ export async function GET(request: NextRequest) {
         },
         {
           headers: {
-            'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
-            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'private, max-age=3600',
           },
         }
       )
@@ -158,20 +137,23 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'image/jpeg',
         'Content-Length': String(result.outputBuffer.length),
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
-        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'private, max-age=3600',
         'X-Image-Width': String(result.width),
         'X-Image-Height': String(result.height),
       },
     })
   } catch (err: any) {
-    console.error('Error en GET /api/ecommerce/catalog-image:', err)
+    const msg = err?.message || 'Error al procesar la imagen.'
+    const isClientError =
+      msg.includes('autorizado') ||
+      msg.includes('permitid') ||
+      msg.includes('bloquead') ||
+      msg.includes('HTTPS') ||
+      msg.includes('URL')
+    console.error('Error en GET /api/ecommerce/catalog-image:', msg)
     return NextResponse.json(
-      {
-        success: false,
-        error: err?.message || 'Error al procesar la imagen.',
-      },
-      { status: 500 }
+      { success: false, error: msg },
+      { status: isClientError ? 400 : 500 }
     )
   }
 }
@@ -182,17 +164,26 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await authorizeCatalogImageRequest()
+    if (!auth.ok) return auth.response
+
     const body = await request.json()
     const maxW = Math.min(Number(body.maxW || 500), 1200)
     const quality = Math.min(Math.max(Number(body.quality || 80), 30), 100)
 
     // Soporte para lote { urls: string[] }
     if (Array.isArray(body.urls)) {
+      if (body.urls.length > MAX_BATCH_URLS) {
+        return NextResponse.json(
+          { success: false, error: `Máximo ${MAX_BATCH_URLS} URLs por lote.` },
+          { status: 400 }
+        )
+      }
       const results: Record<string, any> = {}
       await Promise.all(
         body.urls.map(async (u: string) => {
           try {
-            const opt = await fetchAndOptimize(u, request.nextUrl.origin, maxW, quality)
+            const opt = await fetchAndOptimize(u, auth.user.id, maxW, quality)
             results[u] = {
               success: true,
               base64: opt.base64,
@@ -213,7 +204,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Campo "url" requerido.' }, { status: 400 })
     }
 
-    const result = await fetchAndOptimize(body.url, request.nextUrl.origin, maxW, quality)
+    const result = await fetchAndOptimize(body.url, auth.user.id, maxW, quality)
     return NextResponse.json({
       success: true,
       base64: result.base64,

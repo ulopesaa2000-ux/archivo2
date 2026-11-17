@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
+import { isClienteEcommerce } from '@/lib/auth/permissions'
 import { 
   fetchInventarioDashboardData, 
   fetchEcommerceDashboardData, 
@@ -38,6 +39,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect('/login?redirect=/dashboard')
   }
 
+  if (isClienteEcommerce(user)) {
+    redirect('/')
+  }
+
   const nivel = user.rol?.nivel_acceso ?? 99
   const isB2B = nivel === 4 || nivel === 5
 
@@ -58,11 +63,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const vistaValida: DashboardView[] = ['comercial', 'inventario', 'catalogo', 'ecommerce', 'general']
   const periodoValido: DashboardPeriod[] = ['semana', 'mes', 'todo']
 
-  // Por defecto arranca en 'inventario' (Inventario & Bodegas) para todos los usuarios
-  const defaultVista: DashboardView = 'inventario'
-  const vista: DashboardView = (params.vista && vistaValida.includes(params.vista as DashboardView))
-    ? (params.vista as DashboardView)
-    : defaultVista
+  // Por defecto arranca en 'inventario' (Inventario & Bodegas) para staff; B2B restringido solo ve 'comercial'
+  const defaultVista: DashboardView = isB2B ? 'comercial' : 'inventario'
+  const vista: DashboardView = isB2B
+    ? 'comercial'
+    : (params.vista && vistaValida.includes(params.vista as DashboardView))
+      ? (params.vista as DashboardView)
+      : defaultVista
 
   const periodo: DashboardPeriod = (params.periodo && periodoValido.includes(params.periodo as DashboardPeriod))
     ? (params.periodo as DashboardPeriod)

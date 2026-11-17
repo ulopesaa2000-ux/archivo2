@@ -6,7 +6,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { buscarOrdenInvitado } from '@/modules/ecommerce/queries'
+import { publicBuscarOrdenInvitadoAction } from '@/modules/ecommerce/actions/public-reads'
 import type { OrdenVentaDetalle } from '@/modules/ecommerce/types'
 import { OrdenDetalleView } from './OrdenDetalleView'
 
@@ -24,7 +24,7 @@ export function MisPedidosLookup() {
     setNoEncontrada(false)
     setOrden(null)
     try {
-      const result = await buscarOrdenInvitado(folio, email)
+      const result = await publicBuscarOrdenInvitadoAction(folio, email)
       if (result) {
         setOrden(result)
       } else {

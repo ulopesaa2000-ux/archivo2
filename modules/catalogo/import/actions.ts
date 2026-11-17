@@ -3,6 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import type { Database } from '@/lib/types/database.types'
 
@@ -189,7 +190,11 @@ export async function validateCsvBeforeImportAction(
   errores: number
 }> {
   const result = await getCurrentUser()
-  if (!result) {
+  if (
+    !result ||
+    isClienteEcommerce(result) ||
+    (!can(result, 'catalogo_productos', 'puede_leer') && !can(result, 'catalogo_productos', 'puede_crear'))
+  ) {
     return { items: [], total: 0, duplicados: 0, nuevos: 0, errores: 0 }
   }
 
@@ -320,13 +325,13 @@ export async function importProductsFromCsvAction(
   items: ImportItem[]
 ): Promise<ImportBatchResult> {
   const user = await getCurrentUser()
-  if (!user) {
+  if (!user || isClienteEcommerce(user) || !can(user, 'catalogo_productos', 'puede_crear')) {
     return {
       creados: 0,
       omitidos: 0,
       actualizados: 0,
       fallidos: 0,
-      errores: [{ sku: 'GENERAL', error: 'No autenticado' }],
+      errores: [{ sku: 'GENERAL', error: !user ? 'No autenticado' : 'Sin permisos para importar productos.' }],
     }
   }
 

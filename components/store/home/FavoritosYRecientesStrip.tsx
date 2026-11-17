@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Heart, History, ArrowRight } from 'lucide-react'
 import { useFavorites } from '@/hooks/useFavorites'
 import { RECENT_PRODUCTS_KEY } from '@/components/store/producto/RecentProductTracker'
-import { fetchProductosWebByIds } from '@/modules/ecommerce/queries'
+import { publicFetchProductosWebByIdsAction } from '@/modules/ecommerce/actions/public-reads'
 import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
 import type { ConfigEcommerce, ProductoWebPublico } from '@/modules/ecommerce/types'
@@ -40,8 +40,10 @@ export function FavoritosYRecientesStrip({ config }: { config: ConfigEcommerce |
     }
 
     let cancelled = false
-    fetchProductosWebByIds(combinedIds).then((res) => {
+    publicFetchProductosWebByIdsAction(combinedIds).then((res) => {
       if (!cancelled) setProductos(res)
+    }).catch(() => {
+      if (!cancelled) setProductos([])
     })
 
     return () => {

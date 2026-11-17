@@ -146,3 +146,8 @@ export async function sincronizarFavoritosPendientes(ids: number[]): Promise<Sin
   revalidatePath('/favoritos')
   return { success: true, synced: true, guardados: faltantes.length }
 }
+
+export async function fetchFavoritosUsuarioAction(): Promise<number[] | null> {
+  const { fetchFavoritosUsuario } = await import('./queries')
+  return fetchFavoritosUsuario()
+}

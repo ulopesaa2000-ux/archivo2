@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { Heart, ShoppingCart, Trash2, LogIn } from 'lucide-react'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
-import { fetchProductosFavoritos } from '@/modules/ecommerce/queries'
+import { publicFetchProductosFavoritosAction } from '@/modules/ecommerce/actions/public-reads'
 import type { ProductoWebPublico } from '@/modules/ecommerce/types'
 
 interface FavoritosListProps {
@@ -27,7 +27,7 @@ export function FavoritosList({ isLogged, userName }: FavoritosListProps) {
     if (!isHydrated || ids.length === 0 || loadedKey === idsKey) return
     const key = idsKey
     let cancelled = false
-    fetchProductosFavoritos(ids)
+    publicFetchProductosFavoritosAction(ids)
       .then((data) => {
         if (cancelled) return
         setProductos(data)

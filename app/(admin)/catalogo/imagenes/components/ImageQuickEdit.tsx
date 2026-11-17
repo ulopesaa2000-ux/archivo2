@@ -30,7 +30,7 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import { usoImagenOptions, USO_IMAGEN_LABELS, USO_IMAGEN_COLORS } from './imagenesConstants'
 import { updateImagenGlobalAction, deleteImagenGlobalAction } from '@/modules/catalogo/imagenes/actions'
-import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
+import { buscarProductosParaSelectorAction } from '@/modules/catalogo/imagenes/actions'
 import type { ImagenGlobal } from '@/modules/catalogo/imagenes/queries'
 import { useDebouncedCallback } from 'use-debounce'
 import { toast } from 'sonner'
@@ -82,7 +82,7 @@ export function ImageQuickEdit({ imagen, onClose }: Props) {
     }
     setIsSearching(true)
     try {
-      const res = await buscarProductosParaSelector(term, 15)
+      const res = await buscarProductosParaSelectorAction(term, 15)
       setSearchResults(res)
     } catch (err) {
       console.error('Error buscando productos:', err)

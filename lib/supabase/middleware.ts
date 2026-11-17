@@ -17,17 +17,20 @@ const PROTECTED_ROUTES = [
   '/inventario',
   '/inventario-virtual',
   '/ordenes-b2b',
+  '/print',
   '/unauthorized',
   '/api/debug-permissions',
   '/api/debug-user',
   '/api/inventario',
   '/api/ordenes-b2b',
+  '/api/packing',
 ]
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const { pathname } = request.nextUrl
+  const isApiRoute = pathname.startsWith('/api/')
   const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
     pathname.startsWith(route)
   )
@@ -55,6 +58,9 @@ export async function updateSession(request: NextRequest) {
       err
     )
     if (isProtectedRoute) {
+      if (isApiRoute) {
+        return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+      }
       const url = request.nextUrl.clone()
       url.pathname = '/login'
       url.searchParams.set('redirect', pathname)
@@ -90,6 +96,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   if (!user && isProtectedRoute) {
+    if (isApiRoute) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirect', pathname)
@@ -113,6 +122,18 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isProtectedRoute && pathname !== '/unauthorized') {
     const claims = user.app_metadata?.inv_tienda_claims
+    const rolNombre = (claims?.rol_nombre || user.user_metadata?.rol || '').toLowerCase()
+    const isCliente = claims?.rol_id === 19 || rolNombre.includes('cliente ecom')
+
+    if (isCliente) {
+      if (isApiRoute) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+      }
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
+
     const modulo = permissionForPath(pathname)
 
     if (modulo && claims?.version === 2) {
@@ -133,6 +154,9 @@ export async function updateSession(request: NextRequest) {
       }
 
       if (!hasAccess) {
+        if (isApiRoute) {
+          return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+        }
         const url = request.nextUrl.clone()
         url.pathname = '/unauthorized'
         url.searchParams.set('from', pathname)

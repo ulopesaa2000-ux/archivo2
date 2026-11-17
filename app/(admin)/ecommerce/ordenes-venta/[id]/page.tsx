@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { fetchOrdenVentaById } from '@/modules/ecommerce/queries'
-import { verifySessionOptional } from '@/lib/dal'
+import { requirePermission, verifySessionOptional } from '@/lib/dal'
 import { can } from '@/lib/auth/permissions'
 import { OrdenDetalleView } from '@/components/store/pedidos/OrdenDetalleView'
 import { CotizacionEditor } from './CotizacionEditor'
@@ -67,6 +67,7 @@ async function OrdenDetalleContent({ id }: { id: number }) {
 }
 
 export default async function OrdenVentaDetallePage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermission('ecommerce_ordenes')
   const { id } = await params
   const ordenId = Number(id)
   if (!Number.isInteger(ordenId) || ordenId <= 0) notFound()

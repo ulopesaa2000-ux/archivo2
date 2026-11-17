@@ -5,7 +5,7 @@
 'use server'
 
 import { cleanColorRaw, hexBiblioteca } from '@/lib/color-match'
-import { getCurrentUser } from '@/modules/auth/queries'
+import { requireCatalogoPermission } from './_shared'
 
 export type HexFuente = 'biblioteca' | 'api' | 'negro'
 
@@ -37,8 +37,8 @@ function elegirExacto(en: string, colors: ColorPizzaHit[]): ColorPizzaHit | null
 }
 
 export async function resolverHexColorAction(nombreEs: string, nombreIntern?: string | null): Promise<HexSugerido> {
-  const user = await getCurrentUser()
-  if (!user) return { hex: HEX_NEGRO, fuente: 'negro', nombreApi: null }
+  const denied = await requireCatalogoPermission('puede_leer')
+  if (denied) return { hex: HEX_NEGRO, fuente: 'negro', nombreApi: null }
 
   const deLibFull = hexBiblioteca(nombreEs || '')
   if (deLibFull) return { hex: deLibFull.toUpperCase(), fuente: 'biblioteca', nombreApi: null }

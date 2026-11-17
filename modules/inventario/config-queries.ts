@@ -1,5 +1,5 @@
 // modules/inventario/config-queries.ts
-'use server'
+import 'server-only'
 
 import { cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'

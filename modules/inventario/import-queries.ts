@@ -1,5 +1,5 @@
 // modules/inventario/import-queries.ts
-'use server'
+import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 import type { BodegaRow } from '@/lib/types/tables'

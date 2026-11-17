@@ -2,6 +2,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
+import { requirePermission } from '@/lib/dal'
 import { createClient } from '@/lib/supabase/server'
 import { fetchStockVirtual } from '@/modules/despachos/queries'
 import { DashboardVirtualContent } from './DashboardVirtualContent'
@@ -17,6 +18,7 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 }
 
 export default async function DashboardVirtualPage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission('inventario_virtual')
   const params = await props.params
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()

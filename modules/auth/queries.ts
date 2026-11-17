@@ -166,7 +166,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioConRol | null> => {
 
     queueUltimoAccesoRefresh(supabase, usuario.id, usuario.ultimo_acceso)
 
-    const { syncUserClaims } = await import('./actions')
+    const { syncUserClaims } = await import('./claims-sync')
     syncUserClaims(authUser.id).catch((err) => {
       console.error('[getCurrentUser] Error al autocurar claims:', err)
     })

@@ -14,7 +14,7 @@ import type {
   OrdenDetalleEventoTipo,
   UsuarioConRol,
 } from '@/lib/types/tables'
-import { can, type PermissionAction } from '@/lib/auth/permissions'
+import { can, isClienteEcommerce, type PermissionAction } from '@/lib/auth/permissions'
 import { cleanColorRaw, esColorIgnorable, resolveColor } from '@/lib/color-match'
 import { aMayusculasDescripcion } from '@/lib/descripcion'
 
@@ -29,7 +29,7 @@ export type ActionResult = {
 async function requireB2BPermission(action: PermissionAction): Promise<ActionResult | null> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
-  if (!can(user, 'b2b_ordenes', action)) {
+  if (isClienteEcommerce(user) || !can(user, 'b2b_ordenes', action)) {
     return { success: false, error: 'No tienes permisos para esta accion de B2B.' }
   }
   return null
@@ -1818,6 +1818,8 @@ export async function verificarSkusEnBDAction(
   probables: SkuProbable[]
   productosMap: Record<string, DbProductoData>
 }> {
+  const denied = await requireB2BPermission('puede_leer')
+  if (denied) return { success: false, skusExistentes: [], skuMap: {}, probables: [], productosMap: {} }
   if (!skus || skus.length === 0) return { success: true, skusExistentes: [], skuMap: {}, probables: [], productosMap: {} }
   const supabase = await createClient()
   const cleanSkus = Array.from(new Set(skus.map((s) => String(s).trim()).filter(Boolean)))
@@ -1885,6 +1887,8 @@ export async function buscarSkuEnBDAction(
   motivo?: SkuBusquedaMotivo
   error?: string
 }> {
+  const denied = await requireB2BPermission('puede_leer')
+  if (denied) return { success: false, inputSku: '', probables: [], error: denied.error }
   const inputSku = String(sku || '').trim()
   if (!inputSku) return { success: true, inputSku, probables: [], motivo: 'VACIO' }
   try {
@@ -1956,6 +1960,8 @@ export async function obtenerDatosProductosDeBDAction(
   error?: string
 }> {
   try {
+    const denied = await requireB2BPermission('puede_leer')
+    if (denied) return { success: false, error: denied.error }
     if (!skus || skus.length === 0) return { success: true, productosMap: {} }
     const supabase = await createClient()
 
@@ -2090,6 +2096,10 @@ export async function buscarProductosParaCajaAction(
   query: string,
   limit = 25
 ): Promise<Array<{ id: number; sku_base: string; nombre: string | null; descripcion: string | null }>> {
+  const user = await getCurrentUser()
+  if (!user || isClienteEcommerce(user) || (!can(user, 'b2b_cajas', 'puede_leer') && !can(user, 'b2b_ordenes', 'puede_leer'))) {
+    return []
+  }
   const supabase = await createClient()
   const cleanQ = query.trim()
 
@@ -2135,6 +2145,8 @@ export async function obtenerColoresActivosAction(): Promise<{
   error?: string
 }> {
   try {
+    const denied = await requireB2BPermission('puede_leer')
+    if (denied) return { success: false, colores: [], error: denied.error }
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('cat_colores')
@@ -2150,6 +2162,52 @@ export async function obtenerColoresActivosAction(): Promise<{
     console.error('Error al obtener cat_colores:', error)
     return { success: false, colores: [], error: error instanceof Error ? error.message : 'Error desconocido' }
   }
+}
+
+export async function fetchCajasListadoAction(filtros: { q?: string; page?: number }) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'b2b_ordenes', 'puede_leer') && !can(user, 'b2b_cajas', 'puede_leer'))
+  ) {
+    throw new Error('No autorizado')
+  }
+  const { fetchCajasListado } = await import('./queries')
+  return fetchCajasListado(filtros)
+}
+
+async function requireOrdenesB2BRead() {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_ordenes', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  return user
+}
+
+export async function fetchProductosBusquedaAction(q?: string) {
+  await requireOrdenesB2BRead()
+  const { fetchProductosBusqueda } = await import('./queries')
+  return fetchProductosBusqueda(q)
+}
+
+export async function fetchCajasAfectadasPorCambioSkuAction(
+  ordenId: number,
+  productoId: number,
+  nuevoSkuBase: string
+) {
+  await requireOrdenesB2BRead()
+  const { fetchCajasAfectadasPorCambioSku } = await import('./queries')
+  return fetchCajasAfectadasPorCambioSku(ordenId, productoId, nuevoSkuBase)
+}
+
+export async function fetchEstadoSurtidoOrdenAction(ordenId: number) {
+  await requireOrdenesB2BRead()
+  const { fetchEstadoSurtidoOrden } = await import('./queries')
+  return fetchEstadoSurtidoOrden(ordenId)
 }
 
 

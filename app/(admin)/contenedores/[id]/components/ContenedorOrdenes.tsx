@@ -33,9 +33,9 @@ import type { OrdenRowData } from '@/components/admin/ordenes/OrdenRow'
 import {
   vincularOrdenContenedorAction,
   desvincularOrdenContenedorAction,
+  fetchOrdenesDisponiblesAction,
 } from '@/modules/contenedores/actions'
 import { crearOrdenB2BAction } from '@/modules/ordenes-b2b/actions'
-import { fetchOrdenesDisponibles } from '@/modules/contenedores/queries'
 import type { OrdenEnContenedor, OrdenDisponible } from '@/modules/contenedores/types'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
 import { OrdenFormDialog } from '../../../ordenes-b2b/OrdenFormDialog'
@@ -71,7 +71,7 @@ function AgregarOrdenDialog({
     setLoading(true)
     setSelectedId(null)
     try {
-      const items = await fetchOrdenesDisponibles(contenedorId, q || undefined)
+      const items = await fetchOrdenesDisponiblesAction(contenedorId, q || undefined)
       setDisponibles(items)
     } catch {
       setDisponibles([])

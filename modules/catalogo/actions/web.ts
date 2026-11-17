@@ -2,8 +2,9 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 import {
   type ActionResult,
   toCleanText,
@@ -21,6 +22,12 @@ export async function updateProductoWebAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado' }
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'ecommerce_catalogo', 'puede_editar') && !can(user, 'catalogo_productos', 'puede_editar'))
+  ) {
+    return { success: false, error: 'No autorizado' }
+  }
 
   const supabase = await createClient()
 
@@ -56,6 +63,7 @@ export async function updateProductoWebAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath(`/catalogo/${productoId}`)
+  updateTag('ecommerce-catalogo')
   return { success: true }
 }
 
@@ -68,6 +76,12 @@ export async function createProductoWebAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado' }
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'ecommerce_catalogo', 'puede_crear') && !can(user, 'catalogo_productos', 'puede_editar'))
+  ) {
+    return { success: false, error: 'No autorizado' }
+  }
 
   const supabase = await createClient()
 
@@ -103,5 +117,6 @@ export async function createProductoWebAction(
   }
 
   revalidatePath(`/catalogo/${productoId}`)
+  updateTag('ecommerce-catalogo')
   return { success: true }
 }

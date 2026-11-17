@@ -23,8 +23,7 @@ import {
   CheckCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { guardarAsignacionesUsuarioAction } from '@/modules/config/actions'
-import { fetchAssignedPersonas } from '@/modules/config/queries'
+import { guardarAsignacionesUsuarioAction, fetchAssignedPersonasAction } from '@/modules/config/actions'
 import type { PersonaRow, PersonaAsignadaComercial } from '@/lib/types/tables'
 import { cn } from '@/lib/utils'
 
@@ -52,7 +51,7 @@ export function AsignarClientesModal({
     const loadAsignaciones = async () => {
       setAssignedLoading(true)
       try {
-        const assigned = await fetchAssignedPersonas(usuarioId)
+        const assigned = await fetchAssignedPersonasAction(usuarioId)
         setSelectedIds(assigned.map((p) => p.id))
       } catch (err) {
         console.error('Error al cargar asignaciones comerciales:', err)

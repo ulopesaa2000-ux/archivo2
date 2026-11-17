@@ -12,6 +12,18 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: mockCreateClient,
 }))
 
+vi.mock('@/modules/auth/queries', () => ({
+  getCurrentUser: vi.fn().mockResolvedValue({
+    id: 1,
+    auth_user_id: 'auth-superadmin',
+    rol_id: 6,
+    rol: { id: 6, nombre: 'Super Admin', nivel_acceso: 1 },
+    bodegas: [],
+    bodega_ids: [],
+    effective_permissions: {},
+  }),
+}))
+
 type QueryResult<T> = Promise<{ data: T; error: { message: string } | null }>
 
 function createMockSupabase({
@@ -107,6 +119,11 @@ function createMockSupabase({
 
       if (table === 'usuarios') {
         return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => Promise.resolve({ data: [], error: null })),
+            })),
+          })),
           update: vi.fn(() => ({
             eq: vi.fn(() =>
               Promise.resolve({

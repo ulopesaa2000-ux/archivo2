@@ -3,10 +3,10 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { getCurrentUser } from '@/modules/auth/queries'
 import type { Database } from '@/lib/types/database.types'
 import {
   type ActionResult,
+  requireCatalogoPermission,
   toCleanText,
   toInteger,
   toNumeric,
@@ -20,8 +20,8 @@ import {
 export async function saveVarianteAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
@@ -63,8 +63,8 @@ export async function deleteVarianteAction(
   id: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase.from('variantes_producto').delete().eq('id', id)
@@ -79,8 +79,8 @@ export async function deleteVariantesBatchAction(
   ids: number[],
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   if (!ids.length) return { success: false, error: 'No se seleccionaron variantes' }
 
@@ -104,8 +104,8 @@ export async function createColorAction(
   tipoColor: string,
   nombreIntern?: string | null
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -159,8 +159,8 @@ export async function createTallaAction(
   nombre: string,
   codigo: string
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -193,8 +193,8 @@ export async function saveMedidasAction(
   productoId: number,
   medidas: { talla_id: number; punto_medida_id: number; medida_cm: number }[]
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 

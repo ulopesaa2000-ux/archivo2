@@ -1,6 +1,8 @@
 // app/(admin)/layout.tsx
 import { Suspense } from 'react'
+import { redirect } from 'next/navigation'
 import { verifySession } from '@/lib/dal'
+import { isClienteEcommerce } from '@/lib/auth/permissions'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { AdminLayoutClient } from '@/components/admin/AdminLayoutClient'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
@@ -15,6 +17,10 @@ export type AdminContext = {
 // y usa React.cache() para evitar múltiples llamadas a la DB
 async function AdminShell({ children }: { children: React.ReactNode }) {
   const { user } = await verifySession()
+
+  if (isClienteEcommerce(user)) {
+    redirect('/')
+  }
 
   const bodegas = await fetchBodegasUsuario(
     user.id,

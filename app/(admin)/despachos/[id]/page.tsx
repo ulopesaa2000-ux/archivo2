@@ -2,6 +2,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
+import { requirePermission } from '@/lib/dal'
 import { fetchDespachoById, fetchAuditoriaDespacho } from '@/modules/despachos/queries'
 import { DespachoDetalleContent } from './DespachoDetalleContent'
 import { DetailPageSkeleton } from '@/components/admin/PageSkeleton'
@@ -15,6 +16,7 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 }
 
 export default async function DespachoDetallePage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission('despachos')
   const params = await props.params
   const id = parseInt(params.id)
   if (isNaN(id)) notFound()

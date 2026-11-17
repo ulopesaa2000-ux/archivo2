@@ -111,13 +111,20 @@ export function createEmptyPermissionMatrix(): PermissionMatrix {
     PERMISSION_MODULES.map((modulo) => [
       modulo,
       {
-        puede_leer: modulo === 'catalogo_catalogos',
+        puede_leer: false,
         puede_crear: false,
         puede_editar: false,
         puede_eliminar: false,
       },
     ])
   ) as PermissionMatrix
+}
+
+export function isClienteEcommerce(
+  user: Pick<UsuarioConRol, 'rol_id' | 'rol'> | null | undefined
+): boolean {
+  if (!user) return false
+  return user.rol_id === 19 || (user.rol?.nombre || '').toLowerCase().includes('cliente ecom')
 }
 
 export function isSuperAdmin(user: Pick<UsuarioConRol, 'rol' | 'permisos'> | null | undefined): boolean {
@@ -139,7 +146,6 @@ export function buildPermissionMatrix(permisos: Partial<RolPermisoRow>[] | null 
     }
   }
 
-  matrix.catalogo_catalogos.puede_leer = true
   return matrix
 }
 

@@ -3,6 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getCurrentUser } from '@/modules/auth/queries'
 import { type ActionResult, requireCatalogoPermission } from './_shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,4 +140,26 @@ export async function updateDescripcionRapidaAction(
   revalidatePath('/catalogo/familias')
   revalidatePath('/catalogo')
   return { success: true }
+}
+
+export async function fetchProductosPorFamiliaAction(familia: string) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_familias', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchProductosPorFamilia } = await import('../queries')
+  return fetchProductosPorFamilia(familia)
+}
+
+export async function fetchStockTotalesPorProductoAction(productoIds: number[]) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_familias', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchStockTotalesPorProducto } = await import('../queries')
+  return fetchStockTotalesPorProducto(productoIds)
 }

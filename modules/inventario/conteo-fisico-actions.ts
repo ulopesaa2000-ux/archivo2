@@ -12,7 +12,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { verifySessionOptional } from '@/lib/dal'
-import { isSuperAdmin, can } from '@/lib/auth/permissions'
+import { isSuperAdmin, can, isClienteEcommerce } from '@/lib/auth/permissions'
 import type {
   HojaConteoFisico,
   RenglonConteoFisico,
@@ -23,6 +23,28 @@ export type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string }
 
+async function requireConteoUser(mode: 'read' | 'write') {
+  const { isAuth, user } = await verifySessionOptional()
+  if (!isAuth || !user) {
+    return { user: null, error: 'No autenticado.' }
+  }
+  if (isClienteEcommerce(user)) {
+    return { user: null, error: 'Sin permisos para conteo físico.' }
+  }
+  const nivelAcceso = user.rol?.nivel_acceso ?? 99
+  const esAutorizado =
+    isSuperAdmin(user) ||
+    nivelAcceso <= 2 ||
+    (mode === 'read'
+      ? can(user, 'inventario_stock', 'puede_leer') || can(user, 'inventario_notas', 'puede_leer')
+      : can(user, 'inventario_stock', 'puede_editar') || can(user, 'inventario_notas', 'puede_crear'))
+
+  if (!esAutorizado) {
+    return { user: null, error: 'Permisos insuficientes para conteo físico.' }
+  }
+  return { user, error: null }
+}
+
 /**
  * Guarda o actualiza una hoja procesada en nota_ocr_propuestas como CONTEO_PENDIENTE
  */
@@ -31,20 +53,9 @@ export async function guardarHojaConteoOcrAction(
   bodegaId?: number | null
 ): Promise<ActionResult<{ propuestaId: string }>> {
   try {
-    const { isAuth, user } = await verifySessionOptional()
-    if (!isAuth || !user) {
-      return { success: false, error: 'No autenticado.' }
-    }
-
-    const nivelAcceso = user.rol?.nivel_acceso ?? 99
-    const esAutorizado =
-      isSuperAdmin(user) ||
-      nivelAcceso <= 2 ||
-      can(user, 'inventario_stock', 'puede_editar') ||
-      can(user, 'inventario_notas', 'puede_crear')
-
-    if (!esAutorizado) {
-      return { success: false, error: 'Permisos insuficientes para guardar conteo físico.' }
+    const { user, error: authError } = await requireConteoUser('write')
+    if (!user || authError) {
+      return { success: false, error: authError || 'No autenticado.' }
     }
 
     const supabase = await createClient()
@@ -121,9 +132,9 @@ export async function actualizarBorradorHojaConteoAction(
   resumen?: any
 ): Promise<ActionResult<{ updated: boolean }>> {
   try {
-    const { isAuth, user } = await verifySessionOptional()
-    if (!isAuth || !user) {
-      return { success: false, error: 'No autenticado.' }
+    const { user, error: authError } = await requireConteoUser('write')
+    if (!user || authError) {
+      return { success: false, error: authError || 'No autenticado.' }
     }
 
     const supabase = await createClient()
@@ -162,9 +173,9 @@ export async function fetchHojasConteoPendientesAction(
   bodegaId?: number | null
 ): Promise<ActionResult<{ hojas: HojaConteoFisico[] }>> {
   try {
-    const { isAuth, user } = await verifySessionOptional()
-    if (!isAuth || !user) {
-      return { success: false, error: 'No autenticado.' }
+    const { user, error: authError } = await requireConteoUser('read')
+    if (!user || authError) {
+      return { success: false, error: authError || 'No autenticado.' }
     }
 
     const supabase = await createClient()
@@ -236,9 +247,9 @@ export async function marcarHojasConteoAplicadasAction(
       return { success: true, data: { count: 0 } }
     }
 
-    const { isAuth, user } = await verifySessionOptional()
-    if (!isAuth || !user) {
-      return { success: false, error: 'No autenticado.' }
+    const { user, error: authError } = await requireConteoUser('write')
+    if (!user || authError) {
+      return { success: false, error: authError || 'No autenticado.' }
     }
 
     const supabase = await createClient()
@@ -271,6 +282,11 @@ export async function buscarCandidatosSkuIndividualAction(
   sku: string
 ): Promise<ActionResult<{ candidatos: CandidatoSkuSimple[] }>> {
   try {
+    const { user, error: authError } = await requireConteoUser('read')
+    if (!user || authError) {
+      return { success: false, error: authError || 'No autenticado.' }
+    }
+
     const cleanSku = (sku || '').trim()
     if (!cleanSku) {
       return { success: true, data: { candidatos: [] } }

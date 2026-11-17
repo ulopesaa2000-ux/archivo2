@@ -1,9 +1,13 @@
 // app/test/page.tsx
 import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 
 async function TestContent() {
+  if (process.env.NODE_ENV !== 'development') {
+    notFound()
+  }
   const supabase = await createClient()
 
   const [bodegas, roles, estados, productos] = await Promise.all([

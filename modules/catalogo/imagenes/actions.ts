@@ -6,9 +6,19 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import sharp from 'sharp'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce, type PermissionAction } from '@/lib/auth/permissions'
 import { resolverSkuParaArchivo, type MatchResult, type SkuCatalogProduct } from './sku-matcher'
 
 type ActionResult = { success: boolean; error?: string; message?: string }
+
+async function requireImagenesPermission(action: PermissionAction): Promise<ActionResult | null> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_imagenes', action)) {
+    return { success: false, error: 'No tienes permisos para administrar imagenes del catalogo.' }
+  }
+  return null
+}
 
 const BUCKET = 'product_images'
 
@@ -82,8 +92,8 @@ export async function updateImagenGlobalAction(
     producto_id?: number
   }
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireImagenesPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -181,8 +191,8 @@ export async function cambiarUsoImagenRapidoAction(
   imagenId: number,
   nuevoUso: string
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireImagenesPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -240,8 +250,8 @@ export async function deleteImagenGlobalAction(
   imagenId: number,
   desvincularSolo: boolean = false
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireImagenesPermission('puede_eliminar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -314,8 +324,8 @@ export async function setImagenPrincipalAction(
   imagenId: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireImagenesPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -351,8 +361,8 @@ export async function importarImagenesDesdeExcelAction(
     orden: number
   }[]
 ): Promise<{ success: number; failed: number; principales: number; ocultadas: number }> {
-  const user = await getCurrentUser()
-  if (!user) return { success: 0, failed: rows.length, principales: 0, ocultadas: 0 }
+  const denied = await requireImagenesPermission('puede_editar')
+  if (denied) return { success: 0, failed: rows.length, principales: 0, ocultadas: 0 }
 
   const supabase = await createClient()
 
@@ -460,8 +470,8 @@ export async function uploadImagenesConSkuAction(
     es_principal: boolean
   }[]
 ): Promise<{ success: number; failed: number; principales: number; ocultadas: number }> {
-  const user = await getCurrentUser()
-  if (!user) return { success: 0, failed: imagenes.length, principales: 0, ocultadas: 0 }
+  const denied = await requireImagenesPermission('puede_crear')
+  if (denied) return { success: 0, failed: imagenes.length, principales: 0, ocultadas: 0 }
 
   const supabase = await createClient()
   
@@ -582,8 +592,8 @@ export async function uploadImagenesConSkuAction(
 export async function uploadSingleImagenConSkuAction(
   formData: FormData
 ): Promise<{ success: boolean; error?: string; esPrincipal?: boolean; ocultadaAnterior?: boolean }> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireImagenesPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -689,6 +699,9 @@ export async function detectarSkusArchivosAction(
   filenames: string[]
 ): Promise<{ success: boolean; results: Record<string, MatchResult>; error?: string }> {
   try {
+    const denied = await requireImagenesPermission('puede_leer')
+    if (denied) return { success: false, results: {}, error: denied.error }
+
     if (!filenames || filenames.length === 0) {
       return { success: true, results: {} }
     }
@@ -732,4 +745,15 @@ export async function detectarSkusArchivosAction(
     console.error('[detectarSkusArchivosAction] Exception:', err)
     return { success: false, results: {}, error: err.message }
   }
+}
+
+export async function buscarProductosParaSelectorAction(term: string, limit = 15) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_imagenes', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { buscarProductosParaSelector } = await import('./queries')
+  return buscarProductosParaSelector(term, Math.min(Math.max(1, Number(limit) || 15), 50))
 }

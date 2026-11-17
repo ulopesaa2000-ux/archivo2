@@ -16,7 +16,11 @@ import { Trash2, Loader2, Package, Plus, Pencil, Save, X, Search, AlertCircle, A
 import { formatCurrency } from '@/lib/utils'
 import { ESTADO_DETALLE_B2B_COLORS, ESTADOS_DETALLE_B2B } from '@/lib/constants'
 import { eliminarDetalleOrdenAction, agregarDetalleOrdenAction, actualizarDetalleOrdenAction, actualizarProductoLineaConCajasAction, crearComentarioDetalleOrdenAction, registrarEventoDetalleOrdenAction } from '@/modules/ordenes-b2b/actions'
-import { fetchProductosBusqueda, fetchCajasAfectadasPorCambioSku, fetchEstadoSurtidoOrden } from '@/modules/ordenes-b2b/queries'
+import {
+  fetchProductosBusquedaAction,
+  fetchCajasAfectadasPorCambioSkuAction,
+  fetchEstadoSurtidoOrdenAction,
+} from '@/modules/ordenes-b2b/actions'
 import type { CajaAfectadaPorCambioSku, EstadoSurtidoOrden } from '@/modules/ordenes-b2b/queries'
 import { useDebouncedCallback } from 'use-debounce'
 import { cn } from '@/lib/utils'
@@ -45,7 +49,7 @@ function AgregarProductoDialog({
     setLoading(true)
     setSelected(null)
     try {
-      const items = await fetchProductosBusqueda(q || undefined)
+      const items = await fetchProductosBusquedaAction(q || undefined)
       setResults(items)
     } catch { setResults([]) } finally { setLoading(false) }
   }, 300)
@@ -652,7 +656,7 @@ export function OrdenProductos({
   const debouncedProductoSearch = useDebouncedCallback(async (q: string) => {
     setBuscandoProducto(true)
     try {
-      const items = await fetchProductosBusqueda(q || undefined)
+      const items = await fetchProductosBusquedaAction(q || undefined)
       setProductoResults(items)
     } catch { setProductoResults([]) } finally { setBuscandoProducto(false) }
   }, 300)
@@ -702,8 +706,8 @@ export function OrdenProductos({
     startTransition(async () => {
       try {
         const [cajas, surtido] = await Promise.all([
-          fetchCajasAfectadasPorCambioSku(ordenId, editProductoId, nuevo.sku_base),
-          fetchEstadoSurtidoOrden(ordenId),
+          fetchCajasAfectadasPorCambioSkuAction(ordenId, editProductoId, nuevo.sku_base),
+          fetchEstadoSurtidoOrdenAction(ordenId),
         ])
         setCajasPreview(cajas)
         setSurtidoInfo(surtido)

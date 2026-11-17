@@ -14,7 +14,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ESTADO_CONTENEDOR_COLORS, ESTADO_CONTENEDOR_LABELS } from '@/lib/constants'
 import { formatDate } from '@/lib/utils'
 import { Info, Loader2, Ship, User, FileText, Package, Calendar } from 'lucide-react'
-import { fetchContenedoresDetalleAnual } from '@/modules/contenedores/queries'
+import { fetchContenedoresDetalleAnualAction } from '@/modules/contenedores/actions'
 import type { ContenedorReporteItem } from '@/modules/contenedores/types'
 import { toast } from 'sonner'
 
@@ -65,7 +65,7 @@ export function ReporteAnualGrid({ data, years }: ReporteAnualGridProps) {
     setLoadingDetails(true)
     setYearDetails(null)
     try {
-      const details = await fetchContenedoresDetalleAnual(year)
+      const details = await fetchContenedoresDetalleAnualAction(year)
       setYearDetails(details)
     } catch (err) {
       console.error(err)

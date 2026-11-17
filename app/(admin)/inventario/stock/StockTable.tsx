@@ -176,8 +176,8 @@ export function StockTable({
     setLoading((prev) => ({ ...prev, [productoId]: true }))
 
     try {
-      const { fetchStockDetallePorCaja } = await import('@/modules/inventario/queries')
-      const detalles = await fetchStockDetallePorCaja(bodegaId, productoId)
+      const { fetchStockDetallePorCajaAction } = await import('@/modules/inventario/actions')
+      const detalles = await fetchStockDetallePorCajaAction(bodegaId, productoId)
       setExpanded((prev) => ({ ...prev, [productoId]: detalles }))
     } catch {
       setExpanded((prev) => ({ ...prev, [productoId]: [] }))

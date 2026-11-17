@@ -3,12 +3,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath, revalidateTag } from 'next/cache'
-import { getCurrentUser } from '@/modules/auth/queries'
 import sharp from 'sharp'
 import type { Database } from '@/lib/types/database.types'
 import type { UsoImagen } from '@/lib/types/tables'
 import {
   type ActionResult,
+  requireCatalogoPermission,
   toCleanText,
   toInteger,
   toBoolean,
@@ -73,8 +73,8 @@ async function revalidateImagenesProducto(productoId: number, supabaseClient?: a
 export async function uploadImagenAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -210,8 +210,8 @@ export async function uploadImagenAction(
 export async function updateImagenAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -253,8 +253,8 @@ export async function setPrincipalImagenAction(
   imagenId: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -293,8 +293,8 @@ export async function deleteImagenAction(
   imagenId: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -371,8 +371,8 @@ export async function cambiarUsoImagenAction(
   productoId: number,
   nuevoUso: UsoImagen
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 

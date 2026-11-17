@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Download, Loader2, FileSpreadsheet } from 'lucide-react'
-import { fetchContenedoresDetalleAnual } from '@/modules/contenedores/queries'
+import { fetchContenedoresDetalleAnualAction } from '@/modules/contenedores/actions'
 import ExcelJS from 'exceljs'
 import { toast } from 'sonner'
 
@@ -26,7 +26,7 @@ export function ExcelExportDialog() {
     setExporting(true)
     try {
       const yearNum = parseInt(selectedYear, 10)
-      const data = await fetchContenedoresDetalleAnual(yearNum)
+      const data = await fetchContenedoresDetalleAnualAction(yearNum)
 
       if (!data || data.length === 0) {
         toast.info(`No se encontraron contenedores para el año ${selectedYear}.`)

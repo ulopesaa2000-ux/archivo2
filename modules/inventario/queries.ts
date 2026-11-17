@@ -1,5 +1,5 @@
 // modules/inventario/queries.ts
-'use server'
+import 'server-only'
 
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE, ESTADO_NOTA } from '@/lib/constants'

@@ -1,6 +1,7 @@
 // app/(admin)/despachos/nuevo/page.tsx
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { requirePermission } from '@/lib/dal'
 import { fetchBodegasVirtuales } from '@/modules/despachos/queries'
 import { DespachoForm } from './DespachoForm'
 import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
@@ -10,6 +11,7 @@ export const metadata: Metadata = { title: 'Nuevo Despacho — Inventario' }
 export default async function NuevoDespachoPage(props: {
   searchParams: Promise<{ origen?: string }>
 }) {
+  await requirePermission('despachos', 'puede_crear')
   const params = await props.searchParams
   const origenId = params.origen ? parseInt(params.origen) : undefined
 

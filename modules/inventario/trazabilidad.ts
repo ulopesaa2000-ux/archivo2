@@ -1,5 +1,5 @@
 // modules/inventario/trazabilidad.ts
-'use server'
+import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 

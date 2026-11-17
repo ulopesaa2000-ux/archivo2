@@ -3,7 +3,7 @@
 // No lleva 'use server' aquí; el directive va en cada archivo de acción.
 
 import { getCurrentUser } from '@/modules/auth/queries'
-import { can, type PermissionAction } from '@/lib/auth/permissions'
+import { can, isClienteEcommerce, type PermissionAction } from '@/lib/auth/permissions'
 
 export type ActionResult = {
   success: boolean
@@ -17,7 +17,7 @@ export async function requireCatalogoPermission(
 ): Promise<ActionResult | null> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado' }
-  if (!can(user, 'catalogo_productos', action)) {
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_productos', action)) {
     return { success: false, error: 'No tienes permisos para modificar catalogo.' }
   }
   return null

@@ -69,34 +69,28 @@ export function StockAuditoriaDrawer({
       setLoading(true)
       setError(null)
       try {
-        const mod = await import('@/modules/inventario/queries')
+        const reads = await import('@/modules/inventario/actions/reads')
         if (modo === 'producto' && productoId) {
-          const res = await mod.fetchAuditoriaInversaPorProducto(productoId, { bodegaIds, limiteNotas: 50 }, bodegas)
+          const res = await reads.fetchAuditoriaInversaProductoAction(productoId, bodegaIds, bodegas)
           if (!cancelled) setDataProd(res)
           // Trámite PEND/PROC (amarillo): solo activo=true + estado PEND/PROC, CANC nunca suma.
           try {
-            const imp = await mod.fetchNotasPendientesImpactoMultiBodega(bodegaIds)
-            const lista: { nota_id: number; numero_nota: string; tipo_codigo: string; delta: number; cajas: number; bodega_id: number }[] = []
-            imp.mapImpacto.forEach((v) => {
-              if (v.producto_id !== productoId) return
-              v.notas.forEach((n) => lista.push({ nota_id: n.nota_id, numero_nota: n.numero_nota, tipo_codigo: n.tipo_codigo, delta: n.delta, cajas: n.cajas, bodega_id: v.bodega_id }))
-            })
-            if (!cancelled) setPendientes(lista.slice(0, 20))
+            const lista = await reads.fetchPendientesProductoAuditoriaAction(bodegaIds, productoId)
+            if (!cancelled) setPendientes(lista)
           } catch (_) {
             if (!cancelled) setPendientes([])
           }
           // Canceladas (gris, solo visual con toggle ON)
           if (verCanceladas) {
             try {
-              const traza = await import('@/modules/inventario/trazabilidad')
-              const tl = await traza.fetchProductoTimeline(productoId, undefined, undefined, true)
+              const tl = await reads.fetchProductoTimelineAction(productoId, undefined, undefined, true)
               if (!cancelled) setCanceladas(tl.filter((e) => e.estado_codigo === 'CANC').map((e) => ({ nota_id: e.nota_id, numero_nota: e.numero_nota, fecha_nota: e.fecha_nota, tipo_codigo: e.tipo_codigo, efecto_cajas: 0 })))
             } catch (_) {
               if (!cancelled) setCanceladas([])
             }
           } else if (!cancelled) setCanceladas([])
         } else if (modo === 'familia' && familia) {
-          const res = await mod.fetchAuditoriaInversaPorFamilia(familia, { bodegaIds, limiteNotas: 50 }, bodegas)
+          const res = await reads.fetchAuditoriaInversaFamiliaAction(familia, bodegaIds, bodegas)
           if (!cancelled) setDataFam(res)
         }
       } catch (e: any) {

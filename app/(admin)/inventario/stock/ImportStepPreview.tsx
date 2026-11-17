@@ -26,13 +26,14 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import {
-  buscarProductosPorSkuBatch,
-  buscarBodegasBatch,
-  buscarProductosCatalogo,
-  type ProductoMatch,
-} from '@/modules/inventario/import-queries'
+  buscarProductosPorSkuBatchAction,
+  buscarBodegasBatchAction,
+  buscarProductosCatalogoAction,
+  type ImportFilaValida,
+  type ModoAjuste,
+} from '@/modules/inventario/import-actions'
+import type { ProductoMatch } from '@/modules/inventario/import-queries'
 import type { BodegaRow } from '@/lib/types/tables'
-import type { ImportFilaValida, ModoAjuste } from '@/modules/inventario/import-actions'
 import { toast } from 'sonner'
 
 const formatCajasMsg = (n: number) => (n > 0 ? `+${n} cajas` : `${n} cajas`)
@@ -106,8 +107,8 @@ export function ImportStepPreview({
         const bodegaNombres = [...new Set(normalized.map((f) => f.bodegaRaw).filter(Boolean))]
 
         const [productosMap, bodegasMap] = await Promise.all([
-          buscarProductosPorSkuBatch(skus),
-          buscarBodegasBatch(bodegaNombres),
+          buscarProductosPorSkuBatchAction(skus),
+          buscarBodegasBatchAction(bodegaNombres),
         ])
 
         const preview: FilaPreview[] = normalized.map((f) => {
@@ -233,8 +234,8 @@ export function ImportStepPreview({
         ]
 
         const [productosMap, bodegasMap] = await Promise.all([
-          buscarProductosPorSkuBatch(skusToSync),
-          buscarBodegasBatch(bodegaNombres),
+          buscarProductosPorSkuBatchAction(skusToSync),
+          buscarBodegasBatchAction(bodegaNombres),
         ])
 
         const updated = filasPreview.map((f) => {
@@ -458,7 +459,7 @@ export function ImportStepPreview({
   const executeSearch = async (query: string) => {
     setIsSearching(true)
     try {
-      const res = await buscarProductosCatalogo(query)
+      const res = await buscarProductosCatalogoAction(query)
       setSearchResults(res)
     } catch {
       setSearchResults([])

@@ -1,6 +1,7 @@
 // app/(admin)/configuracion/tablas/page.tsx
 import type { Metadata } from 'next'
 import { Settings2, Table2 } from 'lucide-react'
+import { requirePermission } from '@/lib/dal'
 import { fetchAllUserTableConfigs, fetchAllGlobalTableConfigs } from '@/modules/admin-table/config/queries'
 import { ADMIN_TABLES_LIST } from '@/modules/admin-table/config/types'
 import { TableConfigClient } from './TableConfigClient'
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
 }
 
 export default async function TablasConfigPage(props: { searchParams: Promise<{ scope?: string }> }) {
+  await requirePermission('config_tablas')
   const searchParams = await props.searchParams
   const isGlobal = searchParams.scope === 'global'
 

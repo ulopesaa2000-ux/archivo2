@@ -1,5 +1,5 @@
 // modules/ecommerce/queries.ts
-'use server'
+import 'server-only'
 
 import { cache } from 'react'
 import { cacheLife, cacheTag } from 'next/cache'
@@ -1271,17 +1271,23 @@ export async function fetchOrdenesVenta(
     .from('ordenes_venta') as any)
     .select('*', { count: 'exact' })
 
-  // Filtrado de seguridad: si es un Cliente Ecomerce, solo ve sus propias órdenes
+  // Filtrado de seguridad: requiere sesión; clientes solo ven sus órdenes, staff requiere permiso ecommerce_ordenes
   const { getCurrentUser } = await import('@/modules/auth/queries')
+  const { can } = await import('@/lib/auth/permissions')
   const currentUser = await getCurrentUser()
-  const isClienteEcommerce = currentUser?.rol_id === 19 || (currentUser?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+  if (!currentUser) {
+    return { ordenes: [], total: 0 }
+  }
+  const isClienteEcommerce = currentUser.rol_id === 19 || (currentUser.rol?.nombre || '').toLowerCase().includes('cliente ecom')
 
-  if (isClienteEcommerce && currentUser) {
+  if (isClienteEcommerce) {
     if (currentUser.email) {
       query = query.or(`usuario_id.eq.${currentUser.id},email_cliente.eq.${currentUser.email}`)
     } else {
       query = query.eq('usuario_id', currentUser.id)
     }
+  } else if (!can(currentUser, 'ecommerce_ordenes', 'puede_leer')) {
+    return { ordenes: [], total: 0 }
   }
 
   if (filtros.estado) {
@@ -1359,16 +1365,22 @@ export async function fetchOrdenVentaById(
     return null
   }
 
-  // Validación de seguridad para clientes: no pueden ver órdenes ajenas
+  // Validación de seguridad: requiere sesión; clientes no pueden ver órdenes ajenas; staff requiere ecommerce_ordenes
   const { getCurrentUser } = await import('@/modules/auth/queries')
+  const { can } = await import('@/lib/auth/permissions')
   const currentUser = await getCurrentUser()
-  const isClienteEcommerce = currentUser?.rol_id === 19 || (currentUser?.rol?.nombre || '').toLowerCase().includes('cliente ecom')
+  if (!currentUser) {
+    return null
+  }
+  const isClienteEcommerce = currentUser.rol_id === 19 || (currentUser.rol?.nombre || '').toLowerCase().includes('cliente ecom')
 
-  if (isClienteEcommerce && currentUser) {
+  if (isClienteEcommerce) {
     if (orden.usuario_id !== currentUser.id && orden.email_cliente !== currentUser.email) {
       console.warn(`[fetchOrdenVentaById] Acceso no autorizado a orden ${id} por cliente ${currentUser.id}`)
       return null
     }
+  } else if (!can(currentUser, 'ecommerce_ordenes', 'puede_leer')) {
+    return null
   }
 
   const itemsExtendidos = await fetchItemsExtendidos(supabase, id)
@@ -1542,7 +1554,7 @@ export async function buscarOrdenInvitado(
   folio: string,
   email: string
 ): Promise<OrdenVentaDetalle | null> {
-  const folioLimpio = folio.trim()
+  const folioLimpio = folio.trim().replace(/[%_]/g, '')
   const emailLimpio = email.trim().toLowerCase()
   if (!folioLimpio || !emailLimpio.includes('@')) return null
 

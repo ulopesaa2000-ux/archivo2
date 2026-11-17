@@ -1,9 +1,24 @@
+// modules/cajas/actions.ts
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce, type PermissionAction } from '@/lib/auth/permissions'
 import type { SharedCajaData } from './types'
 import type { ActionResult } from '@/modules/catalogo/actions'
+
+async function requireCajasPermission(action: PermissionAction) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'b2b_cajas', action) && !can(user, 'catalogo_productos', action))
+  ) {
+    throw new Error('No autorizado para operar cajas')
+  }
+  return user
+}
 
 // ═══════════════════════════════════════════════════════════════
 // MARCAR CAJA PRINCIPAL
@@ -12,6 +27,11 @@ export async function marcarCajaPrincipalAction(
   cajaId: number,
   productoId: number
 ): Promise<ActionResult> {
+  try {
+    await requireCajasPermission('puede_editar')
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'No autorizado' }
+  }
   const supabase = await createClient()
 
   // Verificar si la caja tiene detalles válidos antes de marcarla
@@ -71,6 +91,11 @@ export async function marcarCajaPrincipalAction(
 export async function generarVariantesDesdeCajaPrincipalAction(
   productoId: number
 ): Promise<ActionResult> {
+  try {
+    await requireCajasPermission('puede_editar')
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'No autorizado' }
+  }
   const supabase = await createClient()
 
   // 1. Obtener la caja principal del producto
@@ -258,6 +283,7 @@ export async function generarVariantesDesdeCajaPrincipalAction(
 }
 
 export async function desactivarCajaAction(cajaId: number) {
+  await requireCajasPermission('puede_eliminar')
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -509,6 +535,7 @@ export async function updateCajaBaseAction(
   cajaId: number,
   data: Partial<SharedCajaData>
 ): Promise<void> {
+  await requireCajasPermission('puede_editar')
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -555,6 +582,7 @@ export async function updateCajaDetallesAction(
   cajaId: number,
   detalles: CajaDetalleInput[]
 ): Promise<void> {
+  await requireCajasPermission('puede_editar')
   const supabase = await createClient()
 
   // 1. Eliminar detalles existentes
@@ -631,6 +659,7 @@ export async function updateCajaCompletaAction(
     detalles: CajaDetalleInput[]
   }
 ): Promise<void> {
+  await requireCajasPermission('puede_editar')
   // Actualizar datos base
   await updateCajaBaseAction(cajaId, data.base)
   
@@ -648,6 +677,7 @@ export async function createCajaAction(
     detalles: CajaDetalleInput[]
   }
 ): Promise<number> {
+  await requireCajasPermission('puede_crear')
   const supabase = await createClient()
 
   // Calcular totales para campos resumen

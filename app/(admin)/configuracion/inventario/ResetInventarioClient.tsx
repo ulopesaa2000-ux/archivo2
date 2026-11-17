@@ -22,6 +22,7 @@ import {
   resetStockCeroAction,
   resetStockCeroBodegaAction,
   resetCompletoInventarioAction,
+  type ResetResult,
 } from '@/modules/config/inventory-reset-actions'
 
 type ActionType = 'notas' | 'stock' | 'completo' | 'bodega' | null
@@ -45,12 +46,30 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
   const [selectedCardBodegaId, setSelectedCardBodegaId] = useState<number>(0)
   const [selectedNotasBodegaId, setSelectedNotasBodegaId] = useState<number>(0)
   const [confirmText, setConfirmText] = useState('')
+  const [dryRunResult, setDryRunResult] = useState<ResetResult | null>(null)
+  const [loadingDryRun, setLoadingDryRun] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const getRequiredKeyword = () => {
-    if (activeAction === 'bodega') return 'REINICIAR BODEGA'
-    if (activeAction === 'notas' && selectedNotasBodegaId > 0) return 'REINICIAR BODEGA'
-    return 'REINICIAR INVENTARIO'
+  const getRequiredKeyword = () => 'RESET'
+
+  const runDryRunPreview = async (action: ActionType, bodega?: BodegaSimple | null) => {
+    if (!action || action === 'notas') {
+      setDryRunResult(null)
+      return
+    }
+    setLoadingDryRun(true)
+    setDryRunResult(null)
+    try {
+      const res =
+        action === 'bodega' && bodega
+          ? await resetStockCeroBodegaAction(bodega.id, { dryRun: true })
+          : action === 'completo'
+          ? await resetCompletoInventarioAction({ dryRun: true })
+          : await resetStockCeroAction({ dryRun: true })
+      setDryRunResult(res)
+    } finally {
+      setLoadingDryRun(false)
+    }
   }
 
   const handleOpenDialog = (action: ActionType) => {
@@ -58,6 +77,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
     setSelectedBodega(null)
     setSelectedNotasBodegaId(0)
     setConfirmText('')
+    void runDryRunPreview(action, null)
   }
 
   const handleOpenNotasDialog = (bodegaId: number = 0) => {
@@ -65,12 +85,14 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
     setSelectedNotasBodegaId(bodegaId)
     setSelectedBodega(null)
     setConfirmText('')
+    setDryRunResult(null)
   }
 
   const handleOpenBodegaDialog = (bodega: BodegaSimple) => {
     setActiveAction('bodega')
     setSelectedBodega(bodega)
     setConfirmText('')
+    void runDryRunPreview('bodega', bodega)
   }
 
   const handleOpenCardBodegaDialog = () => {
@@ -88,6 +110,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
     setSelectedBodega(null)
     setSelectedNotasBodegaId(0)
     setConfirmText('')
+    setDryRunResult(null)
   }
 
   const handleExecuteReset = () => {
@@ -396,9 +419,29 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
                   : '⚠️ ESTA ACCIÓN REINICIARÁ A 0 LA PARTE DEL INVENTARIO Y NOTAS PARA VOLVER A INICIAR.'}
               </p>
               <p className="text-[11px] text-muted-foreground font-semibold">
-                Acción reservada únicamente para Super Admin Nivel 1.
+                Acción reservada únicamente para Super Admin Nivel 1. Se procesa mediante notas AJU confirmadas (Kardex íntegro, sin ocultar historial).
               </p>
             </div>
+
+            {activeAction !== 'notas' && (
+              <div className="p-3 rounded-xl bg-muted/60 border text-xs text-left space-y-1">
+                {loadingDryRun ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Calculando simulación (dry-run)...
+                  </div>
+                ) : dryRunResult?.success ? (
+                  <div className="space-y-1">
+                    <p className="font-semibold text-foreground">{dryRunResult.message}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Bodegas afectadas: <strong>{dryRunResult.totalBodegas ?? 0}</strong> · Líneas con stock ≠ 0: <strong>{dryRunResult.totalLineas ?? 0}</strong>
+                    </p>
+                  </div>
+                ) : dryRunResult?.error ? (
+                  <p className="text-red-600 dark:text-red-400 font-medium">{dryRunResult.error}</p>
+                ) : null}
+              </div>
+            )}
 
             {activeAction === 'notas' && (
               <p className="text-[11px] text-muted-foreground leading-relaxed bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl text-amber-800 dark:text-amber-300 text-left">

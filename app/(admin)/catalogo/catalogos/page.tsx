@@ -1,6 +1,7 @@
 // app/(admin)/catalogo/catalogos/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requireCatalogReadPermission } from '@/lib/dal'
 import { Pagination } from '@/components/admin/Pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchProductosCatalogo, fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
@@ -109,6 +110,7 @@ export default async function CatalogoReadOnlyPage({
 }: {
   searchParams: Promise<CatalogoSearchParams>
 }) {
+  await requireCatalogReadPermission()
   const [params, catalogos] = await Promise.all([
     searchParams,
     fetchCatalogosParaFiltros(),

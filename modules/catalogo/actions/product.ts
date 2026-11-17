@@ -23,6 +23,9 @@ export async function checkSkuExistsAction(
   sku_base: string,
   currentId?: number
 ): Promise<boolean> {
+  const denied = await requireCatalogoPermission('puede_leer')
+  if (denied) return false
+
   const supabase = await createClient()
   const query = supabase
     .from('productos')
@@ -92,8 +95,8 @@ export async function createProductAction(
 export async function updateProductAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -144,8 +147,8 @@ export async function updateProductAction(
 export async function deactivateProductAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_eliminar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -170,8 +173,8 @@ export async function cambiarEstadoProductoAction(
   productoId: number,
   nuevoEstado: string
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const ESTADOS_VALIDOS = ['borrador', 'pendiente', 'publicado', 'pausado', 'descontinuado']
   if (!ESTADOS_VALIDOS.includes(nuevoEstado)) {
@@ -204,8 +207,8 @@ export async function bulkUpdateProductsAction(
     familia: string | null
   }>
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   if (!ids.length) return { success: false, error: 'No se seleccionaron productos' }
 
@@ -223,8 +226,8 @@ export async function bulkUpdateProductsAction(
 export async function bulkDeactivateProductsAction(
   ids: number[]
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_eliminar')
+  if (denied) return denied
 
   if (!ids.length) return { success: false, error: 'No se seleccionaron productos' }
 
@@ -243,8 +246,8 @@ export async function toggleDestacadoAction(
   id: number,
   nuevoEstado: boolean
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
 
@@ -258,5 +261,30 @@ export async function toggleDestacadoAction(
   revalidatePath('/catalogo/catalogos')
   revalidatePath(`/catalogo/${id}`)
   return { success: true }
+}
+
+export async function fetchProductoPorIdParaEdicionAction(id: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_productos', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchProductoPorIdParaEdicion } = await import('../queries')
+  return fetchProductoPorIdParaEdicion(id)
+}
+
+export async function fetchCatalogosEdicionAction() {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'catalogo_productos', 'puede_leer') && !can(user, 'b2b_cajas', 'puede_leer'))
+  ) {
+    throw new Error('No autorizado')
+  }
+  const { fetchCatalogosEdicion } = await import('../queries')
+  return fetchCatalogosEdicion()
 }
 

@@ -1,5 +1,5 @@
 // modules/catalogo/imagenes/queries.ts
-'use server'
+import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'

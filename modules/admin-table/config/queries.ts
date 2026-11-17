@@ -1,5 +1,5 @@
 // modules/admin-table/config/queries.ts
-'use server'
+import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'

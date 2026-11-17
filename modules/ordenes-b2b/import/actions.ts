@@ -3,6 +3,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 
 // ── Interfaces para la entrada de datos del Excel ───────────────────────────
@@ -132,7 +133,11 @@ export async function validateCajasBeforeImportAction(
   errores: number
 }> {
   const user = await getCurrentUser()
-  if (!user) {
+  if (
+    !user ||
+    isClienteEcommerce(user) ||
+    (!can(user, 'b2b_cajas', 'puede_crear') && !can(user, 'b2b_ordenes', 'puede_crear'))
+  ) {
     return { items: [], total: 0, duplicados: 0, nuevos: 0, errores: 0 }
   }
 
@@ -407,13 +412,17 @@ export async function importCajasBatchAction(
   items: ImportCajaItem[]
 ): Promise<ImportCajasBatchResult> {
   const user = await getCurrentUser()
-  if (!user) {
+  if (
+    !user ||
+    isClienteEcommerce(user) ||
+    (!can(user, 'b2b_cajas', 'puede_crear') && !can(user, 'b2b_ordenes', 'puede_crear'))
+  ) {
     return {
       creados: 0,
       omitidos: 0,
       actualizados: 0,
       fallidos: 0,
-      errores: [{ codigo_caja: 'GENERAL', error: 'No autenticado' }]
+      errores: [{ codigo_caja: 'GENERAL', error: !user ? 'No autenticado' : 'Sin permisos para importar cajas.' }]
     }
   }
 

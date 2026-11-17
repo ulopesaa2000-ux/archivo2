@@ -4,6 +4,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 import { confirmarNotaAction, cancelarNotaAction } from '@/modules/inventario/actions'
 import { fetchNotaTraspasoDespacho } from './queries'
 import type { DespachoFormData } from './types'
@@ -31,6 +32,9 @@ export async function crearDespachoAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_crear')) {
+    return { success: false, error: 'No autorizado para crear despachos.' }
+  }
 
   const supabase = await createClient()
 
@@ -172,6 +176,9 @@ export async function confirmarSalidaDespachoAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para confirmar salida de despachos.' }
+  }
 
   const supabase = await createClient()
 
@@ -206,6 +213,9 @@ export async function recibirDespachoAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para recibir despachos.' }
+  }
 
   const supabase = await createClient()
 
@@ -254,6 +264,9 @@ export async function cancelarDespachoAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_eliminar')) {
+    return { success: false, error: 'No autorizado para cancelar despachos.' }
+  }
 
   const supabase = await createClient()
 
@@ -283,4 +296,17 @@ export async function cancelarDespachoAction(
   revalidatePath('/despachos')
   revalidatePath('/inventario/notas')
   return { success: true }
+}
+
+export async function fetchStockVirtualAction(bodegaVirtualId: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'despachos', 'puede_leer') && !can(user, 'inventario_virtual', 'puede_leer'))
+  ) {
+    throw new Error('No autorizado')
+  }
+  const { fetchStockVirtual } = await import('./queries')
+  return fetchStockVirtual(bodegaVirtualId)
 }

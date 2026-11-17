@@ -138,7 +138,7 @@ export async function toggleUsuarioActivo(
 
   // Sincronizar claims para el usuario modificado
   if (userRow?.auth_user_id) {
-    const { syncUserClaims } = await import('../auth/actions')
+    const { syncUserClaims } = await import('../auth/claims-sync')
     await syncUserClaims(userRow.auth_user_id).catch(err => {
       console.error('[toggleUsuarioActivo] Error syncing claims:', err)
     })
@@ -209,7 +209,7 @@ export async function cambiarRolUsuario(
 
   // Sincronizar claims para el usuario modificado
   if (userRow?.auth_user_id) {
-    const { syncUserClaims } = await import('../auth/actions')
+    const { syncUserClaims } = await import('../auth/claims-sync')
     await syncUserClaims(userRow.auth_user_id).catch(err => {
       console.error('[cambiarRolUsuario] Error syncing claims:', err)
     })
@@ -284,7 +284,7 @@ export async function toggleRolPermiso(
     .eq('activo', true)
 
   if (usersToSync && usersToSync.length > 0) {
-    const { syncUserClaims } = await import('../auth/actions')
+    const { syncUserClaims } = await import('../auth/claims-sync')
     for (const u of usersToSync) {
       if (u.auth_user_id) {
         await syncUserClaims(u.auth_user_id).catch(err => {
@@ -564,7 +564,7 @@ export async function crearUsuarioAction(payload: {
   }
 
   // Sincronizar claims para el nuevo usuario
-  const { syncUserClaims } = await import('../auth/actions')
+  const { syncUserClaims } = await import('../auth/claims-sync')
   await syncUserClaims(authData.user.id).catch(err => {
     console.error('[crearUsuarioAction] Error syncing claims:', err)
   })
@@ -642,7 +642,7 @@ export async function sincronizarUsuarioAction(payload: {
   }
 
   // Sincronizar claims para el usuario sincronizado
-  const { syncUserClaims } = await import('../auth/actions')
+  const { syncUserClaims } = await import('../auth/claims-sync')
   await syncUserClaims(authData.user.id).catch(err => {
     console.error('[sincronizarUsuarioAction] Error syncing claims:', err)
   })
@@ -692,7 +692,7 @@ export async function vincularPersonaUsuarioAction(
     return { success: false, error: 'No se pudo guardar la vinculación en la base de datos.' }
   }
 
-  const { syncUserClaims } = await import('../auth/actions')
+  const { syncUserClaims } = await import('../auth/claims-sync')
   
   if (personaPrev?.usuario_id) {
     const { data: uPrev } = await supabase.from('usuarios').select('auth_user_id').eq('id', personaPrev.usuario_id).single()
@@ -868,7 +868,7 @@ export async function invitarPersonaAction(payload: {
     console.error('invitarPersonaAction link error:', linkError.message)
   }
 
-  const { syncUserClaims } = await import('../auth/actions')
+  const { syncUserClaims } = await import('../auth/claims-sync')
   await syncUserClaims(authData.user.id).catch(() => {})
 
   revalidatePath('/configuracion/personas')
@@ -929,12 +929,23 @@ export async function guardarAsignacionesUsuarioAction(
   }
 
   // 4. Sincronizar claims para el usuario usando su UUID de autenticación
-  const { syncUserClaims } = await import('../auth/actions')
+  const { syncUserClaims } = await import('../auth/claims-sync')
   await syncUserClaims(authUserId).catch(err => {
     console.error('[guardarAsignacionesUsuarioAction] Error al sincronizar claims:', err)
   })
 
   revalidatePath('/configuracion/usuarios')
   return { success: true }
+}
+
+export async function fetchAssignedPersonasAction(usuarioId: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'config_usuarios', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchAssignedPersonas } = await import('./queries')
+  return fetchAssignedPersonas(usuarioId)
 }
 

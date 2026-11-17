@@ -3,11 +3,28 @@ import type { DraftNota } from '@/modules/inventario/types'
 
 // Configurar mocks globales antes de importar las acciones
 const mockSupabase = {
-  from: vi.fn((_table: string) => {
+  from: vi.fn((table: string) => {
+    const makeEqResult = (val?: unknown) => {
+      const res: any = Promise.resolve({ data: [], error: null })
+      res.single = vi.fn(() =>
+        Promise.resolve({
+          data:
+            table === 'cat_tipos_movimiento' && val === 3
+              ? { id: 3, codigo: 'TRF', requiere_destino: true }
+              : { id: 1, codigo: 'ENTRADA', requiere_destino: false },
+          error: null,
+        })
+      )
+      res.maybeSingle = vi.fn(() => Promise.resolve({ data: null, error: null }))
+      res.eq = vi.fn((_c: string, v?: unknown) => makeEqResult(v))
+      return res
+    }
+
     const chain = {
       select: vi.fn(() => ({
-        single: vi.fn(() => Promise.resolve({ data: { id: 1, codigo: 'ENTRADA', requiere_destino: false } })),
-        eq: vi.fn(() => Promise.resolve({ data: [] })),
+        single: vi.fn(() => Promise.resolve({ data: { id: 1, codigo: 'ENTRADA', requiere_destino: false }, error: null })),
+        maybeSingle: vi.fn(() => Promise.resolve({ data: null, error: null })),
+        eq: vi.fn((_col: string, val?: unknown) => makeEqResult(val)),
       })),
       insert: vi.fn(() => ({
         select: vi.fn(() => ({
@@ -28,19 +45,38 @@ const mockSupabase = {
   }),
 }
 
-vi.stubGlobal('createClient', vi.fn(() => mockSupabase))
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(async () => mockSupabase),
+}))
 
-// Mock de getCurrentUser
-vi.stubGlobal('getCurrentUser', vi.fn(() => Promise.resolve({ 
-  id: 1, 
-  email: 'admin@test.com',
-  nombre_completo: 'Admin Test',
-  rol: { nivel_acceso: 1 }
-})))
+vi.mock('@/modules/auth/queries', () => ({
+  getCurrentUser: vi.fn(async () => ({
+    id: 1,
+    email: 'admin@test.com',
+    nombre_completo: 'Admin Test',
+    rol_id: 6,
+    rol: { id: 6, nombre: 'Super Admin', nivel_acceso: 1 },
+    bodegas: [],
+    bodega_ids: [],
+    effective_permissions: {},
+  })),
+}))
 
-// Mock de revalidatePath (no funciona en tests)
-vi.stubGlobal('revalidatePath', vi.fn())
-vi.stubGlobal('revalidateTag', vi.fn())
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+  cacheLife: vi.fn(),
+  cacheTag: vi.fn(),
+  updateTag: vi.fn(),
+}))
+
+vi.mock('@/modules/inventario/config-queries', () => ({
+  fetchConfigInventario: vi.fn(async () => ({
+    dias_max_edicion_nota: 30,
+    requiere_aprobacion_ajuste: false,
+    permitir_stock_negativo: false,
+  })),
+}))
 
 describe('Notas de Inventario - Server Actions', () => {
   describe('guardarNotaAction', () => {
@@ -86,7 +122,7 @@ describe('Notas de Inventario - Server Actions', () => {
         bodega_origen_id: 1,
         bodega_destino_id: 1, // Misma bodega
         observaciones: 'Test',
-        productos: [],
+        productos: [{ producto_id: 1, cajas: 1, piezas_sueltas: 0 }],
       }
 
       const result = await guardarNotaAction(draft, false)
@@ -106,11 +142,23 @@ describe('Notas de Inventario - Server Actions', () => {
           return {
             select: vi.fn(() => ({
               single: vi.fn(() => Promise.resolve({ data: { id: 2, codigo: 'CONF' } })),
-              eq: vi.fn(() => Promise.resolve({ data: { id: 2 } })),
+              eq: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve({ data: { id: 2, codigo: 'CONF' } })),
+              })),
             })),
           } as any
         }
-        return mockSupabase.from(table)
+        return {
+          select: vi.fn(() => ({
+            single: vi.fn(() => Promise.resolve({ data: { id: 1, bodega_origen_id: 1, bodega_destino_id: null } })),
+            eq: vi.fn(() => ({
+              single: vi.fn(() => Promise.resolve({ data: { id: 1, bodega_origen_id: 1, bodega_destino_id: null } })),
+            })),
+          })),
+          update: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({ error: null })),
+          })),
+        } as any
       }) as any
 
       const result = await confirmarNotaAction(1)
@@ -122,10 +170,13 @@ describe('Notas de Inventario - Server Actions', () => {
       const { confirmarNotaAction } = await import('@/modules/inventario/actions')
       
       // Mock that note doesn't exist - return error from DB
-      mockSupabase.from = vi.fn((table: string) => {
+      mockSupabase.from = vi.fn((_table: string) => {
         return {
           select: vi.fn(() => ({
             single: vi.fn(() => Promise.resolve({ data: null, error: { message: 'Nota no encontrada' } })),
+            eq: vi.fn(() => ({
+              single: vi.fn(() => Promise.resolve({ data: null, error: { message: 'Nota no encontrada' } })),
+            })),
           })),
         } as any
       }) as any

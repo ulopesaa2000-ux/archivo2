@@ -31,7 +31,7 @@ import { toast } from 'sonner'
 import ExcelJS from 'exceljs'
 import Link from 'next/link'
 import type { FilaTrazabilidadMatriz, NotaCanceladaResumen, NotasCeldaRespuesta } from '@/modules/inventario/trazabilidad'
-import { fetchNotasCelda } from '@/modules/inventario/trazabilidad'
+import { fetchNotasCeldaAction } from '@/modules/inventario/actions/reads'
 import { TrazabilidadTimelineDrawer } from './TrazabilidadTimelineDrawer'
 import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon } from '@/lib/inventario/familias-orden'
 
@@ -94,7 +94,7 @@ export function TrazabilidadMatrizTable({
     setCelda({ fila, titulo, kind, x, y: Math.max(8, y) })
     setCeldaNotas(null)
     setCeldaLoading(true)
-    fetchNotasCelda({
+    fetchNotasCeldaAction({
       productoId: fila.producto_id,
       familia: fila.producto_id ? undefined : fila.familia,
       ciudad: bodegaId ? undefined : ciudadScope,
@@ -636,7 +636,7 @@ export function TrazabilidadMatrizTable({
 
   return (
     <div className="space-y-3">
-      
+
       {/* Barra de acciones: expandir/colapsar + exportar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -701,7 +701,7 @@ export function TrazabilidadMatrizTable({
                 <th className="py-3 px-3 text-right min-w-[85px] text-emerald-600 dark:text-emerald-400">
                   Entradas (+)
                 </th>
-                
+
                 {/* Columnas dinámicas de Salidas por Ciudad (o bodega en alcance) */}
                 {ciudadesRelevantes.map((cd) => (
                   <th key={`head-sal-${cd}`} className="py-3 px-3 text-right min-w-[95px] text-red-600 dark:text-red-400" title={alcanceBodega ? `Alcance: bodega ${alcanceBodega}` : undefined}>
@@ -741,10 +741,9 @@ export function TrazabilidadMatrizTable({
                   return (
                     <React.Fragment key={fila.id}>
                       {/* Fila Principal (Familia o Producto) */}
-                      <tr className={`transition-colors hover:bg-muted/40 ${
-                        hasSkus ? 'bg-muted/15 font-medium' : ''
-                      } ${fila.tiene_pendiente ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}`}>
-                        
+                      <tr className={`transition-colors hover:bg-muted/40 ${hasSkus ? 'bg-muted/15 font-medium' : ''
+                        } ${fila.tiene_pendiente ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}`}>
+
                         {/* Columna Sticky: Nombre / Familia con botón expander */}
                         <td className="py-2.5 px-4 sticky left-0 z-10 bg-card/95 backdrop-blur-xs border-r border-border/40">
                           <div className="flex items-center gap-2">

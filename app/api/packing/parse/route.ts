@@ -1,10 +1,20 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\api\packing\parse\route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 
 export const maxDuration = 120
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getCurrentUser().catch(() => null)
+    if (!user) {
+      return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 })
+    }
+    if (isClienteEcommerce(user) || !can(user, 'b2b_ordenes', 'puede_crear')) {
+      return NextResponse.json({ ok: false, error: 'No autorizado.' }, { status: 403 })
+    }
+
     const webhookUrl = process.env.N8N_PACKING_WEBHOOK_URL
 
     if (!webhookUrl) {

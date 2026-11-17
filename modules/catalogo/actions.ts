@@ -14,6 +14,7 @@ export {
   toggleDestacadoAction,
   bulkUpdateProductsAction,
   bulkDeactivateProductsAction,
+  fetchProductoPorIdParaEdicionAction,
 } from './actions/product'
 
 // Productos Web (ecommerce)

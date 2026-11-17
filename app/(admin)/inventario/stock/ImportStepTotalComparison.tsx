@@ -5,13 +5,13 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import {
-  generarConciliacionInventarioTotal,
-  type ResumenConciliacionBodega,
-  type FilaConciliacionTotal,
+import type {
+  ResumenConciliacionBodega,
+  FilaConciliacionTotal,
 } from '@/modules/inventario/import-queries'
 import {
   aplicarConciliacionInventarioTotalAction,
+  generarConciliacionInventarioTotalAction,
   type ImportFilaValida,
   type NotaBodegaResult,
 } from '@/modules/inventario/import-actions'
@@ -86,15 +86,9 @@ export function ImportStepTotalComparison({
       setIsLoading(true)
       setError(null)
       try {
-        const filasBodega = filasValidas
-          .filter((f) => f.bodega_id === bodegaActivaId)
-          .map((f) => ({
-            producto_id: f.producto_id,
-            sku: f.sku,
-            cajas: f.cajas,
-          }))
+        const filasBodega = filasValidas.filter((f) => f.bodega_id === bodegaActivaId)
 
-        const res = await generarConciliacionInventarioTotal(bodegaActivaId, filasBodega)
+        const res = await generarConciliacionInventarioTotalAction(bodegaActivaId, filasBodega)
         if (!cancel) {
           setResumen(res)
           // Reiniciar selección de cero (desmarcados por defecto)

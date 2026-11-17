@@ -5,7 +5,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Loader2, FileCheck, AlertCircle, Warehouse, RotateCcw } from 'lucide-react'
 import { crearAjustesImportAction } from '@/modules/inventario/import-actions'
-import { resetStockCeroAction, resetStockCeroBodegaAction } from '@/modules/config/inventory-reset-actions'
+import { resetStockParaImportacionAction } from '@/modules/config/inventory-reset-actions'
 import type { ImportFilaValida, NotaBodegaResult, ModoAjuste } from '@/modules/inventario/import-actions'
 
 type GrupoBodega = {
@@ -56,26 +56,20 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
   const handleConfirm = () => {
     setError(null)
     startTransition(async () => {
-      // Paso 1: Reiniciar stock a 0 si la casilla está activada
+      // Paso 1: Reiniciar stock a 0 vía notas AJU -> CONF si la casilla está activada
       if (resetStockPrevio) {
-        if (isTodasBodegas && grupos.length === 0) {
-          setProgressStatus('Reiniciando el stock en 0 para todas las bodegas...')
-          const resetRes = await resetStockCeroAction()
-          if (!resetRes.success) {
-            setError(resetRes.error || 'Error al poner en stock 0 las bodegas.')
-            setProgressStatus(null)
-            return
-          }
-        } else {
-          for (const g of grupos) {
-            setProgressStatus(`Reiniciando existencias a 0 en bodega '${g.bodega_nombre}' (ID: ${g.bodega_id})...`)
-            const resetRes = await resetStockCeroBodegaAction(g.bodega_id)
-            if (!resetRes.success) {
-              setError(resetRes.error || `Error al reiniciar stock de la bodega ${g.bodega_nombre}.`)
-              setProgressStatus(null)
-              return
-            }
-          }
+        const targetBodegaIds =
+          isTodasBodegas && grupos.length === 0 ? undefined : grupos.map((g) => g.bodega_id)
+        setProgressStatus(
+          targetBodegaIds
+            ? `Reiniciando existencias a 0 vía nota AJU en ${targetBodegaIds.length} bodega(s)...`
+            : 'Reiniciando el stock a 0 vía notas AJU para todas las bodegas autorizadas...'
+        )
+        const resetRes = await resetStockParaImportacionAction(targetBodegaIds)
+        if (!resetRes.success) {
+          setError(resetRes.error || 'Error al reiniciar el stock previo vía notas AJU. Importación abortada.')
+          setProgressStatus(null)
+          return
         }
         await new Promise((res) => setTimeout(res, 300))
       }

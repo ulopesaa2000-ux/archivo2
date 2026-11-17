@@ -26,9 +26,9 @@ import {
   desvincularCajaOrdenAction,
   vincularMultiplesCajasOrdenAction,
   actualizarCantidadCajasOrdenAction,
+  fetchCajasListadoAction,
 } from '@/modules/ordenes-b2b/actions'
 import { updateCajaCompletaAction, desactivarCajaAction } from '@/modules/cajas/actions'
-import { fetchCajasListado } from '@/modules/ordenes-b2b/queries'
 import type { CajaDetalleInput } from '@/modules/cajas/actions'
 import type { OrdenCajaResuelta, OrdenDetalleResuelto } from '@/modules/ordenes-b2b/types'
 import { CajaCard } from '@/components/admin/cajas/CajaCard'
@@ -77,7 +77,7 @@ function VincularCajaDialog({
   const debouncedSearch = useDebouncedCallback(async (q: string, targetPage: number = 1) => {
     setLoading(true)
     try {
-      const { items } = await fetchCajasListado({ q: q || undefined })
+      const { items } = await fetchCajasListadoAction({ q: q || undefined })
       setResults(items as CajaBusquedaItem[])
       setPage(targetPage)
     } catch {

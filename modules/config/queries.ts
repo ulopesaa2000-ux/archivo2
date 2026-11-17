@@ -1,5 +1,5 @@
 // modules/config/queries.ts
-'use server'
+import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 import { getActiveSupabaseConfig } from '@/lib/supabase/env'

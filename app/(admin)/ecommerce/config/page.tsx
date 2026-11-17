@@ -1,6 +1,7 @@
 // app/(admin)/ecommerce/config/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { createClient } from '@/lib/supabase/server'
 import { ConfigForm } from '@/components/admin/ecommerce/ConfigForm'
 import { CategoryBannersManager } from '@/components/admin/ecommerce/CategoryBannersManager'
@@ -79,7 +80,8 @@ function ConfigFormSkeleton() {
   )
 }
 
-export default function EcommerceConfigPage() {
+export default async function EcommerceConfigPage() {
+  await requirePermission('ecommerce_config')
   return (
     <div className="space-y-6">
       <div>

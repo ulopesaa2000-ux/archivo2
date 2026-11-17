@@ -1,6 +1,7 @@
 // app/(admin)/configuracion/auditoria_producto/page.tsx
 import { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { AuditoriaProductosClient } from './AuditoriaProductosClient'
 import { fetchAuditoriaGeneral } from '@/modules/catalogo/queries'
 
@@ -19,6 +20,7 @@ export default async function AuditoriaProductosPage({
 }: {
   searchParams: Promise<{ limit?: string }>
 }) {
+  await requirePermission('config_auditoria_productos')
   const sp = await searchParams
   const limit = sp.limit ? parseInt(sp.limit) : 200
 

@@ -221,6 +221,22 @@ export interface ImagenOptimizadaPdf {
  * que NO envía `Access-Control-Allow-Origin` y por tanto nunca pueden leerse con
  * canvas en el navegador. El fallback cliente solo funciona para hosts con CORS (*).
  */
+async function requirePdfCatalogUser() {
+  const { getCurrentUser } = await import('@/modules/auth/queries')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  const user = await getCurrentUser().catch(() => null)
+  if (!user) {
+    throw new Error('No autenticado.')
+  }
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'ecommerce_catalogo', 'puede_leer') && !can(user, 'catalogo_productos', 'puede_leer'))
+  ) {
+    throw new Error('No autorizado.')
+  }
+  return user
+}
+
 export async function optimizarImagenParaPdfAction(
   url: string,
   maxW: number = 500,
@@ -229,45 +245,13 @@ export async function optimizarImagenParaPdfAction(
   if (!url || typeof url !== 'string' || !url.trim()) return null
 
   try {
-    let targetUrl = url.trim()
-    if (targetUrl.startsWith('//')) targetUrl = `https:${targetUrl}`
-
-    let parsedUrl: URL
-    try {
-      parsedUrl = new URL(targetUrl)
-    } catch {
-      parsedUrl = new URL(encodeURI(targetUrl))
-    }
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000)
-
-    let response: Response
-    try {
-      response = await fetch(parsedUrl.toString(), {
-        signal: controller.signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        },
-      })
-    } finally {
-      clearTimeout(timeoutId)
-    }
-
-    if (!response.ok) return null
-
-    // Odoo puede devolver HTML (login) en vez de imagen: validar antes de sharp.
-    const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('image/')) {
-      console.warn(`[optimizarImagenParaPdfAction] Respuesta no-imagen para ${url}: ${contentType}`)
+    const user = await requirePdfCatalogUser()
+    const { checkCatalogImageRateLimit, fetchSafeImageBuffer } = await import('@/lib/security/safe-image-url')
+    if (!checkCatalogImageRateLimit(user.id)) {
       return null
     }
 
-    const arrayBuffer = await response.arrayBuffer()
-    const inputBuffer = Buffer.from(arrayBuffer)
-    if (inputBuffer.length === 0) return null
+    const { buffer: inputBuffer } = await fetchSafeImageBuffer(url, user.id)
 
     // Cargar sharp dinámicamente o directo en Server Action
     const sharp = (await import('sharp')).default
@@ -314,8 +298,10 @@ export async function optimizarImagenesLoteParaPdfAction(
   urls: string[],
   calidad?: { maxW?: number; quality?: number }
 ): Promise<Record<string, ImagenOptimizadaPdf | null>> {
+  await requirePdfCatalogUser()
+  const { MAX_BATCH_URLS } = await import('@/lib/security/safe-image-url')
   const results: Record<string, ImagenOptimizadaPdf | null> = {}
-  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)))
+  const uniqueUrls = Array.from(new Set(urls.filter(Boolean))).slice(0, MAX_BATCH_URLS)
   const maxW = calidad?.maxW ?? 500
   const quality = calidad?.quality ?? 80
 

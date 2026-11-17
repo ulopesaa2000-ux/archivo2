@@ -235,6 +235,13 @@ export async function crearAjustesImportAction(
 ): Promise<ImportAjusteResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  const { can: canGlobal, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (
+    isClienteEcommerce(user) ||
+    (!canGlobal(user, 'inventario_notas', 'puede_crear') && !canGlobal(user, 'inventario_stock', 'puede_editar'))
+  ) {
+    return { success: false, error: 'No autorizado para importar ajustes de inventario.' }
+  }
 
   if (filas.length === 0) return { success: false, error: 'No hay filas validas para importar.' }
 
@@ -317,6 +324,13 @@ export async function aplicarConciliacionInventarioTotalAction(
 ): Promise<ImportAjusteResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  const { can: canGlobal, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (
+    isClienteEcommerce(user) ||
+    (!canGlobal(user, 'inventario_notas', 'puede_crear') && !canGlobal(user, 'inventario_stock', 'puede_editar'))
+  ) {
+    return { success: false, error: 'No autorizado para aplicar conciliación de inventario.' }
+  }
 
   const supabase = await createClient()
 
@@ -404,5 +418,45 @@ export async function aplicarConciliacionInventarioTotalAction(
     notas,
     productos_procesados: totalProcesados,
   }
+}
+
+async function requireInventarioImportRead() {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (
+    isClienteEcommerce(user) ||
+    (!can(user, 'inventario_stock', 'puede_leer') && !can(user, 'inventario_notas', 'puede_crear'))
+  ) {
+    throw new Error('No autorizado')
+  }
+  return user
+}
+
+export async function buscarProductosPorSkuBatchAction(skus: string[]) {
+  await requireInventarioImportRead()
+  const { buscarProductosPorSkuBatch } = await import('./import-queries')
+  return buscarProductosPorSkuBatch(skus)
+}
+
+export async function buscarBodegasBatchAction(nombres: string[]) {
+  await requireInventarioImportRead()
+  const { buscarBodegasBatch } = await import('./import-queries')
+  return buscarBodegasBatch(nombres)
+}
+
+export async function buscarProductosCatalogoAction(query: string) {
+  await requireInventarioImportRead()
+  const { buscarProductosCatalogo } = await import('./import-queries')
+  return buscarProductosCatalogo(query)
+}
+
+export async function generarConciliacionInventarioTotalAction(
+  bodegaId: number,
+  filas: ImportFilaValida[]
+) {
+  await requireInventarioImportRead()
+  const { generarConciliacionInventarioTotal } = await import('./import-queries')
+  return generarConciliacionInventarioTotal(bodegaId, filas)
 }
 

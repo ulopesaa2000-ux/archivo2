@@ -71,6 +71,10 @@ export async function surtirContenedorAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para surtir contenedores.' }
+  }
 
   const supabase = await createClient()
 
@@ -263,6 +267,10 @@ export async function confirmarIngresoVirtualAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para confirmar ingreso virtual.' }
+  }
 
   const supabase = await createClient()
 
@@ -756,4 +764,48 @@ export async function eliminarContenedorAction(
   revalidatePath(`/contenedores/${contenedorId}`)
   revalidatePath('/ordenes-b2b')
   return { success: true, id: contenedorId }
+}
+
+export async function fetchOrdenesDisponiblesAction(contenedorId: number, q?: string) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchOrdenesDisponibles } = await import('./queries')
+  return fetchOrdenesDisponibles(contenedorId, q)
+}
+
+export async function fetchSurtidoPreviewAction(contenedorId: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchSurtidoPreview } = await import('./queries')
+  return fetchSurtidoPreview(contenedorId)
+}
+
+export async function fetchContenedoresDetalleAnualAction(year: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchContenedoresDetalleAnual } = await import('./queries')
+  return fetchContenedoresDetalleAnual(year)
+}
+
+export async function fetchContenedorReporteResumenAction(contenedorId: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'b2b_contenedores', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchContenedorReporteResumen } = await import('./queries')
+  return fetchContenedorReporteResumen(contenedorId)
 }

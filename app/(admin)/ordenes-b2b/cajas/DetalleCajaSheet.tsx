@@ -24,7 +24,7 @@ export function DetalleCajaSheet({ cajaId }: { cajaId: number }) {
     setIsLoading(true)
     Promise.all([
       fetch(`/api/ordenes-b2b/caja-detalle?id=${cajaId}`).then(res => res.json()),
-      import('@/modules/catalogo/queries').then(m => m.fetchCatalogosEdicion())
+      import('@/modules/catalogo/actions/product').then(m => m.fetchCatalogosEdicionAction())
     ])
       .then(([cajaData, catalogos]) => {
         setData(cajaData)

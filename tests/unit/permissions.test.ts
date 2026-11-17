@@ -99,12 +99,12 @@ describe('permissions', () => {
     expect(can(asesor, 'ecommerce_ordenes', 'puede_editar')).toBe(true)
   })
 
-  it('deja catalogos soporte en lectura para empleados autenticados', () => {
+  it('no otorga lectura de catalogos soporte por defecto sin permiso explicito', () => {
     const currentUser = user({
       effective_permissions: buildPermissionMatrix([]),
     })
 
-    expect(can(currentUser, 'catalogo_catalogos', 'puede_leer')).toBe(true)
+    expect(can(currentUser, 'catalogo_catalogos', 'puede_leer')).toBe(false)
     expect(can(currentUser, 'catalogo_catalogos', 'puede_editar')).toBe(false)
   })
 })

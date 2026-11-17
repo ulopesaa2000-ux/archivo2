@@ -12,8 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2, Search, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
-import { createProductAction, updateProductAction, checkSkuExistsAction } from '@/modules/catalogo/actions'
-import { fetchProductoPorIdParaEdicion } from '@/modules/catalogo/queries'
+import { createProductAction, updateProductAction, checkSkuExistsAction, fetchProductoPorIdParaEdicionAction } from '@/modules/catalogo/actions'
 import { detectProductAttributesFromText } from '@/modules/catalogo/utils/detector'
 import type { ProductoRow } from '@/lib/types/tables'
 import type { CatalogosParaFiltros } from '@/modules/catalogo/types'
@@ -45,7 +44,7 @@ export function CatalogoCreateDialog({
 
     if ((isEdit || isCopy) && editId) {
       setLoadingData(true)
-      fetchProductoPorIdParaEdicion(Number(editId))
+      fetchProductoPorIdParaEdicionAction(Number(editId))
         .then(data => {
           if (data) {
             setProducto(data)

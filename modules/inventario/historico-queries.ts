@@ -1,5 +1,5 @@
 // modules/inventario/historico-queries.ts
-'use server'
+import 'server-only'
 
 /**
  * Capa de DATOS del Stock Histórico (AGENTS.md 3.7.1).

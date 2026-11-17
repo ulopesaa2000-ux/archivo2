@@ -1,6 +1,7 @@
 // app/(admin)/despachos/page.tsx
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { requirePermission } from '@/lib/dal'
 import { fetchDespachos } from '@/modules/despachos/queries'
 import { DespachoListContent } from './DespachoListContent'
 import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
@@ -10,6 +11,7 @@ export const metadata: Metadata = { title: 'Despachos — Inventario' }
 export default async function DespachosPage(props: {
   searchParams: Promise<{ q?: string; estado?: string; page?: string }>
 }) {
+  await requirePermission('despachos')
   const params = await props.searchParams
   const filtros = {
     q: params.q,

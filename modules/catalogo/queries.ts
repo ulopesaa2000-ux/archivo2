@@ -1,5 +1,5 @@
 // modules/catalogo/queries.ts
-'use server'
+import 'server-only'
 
 import { cacheLife, cacheTag } from 'next/cache'
 import { cache } from 'react'

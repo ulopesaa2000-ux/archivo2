@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowRight, ExternalLink, FileText, Loader2, MousePointerClick } from 'lucide-react'
 import type { ResumenCiudad, FlowEdge } from '@/lib/inventario/flujo-grafo'
-import { fetchMovimientosPorCiudad, type MovimientoCiudad } from '@/modules/inventario/trazabilidad'
+import type { MovimientoCiudad } from '@/modules/inventario/trazabilidad'
+import { fetchMovimientosPorCiudadAction } from '@/modules/inventario/actions/reads'
 import { Fecha } from '@/components/shared/Fecha'
 
 function firmado(m: MovimientoCiudad): number {
@@ -35,7 +36,7 @@ export function TrazabilidadDiagramaPanel({ ciudad, resumen, edge, fechaDesde, f
   useEffect(() => {
     if (!ciudad) return
     setLoading(true)
-    fetchMovimientosPorCiudad(ciudad, fechaDesde, fechaHasta, { familia, incluirCanceladas: verCanceladas, limite: 60 })
+    fetchMovimientosPorCiudadAction(ciudad, fechaDesde, fechaHasta, { familia, incluirCanceladas: verCanceladas, limite: 60 })
       .then(setMovs)
       .catch(() => setMovs([]))
       .finally(() => setLoading(false))

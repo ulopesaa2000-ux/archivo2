@@ -15,8 +15,8 @@ import {
   importarImagenesDesdeExcelAction,
   uploadSingleImagenConSkuAction,
   detectarSkusArchivosAction,
+  buscarProductosParaSelectorAction,
 } from '@/modules/catalogo/imagenes/actions'
-import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { BuscadorSku } from './BuscadorSku'
@@ -142,7 +142,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
 
     // 2. Buscar con buscarProductosParaSelector (rápido e indexado, tolerando '/', '-')
     try {
-      const prods = await buscarProductosParaSelector(cleanSku, 5)
+      const prods = await buscarProductosParaSelectorAction(cleanSku, 5)
       const exact = prods.find(p => p.sku_base.toUpperCase() === cleanSku) || (prods.length === 1 ? prods[0] : null)
 
       if (exact && exact.sku_base.toUpperCase() === cleanSku) {

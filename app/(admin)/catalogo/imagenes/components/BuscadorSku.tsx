@@ -2,7 +2,7 @@
 'use client'
 
 import { SkuQuickSearchInput, type SkuSearchResultItem } from '@/components/admin/SkuQuickSearchInput'
-import { buscarProductosParaSelector } from '@/modules/catalogo/imagenes/queries'
+import { buscarProductosParaSelectorAction } from '@/modules/catalogo/imagenes/actions'
 
 interface Props {
   value: string
@@ -17,7 +17,7 @@ interface Props {
  */
 export function BuscadorSku({ value, onChange, status }: Props) {
   const handleSearch = async (term: string): Promise<SkuSearchResultItem[]> => {
-    return buscarProductosParaSelector(term, 10)
+    return buscarProductosParaSelectorAction(term, 10)
   }
 
   const normalizedStatus = (

@@ -1,6 +1,7 @@
 // app/(admin)/catalogo/imagenes/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { Pagination } from '@/components/admin/Pagination'
 import {
   fetchImagenesGlobales,
@@ -139,6 +140,7 @@ export default async function ImagenesPage({
 }: {
   searchParams: Promise<SearchParams>
 }) {
+  await requirePermission('catalogo_imagenes')
   const params = await searchParams
 
   const filtros = {

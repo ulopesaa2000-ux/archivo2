@@ -1,6 +1,7 @@
 // app/(admin)/ecommerce/productos-web/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { fetchCatalogosParaFiltros } from '@/modules/catalogo/queries'
 import { fetchProductosWebAdmin } from '@/modules/ecommerce/queries'
 import { ProductosWebFilters } from '@/components/admin/ecommerce/ProductosWebFilters'
@@ -59,6 +60,7 @@ function TableSkeleton() {
 }
 
 export default async function ProductosWebPage({ searchParams }: PageProps) {
+  await requirePermission('ecommerce_catalogo')
   const [params, catalogos] = await Promise.all([
     searchParams,
     fetchCatalogosParaFiltros(),

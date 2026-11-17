@@ -2,6 +2,7 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { requirePermission } from '@/lib/dal'
 import { fetchBodegasVirtuales, fetchStockVirtualResumenes } from '@/modules/despachos/queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,7 @@ import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
 export const metadata: Metadata = { title: 'Bodegas Virtuales — Inventario' }
 
 export default async function InventarioVirtualPage() {
+  await requirePermission('inventario_virtual')
   const bodegas = await fetchBodegasVirtuales()
   const resumenes = await fetchStockVirtualResumenes(bodegas.map((bodega) => bodega.id))
   const stocks = bodegas.map((bodega) => {

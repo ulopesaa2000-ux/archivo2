@@ -10,12 +10,12 @@ import {
   sanitizeFavoriteIds,
   mergeFavoriteIds,
 } from '@/lib/utils/favoritos'
-import { fetchFavoritosUsuario } from '@/modules/ecommerce/favoritos/queries'
 import {
   agregarFavorito,
   quitarFavorito,
   limpiarFavoritos,
   sincronizarFavoritosPendientes,
+  fetchFavoritosUsuarioAction,
 } from '@/modules/ecommerce/favoritos/actions'
 
 function getFavoritesFromStorage(): number[] {
@@ -67,7 +67,7 @@ export function useFavorites() {
   const reconcileWithServer = useCallback(async (): Promise<boolean> => {
     let serverIds: number[] | null
     try {
-      serverIds = await fetchFavoritosUsuario()
+      serverIds = await fetchFavoritosUsuarioAction()
     } catch {
       return false
     }

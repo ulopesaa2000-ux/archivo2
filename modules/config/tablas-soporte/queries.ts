@@ -1,4 +1,5 @@
 // modules/config/tablas-soporte/queries.ts
+import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import {
   TABLAS_SOPORTE_CONFIG,

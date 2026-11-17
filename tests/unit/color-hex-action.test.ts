@@ -14,7 +14,7 @@ function mockFetchOnce(payload: unknown, ok = true) {
 describe('resolverHexColorAction', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
-    mockGetCurrentUser.mockResolvedValue({ id: 1 })
+    mockGetCurrentUser.mockResolvedValue({ id: 1, rol: { nivel_acceso: 1 } })
   })
   afterEach(() => {
     vi.unstubAllGlobals()

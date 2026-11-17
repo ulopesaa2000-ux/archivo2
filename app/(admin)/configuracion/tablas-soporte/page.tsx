@@ -1,6 +1,9 @@
 // app/(admin)/configuracion/tablas-soporte/page.tsx
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import { Database } from 'lucide-react'
+import { verifySession } from '@/lib/dal'
+import { canWithFallback } from '@/lib/auth/permissions'
 import { TABLAS_SOPORTE_CONFIG, type TablaSoporteKey } from '@/modules/config/tablas-soporte/types'
 import { fetchTablaSoporteData, fetchTablaSoporteCounts } from '@/modules/config/tablas-soporte/queries'
 import { TablasSoporteManager } from './components/TablasSoporteManager'
@@ -32,6 +35,10 @@ const VALID_KEYS: TablaSoporteKey[] = [
 ]
 
 export default async function TablasSoportePage(props: PageProps) {
+  const { user } = await verifySession()
+  if (!canWithFallback(user, 'config_tablas_soporte', 'puede_leer')) {
+    redirect('/unauthorized')
+  }
   const searchParams = await props.searchParams
 
   // La tabla que SIEMPRE carga por defecto cuando se abre la página es 'personas'

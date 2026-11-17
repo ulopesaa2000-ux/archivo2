@@ -1,6 +1,7 @@
 // app/(admin)/ecommerce/ordenes-venta/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { requirePermission } from '@/lib/dal'
 import { fetchConfigEcommerce, fetchOrdenesVenta } from '@/modules/ecommerce/queries'
 import { OrdenesVentaTable } from '@/components/admin/ecommerce/OrdenesVentaTable'
 import { OrdenesVentaFilters } from '@/components/admin/ecommerce/OrdenesVentaFilters'
@@ -28,6 +29,7 @@ export default async function OrdenesVentaPage({
 }: {
   searchParams: Promise<{ zona?: string; page?: string; q?: string; verCanceladas?: string }>
 }) {
+  await requirePermission('ecommerce_ordenes')
   const params = await searchParams
   const zona = typeof params.zona === 'string' ? params.zona : ''
   const page = Math.max(1, Number(params.page) || 1)

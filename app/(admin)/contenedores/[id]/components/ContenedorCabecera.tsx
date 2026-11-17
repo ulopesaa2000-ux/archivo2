@@ -36,7 +36,7 @@ import {
   surtirContenedorAction, confirmarIngresoVirtualAction,
   eliminarContenedorAction,
 } from '@/modules/contenedores/actions'
-import { fetchSurtidoPreview } from '@/modules/contenedores/queries'
+import { fetchSurtidoPreviewAction } from '@/modules/contenedores/actions'
 import type { ContenedorRow, BodegaRow } from '@/lib/types/tables'
 import type { ContenedorResumen, SurtidoPreview } from '@/modules/contenedores/types'
 
@@ -106,7 +106,7 @@ export function ContenedorCabecera({
   useEffect(() => {
     if (contenedor.estado !== 'en_bodega' && contenedor.estado !== 'surtido') return
     let vivo = true
-    fetchSurtidoPreview(contenedor.id)
+    fetchSurtidoPreviewAction(contenedor.id)
       .then((data) => {
         if (!vivo) return
         setAvisoPendiente(data.avisoPendiente)
@@ -200,7 +200,7 @@ export function ContenedorCabecera({
     // Única solicitud a DB: exactamente lo que pasará a stock
     startTransition(async () => {
       try {
-        const data = await fetchSurtidoPreview(contenedor.id)
+        const data = await fetchSurtidoPreviewAction(contenedor.id)
         setPreview(data)
         setAvisoPendiente(data.avisoPendiente)
         setComprobante(data.comprobante)
@@ -224,7 +224,7 @@ export function ContenedorCabecera({
       if (!result.success) { setError(result.error ?? 'Error al surtir.'); return }
       // El aviso queda en PEND (no mueve stock): refrescar preview sin cerrar
       try {
-        const data = await fetchSurtidoPreview(contenedor.id)
+        const data = await fetchSurtidoPreviewAction(contenedor.id)
         setPreview(data)
         setAvisoPendiente(data.avisoPendiente)
         setComprobante(data.comprobante)
@@ -247,7 +247,7 @@ export function ContenedorCabecera({
       setSurtirOpen(false)
       setAvisoPendiente(null)
       try {
-        const data = await fetchSurtidoPreview(contenedor.id)
+        const data = await fetchSurtidoPreviewAction(contenedor.id)
         setComprobante(data.comprobante)
       } catch {
         // ignorar

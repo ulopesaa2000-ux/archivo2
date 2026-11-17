@@ -17,8 +17,7 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import {
   ArrowLeft, Plus, Trash2, Loader2, Truck, AlertCircle, Check,
 } from 'lucide-react'
-import { crearDespachoAction } from '@/modules/despachos/actions'
-import { fetchStockVirtual } from '@/modules/despachos/queries'
+import { crearDespachoAction, fetchStockVirtualAction } from '@/modules/despachos/actions'
 import type { BodegaRow } from '@/lib/types/tables'
 import type { StockVirtualItem } from '@/modules/despachos/types'
 
@@ -45,7 +44,7 @@ export function DespachoForm({
   const handleBodegaChange = async (id: number) => {
     setBodegaOrigenId(id)
     setProductos([])
-    const items = await fetchStockVirtual(id)
+    const items = await fetchStockVirtualAction(id)
     setStock(items)
   }
 

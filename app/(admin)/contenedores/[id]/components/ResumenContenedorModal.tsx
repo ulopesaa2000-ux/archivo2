@@ -25,7 +25,7 @@ import {
   ImageIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { fetchContenedorReporteResumen } from '@/modules/contenedores/queries'
+import { fetchContenedorReporteResumenAction } from '@/modules/contenedores/actions'
 import { guardarResumenContenedorAction } from '@/modules/contenedores/actions'
 import { generarExcelResumenContenedor } from '@/modules/contenedores/exportarResumenExcel'
 import type { ResumenContenedorData, ResumenItemData } from '@/modules/contenedores/types'
@@ -50,7 +50,7 @@ export function ResumenContenedorModal({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetchContenedorReporteResumen(contenedorId)
+      const res = await fetchContenedorReporteResumenAction(contenedorId)
       if (!res) {
         setError('No se pudo cargar la información del contenedor.')
         return

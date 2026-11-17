@@ -3,9 +3,9 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { getCurrentUser } from '@/modules/auth/queries'
 import {
   type ActionResult,
+  requireCatalogoPermission,
   toCleanText,
   toInteger,
   toBoolean,
@@ -18,8 +18,8 @@ import {
 export async function saveAcabadoAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
@@ -51,8 +51,8 @@ export async function deleteAcabadoAction(
   id: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase.from('acabado_producto').delete().eq('id', id)
@@ -70,8 +70,8 @@ export async function deleteAcabadoAction(
 export async function saveTagAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
@@ -102,8 +102,8 @@ export async function deleteTagAction(
   id: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase.from('producto_tags').delete().eq('id', id)
@@ -121,8 +121,8 @@ export async function deleteTagAction(
 export async function saveComplementoAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
@@ -155,8 +155,8 @@ export async function deleteComplementoAction(
   id: number,
   productoId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase.from('complemento_producto').delete().eq('id', id)
@@ -174,8 +174,8 @@ export async function deleteComplementoAction(
 export async function saveConjuntoItemAction(
   formData: FormData
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const id = toInteger(formData, 'id')
@@ -207,8 +207,8 @@ export async function deleteConjuntoItemAction(
   id: number,
   productoPadreId: number
 ): Promise<ActionResult> {
-  const user = await getCurrentUser()
-  if (!user) return { success: false, error: 'No autenticado' }
+  const denied = await requireCatalogoPermission('puede_editar')
+  if (denied) return denied
 
   const supabase = await createClient()
   const { error } = await supabase.from('producto_conjunto').delete().eq('id', id)

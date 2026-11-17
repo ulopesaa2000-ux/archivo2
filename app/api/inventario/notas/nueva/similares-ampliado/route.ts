@@ -1,10 +1,20 @@
 // app/api/inventario/notas/nueva/similares-ampliado/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, isClienteEcommerce } from '@/lib/auth/permissions'
 import type { ProductoSustitutoAmpliado } from '@/modules/inventario/types'
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getCurrentUser().catch(() => null)
+    if (!user) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    }
+    if (isClienteEcommerce(user) || !can(user, 'inventario_notas', 'puede_leer')) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+
     const { searchParams } = new URL(req.url)
     const bodegaIdStr = searchParams.get('bodega_id')
     const productoIdStr = searchParams.get('producto_id')

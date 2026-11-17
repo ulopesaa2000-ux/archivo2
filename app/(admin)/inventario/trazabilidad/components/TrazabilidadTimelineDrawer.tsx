@@ -26,7 +26,8 @@ import {
   SlidersHorizontal,
   FileText
 } from 'lucide-react'
-import { fetchProductoTimeline, fetchFamiliaSkusConStock, type TimelineEvento, type SkuConStock } from '@/modules/inventario/trazabilidad'
+import type { TimelineEvento, SkuConStock } from '@/modules/inventario/trazabilidad'
+import { fetchProductoTimelineAction, fetchFamiliaSkusConStockAction } from '@/modules/inventario/actions/reads'
 import { TrazabilidadSkuDiagrama } from './TrazabilidadSkuDiagrama'
 
 interface Props {
@@ -80,7 +81,7 @@ export function TrazabilidadTimelineDrawer({
     if (!isOpen || !pid || modo !== 'sku') return
 
     setLoading(true)
-    fetchProductoTimeline(pid, fDesde, fHasta, verCanceladas)
+    fetchProductoTimelineAction(pid, fDesde, fHasta, verCanceladas)
       .then((data) => {
         setEventos(data)
       })
@@ -95,7 +96,7 @@ export function TrazabilidadTimelineDrawer({
   useEffect(() => {
     if (!isOpen || modo !== 'familia' || !familia) return
     setLoadingSkus(true)
-    fetchFamiliaSkusConStock(familia)
+    fetchFamiliaSkusConStockAction(familia)
       .then(setSkus)
       .catch(() => setSkus([]))
       .finally(() => setLoadingSkus(false))

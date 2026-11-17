@@ -3,7 +3,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { getCurrentUser } from '@/modules/auth/queries'
+import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
+import { can as canGlobal, isClienteEcommerce } from '@/lib/auth/permissions'
 import { can } from './permissions'
 import { fetchStockByBodegaAll, fetchStockMatrixAll, fetchStockPorClaves } from './queries'
 import { fetchDescripcionesCanonicasFamilias } from '@/modules/catalogo/queries'
@@ -963,6 +964,9 @@ export async function crearBodegaAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_crear')) {
+    return { success: false, error: 'No autorizado para crear bodegas.' }
+  }
 
   const supabase = await createClient()
 
@@ -1016,6 +1020,9 @@ export async function actualizarBodegaAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para editar bodegas.' }
+  }
 
   const supabase = await createClient()
   const id = parseInt(formData.get('bodega_id') as string)
@@ -1141,6 +1148,9 @@ export async function eliminarUsuarioBodegaAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para gestionar asignaciones de bodega.' }
+  }
 
   const supabase = await createClient()
 
@@ -1174,6 +1184,9 @@ export async function asignarUsuarioZonaAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para asignar bodegas por zona.' }
+  }
 
   const supabase = await createClient()
 
@@ -1229,6 +1242,9 @@ export async function guardarAsignacionBodegaJSONAction(payload: {
 }): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para asignar bodegas.' }
+  }
 
   const supabase = await createClient()
 
@@ -1281,6 +1297,9 @@ export async function eliminarAsignacionBodegaJSONAction(
 ): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_bodegas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para eliminar asignaciones de bodega.' }
+  }
 
   const supabase = await createClient()
 
@@ -1748,6 +1767,11 @@ export async function actualizarPropuestaOcrLineasAction(
   propuestaId: string,
   lineas: NotaOcrPropuestaLineRaw[]
 ): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado' }
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_notas', 'puede_editar')) {
+    return { success: false, error: 'No autorizado' }
+  }
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -1769,6 +1793,14 @@ export async function exportStockByBodegaAction(
   filtros?: FiltrosStock
 ): Promise<{ success: boolean; data?: StockListItem[]; descripcionesCanonicas?: Record<string, string>; error?: string }> {
   try {
+    const user = await getCurrentUser()
+    if (!user || isClienteEcommerce(user) || !canGlobal(user, 'inventario_stock', 'puede_leer')) {
+      return { success: false, error: 'No autorizado' }
+    }
+    const bodegasAutorizadas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+    if (!bodegasAutorizadas.some((b) => b.id === bodegaId)) {
+      return { success: false, error: 'No tienes acceso a esta bodega.' }
+    }
     const [items, descripcionesCanonicas] = await Promise.all([
       fetchStockByBodegaAll(bodegaId, filtros),
       fetchDescripcionesCanonicasFamilias(),
@@ -1784,8 +1816,15 @@ export async function exportStockMatrixAction(
   bodegas: BodegaRow[]
 ): Promise<{ success: boolean; data?: StockMatrixItem[]; descripcionesCanonicas?: Record<string, string>; error?: string }> {
   try {
+    const user = await getCurrentUser()
+    if (!user || isClienteEcommerce(user) || !canGlobal(user, 'inventario_stock', 'puede_leer')) {
+      return { success: false, error: 'No autorizado' }
+    }
+    const bodegasAutorizadas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+    const allowedIds = new Set(bodegasAutorizadas.map((b) => b.id))
+    const bodegasFiltradas = bodegas.filter((b) => allowedIds.has(b.id))
     const [items, descripcionesCanonicas] = await Promise.all([
-      fetchStockMatrixAll(filtros, bodegas),
+      fetchStockMatrixAll(filtros, bodegasFiltradas),
       fetchDescripcionesCanonicasFamilias(),
     ])
     return { success: true, data: items, descripcionesCanonicas }
@@ -2070,4 +2109,18 @@ export async function resolverProductosPegadosAction(
     encontrados,
     noEncontrados,
   }
+}
+
+export async function fetchStockDetallePorCajaAction(bodegaId: number, productoId: number) {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  if (isClienteEcommerce(user) || !canGlobal(user, 'inventario_stock', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const bodegasAutorizadas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
+  if (!bodegasAutorizadas.some((b) => b.id === bodegaId)) {
+    throw new Error('No tienes acceso a esta bodega')
+  }
+  const { fetchStockDetallePorCaja } = await import('./queries')
+  return fetchStockDetallePorCaja(bodegaId, productoId)
 }
