@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator'
 import { NotaComparadorLayout } from '@/app/(admin)/inventario/notas/[id]/components/NotaComparadorLayout'
 
 import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { puedeVerNotaPorCotizacion } from '@/modules/ecommerce/queries'
 
 export async function generateMetadata({
   params,
@@ -73,21 +74,29 @@ export default async function NotaDetallePage({
     ? fetchOcrPropuestaById(sp.propuesta_id)
     : fetchOcrPropuestaByNotaId(id)
   const configPromise = fetchConfigInventario()
+  const catalogosPromise = fetchCatalogosInventario()
 
-  const [userBodegas, nota, ocrProposal, config] = await Promise.all([
+  const [userBodegas, nota, ocrProposal, config, catalogos] = await Promise.all([
     userBodegasPromise,
     notaPromise,
     ocrProposalPromise,
     configPromise,
+    catalogosPromise,
   ])
 
   if (!nota) notFound()
 
-  // Excepción de lectura: nota generada desde una cotización que el usuario
-  // administra (vínculo por folio). Entra sin importar la bodega; la edición
-  // sigue gobernada por los permisos de inventario (builder/actions).
-  const { puedeVerNotaPorCotizacion } = await import('@/modules/ecommerce/queries')
-  const accesoPorCotizacion = await puedeVerNotaPorCotizacion(nota.cabecera.nota_referencia)
+  // Excepción de lectura por cotización + navegación contextual en paralelo
+  const [accesoPorCotizacion, navegacion] = await Promise.all([
+    puedeVerNotaPorCotizacion(nota.cabecera.nota_referencia),
+    fetchNavegacionNota(id, {
+      usuarioId: user.id,
+      nivelAcceso: user.rol?.nivel_acceso ?? 3,
+      rolNombre: user.rol?.nombre,
+      bodegaActivaId,
+      userBodegaIds: userBodegas.map(b => b.id),
+    }),
+  ])
 
   // Validación de acceso por rol
   if (!isSuperAdmin && !isAdminInventario && !accesoPorCotizacion) {
@@ -104,20 +113,10 @@ export default async function NotaDetallePage({
     }
   }
 
-  // Cargar navegación contextual (prioriza PEND, respeta bodega activa y rol)
-  const navegacion = await fetchNavegacionNota(id, {
-    usuarioId: user.id,
-    nivelAcceso: user.rol?.nivel_acceso ?? 3,
-    rolNombre: user.rol?.nombre,
-    bodegaActivaId,
-    userBodegaIds: userBodegas.map(b => b.id)
-  })
-
   const esEditable = nota.cabecera.estado_codigo === 'PEND' || nota.cabecera.estado_codigo === 'PROC'
 
-  // Si es editable, cargar catálogos para el draft builder
+  // Si es editable, usar catálogos pre-cargados en el draft builder
   if (esEditable) {
-    const catalogos = await fetchCatalogosInventario()
 
     return (
       <div className="w-[94%] max-w-[110rem] mx-auto space-y-4">

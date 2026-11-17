@@ -32,7 +32,9 @@ import { exportStockMatrixAction } from '@/modules/inventario/actions'
 import type { StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
 import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily as isUnassignedFamilyCanon, normalizeCiudad, ciudadLabel, sortCiudadesWithConfig } from '@/lib/inventario/familias-orden'
+import { useHeaderFlotante } from '@/app/(admin)/inventario/stock/historico/_hooks/use-header-flotante'
 import { StockAuditoriaDrawer } from './StockAuditoriaDrawer'
+import { StockMatrixMobileTable } from './_components/StockMatrixMobileTable'
 
 export function isUnassignedFamily(fam: string | null | undefined): boolean {
   return isUnassignedFamilyCanon(fam)
@@ -54,6 +56,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
   const [isExporting, setIsExporting] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [auditoria, setAuditoria] = useState<{ modo: 'producto' | 'familia'; productoId?: number; familia?: string; sku?: string; descripcion?: string | null } | null>(null)
+  const { scrollRef, headerRef, ancho, alto, onScroll } = useHeaderFlotante()
 
   const modo = searchParams.get('modo') === 'pronostico' ? 'pronostico' : 'fisico'
   const isPronostico = modo === 'pronostico'
@@ -776,8 +779,8 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {agruparPor === 'familia' && (
             <>
               <Button variant="outline" size="sm" onClick={expandAll}>
@@ -792,7 +795,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/print/inventario/familias" target="_blank" title="Abrir vista de impresión en carta horizontal (papel o PDF)">
             <Button variant="outline" size="sm" className="font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30">
               <Printer className="mr-2 h-4 w-4" />
@@ -832,9 +835,29 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         </div>
       </div>
 
-      <div className="rounded-lg border overflow-x-auto shadow-sm">
+      {/* ── Vista Especial Móvil (< 768px): SKU + Descripción combinada y fija a la izquierda ── */}
+      <div className="md:hidden">
+        <StockMatrixMobileTable
+          items={items}
+          groupedItems={groupedItems}
+          bodegasColumnas={bodegasColumnas}
+          ciudadesGrupos={ciudadesGrupos}
+          totalsPerBodega={totalsPerBodega}
+          totalesCajasRealesPorBodega={totalesCajasRealesPorBodega}
+          grandTotal={grandTotal}
+          grandTotalReal={grandTotalReal}
+          familyDescriptions={familyDescriptions}
+          expandedGroups={expandedGroups}
+          onToggleGroup={toggleGroup}
+          isPronostico={isPronostico}
+          onOpenAuditoria={(target) => setAuditoria(target)}
+        />
+      </div>
+
+      {/* ── Vista Web/Desktop (>= 768px): Familia y SKU fijas + Header flotante fijo ── */}
+      <div className="hidden md:block rounded-lg border shadow-sm bg-background">
         {/* Panel general por ciudad */}
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-muted/40 border-b text-xs">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-muted/40 border-b text-xs rounded-t-lg">
           <span className="font-bold text-muted-foreground uppercase tracking-wide">General por ciudad:</span>
           {ciudadesGrupos.map((g) => (
             <span key={g.ciudadKey} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-background font-semibold">
@@ -843,19 +866,74 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
           ))}
           <span className="ml-auto font-mono tabular-nums font-bold">Gran total: {grandTotalReal.toLocaleString('es-MX')} cjs</span>
         </div>
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-muted/50 border-b font-semibold text-muted-foreground">
-              <th rowSpan={2} className="px-4 py-3 text-left sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] align-bottom">
+
+        {/* Header flotante fijo verticalmente y sincronizado horizontalmente */}
+        <div className="sticky top-0 z-40 overflow-hidden bg-slate-100 dark:bg-zinc-900" style={{ marginBottom: -alto }}>
+          <div ref={headerRef} style={{ width: ancho || '100%' }}>
+            <table className="w-full text-sm border-separate border-spacing-0">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-zinc-900 font-semibold text-muted-foreground">
+                  <th rowSpan={2} className="px-4 py-3 text-left sticky left-0 bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] max-w-[140px] align-bottom">
+                    Familia
+                  </th>
+                  <th rowSpan={2} className="px-4 py-3 text-left sticky left-[140px] bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)] w-[160px] min-w-[160px] max-w-[160px] border-l align-bottom">
+                    SKU
+                  </th>
+                  <th rowSpan={2} className="px-4 py-3 text-left border-b border-l bg-slate-100 dark:bg-zinc-900 min-w-[250px] align-bottom">
+                    Descripción
+                  </th>
+                  <th rowSpan={2} className="px-3 py-2.5 text-center border-b border-l bg-slate-100 dark:bg-zinc-900 align-bottom" title="Total general de cajas en todas las bodegas">
+                    <div className="flex flex-col items-center gap-1 min-w-[85px]">
+                      <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-2xs tabular-nums">
+                        {grandTotalReal.toLocaleString('es-MX')} {grandTotalReal === 1 ? 'caja' : 'cajas'}
+                      </div>
+                      <span className="font-bold text-primary text-xs uppercase tracking-wider">TOTAL</span>
+                    </div>
+                  </th>
+                  {ciudadesGrupos.map((g) => (
+                    <th key={`fh-city-${g.ciudadKey}`} colSpan={g.bodegas.length} className="px-3 py-1.5 text-center border-b border-l bg-slate-200/70 dark:bg-zinc-800 text-[11px] uppercase tracking-wide">
+                      {g.label} · {g.subtotal.toLocaleString('es-MX')} cjs
+                    </th>
+                  ))}
+                </tr>
+                <tr className="bg-slate-100 dark:bg-zinc-900 font-semibold text-muted-foreground">
+                  {ciudadesGrupos.flatMap((g) =>
+                    g.bodegas.map((b) => {
+                      const totalCajasBodega = totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0
+                      return (
+                        <th key={`fh-bod-${b.id}`} className="px-3 py-2.5 text-center border-b border-l bg-slate-100 dark:bg-zinc-900 whitespace-nowrap align-bottom">
+                          <div className="flex flex-col items-center gap-1 min-w-[90px]">
+                            <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-100/90 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-300/70 dark:border-blue-700/50 shadow-2xs tabular-nums">
+                              {totalCajasBodega.toLocaleString('es-MX')} {totalCajasBodega === 1 ? 'caja' : 'cajas'}
+                            </div>
+                            <span className="block truncate max-w-[125px] font-bold text-foreground text-xs" title={`${b.nombre} · ${g.label}`}>
+                              {b.nombre}
+                            </span>
+                          </div>
+                        </th>
+                      )
+                    })
+                  )}
+                </tr>
+              </thead>
+            </table>
+          </div>
+        </div>
+
+        <div ref={scrollRef} onScroll={onScroll} className="overflow-x-auto">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead className="invisible">
+            <tr className="bg-slate-100 dark:bg-zinc-900 font-semibold text-muted-foreground">
+              <th rowSpan={2} className="px-4 py-3 text-left sticky left-0 bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] max-w-[140px] align-bottom">
                 Familia
               </th>
-              <th rowSpan={2} className="px-4 py-3 text-left sticky left-[140px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[160px] min-w-[160px] border-l align-bottom">
+              <th rowSpan={2} className="px-4 py-3 text-left sticky left-[140px] bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)] w-[160px] min-w-[160px] max-w-[160px] border-l align-bottom">
                 SKU
               </th>
-              <th rowSpan={2} className="px-4 py-3 text-left border-l min-w-[250px] align-bottom">
+              <th rowSpan={2} className="px-4 py-3 text-left border-b border-l bg-slate-100 dark:bg-zinc-900 min-w-[250px] align-bottom">
                 Descripción
               </th>
-              <th rowSpan={2} className="px-3 py-2.5 text-center border-l bg-primary/5 align-bottom" title="Total general de cajas en todas las bodegas">
+              <th rowSpan={2} className="px-3 py-2.5 text-center border-b border-l bg-slate-100 dark:bg-zinc-900 align-bottom" title="Total general de cajas en todas las bodegas">
                 <div className="flex flex-col items-center gap-1 min-w-[85px]">
                   <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-2xs tabular-nums">
                     {grandTotalReal.toLocaleString('es-MX')} {grandTotalReal === 1 ? 'caja' : 'cajas'}
@@ -864,17 +942,17 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                 </div>
               </th>
               {ciudadesGrupos.map((g) => (
-                <th key={g.ciudadKey} colSpan={g.bodegas.length} className="px-3 py-1.5 text-center border-l bg-muted/70 text-[11px] uppercase tracking-wide">
+                <th key={g.ciudadKey} colSpan={g.bodegas.length} className="px-3 py-1.5 text-center border-b border-l bg-slate-200/70 dark:bg-zinc-800 text-[11px] uppercase tracking-wide">
                   {g.label} · {g.subtotal.toLocaleString('es-MX')} cjs
                 </th>
               ))}
             </tr>
-            <tr className="bg-muted/50 border-b font-semibold text-muted-foreground">
+            <tr className="bg-slate-100 dark:bg-zinc-900 font-semibold text-muted-foreground">
               {ciudadesGrupos.flatMap((g) =>
                 g.bodegas.map((b) => {
                   const totalCajasBodega = totalesCajasRealesPorBodega?.[b.id] ?? totalsPerBodega[b.id] ?? 0
                   return (
-                    <th key={b.id} className="px-3 py-2.5 text-center border-l whitespace-nowrap align-bottom">
+                    <th key={b.id} className="px-3 py-2.5 text-center border-b border-l bg-slate-100 dark:bg-zinc-900 whitespace-nowrap align-bottom">
                       <div className="flex flex-col items-center gap-1 min-w-[90px]">
                         <div className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-xs font-black bg-blue-100/90 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-300/70 dark:border-blue-700/50 shadow-2xs tabular-nums">
                           {totalCajasBodega.toLocaleString('es-MX')} {totalCajasBodega === 1 ? 'caja' : 'cajas'}
@@ -900,16 +978,16 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                   <React.Fragment key={`group-${group.familia}`}>
                     {/* Fila Agrupadora (Familia) */}
                     <tr
-                      className={`border-b hover:bg-blue-100/50 dark:hover:bg-blue-900/20 font-medium cursor-pointer transition-colors ${rowBgClass}`}
+                      className={`hover:bg-blue-100/50 dark:hover:bg-blue-900/20 font-medium cursor-pointer transition-colors ${rowBgClass}`}
                       onClick={() => toggleGroup(group.familia)}
                     >
-                      <td className={`px-4 py-3 sticky left-0 backdrop-blur z-20 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] ${isEven ? 'bg-blue-50/90 dark:bg-blue-900/40' : 'bg-muted/90 dark:bg-muted/40'}`}>
+                      <td className={`px-4 py-3 sticky left-0 z-20 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] max-w-[140px] ${isEven ? 'bg-blue-50 dark:bg-slate-900' : 'bg-background'}`}>
                         <div className="flex items-center gap-2">
                           {isExpanded ? <ChevronDown className="h-4 w-4 text-primary shrink-0" /> : <ChevronRight className="h-4 w-4 text-primary shrink-0" />}
                           <span className="block whitespace-nowrap truncate font-bold text-primary">{group.familia}</span>
                         </div>
                       </td>
-                      <td colSpan={2} className={`px-4 py-3 sticky left-[140px] z-20 backdrop-blur shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-muted-foreground italic text-xs truncate whitespace-nowrap overflow-hidden max-w-[400px] ${isEven ? 'bg-blue-50/90 dark:bg-blue-900/40' : 'bg-muted/90 dark:bg-muted/40'}`} title={familyDescriptions[group.familia]}>
+                      <td colSpan={2} className={`px-4 py-3 sticky left-[140px] z-20 border-b border-l shadow-[2px_0_4px_-2px_rgba(0,0,0,0.16)] text-muted-foreground italic text-xs truncate whitespace-nowrap overflow-hidden max-w-[410px] ${isEven ? 'bg-blue-50 dark:bg-slate-900' : 'bg-background'}`} title={familyDescriptions[group.familia]}>
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate">
                             {isUnassignedFamily(group.familia)
@@ -1004,11 +1082,11 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                       )
 
                       return (
-                        <tr key={item.producto_id} className={`border-b last:border-0 hover:bg-primary/5 ${isEven ? 'bg-blue-50/20 dark:bg-blue-900/5' : 'bg-background'}`}>
-                          <td className={`px-4 py-2 sticky left-0 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground italic w-[140px] min-w-[140px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
-                            {group.familia}
+                        <tr key={item.producto_id} className={`hover:bg-primary/5 ${isEven ? 'bg-blue-50/20 dark:bg-blue-900/5' : 'bg-background'}`}>
+                          <td className={`px-4 py-2 sticky left-0 z-10 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground italic w-[140px] min-w-[140px] max-w-[140px] ${isEven ? 'bg-slate-50 dark:bg-zinc-900' : 'bg-background'}`}>
+                            <span className="block truncate">{group.familia}</span>
                           </td>
-                          <td className={`px-4 py-2 sticky left-[140px] backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] font-mono text-xs border-l w-[160px] min-w-[160px] ${isEven ? 'bg-blue-50/60 dark:bg-blue-900/20' : 'bg-background/95'}`}>
+                          <td className={`px-4 py-2 sticky left-[140px] z-10 border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.14)] font-mono text-xs border-l w-[160px] min-w-[160px] max-w-[160px] ${isEven ? 'bg-slate-50 dark:bg-zinc-900' : 'bg-background'}`}>
                             <span className="inline-flex items-center gap-1">
                               {item.producto_sku}
                               <button
@@ -1095,11 +1173,11 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                 )
 
                 return (
-                  <tr key={item.producto_id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 sticky left-0 bg-background/95 backdrop-blur z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground">
-                      {item.producto_familia || '—'}
+                  <tr key={item.producto_id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3 sticky left-0 bg-background z-10 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] text-xs text-muted-foreground w-[140px] min-w-[140px] max-w-[140px]">
+                      <span className="block truncate">{item.producto_familia || '—'}</span>
                     </td>
-                    <td className="px-4 py-3 font-mono font-medium text-sm border-l">
+                    <td className="px-4 py-3 sticky left-[140px] bg-background z-10 border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.14)] font-mono font-medium text-sm border-l w-[160px] min-w-[160px] max-w-[160px]">
                       <span className="inline-flex items-center gap-1">
                         {item.producto_sku}
                         <button
@@ -1113,7 +1191,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
                       </span>
                     </td>
                     <td
-                      className="px-4 py-3 text-xs border-l truncate max-w-[300px]"
+                      className="px-4 py-3 text-xs border-b border-l truncate max-w-[300px] min-w-[250px]"
                       title={item.producto_descripcion || item.producto_nombre || ''}
                     >
                       {item.producto_nombre || item.producto_descripcion}
@@ -1168,24 +1246,25 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
               })
             )}
           </tbody>
-          <tfoot className="bg-muted/50 font-bold border-t-2 border-primary/20">
+          <tfoot className="bg-slate-100 dark:bg-zinc-900 font-bold">
             <tr>
-              <td className="px-4 py-4 sticky left-0 bg-muted/90 z-10 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b]">
+              <td className="px-4 py-4 sticky left-0 bg-slate-100 dark:bg-zinc-900 z-10 border-t-2 border-primary/20 shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] max-w-[140px]">
                 TOTALES GENERALES
               </td>
-              <td className="border-l bg-muted/20"></td>
-              <td className="border-l bg-muted/20"></td>
-              <td className="px-4 py-4 text-center tabular-nums border-l border-r bg-primary/10 text-primary">
+              <td className="sticky left-[140px] bg-slate-100 dark:bg-zinc-900 z-10 border-t-2 border-primary/20 border-l shadow-[2px_0_4px_-2px_rgba(0,0,0,0.14)] w-[160px] min-w-[160px] max-w-[160px]"></td>
+              <td className="border-t-2 border-primary/20 border-l bg-slate-100 dark:bg-zinc-900"></td>
+              <td className="px-4 py-4 text-center tabular-nums border-t-2 border-primary/20 border-l border-r bg-primary/10 text-primary">
                 {grandTotal}
               </td>
               {bodegasColumnas.map(b => (
-                <td key={`foot-${b.id}`} className="px-4 py-4 text-center tabular-nums border-l bg-muted/30">
+                <td key={`foot-${b.id}`} className="px-4 py-4 text-center tabular-nums border-t-2 border-primary/20 border-l bg-slate-100 dark:bg-zinc-900">
                   {totalsPerBodega[b.id] ?? 0}
                 </td>
               ))}
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
       {auditoria && (
         <StockAuditoriaDrawer

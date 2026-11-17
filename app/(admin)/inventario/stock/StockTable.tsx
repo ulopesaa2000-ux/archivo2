@@ -15,7 +15,9 @@ import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types
 import { ADMIN_ROUTES } from '@/lib/constants'
 import { compareFamiliaAsc, compareSkuAsc, isUnassignedFamily } from '@/lib/inventario/familias-orden'
 import type { BodegaRow } from '@/lib/types/tables'
+import { useHeaderFlotante } from '@/app/(admin)/inventario/stock/historico/_hooks/use-header-flotante'
 import { StockAuditoriaDrawer } from './StockAuditoriaDrawer'
+import { StockMobileTable } from './_components/StockMobileTable'
 import { History } from 'lucide-react'
 
 export function StockTable({
@@ -42,6 +44,7 @@ export function StockTable({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [auditoria, setAuditoria] = useState<{ modo: 'producto' | 'familia'; productoId?: number; familia?: string; sku?: string } | null>(null)
   const bodegasForDrawer: BodegaRow[] = bodegas.length > 0 ? bodegas : []
+  const { scrollRef, headerRef, ancho, alto, onScroll } = useHeaderFlotante()
 
   const toggleGroup = (familia: string) => {
     setExpandedGroups((prev) => {
@@ -297,10 +300,45 @@ export function StockTable({
     }
   }
 
+  const desktopHeaderRow = (
+    <tr className="bg-slate-100 dark:bg-zinc-900 text-xs font-semibold text-muted-foreground">
+      <th className="px-2 py-3 w-[40px] min-w-[40px] sticky left-0 bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b]"></th>
+      <th className="px-4 py-3 text-left sticky left-[40px] bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] w-[140px] min-w-[140px] max-w-[140px]">
+        Familia
+      </th>
+      <th className="px-4 py-3 text-left border-l sticky left-[180px] bg-slate-100 dark:bg-zinc-900 z-30 border-b shadow-[2px_0_4px_-2px_rgba(0,0,0,0.18)] w-[140px] min-w-[140px] max-w-[140px]">
+        SKU
+      </th>
+      <th className="px-4 py-3 text-left border-l border-b bg-slate-100 dark:bg-zinc-900 hidden md:table-cell min-w-[200px]">Descripción</th>
+      <th className="px-4 py-3 text-left hidden lg:table-cell border-l border-b bg-slate-100 dark:bg-zinc-900">Marca</th>
+
+      {isPronostico ? (
+        <>
+          <th className="px-3 py-3 text-center border-l border-b bg-slate-100 dark:bg-zinc-900 font-semibold w-[100px]">Cajas Reales</th>
+          <th className="px-3 py-3 text-center border-l border-b bg-amber-500/10 text-amber-900 dark:text-amber-300 font-semibold w-[110px]">
+            En Trámite
+          </th>
+          <th className="px-3 py-3 text-center border-l border-b bg-primary/10 text-primary font-bold w-[120px]">
+            Pronosticado
+          </th>
+          <th className="px-4 py-3 text-left border-l border-b bg-slate-100 dark:bg-zinc-900 min-w-[180px]">Notas Afectando</th>
+        </>
+      ) : (
+        <>
+          <th className="px-4 py-3 text-center border-l border-b bg-slate-100 dark:bg-zinc-900">Cajas</th>
+          <th className="px-4 py-3 text-center border-l border-b bg-slate-100 dark:bg-zinc-900">Pz Sueltas</th>
+          <th className="px-4 py-3 text-right border-l border-b bg-slate-100 dark:bg-zinc-900">Total Piezas</th>
+          <th className="px-4 py-3 text-left hidden xl:table-cell border-l border-b bg-slate-100 dark:bg-zinc-900">Ubicación</th>
+          <th className="px-4 py-3 text-right hidden xl:table-cell border-l border-b bg-slate-100 dark:bg-zinc-900">Actualizado</th>
+        </>
+      )}
+    </tr>
+  )
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {agruparPor === 'familia' && (
             <>
               <Button variant="outline" size="sm" onClick={expandAll} className="h-8 text-xs">
@@ -336,42 +374,40 @@ export function StockTable({
         </Button>
       </div>
 
-      <div className="rounded-lg border overflow-hidden shadow-sm bg-card">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-muted/60 text-xs font-semibold text-muted-foreground border-b">
-              <th className="px-2 py-3 w-[40px] sticky left-0 bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0]"></th>
-              <th className="px-4 py-3 text-left sticky left-[40px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px]">
-                Familia
-              </th>
-              <th className="px-4 py-3 text-left border-l sticky left-[180px] bg-muted/95 z-30 shadow-[1px_0_0_0_#e2e8f0] w-[140px] min-w-[140px]">
-                SKU
-              </th>
-              <th className="px-4 py-3 text-left border-l hidden md:table-cell min-w-[200px]">Descripción</th>
-              <th className="px-4 py-3 text-left hidden lg:table-cell border-l">Marca</th>
+      {/* ── Vista Especial Móvil (< 768px): SKU + Descripción fija y deslizable al tacto ── */}
+      <div className="md:hidden">
+        <StockMobileTable
+          items={items}
+          groupedItems={groupedItems}
+          isPronostico={isPronostico}
+          bodegaNombre={bodegaNombre}
+          familyDescriptions={familyDescriptions}
+          expandedGroups={expandedGroups}
+          onToggleGroup={toggleGroup}
+          expanded={expanded}
+          loading={loading}
+          onToggleExpand={toggleExpand}
+          totalCajas={totalCajas}
+          totalPiezas={totalPiezas}
+          totalDelta={totalDelta}
+          totalPronosticado={totalPronosticado}
+          onOpenAuditoria={(target) => setAuditoria(target)}
+        />
+      </div>
 
-              {isPronostico ? (
-                <>
-                  <th className="px-3 py-3 text-center border-l bg-muted/40 font-semibold w-[100px]">Cajas Reales</th>
-                  <th className="px-3 py-3 text-center border-l bg-amber-500/10 text-amber-900 dark:text-amber-300 font-semibold w-[110px]">
-                    En Trámite
-                  </th>
-                  <th className="px-3 py-3 text-center border-l bg-primary/10 text-primary font-bold w-[120px]">
-                    Pronosticado
-                  </th>
-                  <th className="px-4 py-3 text-left border-l min-w-[180px]">Notas Afectando</th>
-                </>
-              ) : (
-                <>
-                  <th className="px-4 py-3 text-center border-l">Cajas</th>
-                  <th className="px-4 py-3 text-center border-l">Pz Sueltas</th>
-                  <th className="px-4 py-3 text-right border-l">Total Piezas</th>
-                  <th className="px-4 py-3 text-left hidden xl:table-cell border-l">Ubicación</th>
-                  <th className="px-4 py-3 text-right hidden xl:table-cell border-l">Actualizado</th>
-                </>
-              )}
-            </tr>
-          </thead>
+      {/* ── Vista Web/Desktop (>= 768px): Header flotante fijo + scroll horizontal fluido ── */}
+      <div className="hidden md:block rounded-lg border shadow-sm bg-card">
+        <div className="sticky top-0 z-40 overflow-hidden bg-slate-100 dark:bg-zinc-900 rounded-t-lg" style={{ marginBottom: -alto }}>
+          <div ref={headerRef} style={{ width: ancho || '100%' }}>
+            <table className="w-full text-sm border-separate border-spacing-0">
+              <thead>{desktopHeaderRow}</thead>
+            </table>
+          </div>
+        </div>
+
+        <div ref={scrollRef} onScroll={onScroll} className="overflow-x-auto">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead className="invisible">{desktopHeaderRow}</thead>
           <tbody>
             {items.length === 0 ? (
               <tr>
@@ -744,17 +780,20 @@ export function StockTable({
                 const prodPronostico = item.cajas_pronosticadas ?? item.cajas
                 const isProdNegative = prodPronostico < 0
                 const isProdAffected = item.tiene_movimiento_pendiente
+                const stickyFlatBg = isProdAffected
+                  ? 'bg-amber-50 dark:bg-amber-950'
+                  : 'bg-background'
 
                 return (
                   <React.Fragment key={item.id}>
                     <tr
-                      className={`border-t transition-colors ${
+                      className={`transition-colors ${
                         isProdAffected
                           ? 'bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100/60'
                           : 'hover:bg-muted/30'
                       }`}
                     >
-                      <td className="px-2 py-2">
+                      <td className={`px-2 py-2 sticky left-0 z-10 w-[40px] min-w-[40px] border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] ${stickyFlatBg}`}>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -770,10 +809,10 @@ export function StockTable({
                           )}
                         </Button>
                       </td>
-                      <td className="px-4 py-2 text-xs font-semibold text-muted-foreground">
-                        {item.producto_familia || '—'}
+                      <td className={`px-4 py-2 text-xs font-semibold text-muted-foreground sticky left-[40px] z-10 w-[140px] min-w-[140px] max-w-[140px] border-b shadow-[1px_0_0_0_#e2e8f0] dark:shadow-[1px_0_0_0_#1e293b] ${stickyFlatBg}`}>
+                        <span className="block truncate">{item.producto_familia || '—'}</span>
                       </td>
-                      <td className="px-4 py-2 font-mono text-xs font-medium border-l">
+                      <td className={`px-4 py-2 font-mono text-xs font-medium border-l border-b sticky left-[180px] z-10 w-[140px] min-w-[140px] max-w-[140px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.14)] ${stickyFlatBg}`}>
                         <Link
                           href={`/catalogo/${item.producto_id}`}
                           className="hover:underline hover:text-primary transition-colors flex items-center gap-1"
@@ -963,6 +1002,7 @@ export function StockTable({
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
       {auditoria && (
         <StockAuditoriaDrawer

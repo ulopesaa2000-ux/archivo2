@@ -2,7 +2,7 @@
 'use server'
 
 import { createClient, createStaticClient } from '@/lib/supabase/server'
-import { PAGE_SIZE } from '@/lib/constants'
+import { PAGE_SIZE, ESTADO_NOTA } from '@/lib/constants'
 import { cacheLife, cacheTag } from 'next/cache'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/lib/types/database.types'
@@ -90,41 +90,32 @@ export async function fetchNotas(
     query = query.eq('tipo_movimiento_id', filtros.tipo_movimiento_id)
   }
 
-  // ── Filtro: estado por código ───────────────────────────
+  // ── Filtro: estado por código (sin round-trip extra a cat_estados_nota) ──
   if (filtros.estado_codigo) {
-    const { data: estadosData } = await supabase
-      .from('cat_estados_nota')
-      .select('id, codigo')
+    const codigosInput = filtros.estado_codigo.split(',').map(c => c.trim().toUpperCase())
+    const matchingIds = new Set<number>()
 
-    if (estadosData && estadosData.length > 0) {
-      let targetCodigos: string[] = []
-      const codigosInput = filtros.estado_codigo.split(',').map(c => c.trim().toUpperCase())
-
-      for (const cod of codigosInput) {
-        if (cod === 'CONF') {
-          // Confirmadas incluye CONF (Confirmada) y MODF (Modificada)
-          targetCodigos.push('CONF', 'MODF')
-        } else if (cod === 'PEND') {
-          // Por Confirmar incluye PEND (Pendiente) y PROC (En Proceso)
-          targetCodigos.push('PEND', 'PROC')
-        } else {
-          targetCodigos.push(cod)
-        }
+    for (const cod of codigosInput) {
+      if (cod === 'CONF') {
+        // Confirmadas incluye CONF (Confirmada) y MODF (Modificada)
+        matchingIds.add(ESTADO_NOTA.CONF)
+        matchingIds.add(ESTADO_NOTA.MODF)
+      } else if (cod === 'PEND') {
+        // Por Confirmar incluye PEND (Pendiente) y PROC (En Proceso)
+        matchingIds.add(ESTADO_NOTA.PEND)
+        matchingIds.add(ESTADO_NOTA.PROC)
+      } else if (cod in ESTADO_NOTA) {
+        matchingIds.add(ESTADO_NOTA[cod as keyof typeof ESTADO_NOTA])
       }
+    }
 
-      targetCodigos = Array.from(new Set(targetCodigos))
-
-      const matchingIds = estadosData
-        .filter(e => targetCodigos.includes(e.codigo.toUpperCase()))
-        .map(e => e.id)
-
-      if (matchingIds.length === 1) {
-        query = query.eq('estado_id', matchingIds[0])
-      } else if (matchingIds.length > 1) {
-        query = query.in('estado_id', matchingIds)
-      } else {
-        query = query.eq('id', -1)
-      }
+    const idsList = Array.from(matchingIds)
+    if (idsList.length === 1) {
+      query = query.eq('estado_id', idsList[0])
+    } else if (idsList.length > 1) {
+      query = query.in('estado_id', idsList)
+    } else {
+      query = query.eq('id', -1)
     }
   }
 
@@ -308,8 +299,13 @@ export async function fetchNotaById(
   const origen = Array.isArray(nr.bodega_origen) ? nr.bodega_origen[0] : nr.bodega_origen
   const destino = Array.isArray(nr.bodega_destino) ? nr.bodega_destino[0] : nr.bodega_destino
 
-  const { data: userData } = await supabase.from('usuarios').select('nombre_completo').eq('id', nr.usuario_id).single()
-  const usuario = userData
+  // 2. Usuario creador, detalles de productos e historial en paralelo
+  const [userRes, detalles, historial] = await Promise.all([
+    supabase.from('usuarios').select('nombre_completo').eq('id', nr.usuario_id).single(),
+    fetchNotaDetalles(supabase, id),
+    fetchNotaHistorial(supabase, id),
+  ])
+  const usuario = userRes.data
 
   const cabecera: NotaListItem = {
     id: nr.id,
@@ -336,12 +332,6 @@ export async function fetchNotaById(
     costo_total: nr.costo_total ? Number(nr.costo_total) : 0,
     comprobante_url: nr.comprobante_url ?? null,
   }
-
-  // 2. Detalles de productos
-  const [detalles, historial] = await Promise.all([
-    fetchNotaDetalles(supabase, id),
-    fetchNotaHistorial(supabase, id),
-  ])
 
   return { cabecera, detalles, historial }
 }

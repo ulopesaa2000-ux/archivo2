@@ -172,14 +172,15 @@ export function StockMatrixFilters({
           </Button>
         </div>
 
-        {/* Buscar */}
+        {/* Buscar con Reloj Local Calibrado */}
         <SearchInput
           id="matrix-search"
           placeholder="Buscar por SKU, Familia o Nombre..."
           currentValue={searchParams.get('q')}
           onSearch={(term) => setParam('q', term)}
-          delay={300}
+          delay={450}
           minLength={2}
+          showSubmitButton
           controlled
         />
 

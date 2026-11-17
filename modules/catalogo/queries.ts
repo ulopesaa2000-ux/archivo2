@@ -849,7 +849,11 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
  * SKU en orden alfabético de todo el catálogo, garantizando descripción idéntica sin importar stock.
  */
 export async function fetchDescripcionesCanonicasFamilias(): Promise<Record<string, string>> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('minutes')
+  cacheTag('catalogo-familias')
+
+  const supabase = createStaticClient()
   const { data, error } = await supabase
     .from('productos')
     .select('familia, descripcion, nombre, sku_base')

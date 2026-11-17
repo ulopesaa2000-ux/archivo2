@@ -106,30 +106,56 @@ export default async function NuevaNotaPage({
 
         const dbProductsMap = new Map(dbProducts?.map(p => [p.sku_base.toUpperCase(), p]) || [])
 
+        // Pre-cargar cajas en una sola consulta (evita N+1 dentro del bucle)
+        const matchedIds = Array.from(new Set((dbProducts ?? []).map(p => p.id)))
+        const cajasByProductoId = new Map<
+          number,
+          { id: number; producto_id: number | null; codigo_caja: string; nombre_pack: string | null; piezas_por_caja: number | null }[]
+        >()
+
+        if (matchedIds.length > 0) {
+          const CHUNK_SIZE = 200
+          const cajasChunks: number[][] = []
+          for (let i = 0; i < matchedIds.length; i += CHUNK_SIZE) {
+            cajasChunks.push(matchedIds.slice(i, i + CHUNK_SIZE))
+          }
+          const cajasResults = await Promise.all(
+            cajasChunks.map(chunk =>
+              supabase
+                .from('cajas_producto')
+                .select('id, producto_id, codigo_caja, nombre_pack, piezas_por_caja')
+                .in('producto_id', chunk)
+                .eq('activo', true)
+            )
+          )
+          for (const res of cajasResults) {
+            for (const c of res.data ?? []) {
+              if (c.producto_id == null) continue
+              const list = cajasByProductoId.get(c.producto_id) ?? []
+              list.push(c)
+              cajasByProductoId.set(c.producto_id, list)
+            }
+          }
+        }
+
         // Para cada línea extraída, intentar mapearla
         for (const line of propuesta.lineas) {
           const rawSku = (line.estilo_raw || line.descripcion_raw || '').toUpperCase().trim()
           const matchedDbProd = dbProductsMap.get(rawSku)
 
           if (matchedDbProd) {
-            // Intentar buscar si hay un empaque (caja_producto) con las piezas correctas
+            // Buscar si hay un empaque (caja_producto) con las piezas correctas en O(1)
             let matchedCajaId: number | null = null
             let matchedCajaCodigo: string | null = null
             let matchedCajaNombre: string | null = null
 
             if (line.piezas_por_caja) {
-              const { data: cajas } = await supabase
-                .from('cajas_producto')
-                .select('id, codigo_caja, nombre_pack')
-                .eq('producto_id', matchedDbProd.id)
-                .eq('piezas_por_caja', line.piezas_por_caja)
-                .eq('activo', true)
-                .limit(1)
-
-              if (cajas && cajas.length > 0) {
-                matchedCajaId = cajas[0].id
-                matchedCajaCodigo = cajas[0].codigo_caja
-                matchedCajaNombre = cajas[0].nombre_pack
+              const cajasProd = cajasByProductoId.get(matchedDbProd.id) ?? []
+              const matchedCaja = cajasProd.find(c => c.piezas_por_caja === line.piezas_por_caja)
+              if (matchedCaja) {
+                matchedCajaId = matchedCaja.id
+                matchedCajaCodigo = matchedCaja.codigo_caja
+                matchedCajaNombre = matchedCaja.nombre_pack
               }
             }
 

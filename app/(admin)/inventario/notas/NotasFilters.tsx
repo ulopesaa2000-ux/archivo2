@@ -33,14 +33,46 @@ export function NotasFilters({
 
   const currentQ = searchParam('q')
   const [searchValue, setSearchValue] = useState(currentQ)
+  const isFocusedRef = useRef(false)
+  const isTypingRef = useRef(false)
 
   useEffect(() => {
-    setSearchValue(currentQ)
+    if (!isFocusedRef.current && !isTypingRef.current) {
+      setSearchValue(currentQ)
+    }
   }, [currentQ])
 
   const handleSearch = useDebouncedCallback((term: string) => {
-    updateParam('q', term || null)
-  }, 400)
+    isTypingRef.current = false
+    updateParam('q', term.trim() || null)
+  }, 450)
+
+  const handleSearchInputChange = (val: string) => {
+    isTypingRef.current = true
+    setSearchValue(val)
+    handleSearch(val)
+  }
+
+  const handleSearchBlur = () => {
+    isFocusedRef.current = false
+    isTypingRef.current = false
+    handleSearch.flush()
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      isTypingRef.current = false
+      handleSearch.flush()
+    }
+  }
+
+  const handleClearSearchOnly = () => {
+    handleSearch.cancel()
+    isTypingRef.current = false
+    setSearchValue('')
+    updateParam('q', null)
+  }
 
   const currentTipo    = searchParam('tipo_movimiento_id', '_all')
   const currentEstado  = searchParam('estado_codigo', '_all')
@@ -177,6 +209,8 @@ export function NotasFilters({
   }
 
   const handleClearAll = () => {
+    handleSearch.cancel()
+    isTypingRef.current = false
     setSearchValue('')
     clearAll(['notas-search'])
   }
@@ -214,10 +248,12 @@ export function NotasFilters({
                   <Input
                     placeholder="Buscar nota o SKU..."
                     value={searchValue}
-                    onChange={(e) => {
-                      setSearchValue(e.target.value)
-                      handleSearch(e.target.value)
+                    onChange={(e) => handleSearchInputChange(e.target.value)}
+                    onFocus={() => {
+                      isFocusedRef.current = true
                     }}
+                    onBlur={handleSearchBlur}
+                    onKeyDown={handleSearchKeyDown}
                     className="pl-8 h-8 text-xs rounded-xl"
                     autoFocus
                   />
@@ -318,15 +354,30 @@ export function NotasFilters({
               id="notas-search"
               placeholder="Buscar por número de nota o referencia..."
               value={searchValue}
-              onChange={(e) => {
-                setSearchValue(e.target.value)
-                handleSearch(e.target.value)
+              onChange={(e) => handleSearchInputChange(e.target.value)}
+              onFocus={() => {
+                isFocusedRef.current = true
               }}
-              className="pl-10 pr-10 h-10 text-xs sm:text-sm bg-background/50 border-muted rounded-xl"
+              onBlur={handleSearchBlur}
+              onKeyDown={handleSearchKeyDown}
+              className="pl-10 pr-16 h-10 text-xs sm:text-sm bg-background/50 border-muted rounded-xl"
             />
-            {isPending && (
-              <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-            )}
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {searchValue && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleClearSearchOnly}
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Limpiar búsqueda"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {isPending && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
           </div>
 
           {/* Botón de Filtros Avanzados */}
@@ -589,10 +640,12 @@ export function NotasFilters({
                 <Input
                   placeholder="Ej: N-20260818-0069"
                   value={searchValue}
-                  onChange={(e) => {
-                    setSearchValue(e.target.value)
-                    handleSearch(e.target.value)
+                  onChange={(e) => handleSearchInputChange(e.target.value)}
+                  onFocus={() => {
+                    isFocusedRef.current = true
                   }}
+                  onBlur={handleSearchBlur}
+                  onKeyDown={handleSearchKeyDown}
                   className="pl-10 h-10 text-sm rounded-xl"
                 />
               </div>

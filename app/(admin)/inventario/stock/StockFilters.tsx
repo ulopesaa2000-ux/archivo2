@@ -82,14 +82,15 @@ export function StockFilters({
           </Button>
         </div>
 
-        {/* Buscador */}
+        {/* Buscador con Reloj Local Calibrado */}
         <SearchInput
           id="stock-search"
           placeholder="Buscar por SKU o nombre..."
           currentValue={currentQ}
           onSearch={(term) => updateParam('q', term)}
-          delay={300}
+          delay={450}
           minLength={2}
+          showSubmitButton
           controlled
         />
 

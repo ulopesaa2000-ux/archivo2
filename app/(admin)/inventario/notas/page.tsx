@@ -1,19 +1,23 @@
 // app/(admin)/inventario/notas/page.tsx
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { cookies } from 'next/headers'
 import { fetchNotas, fetchCatalogosInventario, getNotasKPIsGlobales } from '@/modules/inventario/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
+import type { TableFeatures } from '@/components/admin/DataTable/types'
 import { NotasFilters } from './NotasFilters'
 import { NotasTable } from './NotasTable'
 import { ReporteNotasButton } from './ReporteNotasButton'
 import { Pagination } from '@/components/admin/Pagination'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Plus, Clock, RefreshCw, ArrowDownLeft, ArrowUpRight, Camera } from 'lucide-react'
 import Link from 'next/link'
 import { ADMIN_ROUTES } from '@/lib/constants'
 import type { FiltrosNotas } from '@/modules/inventario/types'
+import type { AccionEliminarNota } from '@/modules/inventario/config-types'
 import { Card, CardContent } from '@/components/ui/card'
 
 import { verifySession } from '@/lib/dal'
@@ -25,6 +29,141 @@ import { fetchConfigInventario } from '@/modules/inventario/config-queries'
 
 export const metadata: Metadata = {
   title: 'Notas de Inventario',
+}
+
+async function NotasKpisSection({ bodegaId }: { bodegaId: string | null }) {
+  const kpisGlobales = await getNotasKPIsGlobales(bodegaId)
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card className="bg-background/50 border shadow-sm group hover:border-yellow-500/30 transition-colors">
+        <CardContent className="p-4 flex items-center gap-4">
+          <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-500">
+            <Clock className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Pendientes</p>
+            <p className="text-xl font-black font-mono leading-none mt-1">
+              {kpisGlobales.pendientes}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-background/50 border shadow-sm group hover:border-blue-500/30 transition-colors">
+        <CardContent className="p-4 flex items-center gap-4">
+          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+            <RefreshCw className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">En Proceso</p>
+            <p className="text-xl font-black font-mono leading-none mt-1">
+              {kpisGlobales.enProceso}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-background/50 border shadow-sm group hover:border-emerald-500/30 transition-colors">
+        <CardContent className="p-4 flex items-center gap-4">
+          <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+            <ArrowDownLeft className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Ingresadas</p>
+            <p className="text-xl font-black font-mono leading-none mt-1">
+              {kpisGlobales.cajasIngresadas.toLocaleString('es-MX')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-background/50 border shadow-sm group hover:border-red-500/30 transition-colors">
+        <CardContent className="p-4 flex items-center gap-4">
+          <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
+            <ArrowUpRight className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Egresadas</p>
+            <p className="text-xl font-black font-mono leading-none mt-1">
+              {kpisGlobales.cajasEgresadas.toLocaleString('es-MX')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function NotasKpisSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Card key={i} className="bg-background/50 border shadow-sm">
+          <CardContent className="p-4 flex items-center gap-4">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-2 flex-1">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-14" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+async function NotasTableSection({
+  filtros,
+  features,
+  accionEliminar,
+}: {
+  filtros: FiltrosNotas
+  features: TableFeatures
+  accionEliminar: AccionEliminarNota
+}) {
+  const { notas, total } = await fetchNotas(filtros)
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs sm:text-sm text-muted-foreground">
+        <strong className="font-mono text-foreground">{total}</strong> nota{total !== 1 ? 's' : ''} encontrada{total !== 1 ? 's' : ''}
+      </p>
+
+      <NotasTable
+        notas={notas}
+        initialFeatures={features}
+        bodegaFiltradaId={filtros.bodega_origen_id}
+        sortKey={filtros.sort_by}
+        sortOrder={filtros.order}
+        accionEliminar={accionEliminar}
+      />
+
+      <Pagination total={total} />
+    </div>
+  )
+}
+
+function NotasTableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-4 w-36" />
+      <div className="rounded-xl border overflow-hidden">
+        <div className="border-b bg-muted/50 p-3">
+          <Skeleton className="h-4 w-full" />
+        </div>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="border-b p-3">
+            <Skeleton className="h-7 w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between items-center">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-48" />
+      </div>
+    </div>
+  )
 }
 
 export default async function NotasPage({
@@ -44,12 +183,19 @@ export default async function NotasPage({
   }>
 }) {
   const { user } = await verifySession()
-  const userBodegas = await fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99)
 
   const isSuperAdmin = user.rol?.nivel_acceso === 1
   const isAdminInventario = user.rol?.nombre === 'Admin Operativo Inventario'
 
-  const cookieStore = await cookies()
+  const [userBodegas, cookieStore, sp, config, tableConfig, catalogos] = await Promise.all([
+    fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99),
+    cookies(),
+    searchParams,
+    fetchConfigInventario(),
+    fetchUserTableConfig('/inventario/notas'),
+    fetchCatalogosInventario(),
+  ])
+
   const bodegaCookie = cookieStore.get('bodega_activa_id')?.value
   let bodegaActivaId = bodegaCookie ? parseInt(bodegaCookie, 10) : null
 
@@ -60,8 +206,6 @@ export default async function NotasPage({
       bodegaActivaId = 0 // Caer a "Todas las bodegas" si la bodega guardada ya no es accesible
     }
   }
-
-  const sp = await searchParams
 
   const bodegaOrigenIdRaw = sp.bodega_origen_id
   let bodegaOrigenIdFiltro: number | undefined = undefined
@@ -110,14 +254,6 @@ export default async function NotasPage({
     )
   }
 
-  // Cargar configuración de inventario para evaluar permisos y reglas
-  const [config, tableConfig, catalogos, kpisGlobales] = await Promise.all([
-    fetchConfigInventario(),
-    fetchUserTableConfig('/inventario/notas'),
-    fetchCatalogosInventario(),
-    getNotasKPIsGlobales(bodegaActivaId && bodegaActivaId !== 0 ? String(bodegaActivaId) : null),
-  ])
-
   const rolKey = user.rol?.id ? String(user.rol.id) : ''
   const nivelKey = String(user.rol?.nivel_acceso ?? 99)
 
@@ -135,8 +271,6 @@ export default async function NotasPage({
   if (alcanceVision === 'solo_propias' && !isSuperAdmin) {
     filtros.limit_usuario_id = user.id
   }
-
-  const { notas, total } = await fetchNotas(filtros)
 
   // Tipos de movimiento permitidos según configuración de roles
   const defaultCodigo =
@@ -192,25 +326,22 @@ export default async function NotasPage({
     ciudades: Array.from(new Set(activeBodegas.map(b => b.ciudad).filter(Boolean))) as string[]
   }
 
-  const features = {
+  const features: TableFeatures = {
     ...getDefaultFeatures('/inventario/notas'),
     ...tableConfig.config,
     expandable: true,
   }
 
+  const kpiBodegaId = bodegaActivaId && bodegaActivaId !== 0 ? String(bodegaActivaId) : null
+
   return (
     <div className="space-y-5">
-      {/* Header con Jerarquía Visual y Responsive */}
+      {/* Header Fijo y Estable */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-1">
         <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground">
-              Notas de Inventario
-            </h1>
-            <Badge variant="secondary" className="font-mono text-xs px-2.5 py-0.5 rounded-full font-bold">
-              {total}
-            </Badge>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground">
+            Notas de Inventario
+          </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Control de entradas, salidas, traslados y ajustes de existencias entre bodegas
           </p>
@@ -284,80 +415,22 @@ export default async function NotasPage({
         </Link>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="bg-background/50 border shadow-sm group hover:border-yellow-500/30 transition-colors">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-500">
-              <Clock className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Pendientes</p>
-              <p className="text-xl font-black font-mono leading-none mt-1">
-                {kpisGlobales.pendientes}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* KPI Cards en Streaming */}
+      <Suspense fallback={<NotasKpisSkeleton />}>
+        <NotasKpisSection bodegaId={kpiBodegaId} />
+      </Suspense>
 
-        <Card className="bg-background/50 border shadow-sm group hover:border-blue-500/30 transition-colors">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-              <RefreshCw className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">En Proceso</p>
-              <p className="text-xl font-black font-mono leading-none mt-1">
-                {kpisGlobales.enProceso}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-background/50 border shadow-sm group hover:border-emerald-500/30 transition-colors">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
-              <ArrowDownLeft className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Ingresadas</p>
-              <p className="text-xl font-black font-mono leading-none mt-1">
-                {kpisGlobales.cajasIngresadas.toLocaleString('es-MX')}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-background/50 border shadow-sm group hover:border-red-500/30 transition-colors">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
-              <ArrowUpRight className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70">Cajas Egresadas</p>
-              <p className="text-xl font-black font-mono leading-none mt-1">
-                {kpisGlobales.cajasEgresadas.toLocaleString('es-MX')}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filtros (Client, FIJOS) */}
+      {/* Filtros Fijos y Estables (FUERA de Suspense: nunca pierden el foco) */}
       <NotasFilters catalogos={catalogosFiltrados} bodegaActivaId={bodegaActivaId} />
 
-      {/* Tabla (Server, se re-renderiza) */}
-      <NotasTable
-        notas={notas}
-        initialFeatures={features}
-        bodegaFiltradaId={filtros.bodega_origen_id}
-        sortKey={filtros.sort_by}
-        sortOrder={filtros.order}
-        accionEliminar={accionEliminar}
-      />
-
-      {/* Paginación */}
-      <Pagination total={total} />
+      {/* Tabla de Resultados y Paginación en Streaming */}
+      <Suspense fallback={<NotasTableSkeleton />}>
+        <NotasTableSection
+          filtros={filtros}
+          features={features}
+          accionEliminar={accionEliminar}
+        />
+      </Suspense>
     </div>
   )
 }
