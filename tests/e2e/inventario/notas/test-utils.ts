@@ -2,7 +2,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 export const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL ?? 'admin@test.com'
-export const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? '***REDACTED_PASSWORD***'
+export const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? ''
 export const TEST_BODEGA_ID = parseInt(process.env.TEST_BODEGA_ID ?? '9', 10)
 export const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
 

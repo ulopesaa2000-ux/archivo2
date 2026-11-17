@@ -17,8 +17,8 @@ async function testQuery() {
   console.log('Logging in...')
   
   const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-    email: '***REDACTED_EMAIL***',
-    password: 'password123' // Try a dummy password, or maybe we can't login without the real one
+    email: process.env.TEST_ADMIN_EMAIL || 'admin@example.com',
+    password: process.env.TEST_ADMIN_PASSWORD || ''
   })
   
   if (authError) {

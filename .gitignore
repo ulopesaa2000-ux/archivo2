@@ -40,10 +40,14 @@ next-env.d.ts
 # OS
 Thumbs.db
 
-# Claude
-.claude/settings.local.json
-.claude/projects/*/memory/
-.claude/scheduled_tasks.json
+# Claude / Agent / MCP configs locales
+.claude/*
+!.claude/skills/
+.mcp.json
+opencode.json
+.codex/
+.playwright-mcp/
+.windsurf/
 
 # Playwright
 /playwright-report
@@ -67,3 +71,10 @@ tests/e2e/.auth/
 # Backups y volcados temporales
 plans/backups/
 scripts/backups/
+
+# Documentación interna / relleno / logs de auditoría (no parte de la app)
+/docs/
+/fases-historicas/
+lint-output.txt
+NEXTJS_UPGRADE_GUIDE.md
+organizacion-del-proyecto.md

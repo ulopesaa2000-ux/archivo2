@@ -6,9 +6,27 @@
  */
 
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+let envConfig = {};
+try {
+  const envPath = path.resolve(__dirname, '../../../.env.local');
+  if (fs.existsSync(envPath)) {
+    envConfig = dotenv.parse(fs.readFileSync(envPath));
+  }
+} catch {}
 
 const N8N_HOST = 'n8n.sistemaindumentaria.com';
-const N8N_API_KEY = process.env.N8N_API_KEY || '***REDACTED_N8N_API_KEY***';
+const N8N_API_KEY = process.env.N8N_API_KEY || envConfig.N8N_API_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || envConfig.SUPABASE_SERVICE_ROLE_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || envConfig.OPENROUTER_API_KEY;
+
+if (!N8N_API_KEY || !SUPABASE_SERVICE_ROLE_KEY || !OPENROUTER_API_KEY) {
+  console.error('ERROR: Faltan N8N_API_KEY, SUPABASE_SERVICE_ROLE_KEY u OPENROUTER_API_KEY en el entorno o .env.local');
+  process.exit(1);
+}
 
 // Definición de código de construcción del prompt
 const jsCodePrompt = `// Construir prompt y payload para OpenRouter Vision
@@ -292,11 +310,11 @@ return out;`
           parameters: [
             {
               name: "Authorization",
-              value: "Bearer ***REDACTED_SUPABASE_SERVICE_ROLE***"
+              value: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
             },
             {
               name: "apikey",
-              value: "***REDACTED_SUPABASE_SERVICE_ROLE***"
+              value: SUPABASE_SERVICE_ROLE_KEY
             },
             {
               name: "x-upsert",
@@ -338,7 +356,7 @@ return out;`
           parameters: [
             {
               name: "Authorization",
-              value: "Bearer ***REDACTED_OPENROUTER_KEY***"
+              value: `Bearer ${OPENROUTER_API_KEY}`
             },
             {
               name: "Content-Type",

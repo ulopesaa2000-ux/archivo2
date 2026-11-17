@@ -13,7 +13,11 @@ try {
   }
 } catch (e) {}
 
-const token = process.env.N8N_API_KEY || envConfig.N8N_API_KEY || '***REDACTED_N8N_PUBLIC_KEY***';
+const token = process.env.N8N_API_KEY || envConfig.N8N_API_KEY;
+if (!token) {
+  console.error('ERROR: N8N_API_KEY no encontrada en entorno ni .env.local');
+  process.exit(1);
+}
 const workflowId = process.env.N8N_WORKFLOW_ID || '9XsVokBIW5HW3Pe-XP66f';
 
 function api(method, apiPath, body = null) {

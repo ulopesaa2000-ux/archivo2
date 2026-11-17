@@ -44,6 +44,8 @@
     "node_modules",
     ".next",
     "scratch/**",
+    "docs/**",
+    "fases-historicas/**",
     "**/__tests__/**",
     "**/mocks/**",
     "tests/**",

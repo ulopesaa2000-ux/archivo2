@@ -9,9 +9,11 @@ const fs = require('fs');
 const path = require('path');
 
 const API_BASE = process.env.N8N_API_BASE || 'https://n8n.sistemaindumentaria.com/api/v1';
-const API_KEY =
-  process.env.N8N_PUBLIC_API_KEY ||
-  '***REDACTED_N8N_PUBLIC_KEY***';
+const API_KEY = process.env.N8N_PUBLIC_API_KEY || process.env.N8N_API_KEY;
+if (!API_KEY) {
+  console.error('ERROR: Define N8N_PUBLIC_API_KEY o N8N_API_KEY en el entorno.');
+  process.exit(1);
+}
 
 async function apiGet(pathname) {
   const res = await fetch(`${API_BASE}${pathname}`, {

@@ -14,7 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 })
 
 async function testLogin() {
-  const email = '***REDACTED_EMAIL***' // User's email from context
+  const email = process.env.TEST_ADMIN_EMAIL || 'admin@example.com'
   console.log('Testing login for:', email)
   
   // We don't have the password, but we can check if the user exists in the custom table
