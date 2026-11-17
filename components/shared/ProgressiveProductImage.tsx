@@ -68,6 +68,7 @@ export function ProgressiveProductImage({
 
   const optimizedUrl = getSmartImagenUrl(src, preset)
   const resolvedSizes = sizes ?? IMAGEN_SIZES[preset]
+  const isAlreadyProxied = optimizedUrl.includes('/storage/v1/render/image/public/')
 
   return (
     <div className={cn('relative w-full h-full overflow-hidden', containerClassName)}>
@@ -85,6 +86,7 @@ export function ProgressiveProductImage({
         src={optimizedUrl}
         alt={alt}
         fill
+        unoptimized={isAlreadyProxied}
         sizes={resolvedSizes}
         priority={priority}
         loading={priority ? undefined : 'lazy'}

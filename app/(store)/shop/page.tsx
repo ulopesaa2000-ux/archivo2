@@ -42,10 +42,8 @@ interface CatalogoPageProps {
   }>
 }
 
-export default async function CatalogoPage({ searchParams }: CatalogoPageProps) {
+async function CatalogoResults({ searchParams }: CatalogoPageProps) {
   const params = await searchParams
-  const config = await fetchConfigEcommerce()
-
   const filtros = {
     q: params.q,
     marca_id: params.marca ? parseInt(params.marca) : undefined,
@@ -58,7 +56,8 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     page: params.page ? parseInt(params.page) : 1,
   }
 
-  const [{ productos, total }, categoryBanner] = await Promise.all([
+  const [config, { productos, total }, categoryBanner] = await Promise.all([
+    fetchConfigEcommerce(),
     fetchProductosWebPublicos(filtros),
     fetchBannerCategoriaActivo({
       genero: filtros.genero,
@@ -67,7 +66,6 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     }),
   ])
 
-  // Generate breadcrumb schema
   const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -87,7 +85,6 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     ]
   }
 
-  // Generate product list schema
   const productListSchema = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -107,8 +104,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Schema.org JSON-LD */}
+    <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -122,6 +118,28 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
         }}
       />
 
+      {/* Banner Promocional Panorámico de Categoría (si existe) */}
+      <CategoryPromoHero banner={categoryBanner} />
+
+      <div className="flex justify-between items-center pb-4 mb-6 border-b border-border">
+        <div className="text-xs text-muted-foreground">
+          Mostrando <strong className="text-foreground font-bold">{total}</strong> productos en el catálogo
+        </div>
+      </div>
+
+      <ProductGrid
+        productos={productos}
+        config={config}
+        total={total}
+        currentPage={filtros.page || 1}
+      />
+    </>
+  )
+}
+
+export default function CatalogoPage({ searchParams }: CatalogoPageProps) {
+  return (
+    <div className="flex flex-col min-h-screen">
       {/* Breadcrumbs */}
       <div className="py-3 px-4 md:px-8 bg-background border-b border-border">
         <nav className="max-w-7xl mx-auto" aria-label="Breadcrumb">
@@ -147,8 +165,8 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
 
       {/* Botón Flotante/Sticky para Filtros en Móviles */}
       <div className="lg:hidden sticky top-14 z-20 bg-background/95 backdrop-blur-md border-b border-border px-4 py-2.5 flex items-center justify-between shadow-xs">
-        <div className="text-xs text-muted-foreground">
-          Mostrando <strong className="text-foreground font-bold">{total}</strong> prendas
+        <div className="text-xs font-medium text-muted-foreground">
+          Catálogo de prendas
         </div>
 
         <Sheet>
@@ -178,24 +196,10 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
           </Suspense>
         </aside>
 
-        {/* Grid productos */}
+        {/* Grid productos (streaming independiente para evitar clics sobre filtros viejos) */}
         <main className="bg-background dark:bg-zinc-950 pt-6 px-4 md:px-8 pb-12">
-          {/* Banner Promocional Panorámico de Categoría (si existe) */}
-          <CategoryPromoHero banner={categoryBanner} />
-
-          <div className="hidden lg:flex justify-between items-center pb-4 mb-6 border-b border-border">
-            <div className="text-xs text-muted-foreground">
-              Mostrando <strong className="text-foreground font-bold">{total}</strong> productos en el catálogo
-            </div>
-          </div>
-
           <Suspense fallback={<CatalogSkeleton />}>
-            <ProductGrid
-              productos={productos}
-              config={config}
-              total={total}
-              currentPage={filtros.page || 1}
-            />
+            <CatalogoResults searchParams={searchParams} />
           </Suspense>
         </main>
       </div>

@@ -1,9 +1,28 @@
 // modules/ecommerce/banners.ts
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag, cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, type PermissionAction } from '@/lib/auth/permissions'
+
+async function requireEcommerceConfigPermission(accion: PermissionAction): Promise<string | null> {
+  const currentUser = await getCurrentUser().catch(() => null)
+  if (!currentUser || !can(currentUser, 'ecommerce_config', accion)) {
+    return 'No tienes permisos para administrar banners de ecommerce.'
+  }
+  return null
+}
+
+function revalidateBannersAndHome() {
+  updateTag('ecommerce-banners')
+  updateTag('ecommerce-catalogo')
+  revalidatePath('/ecommerce/config')
+  revalidatePath('/shop')
+  revalidatePath('/inicio')
+  revalidatePath('/')
+}
 
 // ─── Storage de banners ─────────────────────────────────────────────────────
 // Bucket único de imágenes del proyecto (verificado en Supabase: solo existen
@@ -154,6 +173,10 @@ export async function fetchBannerCategoriaActivo(params: {
   tipo?: string | null
   slug?: string | null
 }): Promise<CategoriaBannerResuelto | null> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('ecommerce-banners')
+
   try {
     const supabase = createStaticClient()
 
@@ -300,11 +323,16 @@ export async function fetchPortadaColeccionHome(generoId: 1 | 2): Promise<{
   producto_sku: string | null
   producto_slug: string | null
 }> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('ecommerce-banners')
+  cacheTag('ecommerce-catalogo')
+
   try {
     const supabase = createStaticClient()
     const nombreColeccion = generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
 
-    // 1. Buscar producto web destacado con foto para este género
+    // 1. Buscar productos web destacados para este género (sin N+1)
     const { data: pwDestacados } = await (supabase.from('productos_web') as any)
       .select(`
         id,
@@ -321,25 +349,34 @@ export async function fetchPortadaColeccionHome(generoId: 1 | 2): Promise<{
         )
       `)
       .eq('destacado', true)
+      .eq('activo', true)
       .eq('productos.genero_id', generoId)
       .eq('productos.activo', true)
       .order('updated_at', { ascending: false })
       .limit(5)
 
     if (pwDestacados && pwDestacados.length > 0) {
-      for (const item of pwDestacados) {
-        const { data: img } = await supabase
-          .from('producto_imagenes')
-          .select('url')
-          .eq('producto_id', item.producto_id)
-          .order('es_principal', { ascending: false })
-          .limit(1)
-          .maybeSingle()
+      const destIds = pwDestacados.map((i: any) => i.producto_id)
+      const { data: imgs } = await supabase
+        .from('producto_imagenes')
+        .select('producto_id, url, es_principal, orden')
+        .in('producto_id', destIds)
+        .order('es_principal', { ascending: false })
+        .order('orden', { ascending: true })
 
-        if (img?.url) {
+      const imgByProd = new Map<number, string>()
+      for (const im of imgs || []) {
+        if (im.url && !imgByProd.has(im.producto_id)) {
+          imgByProd.set(im.producto_id, im.url)
+        }
+      }
+
+      for (const item of pwDestacados) {
+        const url = imgByProd.get(item.producto_id)
+        if (url) {
           return {
             titulo: nombreColeccion,
-            imagen_url: img.url,
+            imagen_url: url,
             producto_sku: item.productos.sku_base,
             producto_slug: item.slug,
           }
@@ -347,7 +384,7 @@ export async function fetchPortadaColeccionHome(generoId: 1 | 2): Promise<{
       }
     }
 
-    // 2. Fallback: buscar el producto más reciente con fotografía para este género
+    // 2. Fallback: buscar el producto más reciente con fotografía para este género (sin N+1)
     const { data: prods } = await (supabase.from('productos') as any)
       .select(`
         id,
@@ -362,20 +399,28 @@ export async function fetchPortadaColeccionHome(generoId: 1 | 2): Promise<{
       .limit(10)
 
     if (prods && prods.length > 0) {
-      for (const p of prods) {
-        const { data: img } = await supabase
-          .from('producto_imagenes')
-          .select('url')
-          .eq('producto_id', p.id)
-          .order('es_principal', { ascending: false })
-          .limit(1)
-          .maybeSingle()
+      const prodIds = prods.map((p: any) => p.id)
+      const { data: imgs } = await supabase
+        .from('producto_imagenes')
+        .select('producto_id, url, es_principal, orden')
+        .in('producto_id', prodIds)
+        .order('es_principal', { ascending: false })
+        .order('orden', { ascending: true })
 
-        if (img?.url) {
+      const imgByProd = new Map<number, string>()
+      for (const im of imgs || []) {
+        if (im.url && !imgByProd.has(im.producto_id)) {
+          imgByProd.set(im.producto_id, im.url)
+        }
+      }
+
+      for (const p of prods) {
+        const url = imgByProd.get(p.id)
+        if (url) {
           const pw = Array.isArray(p.productos_web) ? p.productos_web[0] : p.productos_web
           return {
             titulo: nombreColeccion,
-            imagen_url: img.url,
+            imagen_url: url,
             producto_sku: p.sku_base,
             producto_slug: pw?.slug ?? null,
           }
@@ -407,6 +452,8 @@ export async function createBannerCategoriaAction(
   formData: FormData
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const authErr = await requireEcommerceConfigPermission('puede_crear')
+    if (authErr) return { success: false, error: authErr }
     const supabase = await createClient()
 
     const nombre = formData.get('nombre') as string
@@ -492,10 +539,7 @@ export async function createBannerCategoriaAction(
       return { success: false, error: `Error en BD: ${insertError.message}` }
     }
 
-    revalidatePath('/ecommerce/config')
-    revalidatePath('/shop')
-    revalidatePath('/inicio')
-    revalidatePath('/')
+    revalidateBannersAndHome()
     return { success: true }
   } catch (err: any) {
     console.error('Excepción createBannerCategoriaAction:', err)
@@ -510,6 +554,8 @@ export async function updateBannerCategoriaAction(
   formData: FormData
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const authErr = await requireEcommerceConfigPermission('puede_editar')
+    if (authErr) return { success: false, error: authErr }
     const supabase = await createClient()
 
     const id = Number(formData.get('id'))
@@ -587,10 +633,7 @@ export async function updateBannerCategoriaAction(
       return { success: false, error: updateError.message }
     }
 
-    revalidatePath('/ecommerce/config')
-    revalidatePath('/shop')
-    revalidatePath('/inicio')
-    revalidatePath('/')
+    revalidateBannersAndHome()
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al actualizar.' }
@@ -604,6 +647,8 @@ export async function deleteBannerCategoriaAction(
   id: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const authErr = await requireEcommerceConfigPermission('puede_eliminar')
+    if (authErr) return { success: false, error: authErr }
     const supabase = await createClient()
 
     const { error } = await (supabase as any)
@@ -615,10 +660,7 @@ export async function deleteBannerCategoriaAction(
       return { success: false, error: error.message }
     }
 
-    revalidatePath('/ecommerce/config')
-    revalidatePath('/shop')
-    revalidatePath('/inicio')
-    revalidatePath('/')
+    revalidateBannersAndHome()
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al eliminar.' }
@@ -750,6 +792,8 @@ export async function asignarProductoDestacadoColeccionAction(params: {
   publicarProducto?: boolean
 }): Promise<{ success: boolean; error?: string; detalle?: string }> {
   try {
+    const authErr = await requireEcommerceConfigPermission('puede_editar')
+    if (authErr) return { success: false, error: authErr }
     const supabase = await createClient()
 
     // 1. Obtener o crear registro en productos_web
@@ -783,9 +827,7 @@ export async function asignarProductoDestacadoColeccionAction(params: {
 
     const nombreColeccion = params.generoId === 1 ? 'Colección Dama' : 'Colección Caballero'
 
-    revalidatePath('/')
-    revalidatePath('/inicio')
-    revalidatePath('/shop')
+    revalidateBannersAndHome()
     return { success: true, detalle: `Portada de ${nombreColeccion} actualizada en la página de inicio` }
   } catch (err: any) {
     console.error('Error en asignarProductoDestacadoColeccionAction:', err)

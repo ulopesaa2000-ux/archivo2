@@ -3,6 +3,7 @@
 'use server'
 
 import { revalidatePath, revalidateTag } from 'next/cache'
+import sharp from 'sharp'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { resolverSkuParaArchivo, type MatchResult, type SkuCatalogProduct } from './sku-matcher'
@@ -10,6 +11,28 @@ import { resolverSkuParaArchivo, type MatchResult, type SkuCatalogProduct } from
 type ActionResult = { success: boolean; error?: string; message?: string }
 
 const BUCKET = 'product_images'
+
+/**
+ * Optimiza cualquier imagen antes de subirla al bucket `product_images`:
+ * redimensiona a máximo 2048px de ancho y convierte a WebP (calidad 80).
+ */
+async function optimizeImageForBucket(file: File): Promise<{
+  buffer: Buffer
+  contentType: string
+  ext: string
+}> {
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = await sharp(Buffer.from(arrayBuffer))
+    .resize({ width: 2048, withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toBuffer()
+
+  return {
+    buffer,
+    contentType: 'image/webp',
+    ext: 'webp',
+  }
+}
 
 /**
  * Revalida todas las rutas y tags afectados por cambios en imágenes de productos.
@@ -481,14 +504,23 @@ export async function uploadImagenesConSkuAction(
         }
       }
 
-      // 2. Subir archivo al Storage
-      const fileBuffer = await img.file.arrayBuffer()
-      const filePath = `${img.sku_base}/${Date.now()}_${img.file.name}`
-      
+      // 2. Optimizar a WebP (max 2048px, quality 80) y subir archivo al Storage
+      let optimized: { buffer: Buffer; contentType: string; ext: string }
+      try {
+        optimized = await optimizeImageForBucket(img.file)
+      } catch (optErr: any) {
+        console.warn('[uploadImagenesConSkuAction] Optimize error:', optErr?.message || optErr)
+        failCount++
+        continue
+      }
+
+      const baseName = img.file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_')
+      const filePath = `${img.sku_base}/${Date.now()}_${baseName}.${optimized.ext}`
+
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
-        .upload(filePath, fileBuffer, {
-          contentType: img.file.type,
+        .upload(filePath, optimized.buffer, {
+          contentType: optimized.contentType,
           upsert: false,
         })
 
@@ -597,15 +629,15 @@ export async function uploadSingleImagenConSkuAction(
       }
     }
 
-    // 2. Subir archivo al Storage
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const cleanFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
-    const filePath = `${skuBase}/${cleanFileName}`
-    
+    // 2. Optimizar a WebP (max 2048px, quality 80) y subir archivo al Storage
+    const optimized = await optimizeImageForBucket(file)
+    const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_')
+    const filePath = `${skuBase}/${Date.now()}_${baseName}.${optimized.ext}`
+
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(filePath, fileBuffer, {
-        contentType: file.type,
+      .upload(filePath, optimized.buffer, {
+        contentType: optimized.contentType,
         upsert: false,
       })
 

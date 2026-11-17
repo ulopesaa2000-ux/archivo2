@@ -13,7 +13,7 @@ import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { useFavorites } from '@/hooks/useFavorites'
 import { signOut } from '@/modules/auth/actions'
 import { CartDrawer, OPEN_CART_EVENT } from '@/components/store/cotizacion/CartDrawer'
-import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
+import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 import type { UsuarioConRol } from '@/lib/types/tables'
 import {
   DropdownMenu,
@@ -27,10 +27,16 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { StoreThemeToggle } from './StoreThemeToggle'
 
-export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
+export function StoreHeader({
+  user,
+  initialConfig = null,
+}: {
+  user: UsuarioConRol | null
+  initialConfig?: ConfigEcommerce | null
+}) {
   const { count } = useQuoteCart()
   const { count: favCount } = useFavorites()
-  const { config } = useConfigEcommerce()
+  const config = initialConfig
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDamaOpen, setIsDamaOpen] = useState(true)
   const [isCaballeroOpen, setIsCaballeroOpen] = useState(false)
@@ -389,7 +395,7 @@ export function StoreHeader({ user }: { user: UsuarioConRol | null }) {
       </header>
 
       {/* Slide-over Cart Drawer */}
-      <CartDrawer />
+      <CartDrawer config={config} />
 
       {/* Mobile Catálogo Menu Drawer */}
       {isMenuOpen && (

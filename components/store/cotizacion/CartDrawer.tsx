@@ -5,28 +5,27 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { 
-  Sheet, 
-  SheetContent, 
-  SheetHeader, 
-  SheetTitle, 
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
   SheetDescription,
-  SheetFooter 
+  SheetFooter
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, X } from 'lucide-react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
-import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { formatearPrecio } from '@/modules/ecommerce/utils'
+import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 import { slugify } from '@/lib/utils'
 
 export const OPEN_CART_EVENT = 'inv_open_cart_drawer'
 
-export function CartDrawer() {
+export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null }) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
-  const { config } = useConfigEcommerce()
   const {
     items,
     updateCantidad,
@@ -54,8 +53,8 @@ export function CartDrawer() {
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
-      <SheetContent 
-        side="right" 
+      <SheetContent
+        side="right"
         className="w-full sm:max-w-md flex flex-col p-0 bg-background text-foreground border-l border-border dark:bg-zinc-950 dark:text-gray-100"
       >
         {/* Encabezado */}

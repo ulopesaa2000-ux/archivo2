@@ -1,6 +1,7 @@
 // app/(store)/page.tsx
 import Image from 'next/image'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
 import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
@@ -22,8 +23,13 @@ import type { Metadata } from 'next'
 
 import { LiveStoreEditorProvider } from '@/components/store/editor/LiveStoreEditorContext'
 import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
-import { StoreQuickEditorToolbar } from '@/components/store/editor/StoreQuickEditorToolbar'
-import { LiveEditDrawer } from '@/components/store/editor/LiveEditDrawer'
+
+const StoreQuickEditorToolbar = dynamic(() =>
+  import('@/components/store/editor/StoreQuickEditorToolbar').then((m) => m.StoreQuickEditorToolbar)
+)
+const LiveEditDrawer = dynamic(() =>
+  import('@/components/store/editor/LiveEditDrawer').then((m) => m.LiveEditDrawer)
+)
 import { SkuPill } from '@/components/store/SkuPill'
 import {
   parseStoreConfig,
@@ -157,9 +163,11 @@ function DestacadosSkeleton() {
 }
 
 async function HomePageContent() {
-  const portadaDama = await fetchPortadaColeccionHome(1)
-  const portadaCaballero = await fetchPortadaColeccionHome(2)
-  const rawConfig = await fetchConfigEcommerce()
+  const [portadaDama, portadaCaballero, rawConfig] = await Promise.all([
+    fetchPortadaColeccionHome(1),
+    fetchPortadaColeccionHome(2),
+    fetchConfigEcommerce(),
+  ])
   const storeConfig = parseStoreConfig(rawConfig?.mensaje_precio_variable)
 
   return (
@@ -213,6 +221,7 @@ async function HomePageContent() {
                 src={portadaDama.imagen_url}
                 alt={portadaDama.titulo || 'Portada Colección Dama'}
                 fill
+                priority
                 className="object-cover object-top group-hover:scale-105 transition-transform duration-500"
                 sizes="(max-width: 768px) 50vw, 25vw"
               />
@@ -252,6 +261,7 @@ async function HomePageContent() {
                 src={portadaCaballero.imagen_url}
                 alt={portadaCaballero.titulo || 'Portada Colección Caballero'}
                 fill
+                priority
                 className="object-cover object-top group-hover:scale-105 transition-transform duration-500"
                 sizes="(max-width: 768px) 50vw, 25vw"
               />
@@ -509,8 +519,12 @@ async function HomePageShell() {
   return (
     <LiveStoreEditorProvider canEdit={canEditServer}>
       <HomePageContent />
-      <StoreQuickEditorToolbar />
-      <LiveEditDrawer />
+      {canEditServer && (
+        <>
+          <StoreQuickEditorToolbar />
+          <LiveEditDrawer />
+        </>
+      )}
     </LiveStoreEditorProvider>
   )
 }

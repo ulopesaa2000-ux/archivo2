@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useTransition, useState, useEffect, useRef } from 'react'
+import { useTransition, useState, useEffect, useRef, useOptimistic } from 'react'
 import { 
   Search, 
   X, 
@@ -43,7 +43,9 @@ export function FilterSidebar() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  
+  const [optimisticQuery, setOptimisticQuery] = useOptimistic(searchParams.toString())
+  const activeParams = new URLSearchParams(optimisticQuery)
+
   const currentQ = searchParams.get('q') || ''
   const [searchTerm, setSearchTerm] = useState(currentQ)
   const isFocusedRef = useRef(false)
@@ -56,13 +58,19 @@ export function FilterSidebar() {
     }
   }, [currentQ])
 
-  const currentGenero = searchParams.get('genero') || ''
-  const currentTipo = searchParams.get('tipo') || ''
-  const isOferta = searchParams.get('oferta') === 'true'
-  const isNuevo = searchParams.get('nuevo') === 'true'
-  const isDestacado = searchParams.get('destacado') === 'true'
+  const currentGenero = activeParams.get('genero') || ''
+  const currentTipo = activeParams.get('tipo') || ''
+  const isOferta = activeParams.get('oferta') === 'true'
+  const isNuevo = activeParams.get('nuevo') === 'true'
+  const isDestacado = activeParams.get('destacado') === 'true'
 
-  const hasFilters = Array.from(searchParams.entries()).length > 0
+  const hasFilters = Array.from(activeParams.entries()).length > 0
+
+  const navigateWithParams = (params: URLSearchParams) => {
+    const qs = params.toString()
+    setOptimisticQuery(qs)
+    router.push(qs ? `/shop?${qs}` : '/shop', { scroll: false })
+  }
 
   const debouncedSearch = useDebouncedCallback((term: string) => {
     isTypingRef.current = false
@@ -74,7 +82,7 @@ export function FilterSidebar() {
         params.delete('q')
       }
       params.delete('page')
-      router.push(`/shop?${params.toString()}`, { scroll: false })
+      navigateWithParams(params)
     })
   }, 450)
 
@@ -93,39 +101,39 @@ export function FilterSidebar() {
       const params = new URLSearchParams(searchParams.toString())
       params.delete('q')
       params.delete('page')
-      router.push(`/shop?${params.toString()}`, { scroll: false })
+      navigateWithParams(params)
     })
   }
 
   const toggleParamValue = (key: string, value: string) => {
     startTransition(() => {
-      const params = new URLSearchParams(searchParams.toString())
+      const params = new URLSearchParams(optimisticQuery)
       const current = params.get(key)
-      
-      if (current === value) {
+
+      if (!value || current === value) {
         params.delete(key)
       } else {
         params.set(key, value)
       }
-      
+
       params.delete('page')
-      router.push(`/shop?${params.toString()}`, { scroll: false })
+      navigateWithParams(params)
     })
   }
 
   const toggleFlag = (key: string) => {
     startTransition(() => {
-      const params = new URLSearchParams(searchParams.toString())
+      const params = new URLSearchParams(optimisticQuery)
       const current = params.get(key) === 'true'
-      
+
       if (current) {
         params.delete(key)
       } else {
         params.set(key, 'true')
       }
-      
+
       params.delete('page')
-      router.push(`/shop?${params.toString()}`, { scroll: false })
+      navigateWithParams(params)
     })
   }
 
@@ -134,6 +142,7 @@ export function FilterSidebar() {
     debouncedSearch.cancel()
     startTransition(() => {
       setSearchTerm('')
+      setOptimisticQuery('')
       router.push('/shop', { scroll: false })
     })
   }

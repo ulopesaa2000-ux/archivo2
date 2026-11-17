@@ -4,13 +4,17 @@ import { StoreFooter } from '@/components/store/layout/StoreFooter'
 import { StoreHeader } from '@/components/store/layout/StoreHeader'
 import { storeMetadata, storeViewport } from '@/lib/seo/store-metadata'
 import { verifySessionOptional } from '@/lib/dal'
+import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 
 export const metadata = storeMetadata
 export const viewport = storeViewport
 
 async function StoreHeaderWithUser() {
-  const session = await verifySessionOptional()
-  return <StoreHeader user={session.user} />
+  const [session, config] = await Promise.all([
+    verifySessionOptional(),
+    fetchConfigEcommerce(),
+  ])
+  return <StoreHeader user={session.user} initialConfig={config} />
 }
 
 export default function StoreLayout({ children }: { children: ReactNode }) {

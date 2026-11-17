@@ -1,6 +1,5 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\(store)\shop\[slug]\page.tsx
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { after } from 'next/server'
@@ -12,6 +11,7 @@ import { VariantSelector } from '@/components/store/producto/VariantSelector'
 import { SITE_NAME, SITE_URL, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
 import { slugify } from '@/lib/utils'
 import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import { parseStoreConfig } from '@/lib/utils/storeConfig'
 import {
   fetchConfigEcommerce,
   fetchImagenesProducto,
@@ -44,20 +44,7 @@ function toAbsolute(url: string, base: string): string {
   return url.startsWith('http') ? url : `${base}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
-async function resolveSiteUrl(): Promise<string> {
-  try {
-    const headersList = await headers()
-    const host = headersList.get('x-forwarded-host') || headersList.get('host')
-    const protocol =
-      headersList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https')
-
-    if (host) {
-      return `${protocol}://${host}`
-    }
-  } catch {
-    // Fallback a SITE_URL cuando headers no esten disponibles.
-  }
-
+function resolveSiteUrl(): string {
   return SITE_URL
 }
 
@@ -75,12 +62,14 @@ async function ProductGallerySection({
 async function VariantSelectorSection({
   productoId,
   config,
+  stockDisponible,
 }: {
   productoId: number
   config: Awaited<ReturnType<typeof fetchConfigEcommerce>>
+  stockDisponible?: number
 }) {
   const variantes = await fetchVariantesProducto(productoId)
-  return <VariantSelector variantes={variantes} config={config} />
+  return <VariantSelector variantes={variantes} config={config} stockDisponible={stockDisponible} />
 }
 
 async function MeasurementsSection({ productoId }: { productoId: number }) {
@@ -158,7 +147,7 @@ export async function generateMetadata({
 }: ShopSlugPageProps): Promise<Metadata> {
   const { slug } = await params
   const producto = await fetchProductoWebBySlug(slug)
-  const dynamicSiteUrl = await resolveSiteUrl()
+  const dynamicSiteUrl = resolveSiteUrl()
 
   if (!producto) {
     return {
@@ -223,7 +212,7 @@ export async function generateMetadata({
 
 export default async function ProductPage({ params }: ShopSlugPageProps) {
   const { slug } = await params
-  const dynamicSiteUrl = await resolveSiteUrl()
+  const dynamicSiteUrl = resolveSiteUrl()
   const [producto, config] = await Promise.all([fetchProductoWebBySlug(slug), fetchConfigEcommerce()])
 
   if (!producto) {
@@ -312,11 +301,11 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
         </nav>
       </div>
 
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-8 pt-4 lg:pt-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
           <Suspense
             fallback={
-              <div className="aspect-square bg-[var(--surface)] border border-store-border animate-pulse rounded-md" />
+              <div className="aspect-[3/4] max-h-[52vh] lg:max-h-none bg-[var(--surface)] border border-store-border animate-pulse rounded-xl" />
             }
           >
             <ProductGallerySection productoId={producto.producto_id} nombre={producto.nombre} />
@@ -330,7 +319,11 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
                 <div className="h-24 bg-[var(--surface)] border border-store-border animate-pulse rounded-md mt-6" />
               }
             >
-              <VariantSelectorSection productoId={producto.producto_id} config={config} />
+              <VariantSelectorSection
+                productoId={producto.producto_id}
+                config={config}
+                stockDisponible={producto.stock_cajas ?? 0}
+              />
             </Suspense>
 
             <div className="pt-4 space-y-3">
@@ -345,9 +338,12 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               </div>
             </div>
 
-            {config?.modo_operacion !== 'ecommerce' && config?.mensaje_precio_variable && !isJsonString(config.mensaje_precio_variable) && (
-              <p className="text-[12px] text-store-ink3 italic mt-3">{config.mensaje_precio_variable}</p>
-            )}
+            {config?.modo_operacion !== 'ecommerce' && (() => {
+              const textoPrecioVar = parseStoreConfig(config?.mensaje_precio_variable).mensajePrecioVariable
+              return textoPrecioVar ? (
+                <p className="text-[12px] text-store-ink3 italic mt-3">{textoPrecioVar}</p>
+              ) : null
+            })()}
 
             {/* Abajo de compartir: Descripción SEO opcional cuando esté disponible */}
             {((producto.descripcion_seo && !isJsonString(producto.descripcion_seo)) ||
@@ -411,9 +407,11 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               </div>
             )}
 
-            <Suspense fallback={null}>
-              <MeasurementsSection productoId={producto.producto_id} />
-            </Suspense>
+            {config?.mostrar_medidas_tabla !== false && (
+              <Suspense fallback={null}>
+                <MeasurementsSection productoId={producto.producto_id} />
+              </Suspense>
+            )}
           </div>
         </div>
       </div>

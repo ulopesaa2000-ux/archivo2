@@ -1,9 +1,12 @@
 // modules/ecommerce/actions.ts
 'use server'
 
-import { revalidatePath, revalidateTag } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
+import { mergeMensajePrecioVariable } from '@/lib/utils/storeConfig'
+import { getCurrentUser } from '@/modules/auth/queries'
+import { can, type PermissionAction, type PermissionModule } from '@/lib/auth/permissions'
 import type { Database } from '@/lib/types/database.types'
 import type {
   ConfigEcommerceUpdate,
@@ -14,9 +17,40 @@ import type {
   QuoteItem,
 } from './types'
 
+async function requireEcommercePermission(
+  modulo: PermissionModule,
+  accion: PermissionAction = 'puede_editar'
+): Promise<void> {
+  const currentUser = await getCurrentUser().catch(() => null)
+  if (!currentUser || !can(currentUser, modulo, accion)) {
+    throw new Error('No tienes permisos para realizar esta acción en ecommerce.')
+  }
+}
+
+function revalidateStoreCatalogo(options?: { slugs?: string[]; includeBanners?: boolean }) {
+  updateTag('ecommerce-catalogo')
+  if (options?.includeBanners) {
+    updateTag('ecommerce-banners')
+  }
+  revalidatePath('/ecommerce/productos-web')
+  revalidatePath('/')
+  revalidatePath('/inicio')
+  revalidatePath('/shop')
+  revalidatePath('/sitemap.xml')
+  if (options?.slugs) {
+    for (const rawSlug of options.slugs) {
+      if (rawSlug) {
+        updateTag(`producto-slug-${rawSlug.toLowerCase()}`)
+        revalidatePath(`/shop/${slugify(rawSlug)}`)
+      }
+    }
+  }
+}
+
 // CONFIGURACION GLOBAL
 
 export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpdate> & Record<string, any>) {
+  await requireEcommercePermission('ecommerce_config', 'puede_editar')
   const supabase = await createClient()
 
   // Extraer únicamente las columnas válidas existentes en la base de datos (inv-tienda.config_ecommerce)
@@ -62,7 +96,41 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
   if (texto_boton_agregar !== undefined) updatePayload.texto_boton_agregar = texto_boton_agregar
   if (texto_boton_finalizar !== undefined) updatePayload.texto_boton_finalizar = texto_boton_finalizar
   if (titulo_seccion_carrito !== undefined) updatePayload.titulo_seccion_carrito = titulo_seccion_carrito
-  if (mensaje_precio_variable !== undefined) updatePayload.mensaje_precio_variable = mensaje_precio_variable
+  if (mensaje_precio_variable !== undefined) {
+    const trimmedMsg = String(mensaje_precio_variable ?? '').trim()
+    if (trimmedMsg.startsWith('{')) {
+      // Viene desde LiveEditDrawer: preservar mensajePrecioVariable existente si no se envió explícito
+      const { data: currentCfg } = await supabase
+        .from('config_ecommerce')
+        .select('mensaje_precio_variable')
+        .eq('id', 1)
+        .maybeSingle()
+
+      try {
+        const incoming = JSON.parse(trimmedMsg)
+        if (!incoming.mensaje_precio_variable_texto && currentCfg?.mensaje_precio_variable) {
+          const prevParsed = JSON.parse(currentCfg.mensaje_precio_variable)
+          if (prevParsed?.mensaje_precio_variable_texto) {
+            incoming.mensaje_precio_variable_texto = prevParsed.mensaje_precio_variable_texto
+          }
+        }
+        updatePayload.mensaje_precio_variable = JSON.stringify(incoming)
+      } catch {
+        updatePayload.mensaje_precio_variable = trimmedMsg
+      }
+    } else {
+      // Viene desde ConfigForm: fusionar con el JSON visual existente sin perder textos ni contactos
+      const { data: currentCfg } = await supabase
+        .from('config_ecommerce')
+        .select('mensaje_precio_variable')
+        .eq('id', 1)
+        .maybeSingle()
+      updatePayload.mensaje_precio_variable = mergeMensajePrecioVariable(
+        currentCfg?.mensaje_precio_variable,
+        trimmedMsg
+      )
+    }
+  }
   if (tipo_orden_generada !== undefined) updatePayload.tipo_orden_generada = tipo_orden_generada
   if (requiere_aprobacion !== undefined) updatePayload.requiere_aprobacion = requiere_aprobacion
   if (permitir_checkout_invitado !== undefined) updatePayload.permitir_checkout_invitado = permitir_checkout_invitado
@@ -85,13 +153,15 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
     throw new Error(`Error actualizando config: ${error.message}`)
   }
 
-  revalidateTag('ecommerce-config', 'max')
-  revalidatePath('/(store)')
-  revalidatePath('/inicio')
+  updateTag('ecommerce-config')
+  updateTag('ecommerce-catalogo')
+  revalidatePath('/', 'layout')
   revalidatePath('/')
+  revalidatePath('/inicio')
   revalidatePath('/contactos')
   revalidatePath('/shop')
-  revalidatePath('/(admin)/ecommerce/config')
+  revalidatePath('/cotizacion')
+  revalidatePath('/ecommerce/config')
 
   return { success: true }
 }
@@ -99,6 +169,7 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
 // PRODUCTOS WEB (ADMIN)
 
 export async function publicarProductoWeb(data: ProductoWebInsert) {
+  await requireEcommercePermission('ecommerce_catalogo', 'puede_crear')
   const supabase = await createClient()
 
   let slug = data.slug
@@ -145,8 +216,7 @@ export async function publicarProductoWeb(data: ProductoWebInsert) {
     throw new Error(`Error publicando producto: ${error.message}`)
   }
 
-  revalidatePath('/ecommerce/productos-web')
-  revalidatePath('/shop')
+  revalidateStoreCatalogo({ slugs: slug ? [slug] : undefined })
 
   return { success: true, data: result }
 }
@@ -157,6 +227,7 @@ export async function togglePublicarProductoWebAction(
   productoWebId: number | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     const supabase = await createClient()
 
     if (productoWebId) {
@@ -208,8 +279,7 @@ export async function togglePublicarProductoWebAction(
       if (error) return { success: false, error: error.message }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al cambiar publicación.' }
@@ -222,6 +292,7 @@ export async function toggleDestacadoProductoWebAction(
   productoWebId: number | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     const supabase = await createClient()
     const nuevoDestacado = !actualmenteDestacado
 
@@ -281,10 +352,7 @@ export async function toggleDestacadoProductoWebAction(
       if (error) return { success: false, error: error.message }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/catalogo')
-    revalidatePath('/(store)')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo({ includeBanners: true })
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al cambiar destacado.' }
@@ -297,6 +365,7 @@ export async function toggleNuevoProductoWebAction(
   productoWebId: number | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     const supabase = await createClient()
     const nuevoValor = !actualmenteNuevo
 
@@ -349,8 +418,7 @@ export async function toggleNuevoProductoWebAction(
       if (error) return { success: false, error: error.message }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al cambiar nuevo.' }
@@ -363,6 +431,7 @@ export async function toggleOfertaProductoWebAction(
   productoWebId: number | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     const supabase = await createClient()
     const nuevoValor = !actualmenteEnOferta
 
@@ -408,8 +477,7 @@ export async function toggleOfertaProductoWebAction(
       return { success: true }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error al cambiar oferta.' }
@@ -434,6 +502,7 @@ export async function actualizarFlagsMasivoAction(
   precioOferta?: number | null
 ): Promise<{ success: boolean; count: number; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     if (!productoIds || productoIds.length === 0) {
       return { success: false, count: 0, error: 'No hay productos seleccionados.' }
     }
@@ -536,8 +605,7 @@ export async function actualizarFlagsMasivoAction(
       }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo({ includeBanners: true })
     return { success: true, count: productoIds.length }
   } catch (err: any) {
     return { success: false, count: 0, error: err?.message || 'Error al actualizar flags.' }
@@ -552,6 +620,7 @@ export async function publicarProductosMasivoAction(
   productoIds: number[]
 ): Promise<{ success: boolean; count: number; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     if (!productoIds || productoIds.length === 0) {
       return { success: false, count: 0, error: 'No hay productos seleccionados.' }
     }
@@ -610,8 +679,7 @@ export async function publicarProductosMasivoAction(
       }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true, count: productoIds.length }
   } catch (err: any) {
     console.error('Excepción publicarProductosMasivoAction:', err)
@@ -626,6 +694,7 @@ export async function despublicarProductosMasivoAction(
   productoIds: number[]
 ): Promise<{ success: boolean; count: number; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     if (!productoIds || productoIds.length === 0) {
       return { success: false, count: 0, error: 'No hay productos seleccionados.' }
     }
@@ -642,8 +711,7 @@ export async function despublicarProductosMasivoAction(
       return { success: false, count: 0, error: error.message }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true, count: productoIds.length }
   } catch (err: any) {
     return { success: false, count: 0, error: err?.message || 'Error al despublicar masivo.' }
@@ -660,6 +728,7 @@ export async function actualizarPreciosMasivoAction(
   enOferta?: boolean
 ): Promise<{ success: boolean; count: number; error?: string }> {
   try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
     if (!productoIds || productoIds.length === 0) {
       return { success: false, count: 0, error: 'No hay productos seleccionados.' }
     }
@@ -717,8 +786,7 @@ export async function actualizarPreciosMasivoAction(
       }
     }
 
-    revalidatePath('/ecommerce/productos-web')
-    revalidatePath('/shop')
+    revalidateStoreCatalogo()
     return { success: true, count: productoIds.length }
   } catch (err: any) {
     console.error('Excepción actualizarPreciosMasivoAction:', err)
@@ -727,6 +795,7 @@ export async function actualizarPreciosMasivoAction(
 }
 
 export async function actualizarProductoWeb(id: number, data: ProductoWebUpdate) {
+  await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
   const supabase = await createClient()
 
   if (data.slug) {
@@ -742,42 +811,49 @@ export async function actualizarProductoWeb(id: number, data: ProductoWebUpdate)
     }
   }
 
-  const { error } = await supabase
+  const { data: updatedRow, error } = await supabase
     .from('productos_web')
     .update({
       ...data,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .select('slug')
+    .single()
 
   if (error) {
     throw new Error(`Error actualizando producto: ${error.message}`)
   }
 
-  revalidatePath('/(admin)/ecommerce/productos-web')
-  revalidatePath('/(store)/catalogo')
-  revalidatePath('/(store)/catalogo/[slug]')
+  revalidateStoreCatalogo({
+    slugs: updatedRow?.slug ? [updatedRow.slug] : undefined,
+    includeBanners: data.destacado !== undefined,
+  })
 
   return { success: true }
 }
 
 export async function despublicarProductoWeb(id: number) {
+  await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data: updatedRow, error } = await supabase
     .from('productos_web')
     .update({
       activo: false,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .select('slug')
+    .single()
 
   if (error) {
     throw new Error(`Error despublicando producto: ${error.message}`)
   }
 
-  revalidatePath('/(admin)/ecommerce/productos-web')
-  revalidatePath('/(store)/catalogo')
+  revalidateStoreCatalogo({
+    slugs: updatedRow?.slug ? [updatedRow.slug] : undefined,
+  })
 
   return { success: true }
 }

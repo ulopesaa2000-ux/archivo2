@@ -3,8 +3,9 @@
 
 import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
-import { ZoomIn, Move } from 'lucide-react'
+import { ZoomIn, Move, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getSmartImagenUrl, IMAGEN_SIZES } from '@/lib/utils/imagen'
 
 export interface ProductGalleryProps {
   imagenes: { url: string; es_principal: boolean; orden: number }[]
@@ -13,6 +14,8 @@ export interface ProductGalleryProps {
 
 export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
   const [imagenActiva, setImagenActiva] = useState(0)
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
+  const [errorSrc, setErrorSrc] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   
   // Estado de zoom en línea (hover lens zoom directo en la página)
@@ -54,12 +57,16 @@ export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
     return (a.orden ?? 0) - (b.orden ?? 0)
   })
   const currentImgUrl = imagenesOrdenadas[imagenActiva]?.url
+  const optimizedMainUrl = getSmartImagenUrl(currentImgUrl, 'hero')
+  const isMainProxied = optimizedMainUrl.includes('/storage/v1/render/image/public/')
+  const isMainLoaded = Boolean(currentImgUrl) && loadedSrc === optimizedMainUrl
+  const hasMainError = !currentImgUrl || errorSrc === optimizedMainUrl
 
   return (
     <div className="space-y-4">
       {/* 
-        Imagen principal completa con ZOOM PARCIAL INLINE (Lupa al pasar el mouse/tocar)
-        No abre ventanas secundarias; el zoom ocurre directamente en la imagen de la página.
+        Imagen principal completa con carga progresiva (datos primero, imagen después)
+        y ZOOM PARCIAL INLINE (Lupa al pasar el mouse/tocar).
       */}
       <div 
         ref={containerRef}
@@ -73,32 +80,57 @@ export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
         onTouchMove={handleTouchMove}
         onTouchEnd={() => setIsHovered(false)}
         className={cn(
-          "group relative aspect-[3/4] bg-store-bg border border-store-border rounded-xl overflow-hidden flex items-center justify-center shadow-sm select-none transition-all duration-200",
+          "group relative aspect-[3/4] max-h-[52vh] lg:max-h-none w-full bg-store-bg border border-store-border rounded-xl overflow-hidden flex items-center justify-center shadow-sm select-none transition-all duration-200",
           isHovered ? "cursor-crosshair ring-2 ring-store-accent/40" : "cursor-zoom-in"
         )}
       >
         <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(0,0,0,.015) 15px, rgba(0,0,0,.015) 16px)' }}></div>
-        
-        {/* Imagen principal con efecto lupa directo */}
-        <Image
-          src={currentImgUrl}
-          alt={`${nombre} - Imagen ${imagenActiva + 1}`}
-          fill
-          className="object-contain p-2 z-10 transition-transform duration-150 ease-out will-change-transform pointer-events-none"
-          sizes="(max-width: 1024px) 100vw, 50vw"
-          priority
-          style={
-            isHovered
-              ? {
-                  transform: 'scale(2.6)',
-                  transformOrigin: `${mousePos.x}% ${mousePos.y}%`,
-                }
-              : {
-                  transform: 'scale(1)',
-                  transformOrigin: 'center',
-                }
-          }
-        />
+
+        {/* Esqueleto ligero mientras descarga la imagen en segundo plano */}
+        {!isMainLoaded && !hasMainError && (
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-muted/40 dark:bg-zinc-900/50 animate-pulse flex flex-col items-center justify-center gap-2 z-0"
+          >
+            <Package className="h-10 w-10 text-muted-foreground/30" />
+            <span className="text-[11px] text-muted-foreground/60 uppercase tracking-wider">
+              Cargando imagen...
+            </span>
+          </div>
+        )}
+
+        {hasMainError ? (
+          <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground/50 z-10">
+            <Package className="h-10 w-10" />
+            <span className="text-[11px] uppercase tracking-wider">Imagen no disponible</span>
+          </div>
+        ) : (
+          <Image
+            src={optimizedMainUrl}
+            alt={`${nombre} - Imagen ${imagenActiva + 1}`}
+            fill
+            unoptimized={isMainProxied}
+            decoding="async"
+            className={cn(
+              'object-contain p-2 z-10 transition-all duration-300 ease-out will-change-transform pointer-events-none',
+              isMainLoaded ? 'opacity-100' : 'opacity-0'
+            )}
+            sizes={IMAGEN_SIZES.hero}
+            onLoad={() => setLoadedSrc(optimizedMainUrl)}
+            onError={() => setErrorSrc(optimizedMainUrl)}
+            style={
+              isHovered
+                ? {
+                    transform: 'scale(2.6)',
+                    transformOrigin: `${mousePos.x}% ${mousePos.y}%`,
+                  }
+                : {
+                    transform: 'scale(1)',
+                    transformOrigin: 'center',
+                  }
+            }
+          />
+        )}
 
         {/* Badge indicador flotante de ayuda */}
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-opacity duration-200">
@@ -117,7 +149,9 @@ export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
       {/* Thumbnails */}
       {imagenesOrdenadas.length > 1 && (
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
-          {imagenesOrdenadas.map((imagen, index) => (
+          {imagenesOrdenadas.map((imagen, index) => {
+            const thumbUrl = getSmartImagenUrl(imagen.url, 'thumbnail')
+            return (
             <button
               key={index}
               onClick={() => {
@@ -132,14 +166,18 @@ export function ProductGallery({ imagenes, nombre }: ProductGalleryProps) {
               )}
             >
               <Image
-                src={imagen.url}
+                src={thumbUrl}
                 alt={`${nombre} - Thumbnail ${index + 1}`}
                 fill
+                unoptimized={thumbUrl.includes('/storage/v1/render/image/public/')}
+                loading="lazy"
+                decoding="async"
                 className="object-contain p-1"
-                sizes="80px"
+                sizes={IMAGEN_SIZES.thumbnail}
               />
             </button>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

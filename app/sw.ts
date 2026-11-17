@@ -1,7 +1,7 @@
 // C:\Users\uriel\Downloads\enero 26\archivo2\app\sw.ts
 import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry } from 'serwist'
-import { Serwist } from 'serwist'
+import { NetworkOnly, Serwist } from 'serwist'
 
 declare const self: ServiceWorkerGlobalScope & {
   __SW_MANIFEST: (PrecacheEntry | string)[]
@@ -25,7 +25,15 @@ const serwist = new Serwist({
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [
+    // Evitar servir HTML/RSC rancio en navegaciones tras cambios en /ecommerce/config
+    {
+      matcher: ({ request }) =>
+        request.mode === 'navigate' || request.headers.get('RSC') === '1',
+      handler: new NetworkOnly(),
+    },
+    ...defaultCache,
+  ],
 })
 
 // Fallback de red como red de seguridad ante cualquier fallo de lectura en caché (ej. ERR_CACHE_READ_FAILURE)

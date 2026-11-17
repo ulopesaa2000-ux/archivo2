@@ -9,11 +9,16 @@ import type { ConfigEcommerce } from '@/modules/ecommerce/types'
 interface VariantSelectorProps {
   variantes: VariantePublica[]
   config: ConfigEcommerce | null
+  stockDisponible?: number
 }
 
-export function VariantSelector({ variantes, config }: VariantSelectorProps) {
+export function VariantSelector({ variantes, config, stockDisponible }: VariantSelectorProps) {
   const [tallaSeleccionada, setTallaSeleccionada] = useState<string | null>(null)
   const [colorSeleccionado, setColorSeleccionado] = useState<string | null>(null)
+  const sinStockGlobal =
+    Boolean(config?.mostrar_stock) &&
+    stockDisponible !== undefined &&
+    stockDisponible <= 0
 
   // Obtener tallas únicas ordenadas
   const tallas = useMemo(() => {
@@ -59,6 +64,14 @@ export function VariantSelector({ variantes, config }: VariantSelectorProps) {
       .map(v => v.color_nombre)
       .filter(Boolean) as string[]
   }, [variantes, tallaSeleccionada, colores])
+
+  if (sinStockGlobal && config?.mostrar_variantes_agotadas === false) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300">
+        Actualmente sin existencias disponibles para selección de variantes.
+      </div>
+    )
+  }
 
   if (variantes.length === 0) {
     return null

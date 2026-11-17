@@ -6,7 +6,7 @@ export function ProductSkeleton() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
       {/* Galería skeleton */}
       <div className="space-y-4">
-        <Skeleton className="aspect-square rounded-lg" />
+        <Skeleton className="aspect-[3/4] rounded-xl" />
         <div className="flex gap-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="w-20 h-20 rounded-md" />

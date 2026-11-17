@@ -42,6 +42,8 @@ export interface ParsedStoreConfig {
 
   footerAgradecimiento: string
   footerAgradecimientoSize: TextSizeOption
+
+  mensajePrecioVariable: string
 }
 
 export const DEFAULT_STORE_CONFIG: ParsedStoreConfig = {
@@ -79,6 +81,8 @@ export const DEFAULT_STORE_CONFIG: ParsedStoreConfig = {
 
   footerAgradecimiento: '¡Gracias por confiar en nosotros y ser parte de nuestra comunidad!',
   footerAgradecimientoSize: 'large',
+
+  mensajePrecioVariable: 'Los precios pueden variar según volumen y disponibilidad. Te contactaremos para confirmar.',
 }
 
 export function normalizePhoneRaw(input: string | null | undefined): string {
@@ -176,11 +180,14 @@ export function parseStoreConfig(raw?: string | null): ParsedStoreConfig {
 
       footerAgradecimiento: p.footer_agradecimiento || DEFAULT_STORE_CONFIG.footerAgradecimiento,
       footerAgradecimientoSize: p.footer_agradecimiento_size || DEFAULT_STORE_CONFIG.footerAgradecimientoSize,
+
+      mensajePrecioVariable: p.mensaje_precio_variable_texto || DEFAULT_STORE_CONFIG.mensajePrecioVariable,
     }
   } catch {
     return {
       ...DEFAULT_STORE_CONFIG,
       heroDescription: raw || DEFAULT_STORE_CONFIG.heroDescription,
+      mensajePrecioVariable: raw || DEFAULT_STORE_CONFIG.mensajePrecioVariable,
     }
   }
 }
@@ -224,6 +231,27 @@ export function serializeStoreConfig(config: ParsedStoreConfig): string {
 
     footer_agradecimiento: config.footerAgradecimiento,
     footer_agradecimiento_size: config.footerAgradecimientoSize,
+
+    mensaje_precio_variable_texto: config.mensajePrecioVariable,
+  })
+}
+
+/**
+ * Fusiona un texto plano de precio variable con el JSON visual existente
+ * en `config_ecommerce.mensaje_precio_variable` sin perder títulos ni contactos.
+ */
+export function mergeMensajePrecioVariable(
+  existingRaw: string | null | undefined,
+  nuevoTexto: string
+): string {
+  const trimmed = (nuevoTexto || '').trim()
+  if (trimmed.startsWith('{')) {
+    return trimmed
+  }
+  const parsed = parseStoreConfig(existingRaw)
+  return serializeStoreConfig({
+    ...parsed,
+    mensajePrecioVariable: trimmed || DEFAULT_STORE_CONFIG.mensajePrecioVariable,
   })
 }
 

@@ -32,6 +32,16 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith(route)
   )
 
+  // En rutas públicas (/, /shop, /shop/[slug], /contactos, etc.), si no hay cookie
+  // de sesión de Supabase (`sb-*`), evitar la llamada de red getUser() en cada visita.
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith('sb-'))
+
+  if (!isProtectedRoute && !hasAuthCookie) {
+    return supabaseResponse
+  }
+
   let supabaseUrl = ''
   let supabaseAnonKey = ''
 

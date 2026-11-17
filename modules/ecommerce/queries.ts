@@ -270,18 +270,18 @@ export async function fetchProductosNoPublicados(): Promise<
 
   // Get marcas and images separately
   const productoIds = data?.map(p => p.id) || []
-  
+
   let marcas: { id: number; nombre: string }[] = []
   let imagenes: { producto_id: number; url: string; es_principal: boolean | null }[] = []
-  
+
   if (productoIds.length > 0) {
     // Get marcas
     const { data: marcasData } = await supabase
       .from('cat_marcas')
       .select('id, nombre')
-    
+
     marcas = marcasData || []
-    
+
     // Get principal images for these products with fallback
     const { data: imagenesData } = await supabase
       .from('producto_imagenes')
@@ -289,12 +289,12 @@ export async function fetchProductosNoPublicados(): Promise<
       .in('producto_id', productoIds)
       .order('es_principal', { ascending: false })
       .order('orden', { ascending: true })
-    
+
     imagenes = imagenesData || []
   }
 
   // Filter out already published products and map data
-  const filteredData = excludeIds.length > 0 
+  const filteredData = excludeIds.length > 0
     ? (data || []).filter(p => !excludeIds.includes(p.id))
     : (data || [])
 
@@ -380,7 +380,28 @@ async function obtenerIdsProductosVisiblesSegunModo(
   return null
 }
 
+async function fetchProductosWebPublicosCached(
+  filtros: FiltrosProductoWeb
+): Promise<{ productos: ProductoWebPublico[]; total: number }> {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag('ecommerce-catalogo')
+  cacheTag('ecommerce-config')
+
+  return executeFetchProductosWebPublicos(filtros)
+}
+
 export async function fetchProductosWebPublicos(
+  filtros: FiltrosProductoWeb
+): Promise<{ productos: ProductoWebPublico[]; total: number }> {
+  // Las búsquedas libres `q` van directo para no fragmentar el caché con términos arbitrarios
+  if (filtros.q && filtros.q.trim()) {
+    return executeFetchProductosWebPublicos(filtros)
+  }
+  return fetchProductosWebPublicosCached(filtros)
+}
+
+async function executeFetchProductosWebPublicos(
   filtros: FiltrosProductoWeb
 ): Promise<{ productos: ProductoWebPublico[]; total: number }> {
   try {
@@ -632,13 +653,20 @@ function cleanJsonGarbage(val?: string | null): string | null {
 const fetchProductoWebBySlugCached = cache(async (
   normalizedSlug: string
 ): Promise<ProductoWebPublico | null> => {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag('ecommerce-catalogo')
+  cacheTag(`producto-slug-${normalizedSlug}`)
+
+  const supabase = createStaticClient()
 
   let { data, error } = await supabase
     .from('productos_web')
     .select(
       `
-      *,
+      id, slug, producto_id, titulo_seo, descripcion_seo, keywords,
+      precio_publico, precio_oferta, en_oferta, destacado, nuevo,
+      modo_override, unidad_venta, activo, visitas,
       productos!inner(
         sku_base,
         nombre,
@@ -666,7 +694,9 @@ const fetchProductoWebBySlugCached = cache(async (
       .from('productos_web')
       .select(
         `
-        *,
+        id, slug, producto_id, titulo_seo, descripcion_seo, keywords,
+        precio_publico, precio_oferta, en_oferta, destacado, nuevo,
+        modo_override, unidad_venta, activo, visitas,
         productos!inner(
           sku_base,
           nombre,
@@ -782,7 +812,11 @@ export async function incrementProductoWebVisitas(
  * Obtiene todos los slugs de productos activos para el sitemap.
  */
 export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at: string }[]> {
-  const supabase = await createClient()
+  'use cache'
+  cacheLife('hours')
+  cacheTag('ecommerce-catalogo')
+
+  const supabase = createStaticClient()
 
   const { data, error } = await supabase
     .from('productos_web')
@@ -1146,9 +1180,9 @@ async function fetchItemsExtendidos(
       : Promise.resolve({ data: [] as any[] }),
     productoIds.length > 0
       ? (supabase.from('producto_imagenes') as any)
-          .select('producto_id, url')
-          .eq('es_principal', true)
-          .in('producto_id', productoIds)
+        .select('producto_id, url')
+        .eq('es_principal', true)
+        .in('producto_id', productoIds)
       : Promise.resolve({ data: [] as any[] }),
   ])
 

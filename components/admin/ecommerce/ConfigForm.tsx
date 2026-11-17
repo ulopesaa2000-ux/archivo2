@@ -32,6 +32,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { actualizarConfigEcommerce } from '@/modules/ecommerce/actions'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
+import { parseStoreConfig } from '@/lib/utils/storeConfig'
 
 const formSchema = z.object({
   // Modo de operación y visibilidad
@@ -90,8 +91,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
       texto_boton_agregar: config?.texto_boton_agregar || 'Agregar a cotización',
       texto_boton_finalizar: config?.texto_boton_finalizar || 'Solicitar cotización',
       titulo_seccion_carrito: config?.titulo_seccion_carrito || 'Tu Cotización',
-      mensaje_precio_variable: config?.mensaje_precio_variable || 
-        'Los precios pueden variar según volumen y disponibilidad. Te contactaremos para confirmar.',
+      mensaje_precio_variable: parseStoreConfig(config?.mensaje_precio_variable).mensajePrecioVariable,
       tipo_orden_generada: (config?.tipo_orden_generada as any) || 'cotizacion',
       modo_vista_carrito: (config?.modo_vista_carrito as any) || 'drawer',
       requiere_aprobacion: config?.requiere_aprobacion ?? true,
