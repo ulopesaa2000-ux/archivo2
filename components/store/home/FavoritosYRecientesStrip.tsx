@@ -16,6 +16,7 @@ export function FavoritosYRecientesStrip({ config }: { config: ConfigEcommerce |
   const { ids: favoriteIds, isHydrated } = useFavorites()
   const [productos, setProductos] = useState<ProductoWebPublico[]>([])
   const [favSet, setFavSet] = useState<Set<number>>(new Set())
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     if (!isHydrated) return
@@ -36,14 +37,18 @@ export function FavoritosYRecientesStrip({ config }: { config: ConfigEcommerce |
 
     if (combinedIds.length === 0) {
       setProductos([])
+      setIsLoading(false)
       return
     }
 
     let cancelled = false
+    setIsLoading(true)
     publicFetchProductosWebByIdsAction(combinedIds).then((res) => {
       if (!cancelled) setProductos(res)
     }).catch(() => {
       if (!cancelled) setProductos([])
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false)
     })
 
     return () => {
@@ -51,7 +56,22 @@ export function FavoritosYRecientesStrip({ config }: { config: ConfigEcommerce |
     }
   }, [favoriteIds, isHydrated])
 
-  if (!isHydrated || productos.length === 0) {
+  if (!isHydrated) return null
+
+  if (isLoading && productos.length === 0) {
+    return (
+      <section className="px-4 md:px-8 py-7 border-b border-border bg-emerald-950/[0.02] dark:bg-zinc-900/30 animate-pulse">
+        <div className="h-5 w-64 bg-muted rounded mb-4" />
+        <div className="flex gap-3 overflow-hidden">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="w-36 md:w-44 shrink-0 h-56 rounded-xl bg-muted" />
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (productos.length === 0) {
     return null
   }
 

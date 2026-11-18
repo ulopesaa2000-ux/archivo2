@@ -1,42 +1,122 @@
 // lib/utils/cotizacion-resolver.ts
 
 export interface ItemCarritoResoluble {
-  varianteId: number
+  productoWebId: number
+  varianteId: number | null
+  esSurtido?: boolean
   nombre: string
+  cantidad: number
+  precioOfrecido?: number
+}
+
+export interface ProductoWebAutoritativo {
+  id: number
+  producto_id: number
+  activo: boolean
+  precio_publico: number
+  precio_oferta: number | null
+  en_oferta: boolean
+  modo_override: string | null
+  pz_en_caja: number | null
+  sku_base: string
 }
 
 export interface ItemResuelto {
-  /**
-   * Variante real si el carrito ya traía una (PDP con talla/color).
-   * Null cuando viene de tarjeta/publicación: la tabla variantes_producto
-   * está vacía y la referencia verdadera es productoWebId.
-   */
   varianteId: number | null
-  /** id web original cuando el item viene de tarjeta/PDP sin variante */
-  productoWebId: number | null
-  /** factor del producto para nacer en modo cajas; null si no hay */
+  productoWebId: number
   pzPorCaja: number | null
+  precioUnitario: number
+  subtotal: number
+  esCatalogoSinPrecio: boolean
+  esSurtido: boolean
+  notaPropuesta: string | null
 }
 
 /**
- * El carrito mezcla ids reales de variante (PDP con talla/color) e ids de
- * publicación web (tarjetas y botón de PDP). Resuelve cada item conservando
- * la referencia web verdadera; variante_id queda null si no hay variante real.
- * Lanza Error con el nombre del producto si el id no existe en ningún lado.
+ * Calcula el precio unitario autoritativo en servidor desde `productos_web`.
+ * - En modo 'catalogo' (global o override del producto): retorna 0 (requiere cotización).
+ * - Si en_oferta = true y precio_oferta > 0: usa precio_oferta.
+ * - Fallback obligatorio a precio_publico (nunca 0 silencioso cuando precio_oferta es null/0).
+ */
+export function calcularPrecioAutoritativoWeb(
+  web: Pick<ProductoWebAutoritativo, 'precio_publico' | 'precio_oferta' | 'en_oferta' | 'modo_override'>,
+  modoGlobal: 'catalogo' | 'ecommerce' | 'hibrido'
+): { precioUnitario: number; esCatalogo: boolean } {
+  const modoEfectivo =
+    web.modo_override && web.modo_override !== 'default'
+      ? (web.modo_override as 'catalogo' | 'ecommerce' | 'hibrido')
+      : modoGlobal
+
+  if (modoEfectivo === 'catalogo') {
+    return { precioUnitario: 0, esCatalogo: true }
+  }
+
+  const precioPublico = Number(web.precio_publico) > 0 ? Number(web.precio_publico) : 0
+  const precioOferta = Number(web.precio_oferta ?? 0)
+  if (web.en_oferta && Number.isFinite(precioOferta) && precioOferta > 0) {
+    return { precioUnitario: precioOferta, esCatalogo: false }
+  }
+
+  return { precioUnitario: precioPublico, esCatalogo: false }
+}
+
+/**
+ * Resuelve y valida estrictamente cada item del carrito contra las tablas de BD:
+ * - Exige productoWebId existente y activo (publicado).
+ * - Si varianteId !== null, exige que la variante exista, esté activa y pertenezca al mismo producto_id.
+ * - Ignora precioUnitario del cliente; calcula precios reales en servidor.
+ * - En modo 'hibrido', registra precioOfrecido solo como nota informativa (nunca como precio_unitario).
  */
 export function resolverItemsCotizacion(
   items: ItemCarritoResoluble[],
-  variantesReales: Map<number, number>,
-  webs: Map<number, { producto_id: number; pz_en_caja: number | null }>
+  variantesReales: Map<number, { producto_id: number; activo: boolean }>,
+  webs: Map<number, ProductoWebAutoritativo>,
+  modoGlobal: 'catalogo' | 'ecommerce' | 'hibrido' = 'ecommerce'
 ): ItemResuelto[] {
   return items.map((item) => {
-    if (variantesReales.has(item.varianteId)) {
-      return { varianteId: item.varianteId, productoWebId: null, pzPorCaja: null }
+    const web = webs.get(item.productoWebId)
+    if (!web || !web.activo) {
+      throw new Error(`"${item.nombre}" ya no se encuentra disponible o publicado.`)
     }
-    const web = webs.get(item.varianteId)
-    if (!web) {
-      throw new Error(`"${item.nombre}" no se pudo resolver a un producto válido.`)
+
+    let varianteIdResuelta: number | null = null
+    if (item.varianteId !== null && item.varianteId !== undefined) {
+      const variante = variantesReales.get(item.varianteId)
+      if (!variante || !variante.activo || variante.producto_id !== web.producto_id) {
+        throw new Error(
+          `La variante seleccionada para "${item.nombre}" no pertenece al producto o no está disponible.`
+        )
+      }
+      varianteIdResuelta = item.varianteId
     }
-    return { varianteId: null, productoWebId: item.varianteId, pzPorCaja: web.pz_en_caja }
+
+    const { precioUnitario, esCatalogo } = calcularPrecioAutoritativoWeb(web, modoGlobal)
+    const subtotal = precioUnitario * item.cantidad
+
+    const notasPartes: string[] = []
+    if (item.esSurtido) {
+      notasPartes.push(`[SURTIDO ${web.sku_base}: ${item.cantidad} u. sin variante fija]`)
+    }
+    if (
+      modoGlobal === 'hibrido' &&
+      typeof item.precioOfrecido === 'number' &&
+      Number.isFinite(item.precioOfrecido) &&
+      item.precioOfrecido > 0
+    ) {
+      notasPartes.push(
+        `[PROPUESTA HÍBRIDO ${web.sku_base}: propone $${item.precioOfrecido.toFixed(2)} / lista $${precioUnitario.toFixed(2)}]`
+      )
+    }
+
+    return {
+      varianteId: item.esSurtido ? null : varianteIdResuelta,
+      productoWebId: web.id,
+      pzPorCaja: web.pz_en_caja,
+      precioUnitario,
+      subtotal,
+      esCatalogoSinPrecio: esCatalogo,
+      esSurtido: Boolean(item.esSurtido),
+      notaPropuesta: notasPartes.length > 0 ? notasPartes.join(' ') : null,
+    }
   })
 }

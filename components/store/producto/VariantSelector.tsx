@@ -1,7 +1,7 @@
 // components/store/producto/VariantSelector.tsx
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import type { VariantePublica } from '@/modules/ecommerce/types'
 import type { ConfigEcommerce } from '@/modules/ecommerce/types'
@@ -10,11 +10,24 @@ interface VariantSelectorProps {
   variantes: VariantePublica[]
   config: ConfigEcommerce | null
   stockDisponible?: number
+  disabled?: boolean
+  onVarianteChange?: (variante: VariantePublica | null) => void
 }
 
-export function VariantSelector({ variantes, config, stockDisponible }: VariantSelectorProps) {
-  const [tallaSeleccionada, setTallaSeleccionada] = useState<string | null>(null)
-  const [colorSeleccionado, setColorSeleccionado] = useState<string | null>(null)
+export function VariantSelector({
+  variantes,
+  config,
+  stockDisponible,
+  disabled = false,
+  onVarianteChange,
+}: VariantSelectorProps) {
+  const onlyOne = variantes.length === 1 ? variantes[0] : null
+  const [tallaSeleccionada, setTallaSeleccionada] = useState<string | null>(
+    onlyOne?.talla_codigo ?? null
+  )
+  const [colorSeleccionado, setColorSeleccionado] = useState<string | null>(
+    onlyOne?.color_nombre ?? null
+  )
   const sinStockGlobal =
     Boolean(config?.mostrar_stock) &&
     stockDisponible !== undefined &&
@@ -50,11 +63,21 @@ export function VariantSelector({ variantes, config, stockDisponible }: VariantS
 
   // Encontrar variante seleccionada
   const varianteSeleccionada = useMemo(() => {
-    return variantes.find(v =>
-      v.talla_codigo === tallaSeleccionada &&
-      v.color_nombre === colorSeleccionado
+    return (
+      variantes.find(
+        (v) =>
+          (tallaSeleccionada === null || v.talla_codigo === tallaSeleccionada) &&
+          (colorSeleccionado === null || v.color_nombre === colorSeleccionado) &&
+          (variantes.length === 1 ||
+            ((v.talla_codigo ? v.talla_codigo === tallaSeleccionada : true) &&
+              (v.color_nombre ? v.color_nombre === colorSeleccionado : true)))
+      ) ?? null
     )
   }, [variantes, tallaSeleccionada, colorSeleccionado])
+
+  useEffect(() => {
+    onVarianteChange?.(disabled ? null : varianteSeleccionada)
+  }, [disabled, varianteSeleccionada, onVarianteChange])
 
   // Variantes disponibles para la talla seleccionada
   const coloresDisponibles = useMemo(() => {

@@ -99,6 +99,7 @@ export interface ProductoWebPublico {
   stock_cajas?: number | null
   stock_piezas?: number | null
   piezas_estimadas?: number | null
+  pz_en_caja?: number | null
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -166,8 +167,11 @@ export interface OrdenVentaDetalle extends OrdenVentaRow {
 // ═══════════════════════════════════════════════════════════════
 
 export interface QuoteItem {
+  itemKey?: string             // Clave única `${productoWebId}:${varianteId ?? 'base'}:${esSurtido ? 'surtido' : 'std'}`
   productoId: number
-  varianteId: number
+  productoWebId: number
+  varianteId: number | null
+  esSurtido?: boolean          // Partida explícita de surtido (sin variante fija)
   nombre: string
   marca: string
   sku: string
@@ -175,8 +179,8 @@ export interface QuoteItem {
   talla: string
   color: string
   cantidad: number
-  precioOfrecido?: number      // Para modo híbrido
-  precioUnitario?: number      // Para modo ecommerce
+  precioOfrecido?: number      // Propuesta del cliente (solo informativo en notas para modo híbrido)
+  precioUnitario?: number      // Solo preview UI; el servidor recalcula siempre desde BD
   unidad: 'pieza' | 'caja'
   piezasPorCaja?: number
   imagen?: string

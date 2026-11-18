@@ -1,9 +1,10 @@
 // components/store/cotizacion/QuoteContactForm.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import * as z from 'zod'
@@ -43,6 +44,11 @@ export function QuoteContactForm({ config, zonas }: QuoteContactFormProps) {
   const router = useRouter()
   const { items, subtotal, clearCart } = useQuoteCart()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const idempotencyKeyRef = useRef<string>(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
 
   // Schema dinámico según campos requeridos
   const requiredFields = (config?.campos_contacto_requeridos as string[]) || ['nombre', 'email', 'telefono']
@@ -97,10 +103,7 @@ export function QuoteContactForm({ config, zonas }: QuoteContactFormProps) {
           ciudad: data.region_atencion,
           notas: notasCombinadas,
         },
-        {
-          tipo_orden_generada: config?.tipo_orden_generada || 'cotizacion',
-          requiere_aprobacion: config?.requiere_aprobacion ?? true,
-        }
+        idempotencyKeyRef.current
       )
 
       if (result.success) {
@@ -109,6 +112,11 @@ export function QuoteContactForm({ config, zonas }: QuoteContactFormProps) {
       }
     } catch (error) {
       console.error('Error submitting:', error)
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : 'No pudimos enviar tu solicitud. Intenta de nuevo.'
+      )
     } finally {
       setIsSubmitting(false)
     }

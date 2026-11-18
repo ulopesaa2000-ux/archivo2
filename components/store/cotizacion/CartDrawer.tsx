@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import { getQuoteItemKey } from '@/hooks/useQuoteCart'
 import {
   Sheet,
   SheetContent,
@@ -103,9 +105,10 @@ export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null 
                   ? `/shop/${slugify(item.sku)}`
                   : '/shop'
 
+              const rowKey = item.itemKey || getQuoteItemKey(item)
               return (
                 <div
-                  key={item.varianteId}
+                  key={rowKey}
                   className="flex gap-3 p-3 rounded-lg border border-border bg-card dark:bg-zinc-900 text-card-foreground shadow-xs transition-colors"
                 >
                   {/* Miniatura */}
@@ -116,7 +119,7 @@ export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null 
                   >
                     {item.imagen ? (
                       <Image
-                        src={item.imagen}
+                        src={getSmartImagenUrl(item.imagen, 'thumbnail')}
                         alt={item.nombre ?? 'Producto'}
                         fill
                         className="object-cover group-hover:scale-105 transition-transform duration-300"
@@ -143,7 +146,7 @@ export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null 
                         </Link>
                         <button
                           type="button"
-                          onClick={() => removeItem(item.varianteId)}
+                          onClick={() => removeItem(rowKey)}
                           className="text-muted-foreground hover:text-destructive dark:hover:text-red-400 p-1 transition-colors"
                           title="Eliminar producto"
                         >
@@ -162,7 +165,7 @@ export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null 
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded text-foreground dark:text-gray-200 border-border"
-                          onClick={() => updateCantidad(item.varianteId, item.cantidad - 1)}
+                          onClick={() => updateCantidad(rowKey, item.cantidad - 1)}
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
@@ -173,7 +176,7 @@ export function CartDrawer({ config = null }: { config?: ConfigEcommerce | null 
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded text-foreground dark:text-gray-200 border-border"
-                          onClick={() => updateCantidad(item.varianteId, item.cantidad + 1)}
+                          onClick={() => updateCantidad(rowKey, item.cantidad + 1)}
                         >
                           <Plus className="h-3 w-3" />
                         </Button>

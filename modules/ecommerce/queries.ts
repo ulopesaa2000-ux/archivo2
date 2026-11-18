@@ -5,6 +5,7 @@ import { cache } from 'react'
 import { cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
+import { sanitizePostgrestFilterTerm } from '@/lib/utils/postgrest-sanitize'
 import type {
   ConfigEcommerce,
   ProductoWebExtendido,
@@ -441,6 +442,7 @@ async function executeFetchProductosWebPublicos(
           sku_base,
           nombre,
           descripcion,
+          pz_en_caja,
           marca_id,
           genero_id,
           tipo_prenda_id,
@@ -515,15 +517,37 @@ async function executeFetchProductosWebPublicos(
       } else if (t.includes('novedad')) {
         query = query.eq('nuevo', true)
       } else {
-        const term = `%${t}%`
-        query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
+        const cleanTipo = sanitizePostgrestFilterTerm(t)
+        if (cleanTipo) {
+          const term = `%${cleanTipo}%`
+          query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
+        }
       }
     }
 
     if (filtros.q && filtros.q.trim()) {
-      const term = `%${filtros.q.trim()}%`
-      query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
-      query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
+      const cleanQ = sanitizePostgrestFilterTerm(filtros.q)
+      if (cleanQ) {
+        const term = `%${cleanQ}%`
+        const { data: matchingProds } = await supabase
+          .from('productos')
+          .select('id')
+          .eq('activo', true)
+          .or(`nombre.ilike.${term},sku_base.ilike.${term}`)
+          .limit(200)
+
+        const matchingIds = (matchingProds ?? [])
+          .map((p: any) => Number(p.id))
+          .filter((id) => Number.isInteger(id) && id > 0)
+
+        if (matchingIds.length > 0) {
+          query = query.or(
+            `slug.ilike.${term},titulo_seo.ilike.${term},producto_id.in.(${matchingIds.join(',')})`
+          )
+        } else {
+          query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
+        }
+      }
     }
 
     query = query
@@ -615,6 +639,7 @@ async function executeFetchProductosWebPublicos(
         stock_cajas: stockMap[item.producto_id]?.cajas ?? 0,
         stock_piezas: stockMap[item.producto_id]?.piezas ?? 0,
         piezas_estimadas: stockMap[item.producto_id]?.estimadas ?? 0,
+        pz_en_caja: item.productos?.pz_en_caja ?? null,
       }
     })
 
@@ -794,13 +819,20 @@ export async function fetchProductoWebBySlug(
 
 export async function incrementProductoWebVisitas(
   productoWebId: number,
-  visitasActuales: number | null | undefined
+  _visitasActuales?: number | null
 ): Promise<void> {
   const supabase = createStaticClient()
 
+  const { data: current } = await supabase
+    .from('productos_web')
+    .select('visitas')
+    .eq('id', productoWebId)
+    .single()
+
+  const nextVisitas = Number(current?.visitas ?? 0) + 1
   const { error } = await supabase
     .from('productos_web')
-    .update({ visitas: (visitasActuales ?? 0) + 1 })
+    .update({ visitas: nextVisitas })
     .eq('id', productoWebId)
 
   if (error) {

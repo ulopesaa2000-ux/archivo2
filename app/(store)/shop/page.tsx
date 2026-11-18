@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
+import { mostrarPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
 import { ProductGrid } from '@/components/store/catalogo/ProductGrid'
 import { FilterSidebar } from '@/components/store/catalogo/FilterSidebar'
 import { CategoryPromoHero } from '@/components/store/catalogo/CategoryPromoHero'
@@ -26,7 +27,10 @@ export const metadata: Metadata = {
     title: `Catálogo de Productos | ${SITE_NAME}`,
     description: 'Explora nuestra completa colección de moda 2026',
     url: `${SITE_URL}/shop`
-  }
+  },
+  alternates: {
+    canonical: `${SITE_URL}/shop`,
+  },
 }
 
 interface CatalogoPageProps {
@@ -89,18 +93,26 @@ async function CatalogoResults({ searchParams }: CatalogoPageProps) {
     "@context": "https://schema.org",
     "@type": "ItemList",
     numberOfItems: total,
-    itemListElement: productos.map((producto, index) => ({
-      "@type": "ListItem",
-      position: index + 1,
-      url: `${SITE_URL}/shop/${producto.slug}`,
-      name: producto.nombre,
-      image: producto.imagen_principal,
-      offers: {
-        "@type": "Offer",
-        price: producto.precio_oferta || producto.precio_publico,
-        priceCurrency: CURRENCY
+    itemListElement: productos.map((producto, index) => {
+      const showPrice = config ? mostrarPrecio(producto, config) : false
+      const { precio } = config ? getPrecioAMostrar(producto, config) : { precio: null }
+      return {
+        "@type": "ListItem",
+        position: index + 1,
+        url: `${SITE_URL}/shop/${producto.slug}`,
+        name: producto.nombre,
+        image: producto.imagen_principal,
+        ...(showPrice && precio
+          ? {
+              offers: {
+                "@type": "Offer",
+                price: precio,
+                priceCurrency: CURRENCY,
+              },
+            }
+          : {}),
       }
-    }))
+    })
   }
 
   return (

@@ -71,16 +71,17 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
 
     addItem({
       productoId: producto.producto_id,
-      varianteId: producto.id,
+      productoWebId: producto.id,
+      varianteId: null,
       nombre: producto.nombre,
       marca: producto.marca || '',
       sku: producto.sku_base,
       slug: producto.slug,
       talla: '',
       color: '',
-      cantidad: 1,
+      cantidad: Math.max(1, config?.minimo_unidades || 1),
       precioUnitario: showPrice ? (precio || undefined) : undefined,
-      piezasPorCaja: undefined,
+      piezasPorCaja: producto.pz_en_caja ?? undefined,
       imagen: producto.imagen_principal || undefined,
     })
 

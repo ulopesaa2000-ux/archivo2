@@ -2,6 +2,8 @@
 'use server'
 
 import { revalidatePath, updateTag } from 'next/cache'
+import { headers } from 'next/headers'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
 import { mergeMensajePrecioVariable } from '@/lib/utils/storeConfig'
@@ -883,6 +885,22 @@ export async function actualizarEstadoOrden(
 
   const supabase = await createClient()
 
+  // Evitar aprobar/procesar/despachar una orden con total $0 sin cotizar primero
+  if (['aprobada', 'en_proceso', 'enviado', 'entregado', 'facturada'].includes(nuevoEstado)) {
+    const { data: ordenActual } = await supabase
+      .from('ordenes_venta')
+      .select('total')
+      .eq('id', id)
+      .single()
+
+    if (!ordenActual || Number(ordenActual.total ?? 0) <= 0) {
+      return {
+        success: false as const,
+        error: 'No se puede aprobar, procesar ni despachar una orden con total $0 sin cotizar sus precios primero.',
+      }
+    }
+  }
+
   const updates: OrdenVentaUpdate = {
     estado: nuevoEstado,
     updated_at: new Date().toISOString(),
@@ -1205,49 +1223,214 @@ export async function convertirCotizacionAOrdenB2B(
 
 // CREAR COTIZACION DESDE STORE
 
+const checkoutItemSchema = z.object({
+  productoId: z.number().int().positive(),
+  productoWebId: z.number().int().positive(),
+  varianteId: z.number().int().positive().nullable(),
+  esSurtido: z.boolean().optional(),
+  nombre: z.string().trim().min(1).max(200),
+  cantidad: z.number().int().min(1, 'La cantidad debe ser un entero mayor o igual a 1'),
+  unidad: z.enum(['pieza', 'caja']).optional(),
+  precioOfrecido: z.number().positive().max(10_000_000).optional(),
+})
+
+const checkoutContactSchema = z.object({
+  nombre: z.string().trim().min(2, 'Nombre requerido').max(150),
+  email: z.string().trim().email('Email inválido').max(160),
+  telefono: z.string().trim().min(8, 'Teléfono requerido').max(40),
+  empresa: z.string().trim().max(150).optional(),
+  direccion: z.string().trim().max(300).optional(),
+  ciudad: z.string().trim().max(120).optional(),
+  estado: z.string().trim().max(120).optional(),
+  notas: z.string().trim().max(2000).optional(),
+})
+
+const checkoutRateBuckets = new Map<string, number[]>()
+const checkoutIdempotencyCache = new Map<
+  string,
+  { expiresAt: number; result: { success: true; ordenId: number; numeroOrden: string } }
+>()
+
+function checkCheckoutRateLimit(key: string): boolean {
+  const now = Date.now()
+  const windowMs = 5 * 60 * 1000
+  const recent = (checkoutRateBuckets.get(key) ?? []).filter((t) => now - t < windowMs)
+  if (recent.length >= 10) {
+    checkoutRateBuckets.set(key, recent)
+    return false
+  }
+  recent.push(now)
+  checkoutRateBuckets.set(key, recent)
+  return true
+}
+
 export async function crearCotizacion(
   items: QuoteItem[],
   datosContacto: DatosContacto,
-  config: {
-    tipo_orden_generada: string
-    requiere_aprobacion: boolean
-  }
+  idempotencyKey?: string
 ) {
+  const cleanIdempotency =
+    typeof idempotencyKey === 'string' && idempotencyKey.trim().length >= 8
+      ? idempotencyKey.trim().slice(0, 80)
+      : null
+
+  if (cleanIdempotency) {
+    const cached = checkoutIdempotencyCache.get(cleanIdempotency)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result
+    }
+  }
+
+  const parsedItems = z.array(checkoutItemSchema).min(1, 'Agrega al menos un producto').max(100).safeParse(items)
+  if (!parsedItems.success) {
+    throw new Error(parsedItems.error.issues[0]?.message || 'Ítems de cotización inválidos.')
+  }
+
+  const parsedContacto = checkoutContactSchema.safeParse(datosContacto)
+  if (!parsedContacto.success) {
+    throw new Error(parsedContacto.error.issues[0]?.message || 'Datos de contacto inválidos.')
+  }
+
+  const reqHeaders = await headers().catch(() => null)
+  const ip =
+    reqHeaders?.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    reqHeaders?.get('x-real-ip')?.trim() ||
+    'unknown'
+  const emailKey = parsedContacto.data.email.toLowerCase()
+  if (!checkCheckoutRateLimit(`ip:${ip}`) || !checkCheckoutRateLimit(`email:${emailKey}`)) {
+    throw new Error('Has enviado demasiadas solicitudes recientemente. Intenta de nuevo en unos minutos.')
+  }
+
+  const { fetchConfigEcommerce } = await import('./queries')
+  const configEcommerce = await fetchConfigEcommerce()
+  const modoGlobal = (configEcommerce?.modo_operacion ?? 'ecommerce') as 'catalogo' | 'ecommerce' | 'hibrido'
+  const minimoUnidades = Math.max(1, Number(configEcommerce?.minimo_unidades ?? 1))
+
+  for (const item of parsedItems.data) {
+    if (item.cantidad < minimoUnidades) {
+      throw new Error(`"${item.nombre}" requiere un mínimo de ${minimoUnidades} unidades.`)
+    }
+  }
+
   const supabase = await createClient()
 
   // Vincular al usuario en sesión (cliente con cuenta); invitados quedan NULL
-  const { getCurrentUser } = await import('@/modules/auth/queries')
   const currentUser = await getCurrentUser().catch(() => null)
+
+  // Resolver y validar estrictamente contra BD (ignorar precios/config enviados desde cliente)
+  const { resolverItemsCotizacion } = await import('@/lib/utils/cotizacion-resolver')
+
+  const idsWeb = Array.from(new Set(parsedItems.data.map((i) => i.productoWebId)))
+  const idsVariante = Array.from(
+    new Set(
+      parsedItems.data
+        .map((i) => i.varianteId)
+        .filter((v): v is number => typeof v === 'number' && v > 0)
+    )
+  )
+
+  const [{ data: websData, error: websErr }, { data: variantesData, error: varErr }] = await Promise.all([
+    (supabase.from('productos_web') as any)
+      .select('id, producto_id, activo, precio_publico, precio_oferta, en_oferta, modo_override, productos!inner(sku_base, pz_en_caja, activo)')
+      .in('id', idsWeb)
+      .eq('activo', true),
+    idsVariante.length > 0
+      ? supabase.from('variantes_producto').select('id, producto_id, activo').in('id', idsVariante)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+
+  if (websErr || varErr) {
+    throw new Error('Error al validar los productos del carrito en el servidor.')
+  }
+
+  const websMap = new Map<number, import('@/lib/utils/cotizacion-resolver').ProductoWebAutoritativo>()
+  for (const w of (websData ?? []) as any[]) {
+    if (w.productos?.activo === false) continue
+    const pz =
+      Number.isInteger(w.productos?.pz_en_caja) && w.productos.pz_en_caja > 0
+        ? Number(w.productos.pz_en_caja)
+        : null
+    websMap.set(Number(w.id), {
+      id: Number(w.id),
+      producto_id: Number(w.producto_id),
+      activo: Boolean(w.activo),
+      precio_publico: Number(w.precio_publico ?? 0),
+      precio_oferta: w.precio_oferta !== null && w.precio_oferta !== undefined ? Number(w.precio_oferta) : null,
+      en_oferta: Boolean(w.en_oferta),
+      modo_override: w.modo_override ?? null,
+      pz_en_caja: pz,
+      sku_base: String(w.productos?.sku_base || `WEB-${w.id}`),
+    })
+  }
+
+  const variantesMap = new Map<number, { producto_id: number; activo: boolean }>()
+  for (const v of (variantesData ?? []) as any[]) {
+    variantesMap.set(Number(v.id), {
+      producto_id: Number(v.producto_id),
+      activo: v.activo !== false,
+    })
+  }
+
+  const resueltos = resolverItemsCotizacion(parsedItems.data, variantesMap, websMap, modoGlobal)
+
+  // Validar múltiplo de caja si aplica en configuración
+  if (configEcommerce?.multiplo_cajas) {
+    parsedItems.data.forEach((item, idx) => {
+      const pz = resueltos[idx].pzPorCaja
+      if (item.unidad === 'caja' && pz && pz > 1 && item.cantidad % pz !== 0) {
+        throw new Error(`"${item.nombre}" debe solicitarse en múltiplos de ${pz} piezas por caja.`)
+      }
+    })
+  }
+
+  const subtotal = resueltos.reduce((sum, r) => sum + r.subtotal, 0)
+  const hasCatalogoSinPrecio = resueltos.some((r) => r.esCatalogoSinPrecio)
+  const hasSurtido = resueltos.some((r) => r.esSurtido)
+
+  // En híbrido, catálogo o con surtido siempre nace 'pendiente'; fuera de ellos depende exclusivamente de BD
+  const requiereAprobacion =
+    modoGlobal === 'hibrido' ||
+    modoGlobal === 'catalogo' ||
+    hasCatalogoSinPrecio ||
+    hasSurtido ||
+    (configEcommerce?.requiere_aprobacion ?? true)
+
+  const notasExtras = resueltos
+    .map((r) => r.notaPropuesta)
+    .filter((n): n is string => Boolean(n))
+  if (hasCatalogoSinPrecio) {
+    notasExtras.unshift('[REQUIERE COTIZACIÓN]')
+  }
+
+  const notasFinales = [parsedContacto.data.notas, ...notasExtras]
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 4000) || null
 
   const timestamp = Date.now().toString(36).toUpperCase()
   const numeroOrden = `COT-${timestamp}`
-
-  const subtotal = items.reduce((sum, item) => {
-    const precio = item.precioUnitario || item.precioOfrecido || 0
-    return sum + item.cantidad * precio
-  }, 0)
 
   const { data: orden, error } = await supabase
     .from('ordenes_venta')
     .insert({
       numero_orden: numeroOrden,
       usuario_id: currentUser?.id ?? null,
-      email_cliente: datosContacto.email,
-      nombre_cliente: datosContacto.nombre,
-      telefono_cliente: datosContacto.telefono,
-      direccion_envio: datosContacto.direccion
+      email_cliente: parsedContacto.data.email,
+      nombre_cliente: parsedContacto.data.nombre,
+      telefono_cliente: parsedContacto.data.telefono,
+      direccion_envio: parsedContacto.data.direccion
         ? {
-            direccion: datosContacto.direccion,
-            ciudad: datosContacto.ciudad,
-            estado: datosContacto.estado,
+            direccion: parsedContacto.data.direccion,
+            ciudad: parsedContacto.data.ciudad,
+            estado: parsedContacto.data.estado,
           }
         : null,
       subtotal,
       envio: 0,
       impuestos: 0,
       total: subtotal,
-      estado: config.requiere_aprobacion ? 'pendiente' : 'aprobada',
-      notas_cliente: datosContacto.notas,
+      estado: requiereAprobacion ? 'pendiente' : 'aprobada',
+      notas_cliente: notasFinales,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -1258,62 +1441,41 @@ export async function crearCotizacion(
     throw new Error(`Error creando cotizacion: ${error?.message}`)
   }
 
-  // El carrito mezcla variantes reales e ids web: resolver a variante real
-  // conservando la referencia web verdadera + factor inicial para modo cajas.
-  const { resolverItemsCotizacion } = await import('@/lib/utils/cotizacion-resolver')
-  const idsCarrito = [...new Set(items.map((i) => i.varianteId))]
-
-  const { data: variantesRealesData } = await supabase
-    .from('variantes_producto')
-    .select('id, producto_id')
-    .in('id', idsCarrito)
-  const variantesReales = new Map((variantesRealesData ?? []).map((v: any) => [v.id, v.producto_id]))
-
-  const idsWeb = idsCarrito.filter((id) => !variantesReales.has(id))
-  const webs = new Map<number, { producto_id: number; pz_en_caja: number | null }>()
-  if (idsWeb.length > 0) {
-    const { data: websData } = await (supabase.from('productos_web') as any)
-      .select('id, producto_id, productos!inner(pz_en_caja)')
-      .in('id', idsWeb)
-    for (const w of (websData ?? []) as any[]) {
-      const pz = Number.isInteger(w.productos?.pz_en_caja) && w.productos.pz_en_caja > 0 ? w.productos.pz_en_caja : null
-      webs.set(w.id, { producto_id: w.producto_id, pz_en_caja: pz })
-    }
-  }
-
-  let resueltos
-  try {
-    resueltos = resolverItemsCotizacion(items, variantesReales, webs)
-  } catch (err) {
-    await supabase.from('ordenes_venta').delete().eq('id', orden.id)
-    throw err instanceof Error ? err : new Error('Error resolviendo productos de la cotización')
-  }
-
-  const ordenItems: Database['inv-tienda']['Tables']['orden_items']['Insert'][] = items.map((item, index) => ({
-    orden_id: orden.id,
-    variante_id: resueltos[index].varianteId,
-    producto_web_id: resueltos[index].productoWebId,
-    cantidad: item.cantidad,
-    precio_unitario: item.precioUnitario || item.precioOfrecido || 0,
-    subtotal: (item.precioUnitario || item.precioOfrecido || 0) * item.cantidad,
-    pz_por_caja: resueltos[index].pzPorCaja,
-  }))
+  const ordenItems: Database['inv-tienda']['Tables']['orden_items']['Insert'][] = parsedItems.data.map(
+    (item, index) => ({
+      orden_id: orden.id,
+      variante_id: resueltos[index].varianteId,
+      producto_web_id: resueltos[index].productoWebId,
+      cantidad: item.cantidad,
+      precio_unitario: resueltos[index].precioUnitario,
+      subtotal: resueltos[index].subtotal,
+      pz_por_caja: resueltos[index].pzPorCaja,
+    })
+  )
 
   const { error: itemsInsertError } = await supabase
     .from('orden_items')
     .insert(ordenItems)
 
   if (itemsInsertError) {
-    // Rollback compensatorio: no dejar órdenes huérfanas sin partidas
     await supabase.from('ordenes_venta').delete().eq('id', orden.id)
     throw new Error(`Error creando items de cotizacion: ${itemsInsertError.message}`)
   }
 
   revalidatePath('/(admin)/ecommerce/ordenes-venta')
 
-  return {
-    success: true,
+  const successResult = {
+    success: true as const,
     ordenId: orden.id,
     numeroOrden: orden.numero_orden,
   }
+
+  if (cleanIdempotency) {
+    checkoutIdempotencyCache.set(cleanIdempotency, {
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      result: successResult,
+    })
+  }
+
+  return successResult
 }

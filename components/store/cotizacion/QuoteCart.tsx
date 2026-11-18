@@ -4,6 +4,8 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
+import { getQuoteItemKey } from '@/hooks/useQuoteCart'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -79,8 +81,9 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
               ? `/shop/${slugify(item.sku)}`
               : '/shop'
 
+          const rowKey = item.itemKey || getQuoteItemKey(item)
           return (
-            <Card key={item.varianteId}>
+            <Card key={rowKey}>
               <CardContent className="p-4">
                 <div className="flex gap-4">
                   {/* Imagen Clickeable */}
@@ -91,7 +94,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
                   >
                     {item.imagen ? (
                       <Image
-                        src={item.imagen}
+                        src={getSmartImagenUrl(item.imagen, 'thumbnail')}
                         alt={item.nombre ?? 'Imagen del producto'}
                         fill
                         className="object-cover transition-transform duration-300 group-hover/img:scale-105"
@@ -137,7 +140,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => removeItem(item.varianteId)}
+                        onClick={() => removeItem(rowKey)}
                         title="Eliminar de la cotización"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -151,7 +154,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
                           variant="outline"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => updateCantidad(item.varianteId, item.cantidad - 1)}
+                          onClick={() => updateCantidad(rowKey, item.cantidad - 1)}
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
@@ -162,7 +165,7 @@ export function QuoteCart({ config: configServer }: QuoteCartProps) {
                           variant="outline"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => updateCantidad(item.varianteId, item.cantidad + 1)}
+                          onClick={() => updateCantidad(rowKey, item.cantidad + 1)}
                         >
                           <Plus className="h-3 w-3" />
                         </Button>

@@ -4,10 +4,10 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { after } from 'next/server'
 import { Suspense } from 'react'
-import { AddToQuoteButton } from '@/components/store/producto/AddToQuoteButton'
 import { ProductInfo } from '@/components/store/producto/ProductInfo'
 import { ProductShareButtons } from '@/components/store/producto/ProductShareButtons'
-import { VariantSelector } from '@/components/store/producto/VariantSelector'
+import { ProductPurchasePanel } from '@/components/store/producto/ProductPurchasePanel'
+import { mostrarPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
 import { RecentProductTracker } from '@/components/store/producto/RecentProductTracker'
 import { ProductCarouselRail } from '@/components/store/home/ProductCarouselRail'
 import { SITE_NAME, SITE_URL, LOCALE, CURRENCY, DEFAULT_OG_IMAGE } from '@/lib/seo/site'
@@ -63,16 +63,23 @@ async function ProductGallerySection({
 }
 
 async function VariantSelectorSection({
-  productoId,
+  producto,
   config,
   stockDisponible,
 }: {
-  productoId: number
+  producto: NonNullable<Awaited<ReturnType<typeof fetchProductoWebBySlug>>>
   config: Awaited<ReturnType<typeof fetchConfigEcommerce>>
   stockDisponible?: number
 }) {
-  const variantes = await fetchVariantesProducto(productoId)
-  return <VariantSelector variantes={variantes} config={config} stockDisponible={stockDisponible} />
+  const variantes = await fetchVariantesProducto(producto.producto_id)
+  return (
+    <ProductPurchasePanel
+      producto={producto}
+      variantes={variantes}
+      config={config}
+      stockDisponible={stockDisponible}
+    />
+  )
 }
 
 async function RelatedProductsSection({
@@ -197,7 +204,10 @@ export async function generateMetadata({
   params,
 }: ShopSlugPageProps): Promise<Metadata> {
   const { slug } = await params
-  const producto = await fetchProductoWebBySlug(slug)
+  const [producto, config] = await Promise.all([
+    fetchProductoWebBySlug(slug),
+    fetchConfigEcommerce(),
+  ])
   const dynamicSiteUrl = resolveSiteUrl()
 
   if (!producto) {
@@ -251,8 +261,12 @@ export async function generateMetadata({
       canonical: productUrl,
     },
     other: {
-      'product:price:amount': String(producto.precio_oferta || producto.precio_publico || 0),
-      'product:price:currency': CURRENCY,
+      ...(config && mostrarPrecio(producto, config)
+        ? {
+            'product:price:amount': String(getPrecioAMostrar(producto, config).precio ?? 0),
+            'product:price:currency': CURRENCY,
+          }
+        : {}),
       'product:availability': producto.activo ? 'instock' : 'out of stock',
       'product:condition': 'new',
       'product:retailer_item_id': producto.sku_base || producto.slug,
@@ -281,6 +295,9 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
 
   const productTitle = getProductTitle(producto)
 
+  const showSchemaPrice = Boolean(config && mostrarPrecio(producto, config))
+  const schemaPrice = showSchemaPrice ? getPrecioAMostrar(producto, config!).precio : null
+
   const productSchema = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -297,9 +314,13 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
     offers: {
       '@type': 'Offer',
       url: `${dynamicSiteUrl}/shop/${canonicalSlug}`,
-      priceCurrency: CURRENCY,
-      price: producto.precio_oferta || producto.precio_publico,
-      priceValidUntil: PRICE_VALID_UNTIL,
+      ...(showSchemaPrice && schemaPrice
+        ? {
+            priceCurrency: CURRENCY,
+            price: schemaPrice,
+            priceValidUntil: PRICE_VALID_UNTIL,
+          }
+        : {}),
       itemCondition: 'https://schema.org/NewCondition',
       availability: producto.activo
         ? 'https://schema.org/InStock'
@@ -372,22 +393,19 @@ export default async function ProductPage({ params }: ShopSlugPageProps) {
               }
             >
               <VariantSelectorSection
-                productoId={producto.producto_id}
+                producto={producto}
                 config={config}
                 stockDisponible={producto.stock_cajas ?? 0}
               />
             </Suspense>
 
-            <div className="pt-4 space-y-3">
-              <AddToQuoteButton producto={producto} config={config} />
-              <div className="pt-1">
-                <ProductShareButtons
-                  slug={producto.slug}
-                  nombre={producto.descripcion || producto.nombre}
-                  sku={producto.sku_base}
-                  variant="detail"
-                />
-              </div>
+            <div className="pt-1">
+              <ProductShareButtons
+                slug={producto.slug}
+                nombre={producto.descripcion || producto.nombre}
+                sku={producto.sku_base}
+                variant="detail"
+              />
             </div>
 
             {config?.modo_operacion !== 'ecommerce' && (() => {

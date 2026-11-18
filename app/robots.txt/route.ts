@@ -6,6 +6,16 @@ User-agent: *
 Allow: /
 Disallow: /admin/
 Disallow: /api/
+Disallow: /dashboard/
+Disallow: /catalogo/
+Disallow: /inventario/
+Disallow: /inventario-virtual/
+Disallow: /ecommerce/
+Disallow: /ordenes-b2b/
+Disallow: /contenedores/
+Disallow: /despachos/
+Disallow: /configuracion/
+Disallow: /print/
 
 # Bots de redes sociales — acceso explícito para OG images
 User-agent: facebookexternalhit

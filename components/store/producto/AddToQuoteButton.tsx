@@ -6,41 +6,59 @@ import { useRouter } from 'next/navigation'
 import { Minus, Plus, Check, Send } from 'lucide-react'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
 import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
-import { mostrarPrecio } from '@/modules/ecommerce/utils'
-import type { ProductoWebPublico } from '@/modules/ecommerce/types'
-import type { ConfigEcommerce } from '@/modules/ecommerce/types'
+import { mostrarPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
+import type { ProductoWebPublico, ConfigEcommerce, VariantePublica } from '@/modules/ecommerce/types'
 
 interface AddToQuoteButtonProps {
   producto: ProductoWebPublico
   config: ConfigEcommerce | null
+  selectedVariante?: VariantePublica | null
+  requiresVariantSelection?: boolean
+  esSurtido?: boolean
 }
 
-export function AddToQuoteButton({ producto, config }: AddToQuoteButtonProps) {
+export function AddToQuoteButton({
+  producto,
+  config,
+  selectedVariante = null,
+  requiresVariantSelection = false,
+  esSurtido = false,
+}: AddToQuoteButtonProps) {
   const router = useRouter()
   const { addItem, count } = useQuoteCart()
-  const [cantidad, setCantidad] = useState(config?.minimo_unidades || 1)
+  const minUnits = Math.max(1, config?.minimo_unidades || 1)
+  const [cantidad, setCantidad] = useState(minUnits)
   const [isAdding, setIsAdding] = useState(false)
   const [addedSuccess, setAddedSuccess] = useState(false)
 
   // En modo catálogo (o cuando los precios están ocultos)
   const isCatalogoMode = config ? !mostrarPrecio(producto, config) : true
+  const { precio: precioActual } = config ? getPrecioAMostrar(producto, config) : { precio: null }
+  const varianteBloqueadaPorAgotada =
+    Boolean(selectedVariante) &&
+    config?.mostrar_variantes_agotadas === false &&
+    selectedVariante?.activo === false
+  const missingVariant = requiresVariantSelection && !selectedVariante && !esSurtido
 
   const handleAdd = (redirectToSolicitud = false) => {
+    if (missingVariant || varianteBloqueadaPorAgotada) return
     setIsAdding(true)
 
-    // Agregar al carrito de interés/cotización
+    // Agregar al carrito de interés/cotización (nunca usar producto.id en varianteId)
     addItem({
       productoId: producto.producto_id,
-      varianteId: producto.id, // Usar id del producto web como variante
+      productoWebId: producto.id,
+      varianteId: esSurtido ? null : (selectedVariante?.id ?? null),
+      esSurtido,
       nombre: producto.nombre,
       marca: producto.marca || '',
-      sku: producto.sku_base,
+      sku: selectedVariante?.sku_completo || producto.sku_base,
       slug: producto.slug,
-      talla: '',
-      color: '',
-      cantidad: Math.max(1, cantidad),
-      precioUnitario: isCatalogoMode ? undefined : (producto.precio_publico || undefined),
-      piezasPorCaja: undefined,
+      talla: esSurtido ? 'Surtido' : (selectedVariante?.talla_codigo || ''),
+      color: esSurtido ? 'Surtido' : (selectedVariante?.color_nombre || ''),
+      cantidad: Math.max(minUnits, cantidad),
+      precioUnitario: isCatalogoMode ? undefined : (precioActual ?? undefined),
+      piezasPorCaja: producto.pz_en_caja ?? undefined,
       imagen: producto.imagen_principal || undefined,
     })
 
@@ -124,11 +142,15 @@ export function AddToQuoteButton({ producto, config }: AddToQuoteButtonProps) {
           <button
             type="button"
             onClick={() => handleAdd(false)}
-            disabled={isAdding}
+            disabled={isAdding || missingVariant || varianteBloqueadaPorAgotada}
             className="flex-1 bg-[#2D5A3D] text-white h-[52px] rounded-lg text-[13px] uppercase tracking-[0.05em] font-semibold hover:bg-[#1e3a2f] transition-all shadow-sm hover:shadow-md disabled:opacity-70 disabled:cursor-not-allowed text-center px-4 flex items-center justify-center gap-2"
           >
             {isAdding ? (
               <span>Agregando...</span>
+            ) : missingVariant ? (
+              <span>Selecciona talla y color</span>
+            ) : varianteBloqueadaPorAgotada ? (
+              <span>Variante agotada</span>
             ) : (
               <span>{primaryButtonText}</span>
             )}

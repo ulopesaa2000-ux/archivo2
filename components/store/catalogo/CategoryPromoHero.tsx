@@ -2,6 +2,7 @@
 'use client'
 
 import Image from 'next/image'
+import { getSmartImagenUrl } from '@/lib/utils/imagen'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, Tag } from 'lucide-react'
 import type { CategoriaBannerResuelto } from '@/modules/ecommerce/banners'
@@ -23,7 +24,7 @@ export function CategoryPromoHero({ banner }: Props) {
       {/* Banner 16:9 Panorámico */}
       <div className="relative aspect-[16/9] md:aspect-[21/9] w-full">
         <Image
-          src={banner.imagen_url}
+          src={getSmartImagenUrl(banner.imagen_url, 'hero')}
           alt={banner.titulo_banner || banner.nombre}
           fill
           priority

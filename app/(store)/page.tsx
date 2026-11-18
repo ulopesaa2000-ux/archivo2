@@ -6,7 +6,7 @@ import { Suspense } from 'react'
 import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { fetchProductosWebPublicos, fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { fetchPortadaColeccionHome } from '@/modules/ecommerce/banners'
-import { formatearStockDisponible } from '@/modules/ecommerce/utils'
+import { formatearStockDisponible, mostrarPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
 import {
   ArrowRight,
   Heart,
@@ -165,11 +165,14 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize, bgT
                 <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
                   {prod.nombre}
                 </h4>
-                {prod.precio_publico && (
-                  <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">
-                    ${prod.precio_publico.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                  </span>
-                )}
+                {config && mostrarPrecio(prod, config) && (() => {
+                  const { precio } = getPrecioAMostrar(prod, config)
+                  return precio ? (
+                    <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">
+                      ${precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </span>
+                  ) : null
+                })()}
               </div>
             </Link>
           </div>

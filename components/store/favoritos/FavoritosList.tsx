@@ -7,6 +7,8 @@ import Link from 'next/link'
 import { Heart, ShoppingCart, Trash2, LogIn } from 'lucide-react'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useQuoteCart } from '@/hooks/useQuoteCart'
+import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
+import { mostrarPrecio, getPrecioAMostrar } from '@/modules/ecommerce/utils'
 import { publicFetchProductosFavoritosAction } from '@/modules/ecommerce/actions/public-reads'
 import type { ProductoWebPublico } from '@/modules/ecommerce/types'
 
@@ -18,6 +20,7 @@ interface FavoritosListProps {
 export function FavoritosList({ isLogged, userName }: FavoritosListProps) {
   const { ids, isHydrated, removeFavorite, clearFavorites } = useFavorites()
   const { addItem } = useQuoteCart()
+  const { config } = useConfigEcommerce()
   const [productos, setProductos] = useState<ProductoWebPublico[]>([])
   const [loadedKey, setLoadedKey] = useState('')
   const idsKey = ids.join(',')
@@ -45,18 +48,21 @@ export function FavoritosList({ isLogged, userName }: FavoritosListProps) {
   }, [idsKey, isHydrated, loadedKey])
 
   const handleAddToQuote = (producto: ProductoWebPublico) => {
+    const showPrice = config ? mostrarPrecio(producto, config) : false
+    const { precio } = config ? getPrecioAMostrar(producto, config) : { precio: null }
     addItem({
       productoId: producto.producto_id,
-      varianteId: producto.id,
+      productoWebId: producto.id,
+      varianteId: null,
       nombre: producto.nombre,
       marca: producto.marca || '',
       sku: producto.sku_base,
       slug: producto.slug,
       talla: '',
       color: '',
-      cantidad: 1,
-      precioUnitario: producto.precio_publico ?? undefined,
-      piezasPorCaja: undefined,
+      cantidad: Math.max(1, config?.minimo_unidades || 1),
+      precioUnitario: showPrice ? (precio ?? undefined) : undefined,
+      piezasPorCaja: producto.pz_en_caja ?? undefined,
       imagen: producto.imagen_principal || undefined,
     })
     window.dispatchEvent(new Event('inv_open_cart_drawer'))
@@ -126,11 +132,15 @@ export function FavoritosList({ isLogged, userName }: FavoritosListProps) {
                 {producto.nombre}
               </Link>
               <p className="text-[11px] font-mono text-muted-foreground mt-0.5">{producto.sku_base}</p>
-              {producto.precio_publico ? (
-                <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                  ${producto.precio_publico.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                </p>
-              ) : null}
+              {(() => {
+                const showPrice = config ? mostrarPrecio(producto, config) : false
+                const { precio } = config ? getPrecioAMostrar(producto, config) : { precio: null }
+                return showPrice && precio ? (
+                  <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+                    ${precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </p>
+                ) : null
+              })()}
               <div className="flex items-center gap-2 mt-2.5">
                 <button
                   type="button"

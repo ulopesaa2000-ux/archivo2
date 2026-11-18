@@ -262,12 +262,12 @@ export async function toggleRolPermiso(
     const { error } = await supabase
       .from('rol_permisos')
       .insert({
-        rol_id:         rolId,
+        rol_id: rolId,
         modulo,
-        puede_leer:     tipo === 'puede_leer'     ? valor : false,
-        puede_crear:    tipo === 'puede_crear'     ? valor : false,
-        puede_editar:   tipo === 'puede_editar'    ? valor : false,
-        puede_eliminar: tipo === 'puede_eliminar'  ? valor : false,
+        puede_leer: tipo === 'puede_leer' ? valor : false,
+        puede_crear: tipo === 'puede_crear' ? valor : false,
+        puede_editar: tipo === 'puede_editar' ? valor : false,
+        puede_eliminar: tipo === 'puede_eliminar' ? valor : false,
       })
 
     if (error) {
@@ -693,18 +693,18 @@ export async function vincularPersonaUsuarioAction(
   }
 
   const { syncUserClaims } = await import('../auth/claims-sync')
-  
+
   if (personaPrev?.usuario_id) {
     const { data: uPrev } = await supabase.from('usuarios').select('auth_user_id').eq('id', personaPrev.usuario_id).single()
     if (uPrev?.auth_user_id) {
-      await syncUserClaims(uPrev.auth_user_id).catch(() => {})
+      await syncUserClaims(uPrev.auth_user_id).catch(() => { })
     }
   }
 
   if (usuarioId) {
     const { data: uNew } = await supabase.from('usuarios').select('auth_user_id').eq('id', usuarioId).single()
     if (uNew?.auth_user_id) {
-      await syncUserClaims(uNew.auth_user_id).catch(() => {})
+      await syncUserClaims(uNew.auth_user_id).catch(() => { })
     }
   }
 
@@ -869,7 +869,7 @@ export async function invitarPersonaAction(payload: {
   }
 
   const { syncUserClaims } = await import('../auth/claims-sync')
-  await syncUserClaims(authData.user.id).catch(() => {})
+  await syncUserClaims(authData.user.id).catch(() => { })
 
   revalidatePath('/configuracion/personas')
   revalidatePath('/configuracion/usuarios')

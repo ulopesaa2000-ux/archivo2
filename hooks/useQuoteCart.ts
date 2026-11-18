@@ -5,20 +5,53 @@ import { useState, useEffect, useCallback } from 'react'
 import { useConfigEcommerce } from './useConfigEcommerce'
 import type { QuoteItem, QuoteCart } from '@/modules/ecommerce/types'
 
-const STORAGE_KEY = 'inv_tienda_quote_cart'
-const EVENT_KEY = 'inv_cart_updated'
+const STORAGE_KEY = 'inv_tienda_quote_cart_v2'
+const EVENT_KEY = 'inv_cart_updated_v2'
+
+export function getQuoteItemKey(item: Pick<QuoteItem, 'productoWebId' | 'varianteId' | 'esSurtido'>): string {
+  return `${item.productoWebId}:${item.varianteId ?? 'base'}:${item.esSurtido ? 'surtido' : 'std'}`
+}
+
+function isValidCartItem(raw: unknown): raw is QuoteItem {
+  if (!raw || typeof raw !== 'object') return false
+  const r = raw as Record<string, unknown>
+  if (typeof r.productoId !== 'number' || !Number.isInteger(r.productoId) || r.productoId <= 0) return false
+  if (typeof r.productoWebId !== 'number' || !Number.isInteger(r.productoWebId) || r.productoWebId <= 0) return false
+  if (r.varianteId !== null && (typeof r.varianteId !== 'number' || !Number.isInteger(r.varianteId) || r.varianteId <= 0)) {
+    return false
+  }
+  if (typeof r.cantidad !== 'number' || !Number.isInteger(r.cantidad) || r.cantidad <= 0) return false
+  return true
+}
 
 function getCartFromStorage(): QuoteCart | null {
   if (typeof window === 'undefined') return null
   try {
     const fromLocal = localStorage.getItem(STORAGE_KEY)
     if (fromLocal) {
-      return JSON.parse(fromLocal)
+      const parsed = JSON.parse(fromLocal)
+      if (parsed && Array.isArray(parsed.items)) {
+        return {
+          items: parsed.items.filter(isValidCartItem).map((i: QuoteItem) => ({
+            ...i,
+            itemKey: i.itemKey || getQuoteItemKey(i),
+          })),
+          updatedAt: String(parsed.updatedAt || new Date().toISOString()),
+        }
+      }
     }
-    // Fallback a Cookie si localStorage no tiene nada
     const match = document.cookie.match(new RegExp('(?:^|; )' + STORAGE_KEY + '=([^;]*)'))
     if (match && match[1]) {
-      return JSON.parse(decodeURIComponent(match[1]))
+      const parsed = JSON.parse(decodeURIComponent(match[1]))
+      if (parsed && Array.isArray(parsed.items)) {
+        return {
+          items: parsed.items.filter(isValidCartItem).map((i: QuoteItem) => ({
+            ...i,
+            itemKey: i.itemKey || getQuoteItemKey(i),
+          })),
+          updatedAt: String(parsed.updatedAt || new Date().toISOString()),
+        }
+      }
     }
   } catch (e) {
     console.error('Error al leer el carrito desde el almacenamiento', e)
@@ -35,15 +68,17 @@ function saveCartToStorage(items: QuoteItem[]) {
     }
     const serialized = JSON.stringify(cart)
     localStorage.setItem(STORAGE_KEY, serialized)
-    
-    // Guardar en cookies con expiración de 1 año (31536000 s)
     document.cookie = `${STORAGE_KEY}=${encodeURIComponent(serialized)}; path=/; max-age=31536000; SameSite=Lax`
-    
-    // Notificar a otras partes del frontend para actualización reactiva en tiempo real
     window.dispatchEvent(new CustomEvent(EVENT_KEY, { detail: cart }))
   } catch (e) {
     console.error('Error al guardar el carrito', e)
   }
+}
+
+function matchesItem(item: QuoteItem, idOrKey: number | string): boolean {
+  const key = item.itemKey || getQuoteItemKey(item)
+  if (typeof idOrKey === 'string') return key === idOrKey
+  return item.varianteId === idOrKey || (item.varianteId === null && item.productoWebId === idOrKey)
 }
 
 export function useQuoteCart() {
@@ -51,7 +86,6 @@ export function useQuoteCart() {
   const [items, setItems] = useState<QuoteItem[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
 
-  // Hydrate inicial
   useEffect(() => {
     const cart = getCartFromStorage()
     if (cart?.items) {
@@ -61,7 +95,6 @@ export function useQuoteCart() {
     setIsHydrated(true)
   }, [])
 
-  // Escuchar actualizaciones de sync entre pestañas o componentes
   useEffect(() => {
     if (!isHydrated) return
 
@@ -86,77 +119,66 @@ export function useQuoteCart() {
     }
   }, [isHydrated])
 
-  /**
-   * Agregar item al carrito
-   */
   const addItem = useCallback((item: Omit<QuoteItem, 'unidad'>) => {
     const piezasPorCaja = item.piezasPorCaja || 1
     const unidad: 'pieza' | 'caja' = ventaPorCajas ? 'caja' : 'pieza'
-    
-    setItems(prev => {
-      const exists = prev.find(i => i.varianteId === item.varianteId)
+    const itemKey = item.itemKey || getQuoteItemKey(item)
+
+    setItems((prev) => {
+      const exists = prev.find((i) => (i.itemKey || getQuoteItemKey(i)) === itemKey)
       let nextItems: QuoteItem[]
-      
+
       if (exists) {
-        // Actualizar cantidad si ya existe
-        nextItems = prev.map(i =>
-          i.varianteId === item.varianteId
+        nextItems = prev.map((i) =>
+          (i.itemKey || getQuoteItemKey(i)) === itemKey
             ? { ...i, cantidad: i.cantidad + item.cantidad }
             : i
         )
       } else {
-        // Agregar nuevo item
-        nextItems = [...prev, { ...item, unidad, piezasPorCaja }]
+        nextItems = [...prev, { ...item, itemKey, unidad, piezasPorCaja }]
       }
 
-      // Diferir el broadcast: despachar el evento fuera del render evita
-      // "Cannot update a component while rendering a different component".
       queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [ventaPorCajas])
 
-  /**
-   * Actualizar cantidad de un item
-   */
-  const updateCantidad = useCallback((varianteId: number, cantidad: number) => {
-    setItems(prev => {
+  const updateCantidad = useCallback((idOrKey: number | string, cantidad: number) => {
+    setItems((prev) => {
       let nextItems: QuoteItem[]
       if (cantidad <= 0) {
-        nextItems = prev.filter(i => i.varianteId !== varianteId)
+        nextItems = prev.filter((i) => !matchesItem(i, idOrKey))
       } else {
-        nextItems = prev.map(item => {
-          if (item.varianteId !== varianteId) return item
+        nextItems = prev.map((item) => {
+          if (!matchesItem(item, idOrKey)) return item
 
-          // Validar múltiplo de caja si aplica
+          let nextCantidad = Math.floor(cantidad)
           if (
             config?.multiplo_cajas &&
             item.unidad === 'caja' &&
             item.piezasPorCaja &&
-            cantidad % item.piezasPorCaja !== 0
+            nextCantidad % item.piezasPorCaja !== 0
           ) {
-            cantidad = Math.round(cantidad / item.piezasPorCaja) * item.piezasPorCaja
+            nextCantidad = Math.max(
+              item.piezasPorCaja,
+              Math.round(nextCantidad / item.piezasPorCaja) * item.piezasPorCaja
+            )
           }
 
-          return { ...item, cantidad }
+          return { ...item, cantidad: nextCantidad }
         })
       }
 
-      // Diferir el broadcast: despachar el evento fuera del render evita
-      // "Cannot update a component while rendering a different component".
       queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [config?.multiplo_cajas])
 
-  /**
-   * Cambiar unidad (pieza ↔ caja)
-   */
-  const toggleUnidad = useCallback((varianteId: number) => {
-    setItems(prev => {
-      const nextItems = prev.map(item => {
-        if (item.varianteId !== varianteId) return item
-        
+  const toggleUnidad = useCallback((idOrKey: number | string) => {
+    setItems((prev) => {
+      const nextItems = prev.map((item) => {
+        if (!matchesItem(item, idOrKey)) return item
+
         const nuevaUnidad: 'pieza' | 'caja' = item.unidad === 'pieza' ? 'caja' : 'pieza'
         let nuevaCantidad = item.cantidad
         if (nuevaUnidad === 'caja' && item.piezasPorCaja) {
@@ -172,79 +194,57 @@ export function useQuoteCart() {
         }
       })
 
-      // Diferir el broadcast: despachar el evento fuera del render evita
-      // "Cannot update a component while rendering a different component".
       queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])
 
-  /**
-   * Actualizar precio ofrecido (solo modo híbrido)
-   */
-  const updatePrecioOfrecido = useCallback((varianteId: number, precio: number | undefined) => {
-    setItems(prev => {
-      const nextItems = prev.map(item =>
-        item.varianteId === varianteId
-          ? { ...item, precioOfrecido: precio }
-          : item
+  const updatePrecioOfrecido = useCallback((idOrKey: number | string, precio: number | undefined) => {
+    setItems((prev) => {
+      const nextItems = prev.map((item) =>
+        matchesItem(item, idOrKey) ? { ...item, precioOfrecido: precio } : item
       )
-      // Diferir el broadcast: despachar el evento fuera del render evita
-      // "Cannot update a component while rendering a different component".
       queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])
 
-  /**
-   * Remover item
-   */
-  const removeItem = useCallback((varianteId: number) => {
-    setItems(prev => {
-      const nextItems = prev.filter(i => i.varianteId !== varianteId)
-      // Diferir el broadcast: despachar el evento fuera del render evita
-      // "Cannot update a component while rendering a different component".
+  const removeItem = useCallback((idOrKey: number | string) => {
+    setItems((prev) => {
+      const nextItems = prev.filter((i) => !matchesItem(i, idOrKey))
       queueMicrotask(() => saveCartToStorage(nextItems))
       return nextItems
     })
   }, [])
 
-  /**
-   * Limpiar carrito
-   */
   const clearCart = useCallback(() => {
     setItems([])
     saveCartToStorage([])
   }, [])
 
-  /**
-   * Calcular totales
-   */
   const totalItems = items.reduce((sum, item) => sum + item.cantidad, 0)
-  
+
   const totalPiezas = items.reduce((sum, item) => {
     if (item.unidad === 'caja' && item.piezasPorCaja) {
-      return sum + (item.cantidad * item.piezasPorCaja)
+      return sum + item.cantidad * item.piezasPorCaja
     }
     return sum + item.cantidad
   }, 0)
 
   const subtotal = items.reduce((sum, item) => {
     const precio = item.precioUnitario || item.precioOfrecido || 0
-    return sum + (precio * item.cantidad)
+    return sum + precio * item.cantidad
   }, 0)
 
   return {
     items,
     isHydrated,
-    // Acciones
     addItem,
     updateCantidad,
     toggleUnidad,
     updatePrecioOfrecido,
     removeItem,
     clearCart,
-    // Totales
     count: items.length,
     totalItems,
     totalPiezas,

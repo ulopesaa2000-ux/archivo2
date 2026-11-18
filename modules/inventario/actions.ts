@@ -938,7 +938,7 @@ export async function cambiarEstadoNotaAction(
 
   const { error } = await supabase
     .from('notas_inventario')
-    .update({ 
+    .update({
       estado_id: nuevoEstadoId,
       usuario_id: user.id
     })
@@ -1356,7 +1356,7 @@ export async function subirComprobanteNotaAction(
 
   const cleanNum = numNota.replace(/[^a-zA-Z0-9_\-]/g, '_')
   const cleanBod = bodCodigo.replace(/[^a-zA-Z0-9_\-]/g, '_')
-  
+
   // Guardar con formato estructurado por Mes y Año siempre como .jpg optimizado
   const storagePath = `Notas/${yyyy}-${mm}/${cleanNum}-${cleanBod}-${dd}.jpg`
 
