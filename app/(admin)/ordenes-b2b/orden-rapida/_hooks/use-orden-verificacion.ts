@@ -158,6 +158,37 @@ export function useOrdenVerificacion({
     return map
   }, [parsedData])
 
+  // Mapeo SKU actual (sincronizado o editado) -> SKU original del archivo n8n/Excel
+  const skuOriginalPorActual = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of editableProductos) {
+      const actualUp = String(p.sku_base || '').trim().toUpperCase()
+      const origUp = String(p.packing_original?.sku_base || '').trim().toUpperCase()
+      if (actualUp && origUp && actualUp !== origUp) {
+        map.set(actualUp, origUp)
+      }
+    }
+    for (const [origKey, v] of Object.entries(vinculosDb)) {
+      const dbUp = String(v.dbSku || '').trim().toUpperCase()
+      const origUp = String(origKey || '').trim().toUpperCase()
+      if (dbUp && origUp && dbUp !== origUp && !map.has(dbUp)) {
+        map.set(dbUp, origUp)
+      }
+    }
+    return map
+  }, [editableProductos, vinculosDb])
+
+  // Mapeo producto_temp_id -> sku_base actual (mantiene consistencia tras sincronizar o separar productos)
+  const skuPorTempId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of editableProductos) {
+      if (p.temp_id && p.sku_base) {
+        map.set(p.temp_id, String(p.sku_base).trim())
+      }
+    }
+    return map
+  }, [editableProductos])
+
   const buscarEsperadasJson = useCallback(
     (skuBase: string): number => {
       const direct = jsonTotalesPorSku.get(skuBase)?.cajas
@@ -166,18 +197,26 @@ export function useOrdenVerificacion({
       for (const [k, v] of jsonTotalesPorSku) {
         if (String(k || '').trim().toUpperCase() === up) return Number(v.cajas) || 0
       }
+      const origUp = skuOriginalPorActual.get(up)
+      if (origUp) {
+        for (const [k, v] of jsonTotalesPorSku) {
+          if (String(k || '').trim().toUpperCase() === origUp) return Number(v.cajas) || 0
+        }
+      }
       return 0
     },
-    [jsonTotalesPorSku]
+    [jsonTotalesPorSku, skuOriginalPorActual]
   )
 
   const lineaEsperada = useCallback(
     (skuBase: string): number => {
       const up = String(skuBase || '').trim().toUpperCase()
       if (lineaEditadaPorSku[up] != null) return lineaEditadaPorSku[up]
+      const origUp = skuOriginalPorActual.get(up)
+      if (origUp && lineaEditadaPorSku[origUp] != null) return lineaEditadaPorSku[origUp]
       return buscarEsperadasJson(skuBase)
     },
-    [lineaEditadaPorSku, buscarEsperadasJson]
+    [lineaEditadaPorSku, skuOriginalPorActual, buscarEsperadasJson]
   )
 
   const lineaPackEsperada = useCallback(
@@ -249,17 +288,21 @@ export function useOrdenVerificacion({
       .filter((l) => l.sku && l.cajas > 0)
     const fisicos = editableCajas
       .filter((c) => c.tipo_caja !== 'padre_resumen')
-      .map((c) => ({ sku: String(c.sku_base || ''), cajas: Number(c.cantidad_cajas ?? 0) }))
+      .map((c) => ({
+        sku: (c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || ''),
+        cajas: Number(c.cantidad_cajas ?? 0),
+      }))
     return compararCajasLineasVsFisico(lineas, fisicos)
-  }, [editableProductos, editableCajas, lineaEsperada])
+  }, [editableProductos, editableCajas, lineaEsperada, skuPorTempId])
 
   const huecosFisico = useMemo(() => {
     const porSku = new Map<string, { sku: string; cajas: number; piezas: number }>()
     for (const c of editableCajas) {
       if (c.tipo_caja === 'padre_resumen') continue
-      const up = String(c.sku_base || '').trim().toUpperCase()
+      const resolvedSku = (c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || '').trim()
+      const up = resolvedSku.toUpperCase()
       if (!up) continue
-      const prev = porSku.get(up) ?? { sku: String(c.sku_base || '').trim(), cajas: 0, piezas: 0 }
+      const prev = porSku.get(up) ?? { sku: resolvedSku, cajas: 0, piezas: 0 }
       prev.cajas += Number(c.cantidad_cajas ?? 0) || 0
       prev.piezas += Number(c.total_piezas || (c.piezas_por_caja || 0) * (c.cantidad_cajas || 0))
       porSku.set(up, prev)
@@ -267,7 +310,7 @@ export function useOrdenVerificacion({
     return Array.from(porSku.entries())
       .filter(([up, g]) => g.cajas > 0 && lineaEsperada(g.sku) <= 0 && !huecosRellenados.includes(up))
       .map(([up, g]) => ({ key: up, ...g }))
-  }, [editableCajas, lineaEsperada, huecosRellenados])
+  }, [editableCajas, skuPorTempId, lineaEsperada, huecosRellenados])
 
   const handleRellenarHuecos = useCallback(() => {
     if (huecosFisico.length === 0 || !parsedData) return
@@ -280,13 +323,26 @@ export function useOrdenVerificacion({
       cbm_total: 0,
       peso_bruto_total: 0,
     }))
+    setLineaEditadaPorSku((prev) => {
+      const next = { ...prev }
+      for (const h of huecosFisico) next[h.key] = h.cajas
+      return next
+    })
     setParsedData((prev) => {
       if (!prev) return prev
+      const existingUps = new Set(
+        (prev.orden?.orden_productos ?? []).map((op) => String(op.sku || '').trim().toUpperCase())
+      )
+      const soloNuevos = nuevos.filter((n) => !existingUps.has(n.sku.toUpperCase()))
+      const actualizados = (prev.orden?.orden_productos ?? []).map((op) => {
+        const match = huecosFisico.find((h) => h.key === String(op.sku || '').trim().toUpperCase())
+        return match ? { ...op, numero_cajas_reales: match.cajas, cantidad_total: match.piezas } : op
+      })
       return {
         ...prev,
         orden: {
           ...prev.orden,
-          orden_productos: [...(prev.orden?.orden_productos ?? []), ...nuevos],
+          orden_productos: [...actualizados, ...soloNuevos],
         },
       }
     })

@@ -4,6 +4,7 @@
 import { useState, useRef, useTransition } from 'react'
 import Image from 'next/image'
 import Papa from 'papaparse'
+import { FileDropzone } from '@/components/shared/FileDropzone'
 import { Upload, X, ImageIcon, Loader2, Check, AlertCircle, Search, ChevronRight, FileSpreadsheet, Download, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -164,16 +165,32 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
     setFiles(updated)
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files || [])
+  const processSelectedFiles = (selected: File[], append = false) => {
     setError(null)
-    if (selected.length > MAX_FILES) { setError(`El límite máximo es de ${MAX_FILES} imágenes`); return }
+    const combinedCount = append ? files.length + selected.length : selected.length
+    if (combinedCount > MAX_FILES) {
+      setError(`El límite máximo es de ${MAX_FILES} imágenes`)
+      return
+    }
     const valid: FilePreview[] = selected
-      .filter(f => f.type.startsWith('image/') && f.size <= MAX_SIZE_BYTES)
-      .map(f => ({ file: f, preview: URL.createObjectURL(f), sku: '', alt_text: '', uso: 'galeria_secundaria', es_principal: false, status: 'pending' as const }))
-    setFiles(valid)
+      .filter((f) => f.type.startsWith('image/') && f.size <= MAX_SIZE_BYTES)
+      .map((f) => ({
+        file: f,
+        preview: URL.createObjectURL(f),
+        sku: '',
+        alt_text: '',
+        uso: 'galeria_secundaria',
+        es_principal: false,
+        status: 'pending' as const,
+      }))
+    const nextFiles = append ? [...files, ...valid] : valid
+    setFiles(nextFiles)
     setStep(2)
-    runDetectionForFiles(valid)
+    runDetectionForFiles(nextFiles)
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    processSelectedFiles(Array.from(e.target.files || []), false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -445,7 +462,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
               <span className="text-muted-foreground truncate max-w-[250px]">{uploadProgress.name}</span>
             </div>
             <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-              <div 
+              <div
                 className="bg-primary h-full transition-all duration-300 rounded-full"
                 style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
               />
@@ -494,28 +511,35 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
                       </div>
                     ))}
                     {files.length < MAX_FILES && (
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="aspect-square rounded-lg border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center text-muted-foreground hover:border-primary/40 hover:bg-muted/40 transition-all"
-                      >
-                        <Upload className="h-5 w-5 mb-1 opacity-50" />
-                        <span className="text-[9px]">Agregar</span>
-                      </button>
+                      <FileDropzone
+                        compact
+                        compactLabel="Agregar"
+                        accept="image/*"
+                        multiple
+                        maxFiles={MAX_FILES - files.length}
+                        maxSizeMB={5}
+                        icon={<Upload className="h-5 w-5 opacity-50" />}
+                        onFilesSelected={(selected) => processSelectedFiles(selected, true)}
+                        onValidationError={(msg) => setError(msg)}
+                      />
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">{files.length} imágenes seleccionadas</p>
                 </>
               ) : (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex-1 min-h-[200px] flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/10 hover:bg-muted/30 hover:border-primary/40 transition-all text-muted-foreground"
-                >
-                  <ImageIcon className="h-14 w-14 opacity-30" />
-                  <div className="text-center">
-                    <p className="font-semibold text-base">Haz clic para seleccionar imágenes</p>
-                    <p className="text-xs opacity-70 mt-1">PNG, JPG, WebP · Máx 5 MB · Hasta 25 archivos</p>
-                  </div>
-                </button>
+                <FileDropzone
+                  accept="image/*"
+                  multiple
+                  maxFiles={MAX_FILES}
+                  maxSizeMB={5}
+                  className="flex-1 min-h-[200px]"
+                  icon={<ImageIcon className="mb-3 h-14 w-14 opacity-30" />}
+                  title="Arrastra imágenes aquí o haz clic para seleccionar"
+                  description={`PNG, JPG, WebP · Máx 5 MB · Hasta ${MAX_FILES} archivos`}
+                  buttonLabel="Seleccionar imágenes"
+                  onFilesSelected={(selected) => processSelectedFiles(selected, false)}
+                  onValidationError={(msg) => setError(msg)}
+                />
               )}
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
             </div>
@@ -874,7 +898,7 @@ export function ImportarMasivoModal({ open, onOpenChange, mode }: Props) {
               <Button onClick={handleCsvImport} disabled={isPending || csvRows.filter(r => r.status === 'found').length === 0}>
                 {isPending
                   ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
-                  : <><Upload className="h-4 w-4 mr-2" />Importar {csvRows.filter(r => r.status === 'found').length} imagen{ csvRows.filter(r => r.status === 'found').length !== 1 ? 'es' : ''}</>
+                  : <><Upload className="h-4 w-4 mr-2" />Importar {csvRows.filter(r => r.status === 'found').length} imagen{csvRows.filter(r => r.status === 'found').length !== 1 ? 'es' : ''}</>
                 }
               </Button>
             )}

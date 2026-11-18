@@ -1985,62 +1985,15 @@ export async function obtenerDatosProductosDeBDAction(
 
     const productosMap: Record<string, DbProductoData> = {}
 
-    const isMoti = isMotiSupplier(proveedorNombre)
-
     for (const inputSku of cleanSkus) {
       const inputUpper = inputSku.trim().toUpperCase()
 
-      // 1. Búsqueda exacta (mismo proveedor > sin proveedor > otro; nunca se oculta)
+      // Misma regla estricta que verificarSkusEnBDAction: solo coincidencia exacta o normalizada (100%).
+      // Los parecidos parciales nunca sobrescriben SKUs nuevos automáticamente.
       const best = findBestDbSkuMatch(inputSku, allProducts, proveedorNombre, personaId)
       const exactMatch = best && best.exacto ? allProducts.find((p) => p.id === best.dbId) : undefined
       if (exactMatch) {
         productosMap[inputUpper] = mapRowToDbProductoData(exactMatch, best?.mismaPersona)
-        continue
-      }
-
-      // 2. Búsqueda por Aliasing Especial de MOTI (1AK, 3VT, 3JA, 1VT)
-      if (isMoti) {
-        const modelToken = extractMotiModelToken(inputSku)
-        if (modelToken) {
-          const modelMatch = allProducts.find((p) => {
-            const dbSkuUpper = String(p.sku_base).toUpperCase()
-            return dbSkuUpper.includes(modelToken)
-          })
-
-          if (modelMatch) {
-            const baseData = mapRowToDbProductoData(modelMatch)
-            productosMap[inputUpper] = {
-              ...baseData,
-              esNuevoLoteMoti: true,
-              skuHeredado: modelMatch.sku_base,
-            }
-            continue
-          }
-        }
-      }
-
-      // 3. Coincidencia por Versión Anterior del Mismo Proveedor (ej. HO26/09HC -> HO25/09HC)
-      const inputPrefix = extractSupplierPrefix(inputSku)
-      if (inputPrefix && inputPrefix.length >= 2) {
-        const versionMatch = allProducts.find((p) => {
-          const dbSkuUpper = String(p.sku_base).toUpperCase()
-          const dbPrefix = extractSupplierPrefix(p.sku_base)
-          if (dbPrefix !== inputPrefix) return false
-
-          // Mismo prefijo (ej: HO == HO). Comparar similitud estructural de la clave
-          const inputNorm = normalizeSkuKey(inputSku)
-          const dbNorm = normalizeSkuKey(p.sku_base)
-          return levenshteinDistance(inputNorm, dbNorm) <= 3
-        })
-
-        if (versionMatch) {
-          const baseData = mapRowToDbProductoData(versionMatch)
-          productosMap[inputUpper] = {
-            ...baseData,
-            esVersionAnterior: true,
-            skuHeredado: versionMatch.sku_base,
-          }
-        }
       }
     }
 

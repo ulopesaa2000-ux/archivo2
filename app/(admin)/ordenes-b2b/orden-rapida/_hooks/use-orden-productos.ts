@@ -232,39 +232,49 @@ export function useOrdenProductos({
 
     setIsSyncingDbProducts(true)
     try {
-      const selectedProveedorId = selectedProveedor ? Number(selectedProveedor) : undefined
+      const selectedProveedorId = selectedProveedor ? Number(selectedProveedor) : null
       const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
 
-      const res = await obtenerDatosProductosDeBDAction(skus, selectedProveedorId, proveedorActual?.nombre_completo)
+      // Usa exactamente la misma verificación estricta (100% exacto/normalizado) que al recibir el JSON inicial
+      const res = await verificarSkusEnBDAction(skus, proveedorActual?.nombre_completo, selectedProveedorId)
 
-      if (res.success && res.productosMap) {
+      if (res.success) {
+        const nextMatched = new Set<string>(
+          (res.skusExistentes || []).map((s) => String(s).trim().toUpperCase())
+        )
+        if (res.skuMap) {
+          Object.values(res.skuMap).forEach((s) => nextMatched.add(String(s).trim().toUpperCase()))
+        }
+        setDbSkusSet((prev) => new Set([...Array.from(prev), ...Array.from(nextMatched)]))
+        setProbablesDb(res.probables ?? [])
+
         let syncCount = 0
         setEditableProductos((prev) =>
           prev.map((item) => {
+            if (item.force_new) return item
             const key = item.sku_base.trim().toUpperCase()
             const dbProd = res.productosMap?.[key]
             if (dbProd) {
               syncCount++
-              if (dbProd.esNuevoLoteMoti) {
-                toast.info(`El SKU "${item.sku_base}" heredó metadatos del modelo MOTI (${dbProd.skuHeredado}).`)
-              } else if (dbProd.esVersionAnterior) {
-                toast.info(
-                  `El SKU "${item.sku_base}" heredó metadatos de la versión previa de proveedor (${dbProd.skuHeredado}).`
-                )
-              }
-
               return aplicarDatosDbAProducto(item, dbProd, { marcas, generos, edades, tipos_prenda })
             }
             return item
           })
         )
+        const probCount = (res.probables ?? []).length
         if (syncCount > 0) {
-          toast.success(`Se sincronizaron ${syncCount} productos con la información de la base de datos.`)
+          toast.success(
+            probCount > 0
+              ? `Se sincronizaron ${syncCount} producto(s) exactos (${probCount} parecido(s) disponibles para revisar).`
+              : `Se sincronizaron ${syncCount} producto(s) exactos con la base de datos.`
+          )
+        } else if (probCount > 0) {
+          toast.info(`Sin coincidencias exactas. Hay ${probCount} sugerencia(s) parecida(s) para revisar manualmente.`)
         } else {
-          toast.info('Ninguno de los SKUs de la lista tiene coincidencia directa en la base de datos.')
+          toast.info('Ninguno de los SKUs de la lista tiene coincidencia exacta en la base de datos.')
         }
       } else {
-        toast.error(res.error || 'Error al consultar productos de la base de datos')
+        toast.error('Error al consultar productos de la base de datos')
       }
     } catch {
       toast.error('Error inesperado al sincronizar productos desde BD')
@@ -343,14 +353,43 @@ export function useOrdenProductos({
   }, [detectorCatalogos, setEditableProductos])
 
   const handleSincronizarProbable = useCallback(
-    (prob: SkuProbable) => {
+    async (prob: SkuProbable) => {
       const up = String(prob.inputSku).trim().toUpperCase()
-      setVinculosDb((prev) => ({ ...prev, [up]: { dbId: prob.dbId, dbSku: prob.dbSku } }))
+      const dbSkuUp = String(prob.dbSku).trim().toUpperCase()
+
+      let dbData = prob.dbData
+      if (!dbData) {
+        try {
+          const proveedorActual = proveedores.find((item) => String(item.id) === selectedProveedor)
+          const res = await buscarSkuEnBDAction(
+            prob.dbSku,
+            proveedorActual?.nombre_completo,
+            proveedorActual ? Number(proveedorActual.id) : null
+          )
+          if (res.success && res.exacto) {
+            dbData = res.exacto
+          }
+        } catch {
+          // Si falla la consulta, al menos vinculamos el SKU
+        }
+      }
+
+      const linkEntry = { dbId: prob.dbId, dbSku: prob.dbSku }
+      setVinculosDb((prev) => ({
+        ...prev,
+        [up]: linkEntry,
+        [dbSkuUp]: linkEntry,
+      }))
+
+      const matchedTempIds = new Set<string>()
       setEditableProductos((prev) =>
         prev.map((p) => {
-          if (String(p.sku_base || '').trim().toUpperCase() === up) {
-            if (prob.dbData) {
-              return aplicarDatosDbAProducto(p, prob.dbData, { marcas, generos, edades, tipos_prenda })
+          const pSkuUp = String(p.sku_base || '').trim().toUpperCase()
+          const pOrigUp = String(p.packing_original?.sku_base || '').trim().toUpperCase()
+          if (pSkuUp === up || pSkuUp === dbSkuUp || pOrigUp === up) {
+            if (p.temp_id) matchedTempIds.add(p.temp_id)
+            if (dbData) {
+              return aplicarDatosDbAProducto(p, dbData, { marcas, generos, edades, tipos_prenda })
             }
             return { ...p, sku_base: prob.dbSku, es_nuevo: false, force_new: false }
           }
@@ -360,7 +399,7 @@ export function useOrdenProductos({
       setEditableCajas((prev) =>
         prev.map((c) => {
           const cSku = String(c.sku_base || '').trim().toUpperCase()
-          if (cSku === up) {
+          if (cSku === up || (c.producto_temp_id && matchedTempIds.has(c.producto_temp_id))) {
             return { ...c, sku_base: prob.dbSku }
           }
           return c
@@ -368,15 +407,22 @@ export function useOrdenProductos({
       )
       toast.success(`"${prob.inputSku}" sincronizado con ${prob.dbSku}.`)
     },
-    [setEditableProductos, setEditableCajas, marcas, generos, edades, tipos_prenda]
+    [setEditableProductos, setEditableCajas, marcas, generos, edades, tipos_prenda, proveedores, selectedProveedor]
   )
 
   const handleQuitarVinculo = useCallback(
     (inputSku: string) => {
       const up = String(inputSku).trim().toUpperCase()
+      let origSkuRestore: string | null = null
+      const matchedTempIds = new Set<string>()
+
       setVinculosDb((prev) => {
-        const next = { ...prev }
-        delete next[up]
+        const next: Record<string, { dbId: number; dbSku: string }> = {}
+        for (const [k, v] of Object.entries(prev)) {
+          if (k !== up && String(v.dbSku).trim().toUpperCase() !== up) {
+            next[k] = v
+          }
+        }
         return next
       })
       setEditableProductos((prev) =>
@@ -385,14 +431,25 @@ export function useOrdenProductos({
             String(p.sku_base || '').trim().toUpperCase() === up ||
             (p.db_sincronizado && String(p.db_sincronizado.sku_base).toUpperCase() === up)
           ) {
+            if (p.temp_id) matchedTempIds.add(p.temp_id)
+            if (p.packing_original?.sku_base) origSkuRestore = p.packing_original.sku_base
             return restaurarDatosPacking(p)
           }
           return p
         })
       )
+      setEditableCajas((prev) =>
+        prev.map((c) => {
+          const cSku = String(c.sku_base || '').trim().toUpperCase()
+          if ((cSku === up || (c.producto_temp_id && matchedTempIds.has(c.producto_temp_id))) && origSkuRestore) {
+            return { ...c, sku_base: origSkuRestore }
+          }
+          return c
+        })
+      )
       toast.info(`Vínculo de "${inputSku}" removido. Restaurado a nuevo.`)
     },
-    [setEditableProductos]
+    [setEditableProductos, setEditableCajas]
   )
 
   const commitSkuEdit = useCallback(

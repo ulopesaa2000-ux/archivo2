@@ -5,6 +5,7 @@ import { AlertTriangle, FileSpreadsheet, FileUp, HelpCircle, Loader2, Sparkles }
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { FileDropzone } from '@/components/shared/FileDropzone'
 import { PARSER_FORMATS, type N8nDebugInfo, type WizardWarning } from '../_hooks/orden-rapida-types'
 
 interface Step2UploadProps {
@@ -81,39 +82,20 @@ export function Step2Upload({
             </div>
           </div>
 
-          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/80 bg-muted/10 p-8 text-center transition-colors hover:border-primary/50">
-            <FileSpreadsheet className="mb-4 h-12 w-12 animate-bounce text-muted-foreground/60 duration-1000" />
-            <p className="text-sm font-semibold">Selecciona tu archivo Packing List</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Soporta archivos .xls y .xlsx. PDF se agregara en una fase posterior.
-            </p>
-
-            <input
-              id="packing-file-input"
-              type="file"
-              accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null
-                onFileSelected(file)
-              }}
-            />
-
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => document.getElementById('packing-file-input')?.click()}
-                disabled={processing}
-              >
-                Examinar archivos
-              </Button>
+          <FileDropzone
+            accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            disabled={processing}
+            icon={<FileSpreadsheet className="mb-4 h-12 w-12 animate-bounce text-muted-foreground/60 duration-1000" />}
+            title="Arrastra o selecciona tu archivo Packing List"
+            description="Soporta archivos .xls y .xlsx. PDF se agregará en una fase posterior."
+            buttonLabel="Examinar archivos"
+            onFilesSelected={(files) => onFileSelected(files[0] ?? null)}
+            actions={
               <Button type="button" size="sm" onClick={onProcessFile} disabled={processing || !selectedFile}>
                 {processing ? 'Procesando...' : 'Procesar con n8n'}
               </Button>
-            </div>
-          </div>
+            }
+          />
 
           {fileName && (
             <div className="flex items-center justify-between rounded-lg border bg-muted/50 p-3 text-sm">

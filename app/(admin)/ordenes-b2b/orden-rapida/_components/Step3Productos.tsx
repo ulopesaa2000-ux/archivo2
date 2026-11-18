@@ -212,10 +212,12 @@ export function Step3Productos({
                     className={cn(
                       'transition-colors',
                       isMatch
-                        ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 hover:bg-emerald-100/50'
-                        : isForcedNew
-                          ? 'bg-blue-50/40 dark:bg-blue-950/20 border-l-4 border-l-blue-500 hover:bg-blue-100/40'
-                          : 'bg-amber-50/30 dark:bg-amber-950/20 border-l-4 border-l-amber-400 hover:bg-amber-100/30'
+                        ? 'bg-emerald-100/70 dark:bg-emerald-950/45 border-l-4 border-l-emerald-600 hover:bg-emerald-100/90 dark:hover:bg-emerald-950/60'
+                        : vinculo
+                          ? 'bg-teal-50/75 dark:bg-teal-950/30 border-l-4 border-l-teal-500 hover:bg-teal-100/60 dark:hover:bg-teal-950/45'
+                          : isForcedNew
+                            ? 'bg-blue-50/40 dark:bg-blue-950/20 border-l-4 border-l-blue-500 hover:bg-blue-100/40 dark:hover:bg-blue-950/35'
+                            : 'bg-amber-50/30 dark:bg-amber-950/20 border-l-4 border-l-amber-400 hover:bg-amber-100/30 dark:hover:bg-amber-950/35'
                     )}
                   >
                     {/* 1. Verificación BD / Estado */}
