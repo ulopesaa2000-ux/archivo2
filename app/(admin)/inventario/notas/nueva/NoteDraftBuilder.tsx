@@ -2,75 +2,38 @@
 'use client'
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useState, useTransition, useCallback, useEffect, useRef } from 'react'
-import { usePanZoom, useNativeWheel } from '@/hooks/use-pan-zoom'
-import Image from 'next/image'
-import { useRouter } from 'next/navigation'
-import { useDebouncedCallback } from 'use-debounce'
-import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Loader2, Search, Plus, Minus, Trash2, Save, CheckCircle2, AlertCircle, AlertTriangle, CalendarClock,
-  Package, ArrowLeft, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Scale, RotateCcw, Upload, FileText, Image as ImageIcon, Camera, X,
-  ZoomIn, ZoomOut, RotateCw, GripVertical, Eye, EyeOff, ChevronUp, ChevronDown, RefreshCw, Sparkles, Copy, Check, ClipboardPaste,
-  Layers,
-  Boxes
-} from 'lucide-react'
-import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
-import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
-import { ConciliadorAmpliadoStockModal } from '@/components/admin/ConciliadorAmpliadoStockModal'
-import { PasteExcelProductosModal } from '@/components/admin/inventario/PasteExcelProductosModal'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import {
-  ADMIN_ROUTES, TIPO_MOVIMIENTO_ICONS, TIPO_MOVIMIENTO_COLORS,
-} from '@/lib/constants'
-import {
-  guardarNotaAction,
-  actualizarNotaAction,
-  subirComprobanteNotaAction,
-  validarDisponibilidadNotaAction,
-  type ResolvedProductoPegado,
-} from '@/modules/inventario/actions'
-import type {
-  CatalogosInventario, DraftNota, DraftProducto,
-  ProductoBusqueda, CajaParaSelector, NotaCompleta, NotaOcrPropuestaLineRaw, NotaOcrPropuesta,
-  ProductoSustitutoFamilia, ProductoSustitutoAmpliado,
-  FaltanteStock, ResultadoValidacionNota
-} from '@/modules/inventario/types'
-import { ModalStockInsuficiente } from '@/components/admin/inventario/ModalStockInsuficiente'
-import { SkuQuickSearchInput, type SkuSearchResultItem } from '@/components/admin/SkuQuickSearchInput'
-import {
-  agregarLineasPorClave,
-  ajustarLineasADisponible,
-  claveStock,
-  consolidarLineas,
-  type LineaStock,
-} from '@/lib/inventario/validacion-stock'
+import { toast } from 'sonner'
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Save } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ADMIN_ROUTES } from '@/lib/constants'
+import { formatForDateInput } from '@/lib/utils'
+import { agregarLineasPorClave } from '@/lib/inventario/validacion-stock'
+import { isModoSoloCajas, type ConfigInventario } from '@/modules/inventario/config-types'
+import type { ResolvedProductoPegado } from '@/modules/inventario/actions'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
-import { cn, todayMX, formatForDateInput, formatDate } from '@/lib/utils'
-import { NotaFechaPicker } from '@/components/admin/NotaFechaPicker'
-
-const NO_CAJA_VALUE = '_none'
-
-import { OcrUploadModal } from '../propuestas/OcrUploadModal'
-
-import type { ConfigInventario } from '@/modules/inventario/config-types'
-import { isModoSoloCajas } from '@/modules/inventario/config-types'
+import type {
+  CatalogosInventario,
+  DraftNota,
+  DraftProducto,
+  NotaCompleta,
+  NotaOcrPropuesta,
+  NotaOcrPropuestaLineRaw,
+  ProductoBusqueda,
+  ProductoSustitutoAmpliado,
+  ProductoSustitutoFamilia,
+} from '@/modules/inventario/types'
+import { useNotaComprobante } from './_hooks/use-nota-comprobante'
+import { useNotaBuscador } from './_hooks/use-nota-buscador'
+import { useNotaValidacion } from './_hooks/use-nota-validacion'
+import { buildInitialDraft, computeOcrHeaderDiffs } from './_hooks/nota-draft-helpers'
+import { NotaOcrMismatchBanner } from './_components/NotaOcrMismatchBanner'
+import { NotaHeaderCard } from './_components/NotaHeaderCard'
+import { NotaAddProductForm } from './_components/NotaAddProductForm'
+import { NotaProductosTable } from './_components/NotaProductosTable'
+import { NotaVisorPanel } from './_components/NotaVisorPanel'
+import { NotaModales } from './_components/NotaModales'
 
 type Props = {
   catalogos: CatalogosInventario
@@ -89,192 +52,74 @@ type Props = {
   userRoleId?: number
 }
 
-const TIPO_MOV_ICONS_COMP = {
-  ENT: ArrowDownLeft,
-  SAL: ArrowUpRight,
-  TRF: ArrowLeftRight,
-  AJU: Scale,
-  DEV: RotateCcw,
-}
-
 export function NoteDraftBuilder({
-  catalogos, usuarioId, mode, notaId, initialData,
-  currentUserLevel, userBodegas, ocrProposalId, ocrProposal, defaultBodegaOrigenId, initialOcrLineas, autoOpenOcrSync, config, userRoleId
+  catalogos,
+  usuarioId,
+  mode,
+  notaId,
+  initialData,
+  currentUserLevel,
+  userBodegas,
+  ocrProposalId,
+  ocrProposal,
+  defaultBodegaOrigenId,
+  initialOcrLineas,
+  autoOpenOcrSync,
+  config,
+  userRoleId,
 }: Props) {
-  const router = useRouter()
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [draft, setDraft] = useState<DraftNota>(() =>
+    buildInitialDraft({ mode, initialData, catalogos, defaultBodegaOrigenId, config, currentUserLevel, userRoleId })
+  )
 
-  // ── Modal de Sincronización y Edición OCR ─────────────────
   const [showOcrSyncModal, setShowOcrSyncModal] = useState<boolean>(!!autoOpenOcrSync)
   const [ocrRawLineas, setOcrRawLineas] = useState<NotaOcrPropuestaLineRaw[]>(
     initialOcrLineas ?? (initialData?.cabecera as any)?.ocr_lineas ?? []
   )
-
-  // ── Cambio de Bodega Origen con confirmación y recalcular stock ─────
   const [pendingBodegaOrigenId, setPendingBodegaOrigenId] = useState<number | null>(null)
-  const [showChangeBodegaDialog, setShowChangeBodegaDialog] = useState<boolean>(false)
-  const [isChangingBodega, setIsChangingBodega] = useState<boolean>(false)
-
-  // ── Cambio de Tipo de Movimiento con confirmación ───────────
+  const [showChangeBodegaDialog, setShowChangeBodegaDialog] = useState(false)
+  const [isChangingBodega, setIsChangingBodega] = useState(false)
   const [pendingTipoMovimientoId, setPendingTipoMovimientoId] = useState<number | null>(null)
-  const [showChangeTipoDialog, setShowChangeTipoDialog] = useState<boolean>(false)
-
-  const handleApplyOcrLinesToDraft = (newProducts: DraftProducto[], updatedRawLineas: NotaOcrPropuestaLineRaw[]) => {
-    setOcrRawLineas(updatedRawLineas)
-    if (newProducts.length > 0) {
-      setDraft((prev) => ({
-        ...prev,
-        productos: newProducts,
-      }))
-      const msg = `Se sincronizaron ${newProducts.length} productos del OCR en la nota.`
-      setSuccess(msg)
-      toast.success(msg)
-    }
-  }
-
-  // ── Copiar Tabla de Productos a Excel (TSV) ──────────────
+  const [showChangeTipoDialog, setShowChangeTipoDialog] = useState(false)
+  const [dismissedHeaderMismatch, setDismissedHeaderMismatch] = useState(false)
+  const [showOpcionesOpcionales, setShowOpcionesOpcionales] = useState(
+    !!ocrProposalId || !!initialData?.cabecera.comprobante_url
+  )
   const [copiedDraft, setCopiedDraft] = useState(false)
-
-  const handleCopyDraftExcel = async () => {
-    if (draft.productos.length === 0) {
-      toast.error('No hay productos en la nota para copiar.')
-      return
-    }
-
-    try {
-      const header = ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
-      const rows = draft.productos.map((p) => {
-        const sku = p.producto_sku ?? '—'
-        const nombre = p.producto_nombre ?? '—'
-        const caja = p.caja_codigo ? `${p.caja_codigo}${p.caja_nombre_pack ? ` (${p.caja_nombre_pack})` : ''}` : '—'
-        const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
-
-        return [sku, nombre, caja, p.cajas, p.piezas_sueltas, totalEst].join('\t')
-      })
-
-      const tsvContent = [header, ...rows].join('\n')
-      await navigator.clipboard.writeText(tsvContent)
-
-      setCopiedDraft(true)
-      toast.success('Tabla copiada al portapapeles en formato Excel (TSV)')
-      setTimeout(() => setCopiedDraft(false), 2000)
-    } catch (err) {
-      toast.error('No se pudo copiar la tabla.')
-    }
-  }
-
-  // Visor OCR: pan + zoom unificado (mouse y táctil); la rueda normal scrollea
-  const visor = usePanZoom({ max: 3, wheel: 'ctrl' })
-  const visorRef = useRef<HTMLDivElement | null>(null)
-  useNativeWheel(visorRef, visor.handleWheel)
+  const [showExtraCols, setShowExtraCols] = useState(false)
+  const [mostrarPiezas, setMostrarPiezas] = useState(false)
+  const [showPasteExcelModal, setShowPasteExcelModal] = useState(false)
+  const [showConciliadorModal, setShowConciliadorModal] = useState(false)
+  const [sustitutoModalOpen, setSustitutoModalOpen] = useState(false)
+  const [sustitutoTargetProduct, setSustitutoTargetProduct] = useState<{
+    tempId: string
+    productoId: number
+    sku: string
+    nombre: string | null
+  } | null>(null)
 
   const esCreador = mode === 'create' || initialData?.cabecera.usuario_id === usuarioId
   const esAdmin = currentUserLevel <= 2
   const esEncargado = currentUserLevel === 3
-  const esTransferencia = mode === 'edit' && initialData?.cabecera.bodega_destino_id !== undefined && initialData?.cabecera.bodega_destino_id !== null
-
+  const esTransferencia =
+    mode === 'edit' &&
+    initialData?.cabecera.bodega_destino_id !== undefined &&
+    initialData?.cabecera.bodega_destino_id !== null
   const todoBloqueado = !esAdmin && !esCreador && !(esEncargado && esTransferencia)
   const soloEditaDestino = !esAdmin && !esCreador && esEncargado && esTransferencia
 
-  // ── Draft state ─────────────────────────────────────────
-  const [draft, setDraft] = useState<DraftNota>(() => {
-    if (mode === 'edit' && initialData) {
-      return {
-        tipo_movimiento_id: catalogos.tiposMovimiento.find(
-          (t) => t.codigo === initialData.cabecera.tipo_codigo
-        )?.id ?? null,
-        bodega_origen_id: catalogos.bodegas.find(
-          (b) => b.codigo === initialData.cabecera.bodega_origen_codigo
-        )?.id ?? null,
-        bodega_destino_id: initialData.cabecera.bodega_destino_codigo
-          ? catalogos.bodegas.find(
-              (b) => b.codigo === initialData.cabecera.bodega_destino_codigo
-            )?.id ?? null
-          : null,
-        fecha_nota: initialData.cabecera.fecha_nota
-          ? formatForDateInput(initialData.cabecera.fecha_nota)
-          : todayMX(),
-        nota_referencia: initialData.cabecera.nota_referencia ?? '',
-        observaciones: initialData.cabecera.observaciones ?? '',
-        costo_total: initialData.cabecera.costo_total ?? 0,
-        productos: initialData.detalles.map((d) => ({
-          tempId: crypto.randomUUID(),
-          producto_id: d.producto_id!,
-          producto_sku: d.producto_sku ?? '',
-          producto_nombre: d.producto_nombre,
-          producto_pz_en_caja: d.producto_pz_en_caja,
-          cajas: d.cajas,
-          piezas_sueltas: d.piezas_sueltas,
-          caja_id: d.caja_id,
-          caja_codigo: d.caja_codigo,
-          caja_nombre_pack: d.caja_nombre_pack,
-          stock_origen_cajas: 0,
-          stock_origen_piezas: 0,
-        })),
-      }
-    }
-    // Obtener tipo de movimiento default según rol / nivel del usuario
-    const rKey = userRoleId ? String(userRoleId) : ''
-    const nKey = String(currentUserLevel)
-    const defaultTipoCodigo =
-      (rKey && config?.tipo_movimiento_default_por_rol?.[rKey]) ||
-      config?.tipo_movimiento_default_por_rol?.[nKey] ||
-      config?.tipo_movimiento_default_general ||
-      (userRoleId === 18 ? 'SAL' : 'ENT')
+  const allowedBodegas =
+    currentUserLevel <= 2
+      ? catalogos.bodegas
+      : catalogos.bodegas.filter(
+          (b) =>
+            userBodegas.some((ub) => ub.id === b.id) ||
+            b.id === draft.bodega_origen_id ||
+            b.id === draft.bodega_destino_id
+        )
 
-    const matchedDefaultTipo = catalogos.tiposMovimiento.find((t) => t.codigo === defaultTipoCodigo)
-    const initialTipoIdPorRol = (config?.auto_seleccionar_tipo_default !== false) ? (matchedDefaultTipo?.id ?? null) : null
-    const initialBodegaOrigenId = (config?.auto_seleccionar_bodega_activa !== false && defaultBodegaOrigenId)
-      ? defaultBodegaOrigenId
-      : null
-
-    // Si viene de propuesta OCR
-    if (initialData && (initialData.cabecera as any).productos_draft) {
-      const hc = initialData.cabecera as any
-      const ocrPriorizar = config?.ocr_priorizar_tipo_detectado !== false
-      const finalOcrTipoId = ocrPriorizar && hc.tipo_movimiento_id
-        ? hc.tipo_movimiento_id
-        : (initialTipoIdPorRol ?? hc.tipo_movimiento_id ?? null)
-
-      return {
-        tipo_movimiento_id: finalOcrTipoId,
-        bodega_origen_id: hc.bodega_origen_id || initialBodegaOrigenId,
-        bodega_destino_id: hc.bodega_destino_id ?? null,
-        fecha_nota: hc.fecha_nota ? formatForDateInput(hc.fecha_nota) : todayMX(),
-        nota_referencia: hc.nota_referencia ?? '',
-        observaciones: hc.observaciones ?? '',
-        costo_total: 0,
-        productos: hc.productos_draft || [],
-      }
-    }
-
-    return {
-      tipo_movimiento_id: initialTipoIdPorRol,
-      bodega_origen_id: initialBodegaOrigenId,
-      bodega_destino_id: null,
-      fecha_nota: todayMX(),
-      nota_referencia: '',
-      observaciones: '',
-      costo_total: 0,
-      productos: [],
-    }
-  })
-
-  // Bodegas permitidas según el nivel de acceso del usuario
-  const allowedBodegas = currentUserLevel <= 2
-    ? catalogos.bodegas
-    : catalogos.bodegas.filter((b) => 
-        userBodegas.some((ub) => ub.id === b.id) || 
-        b.id === draft.bodega_origen_id || 
-        b.id === draft.bodega_destino_id
-      )
-
-  // Tipos de movimiento permitidos según configuración de roles
   const rolKey = userRoleId ? String(userRoleId) : ''
   const nivelKey = String(currentUserLevel)
-
   const allowedCodigos =
     (rolKey && config?.permisos_tipos_movimiento?.[rolKey]) ||
     config?.permisos_tipos_movimiento?.[nivelKey] ||
@@ -282,88 +127,62 @@ export function NoteDraftBuilder({
 
   const tiposMovimientoVisibles = catalogos.tiposMovimiento.filter((t) => {
     if (currentUserLevel === 1) return true
-
-    // Si es devolución (DEV) y el usuario es Nivel 3+:
     if (t.codigo === 'DEV' && currentUserLevel > 2) {
-      const tienePermisoDevolucionIndividual = userBodegas.some((ub) => {
-        const key = `${usuarioId}_${ub.id}`
-        return config?.permisos_devolucion_usuario_bodega?.[key] === true
-      })
-      const permitidoPorRol = allowedCodigos.includes('DEV')
-      if (!permitidoPorRol && !tienePermisoDevolucionIndividual) return false
-    } else {
-      // Si no está permitido en la configuración de tipos para este rol/nivel, excluir
-      if (!allowedCodigos.includes(t.codigo as any)) return false
+      const hasDev = userBodegas.some((ub) => config?.permisos_devolucion_usuario_bodega?.[`${usuarioId}_${ub.id}`])
+      if (!allowedCodigos.includes('DEV') && !hasDev) return false
+    } else if (!allowedCodigos.includes(t.codigo as any)) {
+      return false
     }
-
-    // Si es traspaso (TRF) y el usuario es Nivel 3+, verificar si tiene asignada alguna bodega con permiso de transferir
     if (t.codigo === 'TRF' && currentUserLevel > 2) {
-      const tienePermisoTransferir = userBodegas.some(
-        (ub) => (ub.permisos_bodega?.puede_transferir ?? (ub as any).puede_transferir) === true
-      )
-      if (!tienePermisoTransferir) return false
+      return userBodegas.some((ub) => (ub.permisos_bodega?.puede_transferir ?? (ub as any).puede_transferir) === true)
     }
-
     return true
   })
 
-  // ── Permiso para editar tipo de movimiento y bodegas en borrador ───
-  const puedeEditarTipo = mode === 'create' || (config?.permitir_editar_tipo_movimiento !== false && !todoBloqueado && !soloEditaDestino)
+  const tipoSeleccionado = catalogos.tiposMovimiento.find((t) => t.id === draft.tipo_movimiento_id)
+  const esAjuste = tipoSeleccionado?.codigo === 'AJU'
+  const modoSoloCajas = isModoSoloCajas(config)
+  const esMovimientoSalidaOTraslado =
+    tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF' || tipoSeleccionado?.afecta_inventario === -1
+  const permitirStockNegativo = config?.permitir_stock_negativo === true
 
-  const puedeEditarBodegaOrigen = mode === 'create' || (
-    config?.permitir_editar_bodega_origen !== false &&
-    !isChangingBodega &&
-    (esAdmin || esCreador)
-  )
-
-  const puedeEditarBodegaDestino = mode === 'create' || (
-    config?.permitir_editar_bodega_origen !== false &&
-    (esAdmin || esCreador || esEncargado)
-  )
-
-  // ── Handlers para Tipo de Movimiento ──────────────────────
-  const handleRequestTipoMovimientoChange = (newTipoId: number) => {
-    if (newTipoId === draft.tipo_movimiento_id) return
-
-    if (draft.productos.length > 0 || mode === 'edit') {
-      setPendingTipoMovimientoId(newTipoId)
-      setShowChangeTipoDialog(true)
-    } else {
-      applyTipoMovimientoChange(newTipoId)
-    }
-  }
-
-  const applyTipoMovimientoChange = (newTipoId: number) => {
-    setShowChangeTipoDialog(false)
-    const targetTipo = catalogos.tiposMovimiento.find((t) => t.id === newTipoId)
-
-    setDraft((prev) => ({
-      ...prev,
-      tipo_movimiento_id: newTipoId,
-      bodega_destino_id: targetTipo?.requiere_destino ? prev.bodega_destino_id : null,
+  const agregadoPorClave = agregarLineasPorClave(
+    draft.productos.map((p) => ({
+      producto_id: p.producto_id,
+      producto_sku: p.producto_sku,
+      producto_nombre: p.producto_nombre,
+      caja_id: p.caja_id,
+      caja_codigo: p.caja_codigo,
+      cajas: p.cajas,
+      piezas_sueltas: p.piezas_sueltas,
     }))
+  )
+  const hayRenglonesDuplicados = Array.from(agregadoPorClave.values()).filter((a) => a.renglones > 1).length
+  const productosConDeficit = draft.bodega_origen_id
+    ? draft.productos.filter((p) =>
+        esMovimientoSalidaOTraslado
+          ? p.cajas > (p.stock_origen_cajas ?? 0)
+          : esAjuste && p.cajas < 0
+          ? Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0)
+          : false
+      )
+    : []
 
-    toast.success(`Tipo de movimiento actualizado a "${targetTipo?.nombre || 'nuevo tipo'}".`)
-    setPendingTipoMovimientoId(null)
-  }
+  const comprobante = useNotaComprobante(initialData?.cabecera.comprobante_url)
+  const [validacionErrorSetter, setValidacionErrorSetter] = useState<((msg: string | null) => void) | null>(null)
 
-  // ── Handlers e Inferencias para Bodega Origen y OCR ────────
-  const handleRequestBodegaOrigenChange = (newBodegaId: number) => {
-    if (newBodegaId === draft.bodega_origen_id) return
-
-    if (draft.productos.length > 0 || mode === 'edit') {
-      setPendingBodegaOrigenId(newBodegaId)
-      setShowChangeBodegaDialog(true)
-    } else {
-      applyBodegaOrigenChange(newBodegaId)
-    }
-  }
+  const buscador = useNotaBuscador({
+    bodegaOrigenId: draft.bodega_origen_id,
+    esAjuste,
+    modoSoloCajas,
+    setDraft,
+    setError: (m) => validacionErrorSetter?.(m),
+  })
 
   const applyBodegaOrigenChange = async (newBodegaId: number) => {
     setShowChangeBodegaDialog(false)
     setIsChangingBodega(true)
     const targetBodega = catalogos.bodegas.find((b) => b.id === newBodegaId)
-
     setDraft((prev) => ({
       ...prev,
       bodega_origen_id: newBodegaId,
@@ -377,2864 +196,538 @@ export function NoteDraftBuilder({
             const res = await fetch(
               `/api/inventario/notas/nueva/stock?producto_id=${p.producto_id}&bodega_id=${newBodegaId}`
             )
-            if (res.ok) {
-              const stockData = await res.json()
-              return {
-                ...p,
-                stock_origen_cajas: stockData.cajas ?? 0,
-                stock_origen_piezas: stockData.piezas_sueltas ?? 0,
-              }
-            }
-            return p
+            if (!res.ok) return p
+            const stockData = await res.json()
+            return { ...p, stock_origen_cajas: stockData.cajas ?? 0, stock_origen_piezas: stockData.piezas_sueltas ?? 0 }
           })
         )
-        setDraft((prev) => ({
-          ...prev,
-          productos: updatedProducts,
-        }))
+        setDraft((prev) => ({ ...prev, productos: updatedProducts }))
       } catch (err) {
         console.error('Error al actualizar existencias de la bodega de origen:', err)
       }
     }
-
-    if (selectedProduct) {
-      fetchStock(selectedProduct.id, newBodegaId)
-    }
-
+    if (buscador.selectedProduct) buscador.fetchStock(buscador.selectedProduct.id, newBodegaId)
     toast.success(`Bodega de origen actualizada a "${targetBodega?.nombre || 'nueva bodega'}".`)
     setPendingBodegaOrigenId(null)
     setIsChangingBodega(false)
   }
 
-  // ── Normalizador de Bodegas y Comparación Unificada OCR ───
-  function normalizarTextoBodega(raw: string): string {
-    if (!raw) return ''
-    let s = String(raw).toUpperCase().trim()
-    s = s.replace(/COSINA/g, 'COCINA')
-    s = s.replace(/RIKA|RI Y KA|RI&KA/g, 'RI&KA')
-    s = s.replace(/PANTACO|PANTACO 1/g, 'PANTACO')
-    s = s.replace(/DURASNO/g, 'DURAZNO')
-    s = s.replace(/SANDUNGA/g, 'ZANDUNGA')
-    s = s.replace(/CHICONKUAC/g, 'CHICONCUAC')
-    return s
-  }
+  const validacion = useNotaValidacion({
+    mode,
+    notaId,
+    ocrProposalId,
+    draft,
+    setDraft,
+    comprobanteFile: comprobante.comprobanteFile,
+    hayDeficitStock: productosConDeficit.length > 0,
+    permitirStockNegativo,
+    applyBodegaOrigenChange,
+  })
 
-  const [dismissedHeaderMismatch, setDismissedHeaderMismatch] = useState<boolean>(false)
+  useEffect(() => {
+    setValidacionErrorSetter(() => validacion.setError)
+  }, [validacion.setError])
 
-  const detectedOrigenRaw = (
-    ocrProposal?.origen_detectado ||
-    (initialData?.cabecera as any)?.origen_detectado ||
-    ''
-  ).trim()
-
-  const detectedDestinoRaw = (
-    ocrProposal?.destino_detectado ||
-    (initialData?.cabecera as any)?.destino_detectado ||
-    ''
-  ).trim()
-
-  const detectedTipoRaw = (
-    ocrProposal?.tipo_movimiento_detectado ||
-    (initialData?.cabecera as any)?.tipo_movimiento_detectado ||
-    ''
-  ).trim().toUpperCase()
-
-  const detectedFechaRaw = (
-    ocrProposal?.fecha_detectada ||
-    (initialData?.cabecera as any)?.fecha_detectada ||
-    (ocrProposal?.json_crudo as any)?.fecha ||
-    ''
-  )
-
-  const detectedFolioRaw = (
-    ocrProposal?.folio_detectado ||
-    (initialData?.cabecera as any)?.folio_detectado ||
-    (ocrProposal?.json_crudo as any)?.folio ||
-    ''
-  )
-
-  const detectedBodega = detectedOrigenRaw
-    ? (
-        (ocrProposal?.bodega_origen_id && catalogos.bodegas.find((b) => b.id === Number(ocrProposal.bodega_origen_id))) ||
-        catalogos.bodegas.find((b) => {
-          const rawNorm = normalizarTextoBodega(detectedOrigenRaw)
-          const bName = b.nombre.toUpperCase().trim()
-          const bCode = b.codigo.toUpperCase().trim()
-          return bName === rawNorm || bCode === rawNorm || rawNorm.includes(bName) || bName.includes(rawNorm)
-        })
-      )
-    : null
-
-  const detectedDestinoBodega = detectedDestinoRaw
-    ? (
-        (ocrProposal?.bodega_destino_id && catalogos.bodegas.find((b) => b.id === Number(ocrProposal.bodega_destino_id))) ||
-        catalogos.bodegas.find((b) => {
-          const rawNorm = normalizarTextoBodega(detectedDestinoRaw)
-          const bName = b.nombre.toUpperCase().trim()
-          const bCode = b.codigo.toUpperCase().trim()
-          return bName === rawNorm || bCode === rawNorm || rawNorm.includes(bName) || bName.includes(rawNorm)
-        })
-      )
-    : null
-
-  const detectedTipoObj = detectedTipoRaw
-    ? (
-        (ocrProposal?.tipo_movimiento_id && catalogos.tiposMovimiento.find((t) => t.id === Number(ocrProposal.tipo_movimiento_id))) ||
-        catalogos.tiposMovimiento.find((t) => t.codigo === detectedTipoRaw || t.nombre.toUpperCase() === detectedTipoRaw)
-      )
-    : null
-
-  const isOcrNote = Boolean(
-    ocrProposalId || 
-    (ocrProposal && ocrProposal.origen_detectado) || 
-    detectedOrigenRaw || 
-    detectedTipoRaw ||
-    detectedFechaRaw ||
-    detectedFolioRaw
-  )
-
-  const currentBodegaObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
-  const currentDestinoObj = catalogos.bodegas.find((b) => b.id === draft.bodega_destino_id)
-
-  const hasTipoMismatch = isOcrNote && Boolean(detectedTipoObj) && draft.tipo_movimiento_id !== detectedTipoObj?.id
-
-  const hasOriginMismatch = isOcrNote && Boolean(detectedOrigenRaw) && (
-    detectedBodega
-      ? draft.bodega_origen_id !== detectedBodega.id
-      : !currentBodegaObj || !normalizarTextoBodega(currentBodegaObj.nombre).includes(normalizarTextoBodega(detectedOrigenRaw))
-  )
-
-  const hasDestinoMismatch = isOcrNote && Boolean(detectedDestinoBodega) && draft.bodega_destino_id !== detectedDestinoBodega?.id
-
-  const hasFechaMismatch = isOcrNote && Boolean(detectedFechaRaw) && draft.fecha_nota !== formatForDateInput(detectedFechaRaw)
-
-  const hasFolioMismatch = isOcrNote && Boolean(detectedFolioRaw) && draft.nota_referencia !== detectedFolioRaw
-
-  const hasAnyHeaderMismatch = !dismissedHeaderMismatch && isOcrNote && (
-    hasTipoMismatch || hasOriginMismatch || hasDestinoMismatch || hasFechaMismatch || hasFolioMismatch
-  )
-
-  // Pre-selección de bodega de origen priorizando la bodega activa del encabezado
   useEffect(() => {
     if (mode === 'create' && !draft.bodega_origen_id && allowedBodegas.length > 0) {
-      const cookieBodegaId = typeof document !== 'undefined'
-        ? parseInt(document.cookie.split('; ').find(row => row.startsWith('bodega_activa_id='))?.split('=')[1] || '0', 10)
-        : 0;
-
-      const headerBodega = cookieBodegaId > 0 && allowedBodegas.find(b => b.id === cookieBodegaId);
-
+      const cookieBodegaId =
+        typeof document !== 'undefined'
+          ? parseInt(document.cookie.split('; ').find((row) => row.startsWith('bodega_activa_id='))?.split('=')[1] || '0', 10)
+          : 0
+      const headerBodega = cookieBodegaId > 0 && allowedBodegas.find((b) => b.id === cookieBodegaId)
       const sugerida = headerBodega
         ? headerBodega.id
-        : (defaultBodegaOrigenId && allowedBodegas.some(b => b.id === defaultBodegaOrigenId)
-            ? defaultBodegaOrigenId
-            : (userBodegas[0]?.id ?? allowedBodegas[0]?.id))
-
-      if (sugerida) {
-        setDraft((prev) => ({ ...prev, bodega_origen_id: sugerida }))
-      }
+        : defaultBodegaOrigenId && allowedBodegas.some((b) => b.id === defaultBodegaOrigenId)
+        ? defaultBodegaOrigenId
+        : userBodegas[0]?.id ?? allowedBodegas[0]?.id
+      if (sugerida) setDraft((prev) => ({ ...prev, bodega_origen_id: sugerida }))
     }
   }, [mode, defaultBodegaOrigenId, allowedBodegas, userBodegas, draft.bodega_origen_id])
 
-  // Estado para desplegar herramientas secundarias opcionales (OCR/Foto)
-  const [showOpcionesOpcionales, setShowOpcionesOpcionales] = useState<boolean>(!!ocrProposalId || !!initialData?.cabecera.comprobante_url)
-
-  // ── Comprobante Físico ───────────────────────────────────
-  const [comprobanteFile, setComprobanteFile] = useState<File | null>(null)
-  const [comprobantePreview, setComprobantePreview] = useState<string | null>(initialData?.cabecera.comprobante_url ?? null)
-  const [isDraggingComprobante, setIsDraggingComprobante] = useState(false)
-
-  const processComprobanteFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Por favor selecciona un archivo de imagen válido (.jpg, .png, .webp).')
-      return
-    }
-    setComprobanteFile(file)
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setComprobantePreview(reader.result as string)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      processComprobanteFile(file)
-    }
-  }
-
-  const handlePasteComprobanteFromClipboard = async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.read) {
-        toast.info('Presiona Ctrl + V para pegar la imagen del portapapeles.')
-        return
-      }
-      const items = await navigator.clipboard.read()
-      let found = false
-      for (const item of items) {
-        const imageType = item.types.find((t) => t.startsWith('image/'))
-        if (imageType) {
-          const blob = await item.getType(imageType)
-          const ext = imageType.split('/')[1] || 'jpg'
-          const file = new File([blob], `comprobante_${Date.now()}.${ext}`, { type: imageType })
-          processComprobanteFile(file)
-          toast.success('¡Comprobante pegado desde el portapapeles!')
-          found = true
-          break
-        }
-      }
-      if (!found) {
-        toast.error('No se encontró ninguna imagen en el portapapeles.')
-      }
-    } catch (err) {
-      console.error(err)
-      toast.info('No se pudo leer el portapapeles directamente. Presiona Ctrl + V.')
-    }
-  }
-
-  const handleComprobanteDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDraggingComprobante(true)
-  }
-
-  const handleComprobanteDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDraggingComprobante(false)
-  }
-
-  const handleComprobanteDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDraggingComprobante(false)
-    const droppedFiles = e.dataTransfer.files
-    if (droppedFiles && droppedFiles.length > 0) {
-      processComprobanteFile(droppedFiles[0])
-      toast.success('¡Comprobante cargado correctamente!')
-    }
-  }
-
-  const handleClearFile = () => {
-    setComprobanteFile(null)
-    setComprobantePreview(null)
-    setIsDraggingComprobante(false)
-  }
-
-  // Verificar si puede confirmar en la bodega origen seleccionada
-  const selectedBodegaObj = userBodegas.find((b) => b.id === draft.bodega_origen_id)
-  const puedeConfirmar = currentUserLevel <= 2 || !!selectedBodegaObj?.permisos_bodega?.puede_confirmar_notas
-
-  // ── Búsqueda de productos ───────────────────────────────
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchResults, setSearchResults] = useState<ProductoBusqueda[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<ProductoBusqueda | null>(null)
-  const [cajasDisponibles, setCajasDisponibles] = useState<CajaParaSelector[]>([])
-
-  // AbortControllers para cancelar consultas en vuelo
-  const searchAbortRef = useRef<AbortController | null>(null)
-  const swapSearchAbortRef = useRef<AbortController | null>(null)
-
-  // Existencias en tiempo real
-  const [selectedProductStock, setSelectedProductStock] = useState<{ cajas: number; piezas_sueltas: number } | null>(null)
-
-  // Formulario de agregar producto
-  const [addCajas, setAddCajas] = useState<string>('1')
-  const [addPiezas, setAddPiezas] = useState<string>('0')
-  const [addCajaId, setAddCajaId] = useState<string>(NO_CAJA_VALUE)
-
-  // Confirmación
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-
-  // ── Tipo seleccionado ───────────────────────────────────
-  const tipoSeleccionado = catalogos.tiposMovimiento.find(
-    (t) => t.id === draft.tipo_movimiento_id
-  )
-
-  // ── Consulta de existencias en bodega origen ──────────────
-  const fetchStock = useCallback(async (prodId: number, bodId: number) => {
-    try {
-      const res = await fetch(`/api/inventario/notas/nueva/stock?producto_id=${prodId}&bodega_id=${bodId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setSelectedProductStock(data)
-      } else {
-        setSelectedProductStock({ cajas: 0, piezas_sueltas: 0 })
-      }
-    } catch {
-      setSelectedProductStock({ cajas: 0, piezas_sueltas: 0 })
-    }
-  }, [])
-
-  // Re-fetch stock si cambia bodega o producto
-  useEffect(() => {
-    if (selectedProduct && draft.bodega_origen_id) {
-      fetchStock(selectedProduct.id, draft.bodega_origen_id)
-    }
-  }, [draft.bodega_origen_id, selectedProduct, fetchStock])
-
-  // Cargar existencias de los productos ya guardados al entrar en modo edición
   useEffect(() => {
     if (mode === 'edit' && draft.bodega_origen_id && draft.productos.length > 0) {
-      const loadExistingStocks = async () => {
-        try {
-          const updatedProducts = await Promise.all(
-            draft.productos.map(async (p) => {
-              const res = await fetch(
-                `/api/inventario/notas/nueva/stock?producto_id=${p.producto_id}&bodega_id=${draft.bodega_origen_id}`
-              )
-              if (res.ok) {
-                const stockData = await res.json()
-                return {
-                  ...p,
-                  stock_origen_cajas: stockData.cajas,
-                  stock_origen_piezas: stockData.piezas_sueltas,
-                }
-              }
-              return p
-            })
+      Promise.all(
+        draft.productos.map(async (p) => {
+          const res = await fetch(
+            `/api/inventario/notas/nueva/stock?producto_id=${p.producto_id}&bodega_id=${draft.bodega_origen_id}`
           )
-          setDraft((prev) => ({
-            ...prev,
-            productos: updatedProducts,
-          }))
-        } catch (err) {
-          console.error('Error al cargar existencias de productos existentes:', err)
-        }
-      }
-      loadExistingStocks()
+          if (!res.ok) return p
+          const stockData = await res.json()
+          return { ...p, stock_origen_cajas: stockData.cajas, stock_origen_piezas: stockData.piezas_sueltas }
+        })
+      )
+        .then((updated) => setDraft((prev) => ({ ...prev, productos: updated })))
+        .catch((err) => console.error('Error al cargar existencias:', err))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, draft.bodega_origen_id])
 
-  // ── Búsqueda con debounce y cancelación en vuelo ───────
-  const doSearch = useDebouncedCallback(async (term: string) => {
-    const clean = term.trim()
-    if (clean.length < 1) {
-      if (searchAbortRef.current) searchAbortRef.current.abort()
-      setSearchResults([])
-      setIsSearching(false)
-      return
-    }
+  const ocrDiffs = computeOcrHeaderDiffs({
+    draft,
+    catalogos,
+    ocrProposalId,
+    ocrProposal,
+    initialData,
+    dismissed: dismissedHeaderMismatch,
+  })
 
-    // Cancelar consulta previa en vuelo para evitar condiciones de carrera
-    if (searchAbortRef.current) {
-      searchAbortRef.current.abort()
-    }
-    const abortController = new AbortController()
-    searchAbortRef.current = abortController
-
-    setIsSearching(true)
-    try {
-      const res = await fetch(
-        `/api/inventario/notas/nueva/search?q=${encodeURIComponent(clean)}`,
-        { signal: abortController.signal }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setSearchResults(data)
-      }
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        setSearchResults([])
-      }
-    } finally {
-      if (searchAbortRef.current === abortController) {
-        setIsSearching(false)
-      }
-    }
-  }, 200)
-
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value)
-    if (selectedProduct && value !== selectedProduct.sku_base) {
-      setSelectedProduct(null)
-      setSelectedProductStock(null)
-    }
-    if (value.trim().length === 0) {
-      if (searchAbortRef.current) searchAbortRef.current.abort()
-      setSearchResults([])
-      setIsSearching(false)
-    } else {
-      doSearch(value)
-    }
-  }
-
-  // ── Seleccionar producto de resultados ──────────────────
-  const handleSelectProduct = async (product: ProductoBusqueda) => {
-    setSelectedProduct(product)
-    setSearchResults([])
-    setSearchTerm(product.sku_base)
-    setAddCajas('1')
-    setAddPiezas('0')
-    setAddCajaId(NO_CAJA_VALUE)
-    setSelectedProductStock(null)
-
-    if (draft.bodega_origen_id) {
-      fetchStock(product.id, draft.bodega_origen_id)
-    }
-
-    // Cargar cajas del producto
-    try {
-      const res = await fetch(
-        `/api/inventario/notas/nueva/packs?producto_id=${product.id}`
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setCajasDisponibles(data)
-      }
-    } catch {
-      setCajasDisponibles([])
-    }
-  }
-
-  // ── Agregar producto al draft ───────────────────────────
-  const esAjuste = tipoSeleccionado?.codigo === 'AJU'
-
-  // ── Modo solo cajas (paso 1): piezas sueltas siempre 0 ──────
-  const modoSoloCajas = isModoSoloCajas(config)
-
-  const handleAddProduct = () => {
-    if (!selectedProduct) return
-
-    const cajasNum = parseFloat(addCajas) || 0
-    const piezasNum = modoSoloCajas ? 0 : (parseInt(addPiezas) || 0)
-
-    if (cajasNum === 0 && piezasNum === 0) {
-      setError(modoSoloCajas ? 'Ingresa al menos una caja.' : 'Ingresa al menos una caja o pieza.')
-      return
-    }
-
-    if (!esAjuste && (cajasNum < 0 || piezasNum < 0)) {
-      setError('Solo las notas de tipo Ajuste admiten cantidades negativas.')
-      return
-    }
-
-    const cajaSeleccionada = addCajaId && addCajaId !== NO_CAJA_VALUE
-      ? cajasDisponibles.find((c) => c.id === parseInt(addCajaId))
-      : null
-
-    const newProduct: DraftProducto = {
-      tempId: crypto.randomUUID(),
-      producto_id: selectedProduct.id,
-      producto_sku: selectedProduct.sku_base,
-      producto_nombre: selectedProduct.descripcion || selectedProduct.nombre || '',
-      producto_pz_en_caja: selectedProduct.pz_en_caja,
-      cajas: cajasNum,
-      piezas_sueltas: piezasNum,
-      caja_id: cajaSeleccionada?.id ?? null,
-      caja_codigo: cajaSeleccionada?.codigo_caja ?? null,
-      caja_nombre_pack: cajaSeleccionada?.nombre_pack ?? null,
-      stock_origen_cajas: selectedProductStock?.cajas ?? 0,
-      stock_origen_piezas: selectedProductStock?.piezas_sueltas ?? 0,
-    }
-
-    setDraft((prev) => ({
-      ...prev,
-      productos: [...prev.productos, newProduct],
-    }))
-
-    // Limpiar
-    setSelectedProduct(null)
-    setSearchTerm('')
-    setCajasDisponibles([])
-    setSelectedProductStock(null)
-    setAddCajas('1')
-    setAddPiezas('0')
-    setAddCajaId(NO_CAJA_VALUE)
-    setError(null)
-  }
-
-  // Estado para alternar visibilidad de las columnas secundarias (Caja física y Piezas)
-  const [showExtraCols, setShowExtraCols] = useState<boolean>(false)
-
-  // Toggle para ver columna Pz en modo solo cajas (solo lectura, las piezas van en 0)
-  const [mostrarPiezas, setMostrarPiezas] = useState<boolean>(false)
-  // Sin modo solo cajas la rige showExtraCols; con modo solo cajas la rige mostrarPiezas
-  const verPiezas = !modoSoloCajas ? showExtraCols : mostrarPiezas
-
-  // Estado y manejador para pegar productos desde Excel / Portapapeles
-  const [showPasteExcelModal, setShowPasteExcelModal] = useState<boolean>(false)
-
-  const handleApplyPastedProducts = (
-    items: ResolvedProductoPegado[],
-    modoFusion: 'sumar' | 'anexar'
-  ) => {
-    setDraft((prev) => {
-      const existingList = [...prev.productos]
-      const itemsToAdd: DraftProducto[] = []
-
-      for (const item of items) {
-        if (modoFusion === 'sumar') {
-          const existingIdx = existingList.findIndex(
-            (p) => p.producto_id === item.producto_id && (!p.caja_id || p.caja_id === null)
-          )
-          if (existingIdx >= 0) {
-            existingList[existingIdx] = {
-              ...existingList[existingIdx],
-              cajas: existingList[existingIdx].cajas + item.cajas,
-              stock_origen_cajas: item.stock_origen_cajas || existingList[existingIdx].stock_origen_cajas,
-              stock_origen_piezas: item.stock_origen_piezas || existingList[existingIdx].stock_origen_piezas,
-            }
-            continue
-          }
-        }
-
-        itemsToAdd.push({
-          tempId: crypto.randomUUID(),
-          producto_id: item.producto_id,
-          producto_sku: item.sku_base,
-          producto_nombre: item.nombre,
-          producto_pz_en_caja: item.pz_en_caja,
-          cajas: item.cajas,
-          piezas_sueltas: 0,
-          caja_id: null,
-          caja_codigo: null,
-          caja_nombre_pack: null,
-          stock_origen_cajas: item.stock_origen_cajas,
-          stock_origen_piezas: item.stock_origen_piezas,
-          codigo_original: item.sku_ingresado !== item.sku_base ? item.sku_ingresado : null,
-        })
-      }
-
-      return {
-        ...prev,
-        productos: [...existingList, ...itemsToAdd],
-      }
-    })
-
-    toast.success(`Se agregaron ${items.length} productos a la nota con éxito.`)
-  }
-
-  // ── Drag & Drop para reordenar productos con la manita ─────
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData('text/plain', index.toString())
-    e.dataTransfer.effectAllowed = 'move'
-    setDraggedIndex(index)
-  }
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (dragOverIndex !== index) {
-      setDragOverIndex(index)
-    }
-  }
-
-  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault()
-    const sourceIndexStr = e.dataTransfer.getData('text/plain')
-    const sourceIndex = parseInt(sourceIndexStr, 10)
-
-    if (isNaN(sourceIndex) || sourceIndex === targetIndex) {
-      setDraggedIndex(null)
-      setDragOverIndex(null)
-      return
-    }
-
-    setDraft((prev) => {
-      const list = [...prev.productos]
-      const [movedItem] = list.splice(sourceIndex, 1)
-      list.splice(targetIndex, 0, movedItem)
-      return { ...prev, productos: list }
-    })
-
-    setDraggedIndex(null)
-    setDragOverIndex(null)
-  }
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null)
-    setDragOverIndex(null)
-  }
-
-  // ── Sustituidor rápido de SKU manual ──────────────────────
-  const [swapProductTempId, setSwapProductTempId] = useState<string | null>(null)
-  const [swapSearchTerm, setSwapSearchTerm] = useState<string>('')
-  const [swapSearchResults, setSwapSearchResults] = useState<ProductoBusqueda[]>([])
-  const [isSearchingSwap, setIsSearchingSwap] = useState<boolean>(false)
-
-  // ── Modal de Sustitución Inteligente por Familia con Stock ─
-  const [sustitutoModalOpen, setSustitutoModalOpen] = useState(false)
-  const [sustitutoTargetProduct, setSustitutoTargetProduct] = useState<{
-    tempId: string
-    productoId: number
-    sku: string
-    nombre: string | null
-  } | null>(null)
-
-  const handleOpenSustitutosModal = (prod: DraftProducto) => {
-    setSustitutoTargetProduct({
-      tempId: prod.tempId,
-      productoId: prod.producto_id,
-      sku: prod.producto_sku,
-      nombre: prod.producto_nombre,
-    })
-    setSustitutoModalOpen(true)
-  }
-
-  const handleSelectSustituto = (
-    sustituto: ProductoSustitutoFamilia,
-    productoOriginalSku: string,
-    familia: string | null
-  ) => {
-    if (!sustitutoTargetProduct) return
-    const targetTempId = sustitutoTargetProduct.tempId
-
-    setDraft((prev) => {
-      const updatedProds = prev.productos.map((p) => {
-        if (p.tempId !== targetTempId) return p
-        return {
-          ...p,
-          producto_id: sustituto.id,
-          producto_sku: sustituto.sku_base,
-          producto_nombre: sustituto.descripcion || sustituto.nombre || '',
-          producto_pz_en_caja: sustituto.pz_en_caja,
-          stock_origen_cajas: sustituto.cajas_disponibles,
-          stock_origen_piezas: sustituto.piezas_disponibles,
-        }
-      })
-
-      // Agregar leyenda descriptiva a observaciones
-      const familiaTxt = familia ? ` de la familia '${familia}'` : ''
-      const logEntry = `[Auto-ajuste: Se sustituyó '${productoOriginalSku}' por '${sustituto.sku_base}'${familiaTxt} con existencias en bodega origen]`
-      const newObs = prev.observaciones
-        ? `${prev.observaciones.trim()}\n${logEntry}`
-        : logEntry
-
-      return {
-        ...prev,
-        productos: updatedProds,
-        observaciones: newObs,
-      }
-    })
-
-    toast.success(`Producto sustituido por '${sustituto.sku_base}' con existencias y registrado en observaciones.`)
-    setSustitutoTargetProduct(null)
-  }
-
-  // ── Modal Conciliador de Stock Ampliado (Paso 2) ───────────
-  const [showConciliadorModal, setShowConciliadorModal] = useState(false)
-
-  const handleReasignarProducto = (
-    tempId: string,
-    nuevoSustituto: ProductoSustitutoAmpliado | ProductoBusqueda,
-    codigoOriginalFisico: string
-  ) => {
-    setDraft((prev) => {
-      const updatedProds = prev.productos.map((p) => {
-        if (p.tempId !== tempId) return p
-        const pzEnCaja = ('pz_en_caja' in nuevoSustituto ? nuevoSustituto.pz_en_caja : null) ?? p.producto_pz_en_caja
-        const stockCajas = ('cajas_disponibles' in nuevoSustituto ? nuevoSustituto.cajas_disponibles : null) ?? p.stock_origen_cajas
-        const stockPiezas = ('piezas_disponibles' in nuevoSustituto ? nuevoSustituto.piezas_disponibles : null) ?? p.stock_origen_piezas
-
-        return {
-          ...p,
-          producto_id: nuevoSustituto.id,
-          producto_sku: nuevoSustituto.sku_base,
-          producto_nombre: nuevoSustituto.descripcion || nuevoSustituto.nombre || '',
-          producto_pz_en_caja: pzEnCaja,
-          stock_origen_cajas: stockCajas,
-          stock_origen_piezas: stockPiezas,
-          codigo_original: codigoOriginalFisico,
-        }
-      })
-
-      // Registrar en observaciones
-      const logEntry = `[Reasignación: Se descontará stock de '${nuevoSustituto.sku_base}' correspondiente al modelo físico '${codigoOriginalFisico}']`
-      const newObs = prev.observaciones
-        ? `${prev.observaciones.trim()}\n${logEntry}`
-        : logEntry
-
-      return {
-        ...prev,
-        productos: updatedProds,
-        observaciones: newObs,
-      }
-    })
-
-    toast.success(`Salida reasignada a '${nuevoSustituto.sku_base}' (Físico: ${codigoOriginalFisico})`)
-  }
-
-  // ── Evaluación de Stock Negativo según Configuración ─────────
-  const esMovimientoSalidaOTraslado =
-    tipoSeleccionado?.codigo === 'SAL' ||
-    tipoSeleccionado?.codigo === 'TRF' ||
-    tipoSeleccionado?.afecta_inventario === -1
-
-  const permitirStockNegativo = config?.permitir_stock_negativo === true
-
-  // Agregado por SKU + caja: el total que de verdad se descuenta del inventario
-  // (el trigger descuenta cada renglón contra el MISMO registro de stock).
-  // Usa el mismo motor puro que valida en el servidor.
-  const agregadoPorClave = agregarLineasPorClave(
-    draft.productos.map((p) => ({
-      producto_id: p.producto_id,
-      producto_sku: p.producto_sku,
-      producto_nombre: p.producto_nombre,
-      caja_id: p.caja_id,
-      caja_codigo: p.caja_codigo,
-      cajas: p.cajas,
-      piezas_sueltas: p.piezas_sueltas,
-    }))
-  )
-
-  const hayRenglonesDuplicados = Array.from(agregadoPorClave.values()).filter(
-    (a) => a.renglones > 1
-  ).length
-
-  const productosConDeficit = draft.bodega_origen_id
-    ? draft.productos.filter((p) => {
-        if (esMovimientoSalidaOTraslado) {
-          return p.cajas > (p.stock_origen_cajas ?? 0)
-        }
-        if (esAjuste && p.cajas < 0) {
-          return Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0)
-        }
-        return false
-      })
-    : []
-  const hayDeficitStock = productosConDeficit.length > 0
-
-  // Confirmación rápida de stock negativo cuando está permitido
-  const [pendingConfirmState, setPendingConfirmState] = useState<boolean>(false)
-
-  // ── Avisos informativos pre-guardado (nunca bloquean, como negativo permitido) ──
-  const BODEGA_DURAZNO_ID = 5
-  const BODEGA_COCINA_ID = 10
-  const [showRevisionDialog, setShowRevisionDialog] = useState(false)
-
-  // ── Pre-chequeo de stock (agregado por producto + caja) ──────
-  // El trigger `fn_procesar_nota_inventario` procesa `nota_detalle_productos`
-  // renglón por renglón y NO agrupa: un SKU en dos renglones (6 + 1) revienta
-  // al confirmar con un mensaje que no dice qué código falló.
-  const [showStockModal, setShowStockModal] = useState(false)
-  const [stockFaltantes, setStockFaltantes] = useState<FaltanteStock[]>([])
-  const [stockAvisoModo, setStockAvisoModo] = useState<'confirmar' | 'borrador'>('confirmar')
-  const [pendienteConfirmar, setPendienteConfirmar] = useState(false)
-  const [isValidandoStock, setIsValidandoStock] = useState(false)
-
-  // Fecha ya advertida en esta sesión: no repetir si no la cambió
-  const fechaAdvertidaRef = useRef<string | null>(null)
-
-  const ladoDurazno = (): 'origen' | 'destino' | 'ambos' | null => {
-    const o = draft.bodega_origen_id === BODEGA_DURAZNO_ID
-    const d = draft.bodega_destino_id === BODEGA_DURAZNO_ID
-    if (o && d) return 'ambos'
-    if (o) return 'origen'
-    if (d) return 'destino'
-    return null
-  }
-
-  const hayAvisoFecha = (): boolean => {
-    const f = (draft.fecha_nota ?? '').trim()
-    return !!f && f > todayMX() && fechaAdvertidaRef.current !== f
-  }
-
-  const hayAvisosRevision = (): boolean =>
-    (hayDeficitStock && permitirStockNegativo) || hayAvisoFecha() || !!ladoDurazno()
-
-  const finalizarAdvertencias = (confirmar: boolean) => {
-    if (confirmar) {
-      setShowConfirmDialog(true)
-      return
-    }
-    doSave(false)
-  }
-
-  const handleCambiarACocina = async () => {
-    const lado = ladoDurazno()
-    setShowRevisionDialog(false)
-    if (!lado) {
-      return
-    }
-    if (lado === 'destino' || lado === 'ambos') {
-      setDraft((prev) => ({
-        ...prev,
-        bodega_destino_id: prev.bodega_destino_id === BODEGA_DURAZNO_ID ? BODEGA_COCINA_ID : prev.bodega_destino_id,
-      }))
-    }
-    if (lado === 'origen' || lado === 'ambos') {
-      // Reutiliza el cambio con recálculo de existencias; no auto-guardar (draft aún no refleja el cambio)
-      await applyBodegaOrigenChange(BODEGA_COCINA_ID)
-    } else {
-      toast.success('Bodega destino actualizada a "Cocina".')
-    }
-    toast.info('Revisa los datos y vuelve a guardar la nota.')
-  }
-
-  const doSearchSwap = useDebouncedCallback(async (term: string) => {
-    const clean = term.trim()
-    if (clean.length < 1) {
-      if (swapSearchAbortRef.current) swapSearchAbortRef.current.abort()
-      setSwapSearchResults([])
-      setIsSearchingSwap(false)
-      return
-    }
-
-    if (swapSearchAbortRef.current) {
-      swapSearchAbortRef.current.abort()
-    }
-    const abortController = new AbortController()
-    swapSearchAbortRef.current = abortController
-
-    setIsSearchingSwap(true)
-    try {
-      const res = await fetch(
-        `/api/inventario/notas/nueva/search?q=${encodeURIComponent(clean)}`,
-        { signal: abortController.signal }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setSwapSearchResults(data)
-      }
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        setSwapSearchResults([])
-      }
-    } finally {
-      if (swapSearchAbortRef.current === abortController) {
-        setIsSearchingSwap(false)
-      }
-    }
-  }, 200)
-
-  const handleSwapSearchChange = (value: string) => {
-    setSwapSearchTerm(value)
-    if (value.trim().length === 0) {
-      if (swapSearchAbortRef.current) swapSearchAbortRef.current.abort()
-      setSwapSearchResults([])
-      setIsSearchingSwap(false)
-    } else {
-      doSearchSwap(value)
-    }
-  }
-
-  const handleSwapProduct = async (tempId: string, newProduct: ProductoBusqueda) => {
-    let newStockCajas = 0
-    let newStockPiezas = 0
-
-    if (draft.bodega_origen_id) {
-      try {
-        const res = await fetch(
-          `/api/inventario/notas/nueva/stock?producto_id=${newProduct.id}&bodega_id=${draft.bodega_origen_id}`
-        )
-        if (res.ok) {
-          const data = await res.json()
-          newStockCajas = data.cajas ?? 0
-          newStockPiezas = data.piezas_sueltas ?? 0
-        }
-      } catch (err) {
-        console.error('Error al obtener stock para sustitución de producto:', err)
-      }
-    }
-
-    setDraft((prev) => ({
-      ...prev,
-      productos: prev.productos.map((p) => {
-        if (p.tempId !== tempId) return p
-        return {
-          ...p,
-          producto_id: newProduct.id,
-          producto_sku: newProduct.sku_base,
-          producto_nombre: newProduct.descripcion || newProduct.nombre || '',
-          producto_pz_en_caja: newProduct.pz_en_caja,
-          stock_origen_cajas: newStockCajas,
-          stock_origen_piezas: newStockPiezas,
-        }
-      }),
-    }))
-
-    setSwapProductTempId(null)
-    setSwapSearchTerm('')
-    setSwapSearchResults([])
-  }
-
-  // ── Actualizar cantidad de cajas directamente en la tabla ─────
-  const handleUpdateProductCajas = (tempId: string, newCajas: number) => {
-    setDraft((prev) => ({
-      ...prev,
-      productos: prev.productos.map((p) =>
-        p.tempId === tempId
-          ? { ...p, cajas: esAjuste ? newCajas : Math.max(0, newCajas) }
-          : p
-      ),
-    }))
-  }
-
-  // ── Alternar signo (+/-) de cajas en la tabla (Modo Ajuste) ─────
-  const handleToggleSignProductCajas = (tempId: string) => {
-    setDraft((prev) => ({
-      ...prev,
-      productos: prev.productos.map((p) => {
-        if (p.tempId !== tempId) return p
-        const currentCajas = p.cajas === 0 ? 1 : p.cajas
-        return { ...p, cajas: -currentCajas }
-      }),
-    }))
-  }
-
-  // ── Reordenar productos arriba/abajo ─────────────────────
-  const handleMoveProductUp = (index: number) => {
-    if (index <= 0) return
-    setDraft((prev) => {
-      const list = [...prev.productos]
-      const temp = list[index - 1]
-      list[index - 1] = list[index]
-      list[index] = temp
-      return { ...prev, productos: list }
-    })
-  }
-
-  const handleMoveProductDown = (index: number) => {
-    setDraft((prev) => {
-      if (index >= prev.productos.length - 1) return prev
-      const list = [...prev.productos]
-      const temp = list[index + 1]
-      list[index + 1] = list[index]
-      list[index] = temp
-      return { ...prev, productos: list }
-    })
-  }
-
-  // ── Eliminar producto del draft ─────────────────────────
-  const handleRemoveProduct = (tempId: string) => {
-    setDraft((prev) => ({
-      ...prev,
-      productos: prev.productos.filter((p) => p.tempId !== tempId),
-    }))
-  }
-
-  // ── Pre-chequeo de stock (server, con lectura real de la base) ──
-  const ejecutarPreChequeoStock = async (
-    aEvaluar: DraftNota
-  ): Promise<ResultadoValidacionNota | null> => {
-    try {
-      setIsValidandoStock(true)
-      return await validarDisponibilidadNotaAction(aEvaluar)
-    } catch {
-      // Si el pre-chequeo no responde se deja pasar el flujo: el servidor vuelve
-      // a validar al confirmar y devuelve el detalle por SKU.
-      return null
-    } finally {
-      setIsValidandoStock(false)
-    }
-  }
-
-  // Refresca el snapshot de stock del formulario (hoy queda viejo al agregar).
-  const aplicarStockFresco = (validacion: ResultadoValidacionNota) => {
-    const disponibles = validacion.disponible_por_clave
-    if (!disponibles || Object.keys(disponibles).length === 0) return
-    setDraft((prev) => ({
-      ...prev,
-      productos: prev.productos.map((p) => {
-        const d = disponibles[claveStock(p.producto_id, p.caja_id)]
-        if (!d) return p
-        return { ...p, stock_origen_cajas: d.cajas, stock_origen_piezas: d.piezas_sueltas }
-      }),
-    }))
-  }
-
-  // ── Guardar ─────────────────────────────────────────────
-  const handleSave = async (confirmar: boolean) => {
-    // Revisión previa contra la base: el total agregado de cada SKU (todos sus
-    // renglones) se compara contra el stock real de la bodega origen. Si no
-    // alcanza, se avisa con el detalle por código en vez de que el trigger
-    // reviente con "Disponible: 0 cajas" sin decir qué SKU falló.
-    const validacion = await ejecutarPreChequeoStock(draft)
-
-    if (validacion) {
-      aplicarStockFresco(validacion)
-
-      if (!validacion.ok) {
-        setStockFaltantes(validacion.faltantes)
-        setStockAvisoModo(confirmar ? 'confirmar' : 'borrador')
-        setPendienteConfirmar(confirmar)
-        setShowStockModal(true)
-        return
-      }
-    }
-
-    // Avisos informativos en un solo panel (déficit permitido, fecha futura, Durazno)
-    if (hayAvisosRevision()) {
-      setPendingConfirmState(confirmar)
-      setShowRevisionDialog(true)
-      return
-    }
-
-    if (confirmar) {
-      setShowConfirmDialog(true)
-      return
-    }
-    doSave(false)
-  }
-
-  // Recorta los renglones al stock disponible y vuelve a validar.
-  const ajustarYContinuar = async () => {
-    const lineas: LineaStock[] = draft.productos.map((p) => ({
-      producto_id: p.producto_id,
-      producto_sku: p.producto_sku,
-      producto_nombre: p.producto_nombre,
-      caja_id: p.caja_id,
-      caja_codigo: p.caja_codigo,
-      cajas: p.cajas,
-      piezas_sueltas: p.piezas_sueltas,
-    }))
-
-    const ajustadas = ajustarLineasADisponible(lineas, stockFaltantes)
-
-    const productosAjustados = ajustadas
-      .map((a, i) => ({
-        ...draft.productos[i],
-        cajas: a.cajas,
-        piezas_sueltas: a.piezas_sueltas ?? 0,
-      }))
-      .filter((p) => p.cajas !== 0 || (p.piezas_sueltas ?? 0) !== 0)
-
-    const nuevoDraft: DraftNota = { ...draft, productos: productosAjustados }
-    setDraft(nuevoDraft)
-
-    const revalidacion = await ejecutarPreChequeoStock(nuevoDraft)
-
-    if (revalidacion && !revalidacion.ok) {
-      setStockFaltantes(revalidacion.faltantes)
-      setShowStockModal(true)
-      return
-    }
-
-    setShowStockModal(false)
-    doSave(pendienteConfirmar, nuevoDraft)
-  }
-
-  // Fusiona renglones del mismo producto + caja (típico tras sincronizar OCR).
-  const consolidarRenglones = () => {
-    const lineas: LineaStock[] = draft.productos.map((p) => ({
-      producto_id: p.producto_id,
-      producto_sku: p.producto_sku,
-      producto_nombre: p.producto_nombre,
-      caja_id: p.caja_id,
-      caja_codigo: p.caja_codigo,
-      cajas: p.cajas,
-      piezas_sueltas: p.piezas_sueltas,
-    }))
-
-    const porClave = new Map<string, DraftProducto[]>()
-    for (const p of draft.productos) {
-      const clave = claveStock(p.producto_id, p.caja_id)
-      porClave.set(clave, [...(porClave.get(clave) ?? []), p])
-    }
-
-    const productos = consolidarLineas(lineas).map((c) => {
-      const original = porClave.get(`${c.producto_id}:${c.caja_id ?? 0}`)?.[0]
-      return {
-        ...(original as DraftProducto),
-        tempId: original?.tempId ?? crypto.randomUUID(),
-        cajas: c.cajas,
-        piezas_sueltas: c.piezas_sueltas ?? 0,
-      } as DraftProducto
-    })
-
-    setDraft((prev) => ({ ...prev, productos }))
-    toast.success('Renglones consolidados por código y caja.')
-  }
-
-  const doSave = (confirmar: boolean, draftOverride?: DraftNota) => {
-    setError(null)
-    setSuccess(null)
-    setShowConfirmDialog(false)
-
-    const draftAGuardar = draftOverride ?? draft
-
-    startTransition(async () => {
-      let result
-      if (mode === 'edit' && notaId) {
-        result = await actualizarNotaAction(notaId, draftAGuardar, confirmar, ocrProposalId)
-      } else {
-        result = await guardarNotaAction(draftAGuardar, confirmar, ocrProposalId)
-      }
-
-      if (!result.success) {
-        const errorMsg = result.error ?? 'Error desconocido al guardar la nota.'
-        setError(errorMsg)
-        toast.error(errorMsg)
-
-        // El servidor devolvió el detalle por SKU (guarda server-side o carrera):
-        // se muestra el modal en vez de dejar solo el mensaje.
-        if (result.faltantes?.length) {
-          setStockFaltantes(result.faltantes)
-          setStockAvisoModo(confirmar ? 'confirmar' : 'borrador')
-          setPendienteConfirmar(confirmar)
-          setShowStockModal(true)
-        }
-        return
-      }
-
-      const destId = result.nota_id ?? notaId
-
-      // Si hay un comprobante físico para subir
-      if (destId && comprobanteFile) {
-        const formData = new FormData()
-        formData.append('file', comprobanteFile)
-        const uploadResult = await subirComprobanteNotaAction(destId, formData)
-        if (!uploadResult.success) {
-          const warnMsg = `Nota guardada, pero falló la subida del comprobante: ${uploadResult.error}`
-          setError(warnMsg)
-          toast.warning(warnMsg)
-          return
-        }
-      }
-
-      const successMsg = confirmar
-        ? `Nota confirmada exitosamente${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
-        : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
-
-      setSuccess(successMsg)
-      toast.success(successMsg)
-
-      // Navegar al detalle después de guardar o refrescar si ya estamos en él
-      if (destId) {
-        router.refresh()
-        if (mode === 'create') {
-          setTimeout(() => {
-            router.push(ADMIN_ROUTES.inventario.notaDetalle(destId))
-          }, 300)
-        }
-      }
-    })
-  }
-
-  // ── Total estimado de cajas ─────────────────────────────
   const totalCajas = draft.productos.reduce((sum, p) => sum + p.cajas, 0)
   const totalPositivas = draft.productos.filter((p) => p.cajas > 0).reduce((sum, p) => sum + p.cajas, 0)
   const totalNegativas = draft.productos.filter((p) => p.cajas < 0).reduce((sum, p) => sum + p.cajas, 0)
-
-  // ── Verificaciones de Stock Negativo en Formulario ────────
-  const cajasNum = parseFloat(addCajas) || 0
-  const isNegativeStockRisk = selectedProduct && 
-    (
-      ((tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && cajasNum > (selectedProductStock?.cajas ?? 0)) ||
-      (esAjuste && cajasNum < 0 && Math.abs(cajasNum) > (selectedProductStock?.cajas ?? 0))
-    )
-
-  const isEntrada = tipoSeleccionado?.codigo === 'ENT' || tipoSeleccionado?.codigo === 'DEV' || tipoSeleccionado?.afecta_inventario === 1
-  const simulatedStock = selectedProductStock ? (
-    isEntrada
-      ? selectedProductStock.cajas + cajasNum
-      : esAjuste
-      ? selectedProductStock.cajas + cajasNum
-      : selectedProductStock.cajas - cajasNum
-  ) : 0
-
-  // Visor OCR/comprobante fijo a la izquierda en desktop (una columna en móvil)
-  const hasViewer = !!(ocrProposalId || comprobantePreview)
+  const hasViewer = !!(ocrProposalId || comprobante.comprobantePreview)
+  const selectedBodegaObj = userBodegas.find((b) => b.id === draft.bodega_origen_id)
+  const puedeConfirmar = currentUserLevel <= 2 || !!selectedBodegaObj?.permisos_bodega?.puede_confirmar_notas
 
   return (
     <div className="space-y-6">
-      {/* Mensajes */}
-      {error && (
+      {validacion.error && (
         <div className="flex items-start gap-3 rounded-2xl bg-destructive/10 border border-destructive/20 p-4 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200">
           <AlertCircle className="h-5 w-5 shrink-0" />
-          <span className="font-bold tracking-tight">{error}</span>
+          <span className="font-bold tracking-tight">{validacion.error}</span>
         </div>
       )}
-      {success && (
+      {validacion.success && (
         <div className="flex items-start gap-3 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200">
           <CheckCircle2 className="h-5 w-5 shrink-0" />
-          <span className="font-bold tracking-tight">{success}</span>
+          <span className="font-bold tracking-tight">{validacion.success}</span>
         </div>
       )}
 
-      <div className={hasViewer ? "w-full max-w-[110rem] mx-auto" : "w-full max-w-4xl mx-auto space-y-6"}>
-        {/* Grid visor fijo izquierda en desktop cuando hay comprobante/OCR */}
-        <div className={hasViewer ? "grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start" : "space-y-6 min-w-0"}>
-          <div className={hasViewer ? "order-1 lg:order-2 lg:col-span-7 xl:col-span-8 space-y-6 min-w-0" : "space-y-6 min-w-0"}>
-        {/* ── Configuración de la nota ────────────────────── */}
-        <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Detalles Generales</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Tipo Movimiento Selector Premium */}
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tipo de Movimiento *</Label>
-              <div className={cn(
-                "grid gap-2 sm:gap-3",
-                tiposMovimientoVisibles.length === 1 ? "grid-cols-1" :
-                tiposMovimientoVisibles.length === 2 ? "grid-cols-2" :
-                tiposMovimientoVisibles.length === 3 ? "grid-cols-3" :
-                tiposMovimientoVisibles.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
-                "grid-cols-2 sm:grid-cols-5"
-              )}>
-                {tiposMovimientoVisibles.map((t) => {
-                  const Icon = TIPO_MOV_ICONS_COMP[t.codigo as keyof typeof TIPO_MOV_ICONS_COMP] || Package
-                  const isSelected = draft.tipo_movimiento_id === t.id
-                  const colorMap = TIPO_MOVIMIENTO_COLORS[t.codigo] || 'bg-primary text-primary-foreground'
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      disabled={!puedeEditarTipo}
-                      onClick={() => handleRequestTipoMovimientoChange(t.id)}
-                      className={cn(
-                        "flex flex-col items-center justify-center p-3.5 sm:p-4 rounded-2xl border transition-all text-center gap-1.5 group min-h-[64px] sm:min-h-[72px]",
-                        !puedeEditarTipo && "opacity-50 cursor-not-allowed",
-                        isSelected 
-                          ? cn("border-transparent font-bold shadow-lg shadow-black/10 scale-102 ring-2 ring-primary/20", colorMap.split(' ')[0], colorMap.split(' ')[1])
-                          : "bg-background hover:bg-muted/80 text-muted-foreground border-muted hover:text-foreground"
-                      )}
-                    >
-                      <Icon className="h-5 w-5 sm:h-6 sm:w-6 transition-transform group-hover:scale-110" />
-                      <span className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none">{t.nombre}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* ── Banner Comparador Unificado de Encabezado (Mandado vs Detectado en Nota) ── */}
-            {hasAnyHeaderMismatch && (
-              <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-background to-muted/30 p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200 shadow-sm">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300">
-                      <Sparkles className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-xs uppercase tracking-wider text-foreground">
-                          Comparación de Encabezado: Seleccionado vs Detectado en Nota Física
-                        </span>
-                        <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30">
-                          OCR / Escáner
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Se detectaron diferencias entre los valores seleccionados y los escritos en el documento físico. Puedes aplicar los datos individuales o sincronizar todos.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setDismissedHeaderMismatch(true)}
-                      className="h-8 rounded-xl text-xs font-semibold"
-                    >
-                      Mantener Selección
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        setDraft((prev) => ({
-                          ...prev,
-                          tipo_movimiento_id: detectedTipoObj ? detectedTipoObj.id : prev.tipo_movimiento_id,
-                          bodega_origen_id: (detectedBodega && allowedBodegas.some(b => b.id === detectedBodega.id)) ? detectedBodega.id : prev.bodega_origen_id,
-                          bodega_destino_id: detectedDestinoBodega ? detectedDestinoBodega.id : (detectedTipoObj && !detectedTipoObj.requiere_destino ? null : prev.bodega_destino_id),
-                          fecha_nota: detectedFechaRaw ? formatForDateInput(detectedFechaRaw) : prev.fecha_nota,
-                          nota_referencia: detectedFolioRaw ? detectedFolioRaw : prev.nota_referencia,
-                        }))
-                        setDismissedHeaderMismatch(true)
-                        toast.success('¡Se aplicaron todos los datos detectados en la nota física!')
-                      }}
-                      className="h-8 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs gap-1.5 shadow-md shadow-orange-500/20 border-0"
-                    >
-                      <Sparkles className="h-3.5 w-3.5 text-white" />
-                      <span>Aplicar Todo lo Detectado</span>
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Tabla Comparativa de Campos */}
-                <div className="border rounded-xl bg-background/80 overflow-hidden divide-y text-xs">
-                  {/* Fila: Tipo de Movimiento */}
-                  {hasTipoMismatch && detectedTipoObj && (
-                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2 min-w-[140px]">
-                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Tipo Movimiento</span>
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-muted-foreground font-mono">Seleccionado: <strong>{tipoSeleccionado?.nombre || 'Sin tipo'}</strong></span>
-                        <span className="text-muted-foreground">➔</span>
-                        <Badge className="bg-sky-500/15 text-sky-800 dark:text-sky-300 border-sky-500/30 font-bold text-[11px]">
-                          Papel: {detectedTipoObj.nombre} ({detectedTipoObj.codigo})
-                        </Badge>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setDraft((prev) => ({
-                            ...prev,
-                            tipo_movimiento_id: detectedTipoObj.id,
-                            bodega_destino_id: detectedTipoObj.requiere_destino ? prev.bodega_destino_id : null,
-                          }))
-                          toast.success(`Tipo actualizado a "${detectedTipoObj.nombre}".`)
-                        }}
-                        className="h-7 text-xs font-bold gap-1 text-sky-700 bg-sky-500/10 hover:bg-sky-500/20 rounded-lg"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        <span>Aplicar Tipo</span>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Fila: Bodega Origen */}
-                  {hasOriginMismatch && (
-                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2 min-w-[140px]">
-                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Bodega Origen</span>
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-muted-foreground font-mono">Seleccionada: <strong>{currentBodegaObj?.nombre || 'Sin bodega'}</strong></span>
-                        <span className="text-muted-foreground">➔</span>
-                        <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30 font-bold text-[11px]">
-                          Papel: "{detectedOrigenRaw}" {detectedBodega ? `(${detectedBodega.nombre})` : ''}
-                        </Badge>
-                      </div>
-                      {detectedBodega && allowedBodegas.some(b => b.id === detectedBodega.id) ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            handleRequestBodegaOrigenChange(detectedBodega.id)
-                          }}
-                          className="h-7 text-xs font-bold gap-1 text-amber-700 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg"
-                        >
-                          <Sparkles className="h-3 w-3" />
-                          <span>Aplicar Origen</span>
-                        </Button>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground italic">No asignada o no identificada</span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Fila: Bodega Destino */}
-                  {hasDestinoMismatch && detectedDestinoBodega && (
-                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2 min-w-[140px]">
-                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Bodega Destino</span>
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-muted-foreground font-mono">Seleccionada: <strong>{currentDestinoObj?.nombre || 'Sin destino'}</strong></span>
-                        <span className="text-muted-foreground">➔</span>
-                        <Badge className="bg-purple-500/15 text-purple-800 dark:text-purple-300 border-purple-500/30 font-bold text-[11px]">
-                          Papel: "{detectedDestinoRaw}" ({detectedDestinoBodega.nombre})
-                        </Badge>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setDraft((prev) => ({ ...prev, bodega_destino_id: detectedDestinoBodega.id }))
-                          toast.success(`Destino actualizado a "${detectedDestinoBodega.nombre}".`)
-                        }}
-                        className="h-7 text-xs font-bold gap-1 text-purple-700 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        <span>Aplicar Destino</span>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Fila: Fecha */}
-                  {hasFechaMismatch && (
-                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2 min-w-[140px]">
-                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Fecha del Movimiento</span>
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-muted-foreground font-mono">En Borrador: <strong>{draft.fecha_nota}</strong></span>
-                        <span className="text-muted-foreground">➔</span>
-                        <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30 font-bold text-[11px]">
-                          Papel: {formatForDateInput(detectedFechaRaw)}
-                        </Badge>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setDraft((prev) => ({ ...prev, fecha_nota: formatForDateInput(detectedFechaRaw) }))
-                          toast.success(`Fecha actualizada a ${formatForDateInput(detectedFechaRaw)}.`)
-                        }}
-                        className="h-7 text-xs font-bold gap-1 text-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        <span>Aplicar Fecha</span>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Fila: Folio / Referencia */}
-                  {hasFolioMismatch && (
-                    <div className="flex items-center justify-between p-2.5 gap-3 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2 min-w-[140px]">
-                        <span className="font-bold text-muted-foreground uppercase text-[10px]">Folio / Referencia</span>
-                      </div>
-                      <div className="flex-1 flex items-center gap-2 flex-wrap">
-                        <span className="text-muted-foreground font-mono">En Borrador: <strong>{draft.nota_referencia || '(Vacío)'}</strong></span>
-                        <span className="text-muted-foreground">➔</span>
-                        <Badge className="bg-blue-500/15 text-blue-800 dark:text-blue-300 border-blue-500/30 font-bold text-[11px]">
-                          Papel: {detectedFolioRaw}
-                        </Badge>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setDraft((prev) => ({ ...prev, nota_referencia: detectedFolioRaw }))
-                          toast.success(`Folio actualizado a "${detectedFolioRaw}".`)
-                        }}
-                        className="h-7 text-xs font-bold gap-1 text-blue-700 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        <span>Aplicar Folio</span>
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Fecha del Movimiento / Nota */}
-              <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Fecha del Movimiento *</Label>
-                <NotaFechaPicker
-                  value={draft.fecha_nota || todayMX()}
-                  onChange={(date) => setDraft((prev) => ({ ...prev, fecha_nota: date }))}
-                  disabled={todoBloqueado || soloEditaDestino}
-                />
-              </div>
-
-              {/* Bodega Origen */}
-              <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bodega Origen *</Label>
-                <Select
-                  value={draft.bodega_origen_id?.toString() ?? ''}
-                  onValueChange={(v) => v && handleRequestBodegaOrigenChange(parseInt(v))}
-                  disabled={!puedeEditarBodegaOrigen}
-                >
-                  <SelectTrigger className="h-11 rounded-xl">
-                    <SelectValue placeholder="Seleccionar origen...">
-                      {allowedBodegas.find((b) => String(b.id) === draft.bodega_origen_id?.toString())?.nombre}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allowedBodegas.map((b) => (
-                      <SelectItem key={b.id} value={String(b.id)}>
-                        {b.nombre}
-                        {b.es_virtual && (
-                          <Badge variant="secondary" className="ml-2 text-[9px] font-black uppercase leading-none">Virtual</Badge>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Bodega Destino (condicional) */}
-              {tipoSeleccionado?.requiere_destino && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bodega Destino *</Label>
-                  <Select
-                    value={draft.bodega_destino_id?.toString() ?? ''}
-                    onValueChange={(v) =>
-                      v && setDraft((prev) => ({ ...prev, bodega_destino_id: parseInt(v) }))
-                    }
-                    disabled={!puedeEditarBodegaDestino}
-                  >
-                    <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue placeholder="Seleccionar destino...">
-                        {catalogos.bodegas.find((b) => String(b.id) === draft.bodega_destino_id?.toString())?.nombre}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {catalogos.bodegas
-                        .filter((b) => b.id !== draft.bodega_origen_id && (esAdmin || !b.es_virtual))
-                        .map((b) => (
-                          <SelectItem key={b.id} value={String(b.id)}>
-                            {b.nombre}
-                            {b.es_virtual && (
-                              <Badge variant="secondary" className="ml-2 text-[9px] font-black uppercase leading-none">Virtual</Badge>
-                            )}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Referencia (opcional) */}
-              <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Referencia (opcional)</Label>
-                <Input
-                  value={draft.nota_referencia}
-                  onChange={(e) =>
-                    setDraft((prev) => ({ ...prev, nota_referencia: e.target.value }))
-                  }
-                  placeholder="Ej: OC-2026-043"
-                  maxLength={50}
-                  className="h-11 rounded-xl"
-                  disabled={todoBloqueado || soloEditaDestino}
-                />
-              </div>
-
-              {/* Costo Total (solo Salida o Traslado) */}
-              {(tipoSeleccionado?.codigo === 'SAL' || tipoSeleccionado?.codigo === 'TRF') && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Costo Total de la Nota ($)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={draft.costo_total || ''}
-                    onChange={(e) => {
-                      const val = e.target.value ? parseFloat(e.target.value) : 0
-                      setDraft((prev) => ({ ...prev, costo_total: val }))
-                    }}
-                    placeholder="Ej: 12500.00"
-                    className="h-11 rounded-xl"
-                    disabled={todoBloqueado || soloEditaDestino}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Observaciones (Opcional) */}
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observaciones (opcional)</Label>
-              <Textarea
-                value={draft.observaciones}
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, observaciones: e.target.value }))
-                }
-                placeholder="Ingresa notas, chofer, placas, etc..."
-                rows={2}
-                className="rounded-xl"
-                disabled={todoBloqueado || soloEditaDestino}
-              />
-            </div>
-
-            {/* Herramientas opcionales secundarias (Foto de comprobante / OCR) */}
-            <div className="border border-dashed rounded-2xl p-4 bg-muted/20 space-y-3 mt-4">
-              <button
-                type="button"
-                onClick={() => setShowOpcionesOpcionales(!showOpcionesOpcionales)}
-                className="flex items-center justify-between w-full text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Camera className="h-4 w-4 text-muted-foreground" />
-                  <span>Herramientas Opcionales (Foto Comprobante / Escáner OCR)</span>
-                  {comprobantePreview && <Badge variant="secondary" className="text-[9px]">Foto adjunta</Badge>}
-                </div>
-                <span className="text-[10px] uppercase font-mono">{showOpcionesOpcionales ? '▲ Ocultar' : '▼ Desplegar'}</span>
-              </button>
-
-              {showOpcionesOpcionales && (
-                <div className="pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Foto de comprobante */}
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Adjuntar Foto Comprobante</Label>
-                    {comprobantePreview ? (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="file"
-                          id="comprobante-uploader"
-                          accept="image/*"
-                          onChange={handleFileChange}
-                          className="hidden"
-                        />
-                        <Label
-                          htmlFor="comprobante-uploader"
-                          className="flex-1 flex items-center justify-center gap-1.5 p-2 rounded-xl border border-dashed hover:border-primary/50 cursor-pointer bg-background text-xs font-semibold"
-                        >
-                          <Camera className="h-4 w-4 text-muted-foreground" />
-                          <span>Cambiar foto</span>
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-9 text-destructive border-destructive/30 hover:bg-destructive/10 rounded-xl text-xs font-bold"
-                          onClick={handleClearFile}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-1" />
-                          Quitar
-                        </Button>
-                      </div>
-                    ) : (
-                      <div
-                        onDragOver={handleComprobanteDragOver}
-                        onDragLeave={handleComprobanteDragLeave}
-                        onDrop={handleComprobanteDrop}
-                        className="space-y-2"
-                      >
-                        <Input
-                          type="file"
-                          id="comprobante-uploader"
-                          accept="image/*"
-                          onChange={handleFileChange}
-                          className="hidden"
-                        />
-                        <div
-                          className={cn(
-                            "flex flex-col sm:flex-row items-center justify-between gap-2 p-3 rounded-2xl border-2 border-dashed transition-all",
-                            isDraggingComprobante
-                              ? "border-primary bg-primary/10 scale-[1.01]"
-                              : "border-muted-foreground/30 hover:border-primary/50 bg-background hover:bg-muted/20"
-                          )}
-                        >
-                          <Label
-                            htmlFor="comprobante-uploader"
-                            className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            <Upload className="h-4 w-4 text-primary" />
-                            <span>{isDraggingComprobante ? '¡Suelta la imagen aquí!' : 'Subir archivo o arrastrar foto'}</span>
-                          </Label>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={handlePasteComprobanteFromClipboard}
-                            className="h-8 text-[11px] font-bold gap-1 rounded-xl shrink-0"
-                            title="Pegar imagen del portapapeles (Ctrl + V)"
-                          >
-                            <ClipboardPaste className="h-3.5 w-3.5" />
-                            <span>Pegar Portapapeles</span>
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Escáner OCR si es modo creación */}
-                  {mode === 'create' && (
-                    <div className="space-y-2 flex flex-col justify-center">
-                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Escanear Nota Física con IA</Label>
-                      <OcrUploadModal 
-                        redirectToNueva 
-                        bodegaOrigenNombre={currentBodegaObj?.nombre}
-                        priorizarIa={config?.ocr_priorizar_tipo_detectado !== false}
-                        fechaNota={draft.fecha_nota}
-                        defaultTipoCodigo={tipoSeleccionado?.codigo}
-                        tiposMovimiento={catalogos.tiposMovimiento}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-      {/* ── Agregar productos ────────────────────────────── */}
-      <Card className="shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
-        <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-lg font-black tracking-tight uppercase text-muted-foreground opacity-80">Productos en la Nota</CardTitle>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-xl border border-muted/80 bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/40 shadow-xs transition-colors"
-              onClick={() => setShowPasteExcelModal(true)}
-              title="Pegar productos desde Excel / Portapapeles (SKU y Cajas)"
-              disabled={todoBloqueado || soloEditaDestino}
-            >
-              <ClipboardPaste className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            {draft.productos.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs font-bold gap-1.5 rounded-xl border border-muted shadow-sm hover:bg-accent text-foreground"
-                onClick={handleCopyDraftExcel}
-                title="Copiar contenido de la tabla para pegar en Excel o Google Sheets"
-              >
-                {copiedDraft ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                    <span className="text-emerald-600 font-bold">¡Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>Copiar Tabla (Excel)</span>
-                  </>
-                )}
-              </Button>
-            )}
-
-            {/* Botón Paso 2: Conciliador de Stock por Familias (Visible solo en Salidas y Transferencias) */}
-            {esMovimientoSalidaOTraslado && draft.productos.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs font-bold gap-1.5 rounded-xl border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary shadow-xs"
-                onClick={() => setShowConciliadorModal(true)}
-                title="Abrir conciliador ampliado de stock para cotejar códigos y reasignar por familias"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-primary" />
-                <span>⚡ Conciliador de Stock (Paso 2)</span>
-                {productosConDeficit.length > 0 && (
-                  <Badge variant="destructive" className="ml-0.5 h-4 px-1 text-[10px] font-black">
-                    {productosConDeficit.length}
-                  </Badge>
-                )}
-              </Button>
-            )}
-
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs font-semibold text-muted-foreground hover:text-foreground gap-1.5 rounded-xl border border-muted"
-              onClick={() => setShowExtraCols(!showExtraCols)}
-            >
-              {showExtraCols ? (
-                <>
-                  <EyeOff className="h-3.5 w-3.5" />
-                  <span>{modoSoloCajas ? 'Ocultar Caja' : 'Ocultar Caja / Piezas'}</span>
-                </>
-              ) : (
-                <>
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>{modoSoloCajas ? 'Mostrar Caja' : 'Mostrar Caja / Piezas'}</span>
-                </>
-              )}
-            </Button>
-
-            {/* Toggle columna Pz en modo solo cajas (solo lectura) */}
-            {modoSoloCajas && (
-              <Button
-                type="button"
-                variant={mostrarPiezas ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setMostrarPiezas((v) => !v)}
-                aria-pressed={mostrarPiezas}
-                className="h-8 text-xs font-bold gap-1.5 rounded-xl border shadow-xs"
-                title={mostrarPiezas ? 'Ocultar columna de piezas sueltas' : 'Mostrar columna de piezas sueltas'}
-              >
-                <Layers className="h-3.5 w-3.5" />
-                <span>Pz</span>
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Buscador de Producto con Reloj Local Calibrado */}
-          <div className="relative">
-            <SkuQuickSearchInput
-              value={searchTerm}
-              placeholder="Buscar por SKU o nombre del producto..."
-              disabled={!draft.bodega_origen_id || todoBloqueado || soloEditaDestino}
-              inputClassName="h-11 rounded-xl text-sm"
-              layout="grid"
-              limit={10}
-              delay={280}
-              onSelectProduct={(p) => {
-                handleSelectProduct({
-                  id: p.id,
-                  sku_base: p.sku_base,
-                  nombre: p.nombre,
-                  descripcion: p.descripcion ?? null,
-                  pz_en_caja: p.pz_en_caja ?? null,
-                  marca_nombre: null,
-                  imagen_url: null,
-                })
-              }}
-              onValueChange={(val, matched) => {
-                setSearchTerm(val)
-                if (selectedProduct && val !== selectedProduct.sku_base) {
-                  setSelectedProduct(null)
-                  setSelectedProductStock(null)
-                }
-                if (matched && (!selectedProduct || selectedProduct.id !== matched.id)) {
-                  handleSelectProduct({
-                    id: matched.id,
-                    sku_base: matched.sku_base,
-                    nombre: matched.nombre,
-                    descripcion: matched.descripcion ?? null,
-                    pz_en_caja: matched.pz_en_caja ?? null,
-                    marca_nombre: null,
-                    imagen_url: null,
-                  })
+      <div className={hasViewer ? 'w-full max-w-[110rem] mx-auto' : 'w-full max-w-4xl mx-auto space-y-6'}>
+        <div className={hasViewer ? 'grid grid-cols-1 lg:grid-cols-12 gap-6 lg:items-start' : 'space-y-6 min-w-0'}>
+          <div className={hasViewer ? 'order-1 lg:order-2 lg:col-span-7 xl:col-span-8 space-y-6 min-w-0' : 'space-y-6 min-w-0'}>
+            <NotaHeaderCard
+              mode={mode}
+              draft={draft}
+              tiposMovimientoVisibles={tiposMovimientoVisibles}
+              allTiposMovimiento={catalogos.tiposMovimiento}
+              allowedBodegas={allowedBodegas}
+              allBodegas={catalogos.bodegas}
+              tipoSeleccionado={tipoSeleccionado}
+              currentBodegaNombre={ocrDiffs.currentBodegaObj?.nombre}
+              puedeEditarTipo={mode === 'create' || (config?.permitir_editar_tipo_movimiento !== false && !todoBloqueado && !soloEditaDestino)}
+              puedeEditarBodegaOrigen={mode === 'create' || (config?.permitir_editar_bodega_origen !== false && !isChangingBodega && (esAdmin || esCreador))}
+              puedeEditarBodegaDestino={mode === 'create' || (config?.permitir_editar_bodega_origen !== false && (esAdmin || esCreador || esEncargado))}
+              todoBloqueado={todoBloqueado}
+              soloEditaDestino={soloEditaDestino}
+              esAdmin={esAdmin}
+              config={config}
+              showOpcionesOpcionales={showOpcionesOpcionales}
+              onToggleOpcionesOpcionales={() => setShowOpcionesOpcionales((v) => !v)}
+              comprobantePreview={comprobante.comprobantePreview}
+              isDraggingComprobante={comprobante.isDraggingComprobante}
+              onRequestTipoChange={(id) => {
+                if (id === draft.tipo_movimiento_id) return
+                if (draft.productos.length > 0 || mode === 'edit') {
+                  setPendingTipoMovimientoId(id)
+                  setShowChangeTipoDialog(true)
+                } else {
+                  const t = catalogos.tiposMovimiento.find((x) => x.id === id)
+                  setDraft((prev) => ({ ...prev, tipo_movimiento_id: id, bodega_destino_id: t?.requiere_destino ? prev.bodega_destino_id : null }))
+                  toast.success(`Tipo de movimiento actualizado a "${t?.nombre || 'nuevo tipo'}".`)
                 }
               }}
-              onClear={() => {
-                setSearchTerm('')
-                setSelectedProduct(null)
-                setSelectedProductStock(null)
-                setSearchResults([])
+              onRequestBodegaOrigenChange={(id) => {
+                if (id === draft.bodega_origen_id) return
+                if (draft.productos.length > 0 || mode === 'edit') {
+                  setPendingBodegaOrigenId(id)
+                  setShowChangeBodegaDialog(true)
+                } else {
+                  applyBodegaOrigenChange(id)
+                }
               }}
-            />
-            {!draft.bodega_origen_id && (
-              <span className="absolute right-12 top-1/2 -translate-y-1/2 text-[10px] font-bold text-orange-600 uppercase bg-orange-50 border border-orange-200 px-2 py-0.5 rounded pointer-events-none">
-                * Selecciona bodega origen primero
-              </span>
-            )}
-          </div>
-
-          {/* Formulario para producto seleccionado con stock en tiempo real */}
-          {selectedProduct && (
-            <div className={cn(
-              "border-2 rounded-2xl p-4 bg-muted/40 space-y-4 transition-all duration-300",
-              isNegativeStockRisk ? "border-orange-500/50 bg-orange-500/5" : "border-muted"
-            )}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-xs font-bold py-1">
-                    {selectedProduct.sku_base}
-                  </Badge>
-                  {selectedProduct.nombre && (
-                    <span className="text-sm font-semibold">{selectedProduct.nombre}</span>
-                  )}
-                </div>
-                {/* Stock actual en vivo */}
-                {selectedProductStock !== null && (
-                  <div className="text-xs bg-background border px-3 py-1 rounded-full flex gap-3 shadow-inner font-semibold">
-                    <span className="text-muted-foreground">Stock Bodega: <strong className="text-foreground">{selectedProductStock.cajas}</strong> cajas</span>
-                    {selectedProductStock.piezas_sueltas > 0 && (
-                      <span className="text-muted-foreground">Pzas: <strong className="text-foreground">{selectedProductStock.piezas_sueltas}</strong> sueltas</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Flex Row with highlight on Cajas and reduced Loose Pieces */}
-              <div className="flex flex-col sm:flex-row gap-3 items-end">
-                {/* Cajas (Highlighted / Wider) */}
-                <div className="flex-[2.5] min-w-[160px] space-y-1 w-full">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <span>Cajas *</span>
-                      {esAjuste && (
-                        <span className="text-[10px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                          Híbrido (+ / -)
-                        </span>
-                      )}
-                    </Label>
-                    {selectedProductStock !== null && (
-                      <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded animate-pulse">
-                        Stock: {selectedProductStock.cajas} cajas
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {esAjuste && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const current = parseFloat(addCajas) || 0
-                          const toggled = current === 0 ? -1 : -current
-                          setAddCajas(String(toggled))
-                        }}
-                        className={cn(
-                          "h-11 px-2.5 rounded-xl font-mono font-black text-xs border-2 shrink-0 transition-all",
-                          (parseFloat(addCajas) || 0) < 0
-                            ? "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/40 hover:bg-red-500/25"
-                            : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25"
-                        )}
-                        title={(parseFloat(addCajas) || 0) < 0 ? "Cambiar a positivo (+ Sumar stock)" : "Cambiar a negativo (- Restar stock)"}
-                      >
-                        {(parseFloat(addCajas) || 0) < 0 ? "- Restar" : "+ Sumar"}
-                      </Button>
-                    )}
-                    <Input
-                      type="number"
-                      step="1"
-                      min={esAjuste ? undefined : "0"}
-                      value={addCajas}
-                      onChange={(e) => setAddCajas(e.target.value)}
-                      className={cn(
-                        "h-11 rounded-xl font-bold font-mono text-center text-xl border-2 ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        isNegativeStockRisk 
-                          ? "border-orange-500 focus-visible:ring-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/20" 
-                          : esAjuste && (parseFloat(addCajas) || 0) < 0
-                          ? "border-red-500/60 text-red-600 bg-red-50/40 dark:bg-red-950/20"
-                          : esAjuste && (parseFloat(addCajas) || 0) > 0
-                          ? "border-emerald-500/60 text-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20"
-                          : "border-primary/40 focus:border-primary"
-                      )}
-                    />
-                  </div>
-                </div>
-
-                {/* Piezas Sueltas (Reduced / Smaller) — oculto en modo solo cajas */}
-                {!modoSoloCajas && (
-                <div className="flex-[1] min-w-[90px] space-y-1 w-full">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80 block truncate" title="Piezas sueltas">
-                    Pz sueltas
-                  </Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={addPiezas}
-                    onChange={(e) => setAddPiezas(e.target.value)}
-                    className="h-11 rounded-xl font-mono text-center text-sm border bg-background/50 text-muted-foreground focus:text-foreground"
-                  />
-                </div>
-                )}
-
-                {/* Caja física selector */}
-                <div className="flex-[1.8] min-w-[160px] space-y-1 w-full">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Caja física (opcional)</Label>
-                  <Select
-                    value={addCajaId}
-                    onValueChange={(val) => setAddCajaId(val || NO_CAJA_VALUE)}
-                  >
-                    <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue placeholder="Sin caja">
-                        {addCajaId === NO_CAJA_VALUE
-                          ? "Sin caja específica"
-                          : (cajasDisponibles.find((c) => String(c.id) === addCajaId)?.codigo_caja ?? addCajaId)}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_CAJA_VALUE}>Sin caja específica</SelectItem>
-                      {cajasDisponibles.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.codigo_caja} {c.nombre_pack ? `(${c.nombre_pack})` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Botón Agregar */}
-                <div className="w-full sm:w-auto shrink-0">
-                  <Button
-                    type="button"
-                    onClick={handleAddProduct}
-                    className="h-11 w-full sm:px-6 rounded-xl font-bold uppercase tracking-wider shadow-md hover:scale-102 transition-transform"
-                  >
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Agregar
-                  </Button>
-                </div>
-              </div>
-
-              {/* Aviso modo solo cajas */}
-              {modoSoloCajas && (
-                <p className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                  <span aria-hidden>📦</span> Modo solo cajas activo: las piezas sueltas están bloqueadas (0).
-                </p>
-              )}
-
-              {/* Proyecciones de stock e informaciones */}
-              {selectedProductStock !== null && (
-                <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                  <div className="text-xs flex items-center gap-2">
-                    <span className="font-semibold text-muted-foreground">Stock Proyectado tras confirmación:</span>
-                    <Badge variant={simulatedStock < 0 ? "destructive" : "secondary"} className="font-mono font-black">
-                      {simulatedStock} cajas
-                    </Badge>
-                  </div>
-                  {isNegativeStockRisk && (
-                    <div className="flex items-center gap-1.5 p-2 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 text-xs font-bold uppercase tracking-tight animate-pulse shrink-0">
-                      <AlertCircle className="h-4 w-4" />
-                      <span>Riesgo de stock negativo ({simulatedStock} cajas)</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Banner de Estado de Existencias / Déficit */}
-          {hayDeficitStock && (
-            <div className={cn(
-              "p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-300",
-              !permitirStockNegativo
-                ? "bg-destructive/10 border-destructive/30 text-destructive dark:text-red-300"
-                : "bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300"
-            )}>
-              <div className="flex items-start gap-2.5">
-                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                <div className="text-xs space-y-0.5">
-                  <p className="font-bold">
-                    {!permitirStockNegativo
-                      ? `⚠️ ${productosConDeficit.length} producto(s) en rojo sin existencias suficientes en bodega origen`
-                      : `⚠️ ${productosConDeficit.length} producto(s) en ámbar generarán saldo negativo en bodega origen`}
-                  </p>
-                  <p className="opacity-90">
-                    {!permitirStockNegativo
-                      ? 'La política del sistema prohíbe inventario negativo. Usa el Conciliador de Stock (Paso 2) para reasignar automáticamente a modelos de la misma familia.'
-                      : 'La política permite stock negativo. Puedes continuar guardando o conciliar salidas vs existencias reales por familias.'}
-                  </p>
-                </div>
-              </div>
-
-              {esMovimientoSalidaOTraslado && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowConciliadorModal(true)}
-                  className="h-8 text-xs font-bold gap-1.5 bg-background hover:bg-muted border shadow-xs rounded-xl shrink-0"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  ⚡ Abrir Conciliador de Stock (Paso 2)
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Renglones duplicados del mismo SKU: el inventario descuenta la suma */}
-          {hayRenglonesDuplicados > 0 && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-              <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                <strong>{hayRenglonesDuplicados}</strong> código(s) aparecen en varios renglones. El
-                inventario descuenta la <strong>suma</strong> de todos sus renglones.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={consolidarRenglones}
-                className="h-8 shrink-0 gap-1.5 rounded-xl text-xs font-bold"
-              >
-                <Layers className="h-3.5 w-3.5" />
-                Consolidar renglones
-              </Button>
-            </div>
-          )}
-
-          {/* Tabla de productos en el draft */}
-          {draft.productos.length > 0 ? (
-            <div className="rounded-2xl border overflow-x-auto shadow-inner">
-              <table className="w-full text-sm min-w-[580px] sm:min-w-full">
-                <thead>
-                  <tr className="bg-muted/70 text-xs font-black uppercase tracking-widest text-muted-foreground">
-                    <th className="px-2 py-3 w-[60px] text-center" title="Arrastrar o usar flechas para reordenar">Orden</th>
-                    <th className="px-4 py-3 text-left">SKU</th>
-                    <th className="px-4 py-3 text-left">Producto</th>
-                    {showExtraCols && <th className="px-4 py-3 text-left hidden sm:table-cell">Caja</th>}
-                    <th className="px-4 py-3 text-center min-w-[140px]">Cajas</th>
-                    {verPiezas && <th className="px-4 py-3 text-center">Piezas</th>}
-                    <th className="px-4 py-3 text-right">Total est.</th>
-                    <th className="px-4 py-3 w-[50px]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.productos.map((p, index) => {
-                    const totalEst = (p.cajas * (p.producto_pz_en_caja ?? 0)) + p.piezas_sueltas
-                    // El descuento real es el AGREGADO de todos los renglones del
-                    // mismo SKU + caja: el trigger descuenta cada renglón contra
-                    // el MISMO registro de stock.
-                    const agregado = agregadoPorClave.get(claveStock(p.producto_id, p.caja_id))
-                    const cajasAgregadas = agregado?.cajas ?? p.cajas
-                    const renglonesSKU = agregado?.renglones ?? 1
-                    const isRowNegative = draft.bodega_origen_id !== null && (
-                      (esMovimientoSalidaOTraslado && cajasAgregadas > (p.stock_origen_cajas ?? 0)) ||
-                      (esAjuste && cajasAgregadas < 0 && Math.abs(cajasAgregadas) > (p.stock_origen_cajas ?? 0))
-                    )
-
-                    return (
-                      <tr 
-                        key={p.tempId}
-                        draggable={!todoBloqueado && !soloEditaDestino}
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDrop={(e) => handleDrop(e, index)}
-                        onDragEnd={handleDragEnd}
-                        className={cn(
-                          "border-t transition-all cursor-default",
-                          draggedIndex === index ? "opacity-30 bg-primary/10" : "",
-                          dragOverIndex === index ? "border-t-2 border-t-primary bg-primary/10" : "",
-                          isRowNegative 
-                            ? (!permitirStockNegativo
-                                ? "bg-destructive/10 hover:bg-destructive/15 border-l-4 border-l-destructive"
-                                : "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-500")
-                            : "hover:bg-muted/30"
-                        )}
-                      >
-                        {/* Manita de Arrastrar + Controles Arriba/Abajo */}
-                        <td className="px-2 py-3 text-center select-none">
-                          <div className="flex items-center justify-center gap-0.5">
-                            <span 
-                              className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground p-1 rounded hover:bg-muted/60 transition-colors" 
-                              title="Mantener presionado y arrastrar para reordenar"
-                            >
-                              <GripVertical className="h-4 w-4" />
-                            </span>
-                            <div className="flex flex-col -space-y-0.5">
-                              <button
-                                type="button"
-                                disabled={index === 0 || todoBloqueado || soloEditaDestino}
-                                onClick={() => handleMoveProductUp(index)}
-                                className="p-0.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
-                                title="Mover arriba"
-                              >
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={index === draft.productos.length - 1 || todoBloqueado || soloEditaDestino}
-                                onClick={() => handleMoveProductDown(index)}
-                                className="p-0.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
-                                title="Mover abajo"
-                              >
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* SKU con Sustituidor Rápido, Asistente por Familia y Código Original */}
-                        <td className="px-4 py-3 font-mono text-xs font-semibold">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={cn(isRowNegative && (!permitirStockNegativo ? "text-destructive font-black" : "text-amber-700 dark:text-amber-300 font-black"))}>
-                              {p.producto_sku}
-                            </span>
-                            {!todoBloqueado && !soloEditaDestino && (
-                              <div className="flex items-center gap-1">
-                                {/* Botón Asistente Sustitutos Familia */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenSustitutosModal(p)}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs shrink-0",
-                                    isRowNegative
-                                      ? (!permitirStockNegativo
-                                          ? "bg-destructive/20 text-destructive hover:bg-destructive hover:text-destructive-foreground animate-pulse"
-                                          : "bg-amber-500/20 text-amber-800 dark:text-amber-300 hover:bg-amber-500 hover:text-black")
-                                      : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"
-                                  )}
-                                  title="Buscar sustitutos de la misma familia con stock en bodega origen"
-                                >
-                                  <Sparkles className="h-3 w-3" />
-                                  <span className="hidden sm:inline">Sustituir</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSwapProductTempId(p.tempId)
-                                    setSwapSearchTerm('')
-                                    setSwapSearchResults([])
-                                  }}
-                                  className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-primary transition-colors shrink-0"
-                                  title="Buscar manualmente otro SKU"
-                                >
-                                  <RefreshCw className="h-3 w-3" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Badge de Código Original si fue reasignado */}
-                          {p.codigo_original && p.codigo_original !== p.producto_sku && (
-                            <div className="mt-1 flex items-center gap-1">
-                              <span className="text-[10px] font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
-                                🏷️ Físico: <strong>{p.codigo_original}</strong>
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Mismo SKU en varios renglones: se muestra el total que se descuenta */}
-                          {renglonesSKU > 1 && (
-                            <div className="mt-1">
-                              <span className={cn(
-                                "text-[10px] font-bold px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 border",
-                                isRowNegative
-                                  ? "bg-destructive/15 text-destructive border-destructive/30"
-                                  : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
-                              )}>
-                                <Boxes className="h-3 w-3" />
-                                {renglonesSKU} renglones · {cajasAgregadas} cajas en total
-                              </span>
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 text-xs truncate max-w-[200px]">
-                          <p className="font-semibold text-foreground/80">{p.producto_nombre ?? '—'}</p>
-                          {isRowNegative && (
-                            <span className={cn(
-                              "text-[9px] font-black uppercase tracking-tight block mt-0.5",
-                              !permitirStockNegativo
-                                ? "text-destructive animate-pulse"
-                                : "text-amber-700 dark:text-amber-400"
-                            )}>
-                              {!permitirStockNegativo
-                                ? `❌ Sin stock suficiente (${p.stock_origen_cajas ?? 0} cajas disp.)`
-                                : `⚠️ Saldo negativo proyectado (${p.stock_origen_cajas ?? 0} cajas disp.)`}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Columna Ocultable de Caja Física */}
-                        {showExtraCols && (
-                          <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell">
-                            {p.caja_codigo ?? '—'}
-                          </td>
-                        )}
-
-                        {/* Columna de Cajas con Botón +/- y Flechitas */}
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {esAjuste && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleSignProductCajas(p.tempId)}
-                                disabled={todoBloqueado || soloEditaDestino}
-                                className={cn(
-                                  "h-7 px-1.5 text-[11px] font-black rounded-lg border transition-all shrink-0 font-mono",
-                                  p.cajas >= 0
-                                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
-                                    : "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30 hover:bg-red-500/25"
-                                )}
-                                title={p.cajas >= 0 ? "Cambiar a Salida (-) / Restar stock" : "Cambiar a Entrada (+) / Sumar stock"}
-                              >
-                                {p.cajas >= 0 ? "+Ent" : "-Sal"}
-                              </Button>
-                            )}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7 rounded-lg border hover:bg-muted shrink-0"
-                              onClick={() => handleUpdateProductCajas(p.tempId, p.cajas - 1)}
-                              disabled={todoBloqueado || soloEditaDestino || (!esAjuste && p.cajas <= 0)}
-                              title="Restar 1 caja"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <Input
-                              type="number"
-                              min={esAjuste ? undefined : "0"}
-                              value={p.cajas === 0 ? '' : p.cajas}
-                              placeholder="0"
-                              onChange={(e) => {
-                                const raw = e.target.value
-                                if (raw === '' || raw === '-') {
-                                  handleUpdateProductCajas(p.tempId, 0)
-                                } else {
-                                  const val = parseFloat(raw)
-                                  if (!isNaN(val)) {
-                                    handleUpdateProductCajas(p.tempId, val)
-                                  }
-                                }
-                              }}
-                              className={cn(
-                                "h-7 w-16 text-center font-mono font-bold text-xs px-1 rounded-lg border tabular-nums",
-                                esAjuste && (
-                                  p.cajas < 0
-                                    ? "text-red-600 font-black bg-red-50/50 dark:bg-red-950/20 border-red-300 dark:border-red-800"
-                                    : p.cajas > 0
-                                    ? "text-emerald-600 font-black bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800"
-                                    : ""
-                                )
-                              )}
-                              disabled={todoBloqueado || soloEditaDestino}
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7 rounded-lg border hover:bg-muted shrink-0"
-                              onClick={() => handleUpdateProductCajas(p.tempId, p.cajas + 1)}
-                              disabled={todoBloqueado || soloEditaDestino}
-                              title="Sumar 1 caja"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </td>
-
-                        {/* Columna de Piezas (editable sin modo solo cajas; solo lectura con Pz en modo solo cajas) */}
-                        {verPiezas && (
-                          <td className="px-4 py-3 text-center">
-                            {modoSoloCajas ? (
-                              <span
-                                className="font-mono text-xs tabular-nums text-muted-foreground"
-                                title="Piezas bloqueadas por modo solo cajas (0)"
-                              >
-                                {p.piezas_sueltas}
-                              </span>
-                            ) : (
-                            <Input
-                              type="number"
-                              min="0"
-                              value={p.piezas_sueltas === 0 ? '' : p.piezas_sueltas}
-                              placeholder="0"
-                              onChange={(e) => {
-                                const raw = e.target.value
-                                const val = parseInt(raw, 10)
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  productos: prev.productos.map((item) =>
-                                    item.tempId === p.tempId
-                                      ? { ...item, piezas_sueltas: isNaN(val) ? 0 : Math.max(0, val) }
-                                      : item
-                                  ),
-                                }))
-                              }}
-                              className="h-7 w-14 text-center font-mono text-xs px-1 rounded-lg border tabular-nums mx-auto"
-                              disabled={todoBloqueado || soloEditaDestino}
-                            />
-                            )}
-                          </td>
-                        )}
-
-                        <td className="px-4 py-3 text-right font-mono font-bold text-base tabular-nums">
-                          {totalEst}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive rounded-full"
-                            onClick={() => handleRemoveProduct(p.tempId)}
-                            disabled={todoBloqueado || soloEditaDestino}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t bg-muted/40">
-                    <td colSpan={3} className="px-4 py-3 text-xs font-black uppercase tracking-wider text-muted-foreground">
-                      {draft.productos.length} producto{draft.productos.length !== 1 ? 's' : ''}
-                    </td>
-                    <td className="px-4 py-3 text-center font-black font-mono text-base tabular-nums">
-                      {esAjuste ? (
-                        <div className="flex flex-col items-center">
-                          <span className={cn(
-                            "text-lg",
-                            totalCajas > 0 ? "text-emerald-600" : totalCajas < 0 ? "text-red-600" : "text-foreground"
-                          )}>
-                            {totalCajas > 0 ? `+${totalCajas}` : totalCajas}
-                          </span>
-                          {(totalPositivas > 0 || totalNegativas < 0) && (
-                            <span className="text-[10px] font-bold text-muted-foreground">
-                              (+{totalPositivas} / {totalNegativas})
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-lg">{totalCajas}</span>
-                      )}
-                    </td>
-                    <td colSpan={2 + (showExtraCols ? 1 : 0) + (verPiezas ? 1 : 0)}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground bg-background border rounded-2xl">
-              <Package className="h-10 w-10 text-muted-foreground opacity-50" />
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80 mt-3">Busca y agrega productos a la nota</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-        </div>
-
-      {/* ── Visor de Nota Original (OCR / Comprobante): izquierda fija en desktop ── */}
-      {(ocrProposalId || comprobantePreview) && (
-        <Card className="w-full shadow-xl bg-gradient-to-br from-card to-muted/20 border overflow-hidden order-2 lg:order-1 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24 lg:self-start lg:z-10 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
-          <CardHeader className="pb-2 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2 space-y-0">
-            <div>
-              <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground">
-                Nota Original Escaneada (OCR)
-              </CardTitle>
-              <CardDescription className="text-[10px]">
-                {ocrProposalId ? `Propuesta #${ocrProposalId}` : 'Comprobante adjunto'}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {(ocrProposalId || ocrRawLineas.length > 0) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowOcrSyncModal(true)}
-                  className="h-8 text-xs font-bold gap-1 rounded-lg border shadow-sm text-primary hover:text-primary bg-background"
-                  title="Editar cadenas de texto escaneadas y re-sincronizar SKUs"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  <span>Editar / Sincronizar OCR</span>
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg"
-                onClick={visor.zoomOut}
-                title="Alejar"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg"
-                onClick={visor.zoomIn}
-                title="Acercar"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg"
-                onClick={visor.rotate}
-                title="Rotar 90°"
-              >
-                <RotateCw className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg"
-                onClick={visor.reset}
-                title="Restaurar"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-              {comprobantePreview && (
-                <a
-                  href={comprobantePreview}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
-                  title="Ver original en pestaña nueva"
-                >
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent
-            ref={visorRef}
-            onPointerDown={visor.onPointerDown}
-            onPointerMove={visor.onPointerMove}
-            onPointerUp={visor.onPointerUp}
-            onPointerCancel={visor.onPointerCancel}
-            onPointerLeave={visor.onPointerUp}
-            className="p-2 bg-zinc-950/5 dark:bg-zinc-950/40 relative overflow-hidden flex items-center justify-center min-h-[250px] max-h-[480px] touch-none select-none"
-            style={{ cursor: visor.dragging ? 'grabbing' : 'grab' }}
-          >
-            {comprobantePreview ? (
-              <div className="w-full h-full overflow-auto flex items-center justify-center relative min-h-[250px] max-h-[450px]">
-                <div
-                  className="relative w-full h-[400px] transition-transform duration-75 ease-out"
-                  style={{
-                    transform: visor.transform,
-                    transformOrigin: 'center center',
+              onUpdateDraftField={(field, val) => setDraft((prev) => ({ ...prev, [field]: val }))}
+              onFileChange={comprobante.handleFileChange}
+              onClearFile={comprobante.handleClearFile}
+              onPasteClipboard={comprobante.handlePasteComprobanteFromClipboard}
+              onDragOver={comprobante.handleComprobanteDragOver}
+              onDragLeave={comprobante.handleComprobanteDragLeave}
+              onDrop={comprobante.handleComprobanteDrop}
+              mismatchBanner={
+                <NotaOcrMismatchBanner
+                  visible={ocrDiffs.hasAnyHeaderMismatch}
+                  {...ocrDiffs}
+                  tipoSeleccionadoNombre={tipoSeleccionado?.nombre}
+                  currentBodegaNombre={ocrDiffs.currentBodegaObj?.nombre}
+                  currentDestinoNombre={ocrDiffs.currentDestinoObj?.nombre}
+                  draftFechaNota={draft.fecha_nota ?? ''}
+                  draftNotaReferencia={draft.nota_referencia}
+                  canApplyOrigen={Boolean(ocrDiffs.detectedBodega && allowedBodegas.some((b) => b.id === ocrDiffs.detectedBodega!.id))}
+                  onDismiss={() => setDismissedHeaderMismatch(true)}
+                  onApplyAll={() => {
+                    setDraft((prev) => ({
+                      ...prev,
+                      tipo_movimiento_id: ocrDiffs.detectedTipoObj ? ocrDiffs.detectedTipoObj.id : prev.tipo_movimiento_id,
+                      bodega_origen_id:
+                        ocrDiffs.detectedBodega && allowedBodegas.some((b) => b.id === ocrDiffs.detectedBodega!.id)
+                          ? ocrDiffs.detectedBodega.id
+                          : prev.bodega_origen_id,
+                      bodega_destino_id: ocrDiffs.detectedDestinoBodega
+                        ? ocrDiffs.detectedDestinoBodega.id
+                        : ocrDiffs.detectedTipoObj && !ocrDiffs.detectedTipoObj.requiere_destino
+                        ? null
+                        : prev.bodega_destino_id,
+                      fecha_nota: ocrDiffs.detectedFechaRaw ? formatForDateInput(ocrDiffs.detectedFechaRaw) : prev.fecha_nota,
+                      nota_referencia: ocrDiffs.detectedFolioRaw || prev.nota_referencia,
+                    }))
+                    setDismissedHeaderMismatch(true)
+                    toast.success('¡Se aplicaron todos los datos detectados en la nota física!')
                   }}
-                >
-                  <Image
-                    src={comprobantePreview}
-                    alt="Nota escaneada"
-                    fill
-                    className="object-contain"
-                    unoptimized
-                    draggable={false}
-                    onDragStart={(e) => e.preventDefault()}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-muted-foreground p-6">
-                <ImageIcon className="h-10 w-10 opacity-30 mb-2" />
-                <span className="text-xs">No hay imagen de comprobante</span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-        </div>
+                  onApplyTipo={() => {
+                    if (!ocrDiffs.detectedTipoObj) return
+                    setDraft((prev) => ({
+                      ...prev,
+                      tipo_movimiento_id: ocrDiffs.detectedTipoObj!.id,
+                      bodega_destino_id: ocrDiffs.detectedTipoObj!.requiere_destino ? prev.bodega_destino_id : null,
+                    }))
+                    toast.success(`Tipo actualizado a "${ocrDiffs.detectedTipoObj.nombre}".`)
+                  }}
+                  onApplyOrigen={() => ocrDiffs.detectedBodega && applyBodegaOrigenChange(ocrDiffs.detectedBodega.id)}
+                  onApplyDestino={() => {
+                    if (!ocrDiffs.detectedDestinoBodega) return
+                    setDraft((prev) => ({ ...prev, bodega_destino_id: ocrDiffs.detectedDestinoBodega!.id }))
+                    toast.success(`Destino actualizado a "${ocrDiffs.detectedDestinoBodega.nombre}".`)
+                  }}
+                  onApplyFecha={() => {
+                    const f = formatForDateInput(ocrDiffs.detectedFechaRaw)
+                    setDraft((prev) => ({ ...prev, fecha_nota: f }))
+                    toast.success(`Fecha actualizada a ${f}.`)
+                  }}
+                  onApplyFolio={() => {
+                    setDraft((prev) => ({ ...prev, nota_referencia: ocrDiffs.detectedFolioRaw }))
+                    toast.success(`Folio actualizado a "${ocrDiffs.detectedFolioRaw}".`)
+                  }}
+                />
+              }
+            />
 
-      {/* ── Acciones Finales ── */}
-      <div className="flex flex-col gap-3 pt-4 border-t">
-        {/* Fila 1: Botón Volver (solo ícono) + Guardar Borrador */}
-        <div className="flex items-center gap-3">
-          <Link href={ADMIN_ROUTES.inventario.notas} className="shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-11 w-11 rounded-xl shrink-0 border-muted hover:bg-muted"
-              title="Volver a Notas de Inventario"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-
-          {!todoBloqueado && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isPending || isValidandoStock || draft.productos.length === 0}
-              onClick={() => handleSave(false)}
-              className="flex-1 h-11 rounded-xl text-sm font-semibold gap-2 border-muted-foreground/30 hover:bg-muted/80 shadow-xs"
-            >
-              {isPending || isValidandoStock ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              Guardar Borrador
-            </Button>
-          )}
-        </div>
-
-        {/* Fila 2: Botón Grande Confirmar */}
-        {puedeConfirmar ? (
-          <Button
-            type="button"
-            disabled={isPending || isValidandoStock || draft.productos.length === 0}
-            onClick={() => handleSave(true)}
-            className="w-full h-12 sm:h-14 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 gap-2 transition-all active:scale-[0.99]"
-          >
-            {isPending || isValidandoStock ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-5 w-5" />
-            )}
-            Confirmar Nota de Inventario
-          </Button>
-        ) : (
-          <div className="w-full p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center text-xs text-amber-700 dark:text-amber-300 font-medium">
-            * Nota en modo borrador. La confirmación definitiva requiere autorización de un Encargado o Admin.
-          </div>
-        )}
-      </div>
-    </div>
-
-      {/* ── Diálogo de confirmación ──────────────────────── */}
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent className="rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-bold text-lg">¿Confirmar nota de movimiento?</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <span className="block">Esta acción aplicará de forma definitiva los movimientos de inventario en la base de datos.</span>
-              {tipoSeleccionado?.afecta_inventario === -1 && (
-                <span className="block p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-700 font-bold uppercase tracking-tight text-[11px] animate-pulse">
-                  ⚠️ SE DESCONTARÁ STOCK de la bodega origen: {catalogos.bodegas.find(b => b.id === draft.bodega_origen_id)?.nombre}.
-                </span>
-              )}
-              {tipoSeleccionado?.codigo === 'TRF' && (
-                <span className="block p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 font-bold uppercase tracking-tight text-[11px]">
-                  ↔ SE TRANSFERIRÁ STOCK de origen a destino de manera automática.
-                </span>
-              )}
-              <span className="block text-xs font-semibold text-muted-foreground pt-1">
-                {draft.productos.length} producto{draft.productos.length !== 1 ? 's' : ''} · {totalCajas} cajas en borrador.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => doSave(true)} className="rounded-xl font-bold uppercase tracking-wider">
-              Confirmar Nota
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ── Diálogo Sustituidor de SKU ───────────────────── */}
-      <Dialog open={!!swapProductTempId} onOpenChange={(open) => !open && setSwapProductTempId(null)}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 text-primary" />
-              Sustituir Producto / SKU
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Busca y selecciona el producto correcto para reemplazar el SKU de esta fila manteniendo la cantidad de cajas.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 pt-2">
-            <SkuQuickSearchInput
-              autoFocus
-              value={swapSearchTerm}
-              placeholder="Buscar por SKU o nombre de producto..."
-              inputClassName="h-10 rounded-xl text-sm"
-              delay={280}
-              onSelectProduct={(prod) => {
-                if (swapProductTempId) {
-                  handleSwapProduct(swapProductTempId, {
-                    id: prod.id,
-                    sku_base: prod.sku_base,
-                    nombre: prod.nombre,
-                    descripcion: prod.descripcion ?? null,
-                    pz_en_caja: prod.pz_en_caja ?? null,
-                    marca_nombre: null,
-                    imagen_url: null,
+            <NotaProductosTable
+              productos={draft.productos}
+              bodegaOrigenId={draft.bodega_origen_id}
+              esAjuste={esAjuste}
+              esMovimientoSalidaOTraslado={esMovimientoSalidaOTraslado}
+              modoSoloCajas={modoSoloCajas}
+              permitirStockNegativo={permitirStockNegativo}
+              todoBloqueado={todoBloqueado}
+              soloEditaDestino={soloEditaDestino}
+              copiedDraft={copiedDraft}
+              showExtraCols={showExtraCols}
+              onToggleExtraCols={() => setShowExtraCols((v) => !v)}
+              mostrarPiezas={mostrarPiezas}
+              onToggleMostrarPiezas={() => setMostrarPiezas((v) => !v)}
+              agregadoPorClave={agregadoPorClave}
+              hayRenglonesDuplicados={hayRenglonesDuplicados}
+              productosConDeficitCount={productosConDeficit.length}
+              totalCajas={totalCajas}
+              totalPositivas={totalPositivas}
+              totalNegativas={totalNegativas}
+              onOpenPasteExcel={() => setShowPasteExcelModal(true)}
+              onCopyDraftExcel={async () => {
+                if (draft.productos.length === 0) return toast.error('No hay productos en la nota para copiar.')
+                try {
+                  const header = ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
+                  const rows = draft.productos.map((p) => {
+                    const caja = p.caja_codigo ? `${p.caja_codigo}${p.caja_nombre_pack ? ` (${p.caja_nombre_pack})` : ''}` : '—'
+                    return [p.producto_sku ?? '—', p.producto_nombre ?? '—', caja, p.cajas, p.piezas_sueltas, p.cajas * (p.producto_pz_en_caja ?? 0) + p.piezas_sueltas].join('\t')
                   })
+                  await navigator.clipboard.writeText([header, ...rows].join('\n'))
+                  setCopiedDraft(true)
+                  toast.success('Tabla copiada al portapapeles en formato Excel (TSV)')
+                  setTimeout(() => setCopiedDraft(false), 2000)
+                } catch {
+                  toast.error('No se pudo copiar la tabla.')
                 }
               }}
-              onValueChange={(val) => setSwapSearchTerm(val)}
-              onClear={() => {
-                setSwapSearchTerm('')
-                setSwapSearchResults([])
+              onOpenConciliador={() => setShowConciliadorModal(true)}
+              onConsolidarRenglones={validacion.consolidarRenglones}
+              onReorder={(from, to) =>
+                setDraft((prev) => {
+                  const list = [...prev.productos]
+                  const [moved] = list.splice(from, 1)
+                  list.splice(to, 0, moved)
+                  return { ...prev, productos: list }
+                })
+              }
+              onMoveUp={(i) =>
+                i > 0 &&
+                setDraft((prev) => {
+                  const list = [...prev.productos]
+                  ;[list[i - 1], list[i]] = [list[i], list[i - 1]]
+                  return { ...prev, productos: list }
+                })
+              }
+              onMoveDown={(i) =>
+                i < draft.productos.length - 1 &&
+                setDraft((prev) => {
+                  const list = [...prev.productos]
+                  ;[list[i + 1], list[i]] = [list[i], list[i + 1]]
+                  return { ...prev, productos: list }
+                })
+              }
+              onOpenSustitutos={(p) => {
+                setSustitutoTargetProduct({ tempId: p.tempId, productoId: p.producto_id, sku: p.producto_sku, nombre: p.producto_nombre })
+                setSustitutoModalOpen(true)
               }}
+              onOpenSwapSku={(tempId) => {
+                buscador.setSwapProductTempId(tempId)
+                buscador.setSwapSearchTerm('')
+              }}
+              onToggleSignCajas={(tempId) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  productos: prev.productos.map((p) => (p.tempId === tempId ? { ...p, cajas: -(p.cajas === 0 ? 1 : p.cajas) } : p)),
+                }))
+              }
+              onUpdateCajas={(tempId, val) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  productos: prev.productos.map((p) => (p.tempId === tempId ? { ...p, cajas: esAjuste ? val : Math.max(0, val) } : p)),
+                }))
+              }
+              onUpdatePiezas={(tempId, val) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  productos: prev.productos.map((p) => (p.tempId === tempId ? { ...p, piezas_sueltas: val } : p)),
+                }))
+              }
+              onRemoveProduct={(tempId) =>
+                setDraft((prev) => ({ ...prev, productos: prev.productos.filter((p) => p.tempId !== tempId) }))
+              }
+              addProductForm={
+                <NotaAddProductForm
+                  bodegaOrigenId={draft.bodega_origen_id}
+                  disabled={todoBloqueado || soloEditaDestino}
+                  searchTerm={buscador.searchTerm}
+                  selectedProduct={buscador.selectedProduct}
+                  cajasDisponibles={buscador.cajasDisponibles}
+                  selectedProductStock={buscador.selectedProductStock}
+                  addCajas={buscador.addCajas}
+                  onAddCajasChange={buscador.setAddCajas}
+                  addPiezas={buscador.addPiezas}
+                  onAddPiezasChange={buscador.setAddPiezas}
+                  addCajaId={buscador.addCajaId}
+                  onAddCajaIdChange={buscador.setAddCajaId}
+                  esAjuste={esAjuste}
+                  modoSoloCajas={modoSoloCajas}
+                  tipoSeleccionado={tipoSeleccionado}
+                  onSelectProduct={buscador.handleSelectProduct}
+                  onSearchValueChange={buscador.handleSearchValueChange}
+                  onClearSearch={buscador.handleClearSearch}
+                  onAddProduct={buscador.handleAddProduct}
+                />
+              }
             />
           </div>
-        </DialogContent>
-      </Dialog>
 
-      {/* ── Modal de Edición y Sincronización de Líneas OCR ── */}
-      <OcrLineasSyncModal
-        open={showOcrSyncModal}
-        onOpenChange={setShowOcrSyncModal}
-        ocrProposalId={ocrProposalId}
-        initialLineas={ocrRawLineas}
-        comprobanteUrl={comprobantePreview || initialData?.cabecera.comprobante_url}
-        bodegaOrigenId={draft.bodega_origen_id}
-        onApplyToDraft={handleApplyOcrLinesToDraft}
-      />
+          <NotaVisorPanel
+            ocrProposalId={ocrProposalId}
+            hasOcrLineas={ocrRawLineas.length > 0}
+            comprobantePreview={comprobante.comprobantePreview}
+            onOpenOcrSync={() => setShowOcrSyncModal(true)}
+          />
+        </div>
 
-      {/* ── Modal de Pegar Productos desde Excel / Portapapeles ── */}
-      <PasteExcelProductosModal
-        open={showPasteExcelModal}
-        onOpenChange={setShowPasteExcelModal}
-        bodegaOrigenId={draft.bodega_origen_id}
-        onApplyProducts={handleApplyPastedProducts}
-      />
-
-      {/* ── Diálogo de Confirmación al Cambiar Bodega Origen ── */}
-      <AlertDialog open={showChangeBodegaDialog} onOpenChange={setShowChangeBodegaDialog}>
-        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
-              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
-              ¿Cambiar Bodega de Origen?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
-              <span>
-                Estás a punto de cambiar el origen a{' '}
-                <strong className="text-foreground">
-                  {catalogos.bodegas.find((b) => b.id === pendingBodegaOrigenId)?.nombre || 'la nueva bodega'}
-                </strong>.
-              </span>
-              <span className="block text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl">
-                ⚠️ Esta acción recalculará automáticamente las existencias en vivo de todos los productos agregados en la nota con base en el inventario real de la nueva bodega.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-4 gap-2">
-            <AlertDialogCancel
-              onClick={() => setPendingBodegaOrigenId(null)}
-              className="rounded-xl font-bold uppercase text-xs tracking-wider"
-            >
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => pendingBodegaOrigenId && applyBodegaOrigenChange(pendingBodegaOrigenId)}
-              className="rounded-xl bg-primary font-bold uppercase text-xs tracking-wider shadow-md"
-            >
-              Confirmar Cambio
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ── Diálogo de Confirmación al Cambiar Tipo de Movimiento ── */}
-      <AlertDialog open={showChangeTipoDialog} onOpenChange={setShowChangeTipoDialog}>
-        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold text-foreground">
-              <AlertCircle className="h-5 w-5 text-sky-500 shrink-0" />
-              ¿Cambiar Tipo de Movimiento?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm space-y-3 text-muted-foreground pt-1">
-              <span>
-                Estás a punto de cambiar el tipo de movimiento de esta nota a{' '}
-                <strong className="text-foreground">
-                  {catalogos.tiposMovimiento.find((t) => t.id === pendingTipoMovimientoId)?.nombre || 'el nuevo tipo'}
-                </strong>.
-              </span>
-              <span className="block text-xs font-medium text-sky-900 dark:text-sky-200 bg-sky-500/10 border border-sky-500/20 p-3 rounded-xl">
-                ℹ️ El tipo de movimiento define cómo afectará al inventario (Entrada, Salida, Traspaso o Ajuste). La lista de productos y cantidades se mantendrá intacta.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-4 gap-2">
-            <AlertDialogCancel
-              onClick={() => setPendingTipoMovimientoId(null)}
-              className="rounded-xl font-bold uppercase text-xs tracking-wider"
-            >
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => pendingTipoMovimientoId && applyTipoMovimientoChange(pendingTipoMovimientoId)}
-              className="rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold uppercase text-xs tracking-wider shadow-md"
-            >
-              Confirmar Cambio
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ── Modal de Sustitución por Familia con Stock ──────── */}
-      <SustitutoFamiliaModal
-        open={sustitutoModalOpen}
-        onOpenChange={setSustitutoModalOpen}
-        productoId={sustitutoTargetProduct?.productoId ?? null}
-        productoActualSku={sustitutoTargetProduct?.sku ?? null}
-        productoActualNombre={sustitutoTargetProduct?.nombre ?? null}
-        bodegaOrigenId={draft.bodega_origen_id}
-        bodegaNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
-        onSelectSustituto={handleSelectSustituto}
-      />
-
-      {/* ── Modal Paso 2: Conciliador de Stock Ampliado por Familia ── */}
-      <ConciliadorAmpliadoStockModal
-        open={showConciliadorModal}
-        onOpenChange={setShowConciliadorModal}
-        productos={draft.productos}
-        bodegaOrigenId={draft.bodega_origen_id}
-        bodegaOrigenNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
-        permitirStockNegativo={permitirStockNegativo}
-        onReasignarProducto={handleReasignarProducto}
-      />
-
-      {/* ── Revisión pre-guardado: negativo permitido, fecha futura y Durazno en un solo panel ─ */}
-      <AlertDialog open={showRevisionDialog} onOpenChange={setShowRevisionDialog}>
-        <AlertDialogContent className="rounded-2xl max-w-md bg-card border shadow-2xl p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-lg font-bold">
-              <Sparkles className="h-5 w-5 text-primary shrink-0" />
-              Revisar antes de guardar
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-muted-foreground pt-1">
-              Hay puntos a revisar en esta nota. Son solo avisos: puedes corregir o continuar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-3 py-1">
-            {hayDeficitStock && permitirStockNegativo && (
-              <div className="text-xs font-medium text-amber-900 dark:text-amber-200 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl space-y-1">
-                <p className="font-bold flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                  Saldo negativo proyectado
-                </p>
-                <p>
-                  <strong className="text-foreground">{productosConDeficit.length} producto(s)</strong> superan el stock de{' '}
-                  <strong className="text-foreground">
-                    {catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre || 'la bodega origen'}
-                  </strong>. Con stock negativo habilitado quedarán existencias menores a 0.
-                </p>
-              </div>
-            )}
-            {hayAvisoFecha() && (
-              <div className="text-xs font-medium text-sky-900 dark:text-sky-200 bg-sky-500/10 border border-sky-500/20 p-3 rounded-xl space-y-2">
-                <p className="font-bold flex items-center gap-1.5">
-                  <CalendarClock className="h-4 w-4 text-sky-500 shrink-0" />
-                  Nota a futuro: movimiento programado
-                </p>
-                <p>
-                  Fecha de la nota: <strong className="font-mono">{formatDate(draft.fecha_nota) || draft.fecha_nota}</strong>
-                  {' '}· Hoy: <strong className="font-mono">{formatDate(todayMX())}</strong>.
-                  Si no es el caso puede cambiar la fecha aquí:
-                </p>
-                <Input
-                  type="date"
-                  value={draft.fecha_nota || todayMX()}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, fecha_nota: e.target.value }))}
-                  className="h-9 rounded-xl font-mono text-xs bg-background"
-                />
-              </div>
-            )}
-            {ladoDurazno() && (
-              <div className="text-xs font-medium text-violet-900 dark:text-violet-200 bg-violet-500/10 border border-violet-500/20 p-3 rounded-xl space-y-2">
-                <p className="font-bold flex items-center gap-1.5">
-                  <ArrowLeftRight className="h-4 w-4 text-violet-500 shrink-0" />
-                  Bodega Durazno unificada con Cocina
-                </p>
-                <p>
-                  ¿Seguro que la nota desea que esté en{' '}
-                  <strong className="text-foreground">
-                    Durazno ({ladoDurazno() === 'ambos' ? 'origen y destino' : ladoDurazno()})
-                  </strong>
-                  ? ¿Desea cambiarlo a Cocina?
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCambiarACocina}
-                  className="h-8 text-xs font-bold gap-1.5 rounded-xl"
-                >
-                  <ArrowLeftRight className="h-3.5 w-3.5" />
-                  Cambiar a Cocina
-                </Button>
-              </div>
+        <div className="flex flex-col gap-3 pt-4 border-t">
+          <div className="flex items-center gap-3">
+            <Link href={ADMIN_ROUTES.inventario.notas} className="shrink-0">
+              <Button type="button" variant="outline" size="icon" className="h-11 w-11 rounded-xl shrink-0 border-muted hover:bg-muted" title="Volver a Notas de Inventario">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            {!todoBloqueado && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={validacion.isPending || validacion.isValidandoStock || draft.productos.length === 0}
+                onClick={() => validacion.handleSave(false)}
+                className="flex-1 h-11 rounded-xl text-sm font-semibold gap-2 border-muted-foreground/30 hover:bg-muted/80 shadow-xs"
+              >
+                {validacion.isPending || validacion.isValidandoStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Guardar Borrador
+              </Button>
             )}
           </div>
-          <AlertDialogFooter className="mt-4 gap-2">
-            <AlertDialogCancel
-              onClick={() => setShowRevisionDialog(false)}
-              className="rounded-xl font-bold uppercase text-xs tracking-wider"
-            >
-              Revisar / Modificar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                fechaAdvertidaRef.current = (draft.fecha_nota ?? '').trim()
-                setShowRevisionDialog(false)
-                finalizarAdvertencias(pendingConfirmState)
-              }}
-              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase text-xs tracking-wider shadow-md"
-            >
-              Continuar y Guardar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
-      {/* ── Aviso previo: stock insuficiente (total agregado por SKU) ── */}
-      <ModalStockInsuficiente
-        open={showStockModal}
-        onOpenChange={setShowStockModal}
-        faltantes={stockFaltantes}
-        bodegaOrigenNombre={catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre}
-        modo={stockAvisoModo}
-        isBusy={isValidandoStock}
-        onAjustar={ajustarYContinuar}
-        onGuardarBorrador={
-          stockAvisoModo === 'borrador' ? () => doSave(false) : undefined
-        }
-        onVerSustitutos={(productoId) => {
+          {puedeConfirmar ? (
+            <Button
+              type="button"
+              disabled={validacion.isPending || validacion.isValidandoStock || draft.productos.length === 0}
+              onClick={() => validacion.handleSave(true)}
+              className="w-full h-12 sm:h-14 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 gap-2 transition-all active:scale-[0.99]"
+            >
+              {validacion.isPending || validacion.isValidandoStock ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+              Confirmar Nota de Inventario
+            </Button>
+          ) : (
+            <div className="w-full p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center text-xs text-amber-700 dark:text-amber-300 font-medium">
+              * Nota en modo borrador. La confirmación definitiva requiere autorización de un Encargado o Admin.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <NotaModales
+        draft={draft}
+        bodegas={catalogos.bodegas}
+        tiposMovimiento={catalogos.tiposMovimiento}
+        tipoSeleccionado={tipoSeleccionado}
+        totalCajas={totalCajas}
+        permitirStockNegativo={permitirStockNegativo}
+        hayDeficitStock={productosConDeficit.length > 0}
+        productosConDeficitCount={productosConDeficit.length}
+        showConfirmDialog={validacion.showConfirmDialog}
+        onShowConfirmDialogChange={validacion.setShowConfirmDialog}
+        onConfirmSave={() => validacion.doSave(true)}
+        swapProductTempId={buscador.swapProductTempId}
+        swapSearchTerm={buscador.swapSearchTerm}
+        onCloseSwap={() => buscador.setSwapProductTempId(null)}
+        onSwapSearchTermChange={buscador.setSwapSearchTerm}
+        onSwapProduct={buscador.handleSwapProduct}
+        showOcrSyncModal={showOcrSyncModal}
+        onShowOcrSyncModalChange={setShowOcrSyncModal}
+        ocrProposalId={ocrProposalId}
+        ocrRawLineas={ocrRawLineas}
+        comprobanteUrl={comprobante.comprobantePreview || initialData?.cabecera.comprobante_url}
+        onApplyOcrLines={(newProducts, updatedRawLineas) => {
+          setOcrRawLineas(updatedRawLineas)
+          if (newProducts.length > 0) {
+            setDraft((prev) => ({ ...prev, productos: newProducts }))
+            const msg = `Se sincronizaron ${newProducts.length} productos del OCR en la nota.`
+            validacion.setSuccess(msg)
+            toast.success(msg)
+          }
+        }}
+        showPasteExcelModal={showPasteExcelModal}
+        onShowPasteExcelModalChange={setShowPasteExcelModal}
+        onApplyPastedProducts={(items: ResolvedProductoPegado[], modoFusion: 'sumar' | 'anexar') => {
+          setDraft((prev) => {
+            const existingList = [...prev.productos]
+            const itemsToAdd: DraftProducto[] = []
+            for (const item of items) {
+              if (modoFusion === 'sumar') {
+                const idx = existingList.findIndex((p) => p.producto_id === item.producto_id && !p.caja_id)
+                if (idx >= 0) {
+                  existingList[idx] = { ...existingList[idx], cajas: existingList[idx].cajas + item.cajas }
+                  continue
+                }
+              }
+              itemsToAdd.push({
+                tempId: crypto.randomUUID(),
+                producto_id: item.producto_id,
+                producto_sku: item.sku_base,
+                producto_nombre: item.nombre,
+                producto_pz_en_caja: item.pz_en_caja,
+                cajas: item.cajas,
+                piezas_sueltas: 0,
+                caja_id: null,
+                caja_codigo: null,
+                caja_nombre_pack: null,
+                stock_origen_cajas: item.stock_origen_cajas,
+                stock_origen_piezas: item.stock_origen_piezas,
+                codigo_original: item.sku_ingresado !== item.sku_base ? item.sku_ingresado : null,
+              })
+            }
+            return { ...prev, productos: [...existingList, ...itemsToAdd] }
+          })
+          toast.success(`Se agregaron ${items.length} productos a la nota con éxito.`)
+        }}
+        showChangeBodegaDialog={showChangeBodegaDialog}
+        onShowChangeBodegaDialogChange={setShowChangeBodegaDialog}
+        pendingBodegaOrigenId={pendingBodegaOrigenId}
+        onCancelBodegaChange={() => setPendingBodegaOrigenId(null)}
+        onConfirmBodegaChange={() => pendingBodegaOrigenId && applyBodegaOrigenChange(pendingBodegaOrigenId)}
+        showChangeTipoDialog={showChangeTipoDialog}
+        onShowChangeTipoDialogChange={setShowChangeTipoDialog}
+        pendingTipoMovimientoId={pendingTipoMovimientoId}
+        onCancelTipoChange={() => setPendingTipoMovimientoId(null)}
+        onConfirmTipoChange={() => {
+          if (!pendingTipoMovimientoId) return
+          const targetTipo = catalogos.tiposMovimiento.find((t) => t.id === pendingTipoMovimientoId)
+          setShowChangeTipoDialog(false)
+          setDraft((prev) => ({
+            ...prev,
+            tipo_movimiento_id: pendingTipoMovimientoId,
+            bodega_destino_id: targetTipo?.requiere_destino ? prev.bodega_destino_id : null,
+          }))
+          toast.success(`Tipo de movimiento actualizado a "${targetTipo?.nombre || 'nuevo tipo'}".`)
+          setPendingTipoMovimientoId(null)
+        }}
+        sustitutoModalOpen={sustitutoModalOpen}
+        onSustitutoModalOpenChange={setSustitutoModalOpen}
+        sustitutoTargetProduct={sustitutoTargetProduct}
+        onSelectSustituto={(sustituto: ProductoSustitutoFamilia, originalSku: string, familia: string | null) => {
+          if (!sustitutoTargetProduct) return
+          const targetTempId = sustitutoTargetProduct.tempId
+          setDraft((prev) => {
+            const logEntry = `[Auto-ajuste: Se sustituyó '${originalSku}' por '${sustituto.sku_base}'${familia ? ` de la familia '${familia}'` : ''} con existencias en bodega origen]`
+            return {
+              ...prev,
+              productos: prev.productos.map((p) =>
+                p.tempId !== targetTempId
+                  ? p
+                  : {
+                      ...p,
+                      producto_id: sustituto.id,
+                      producto_sku: sustituto.sku_base,
+                      producto_nombre: sustituto.descripcion || sustituto.nombre || '',
+                      producto_pz_en_caja: sustituto.pz_en_caja,
+                      stock_origen_cajas: sustituto.cajas_disponibles,
+                      stock_origen_piezas: sustituto.piezas_disponibles,
+                    }
+              ),
+              observaciones: prev.observaciones ? `${prev.observaciones.trim()}\n${logEntry}` : logEntry,
+            }
+          })
+          toast.success(`Producto sustituido por '${sustituto.sku_base}' con existencias y registrado en observaciones.`)
+          setSustitutoTargetProduct(null)
+        }}
+        showConciliadorModal={showConciliadorModal}
+        onShowConciliadorModalChange={setShowConciliadorModal}
+        onReasignarProducto={(tempId: string, nuevo: ProductoSustitutoAmpliado | ProductoBusqueda, codFisico: string) => {
+          setDraft((prev) => {
+            const logEntry = `[Reasignación: Se descontará stock de '${nuevo.sku_base}' correspondiente al modelo físico '${codFisico}']`
+            return {
+              ...prev,
+              productos: prev.productos.map((p) =>
+                p.tempId !== tempId
+                  ? p
+                  : {
+                      ...p,
+                      producto_id: nuevo.id,
+                      producto_sku: nuevo.sku_base,
+                      producto_nombre: nuevo.descripcion || nuevo.nombre || '',
+                      producto_pz_en_caja: ('pz_en_caja' in nuevo ? nuevo.pz_en_caja : null) ?? p.producto_pz_en_caja,
+                      stock_origen_cajas: ('cajas_disponibles' in nuevo ? nuevo.cajas_disponibles : null) ?? p.stock_origen_cajas,
+                      stock_origen_piezas: ('piezas_disponibles' in nuevo ? nuevo.piezas_disponibles : null) ?? p.stock_origen_piezas,
+                      codigo_original: codFisico,
+                    }
+              ),
+              observaciones: prev.observaciones ? `${prev.observaciones.trim()}\n${logEntry}` : logEntry,
+            }
+          })
+          toast.success(`Salida reasignada a '${nuevo.sku_base}' (Físico: ${codFisico})`)
+        }}
+        showRevisionDialog={validacion.showRevisionDialog}
+        onShowRevisionDialogChange={validacion.setShowRevisionDialog}
+        hayAvisoFecha={validacion.hayAvisoFecha()}
+        ladoDurazno={validacion.ladoDurazno()}
+        onChangeFechaNota={(date) => setDraft((prev) => ({ ...prev, fecha_nota: date }))}
+        onCambiarACocina={validacion.handleCambiarACocina}
+        onConfirmRevision={validacion.confirmarRevision}
+        showStockModal={validacion.showStockModal}
+        onShowStockModalChange={validacion.setShowStockModal}
+        stockFaltantes={validacion.stockFaltantes}
+        stockAvisoModo={validacion.stockAvisoModo}
+        isValidandoStock={validacion.isValidandoStock}
+        onAjustarYContinuar={validacion.ajustarYContinuar}
+        onGuardarBorrador={() => validacion.doSave(false)}
+        onVerSustitutosPorProducto={(productoId) => {
           const linea = draft.productos.find((p) => p.producto_id === productoId)
-          // Cierra este modal antes de abrir el de sustitutos (no se apilan diálogos).
-          setShowStockModal(false)
-          if (linea) handleOpenSustitutosModal(linea)
+          validacion.setShowStockModal(false)
+          if (linea) {
+            setSustitutoTargetProduct({ tempId: linea.tempId, productoId: linea.producto_id, sku: linea.producto_sku, nombre: linea.producto_nombre })
+            setSustitutoModalOpen(true)
+          }
         }}
       />
     </div>
