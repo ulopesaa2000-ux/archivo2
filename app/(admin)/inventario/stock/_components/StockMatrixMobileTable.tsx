@@ -285,10 +285,10 @@ export function StockMatrixMobileTable({
                     {/* Filas Hijos (Productos) */}
                     {isExpanded &&
                       group.items.map((item) => {
-                        const itemVisibleTotal = bodegasColumnas.reduce(
-                          (sum, b) => sum + (item.stock_por_bodega[b.id]?.total ?? 0),
-                          0
-                        )
+                        const itemVisibleTotal = bodegasColumnas.reduce((sum, b) => {
+                          const cell = item.stock_por_bodega[b.id]
+                          return sum + (isPronostico ? (cell?.pronosticado ?? cell?.total ?? 0) : (cell?.total ?? 0))
+                        }, 0)
                         const itemVisibleDelta = bodegasColumnas.reduce(
                           (sum, b) => sum + (item.stock_por_bodega[b.id]?.delta ?? 0),
                           0
@@ -387,10 +387,10 @@ export function StockMatrixMobileTable({
               })
             ) : (
               items.map((item) => {
-                const itemVisibleTotal = bodegasColumnas.reduce(
-                  (sum, b) => sum + (item.stock_por_bodega[b.id]?.total ?? 0),
-                  0
-                )
+                const itemVisibleTotal = bodegasColumnas.reduce((sum, b) => {
+                  const cell = item.stock_por_bodega[b.id]
+                  return sum + (isPronostico ? (cell?.pronosticado ?? cell?.total ?? 0) : (cell?.total ?? 0))
+                }, 0)
                 const itemVisibleDelta = bodegasColumnas.reduce(
                   (sum, b) => sum + (item.stock_por_bodega[b.id]?.delta ?? 0),
                   0

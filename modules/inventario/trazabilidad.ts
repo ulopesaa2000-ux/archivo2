@@ -2,6 +2,16 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { todayMX, dateInputToMexicoUTC } from '@/lib/utils'
+
+function chunkIds<T>(items: T[], size = 200): T[][] {
+  if (items.length === 0) return []
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers de ordenamiento de Familias (canónico clásico: ascendente A→Z, F000-000C al final)
@@ -200,46 +210,49 @@ export interface TrazabilidadCompletaRespuesta {
 }
 
 function resolverRangoFechas(filtros: TrazabilidadFiltros): { desde: string; hasta: string } {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() // 0-indexed
+  const hoyStr = todayMX()
+  const [yearStr, monthStr] = hoyStr.split('-')
+  const year = Number(yearStr)
+  const month = Number(monthStr) // 1-indexed (MX)
+  const pad2 = (n: number) => String(n).padStart(2, '0')
 
   if (filtros.periodo === 'mes_anterior') {
-    const primerDiaMesAnt = new Date(year, month - 1, 1)
-    const ultimoDiaMesAnt = new Date(year, month, 0, 23, 59, 59)
+    const prevYear = month === 1 ? year - 1 : year
+    const prevMonth = month === 1 ? 12 : month - 1
+    const lastDayPrev = new Date(Date.UTC(prevYear, prevMonth, 0)).getUTCDate()
     return {
-      desde: primerDiaMesAnt.toISOString().split('T')[0] + 'T00:00:00',
-      hasta: ultimoDiaMesAnt.toISOString().split('T')[0] + 'T23:59:59',
+      desde: dateInputToMexicoUTC(`${prevYear}-${pad2(prevMonth)}-01T00:00:00`),
+      hasta: dateInputToMexicoUTC(`${prevYear}-${pad2(prevMonth)}-${pad2(lastDayPrev)}T23:59:59`),
     }
   }
 
   if (filtros.periodo === 'ultimo_mes') {
-    const hace30Dias = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const baseMs = Date.parse(`${hoyStr}T12:00:00Z`)
+    const hace30 = new Date(baseMs - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     return {
-      desde: hace30Dias.toISOString().split('T')[0] + 'T00:00:00',
-      hasta: now.toISOString().split('T')[0] + 'T23:59:59',
+      desde: dateInputToMexicoUTC(`${hace30}T00:00:00`),
+      hasta: dateInputToMexicoUTC(`${hoyStr}T23:59:59`),
     }
   }
 
   if (filtros.periodo === 'todo') {
     return {
-      desde: '2026-01-01T00:00:00',
-      hasta: now.toISOString().split('T')[0] + 'T23:59:59',
+      desde: dateInputToMexicoUTC('2026-01-01T00:00:00'),
+      hasta: dateInputToMexicoUTC(`${hoyStr}T23:59:59`),
     }
   }
 
   if (filtros.periodo === 'rango' && filtros.fecha_desde && filtros.fecha_hasta) {
     return {
-      desde: filtros.fecha_desde + 'T00:00:00',
-      hasta: filtros.fecha_hasta + 'T23:59:59',
+      desde: dateInputToMexicoUTC(`${filtros.fecha_desde}T00:00:00`),
+      hasta: dateInputToMexicoUTC(`${filtros.fecha_hasta}T23:59:59`),
     }
   }
 
   // Default: mes_actual
-  const primerDiaMes = new Date(year, month, 1)
   return {
-    desde: primerDiaMes.toISOString().split('T')[0] + 'T00:00:00',
-    hasta: now.toISOString().split('T')[0] + 'T23:59:59',
+    desde: dateInputToMexicoUTC(`${year}-${pad2(month)}-01T00:00:00`),
+    hasta: dateInputToMexicoUTC(`${hoyStr}T23:59:59`),
   }
 }
 
@@ -383,13 +396,19 @@ export async function fetchTrazabilidadData(
     }))
   const productosIds = Array.from(productosMap.keys())
 
-  // 3. Obtener stock actual de esos productos
-  const { data: stockRaw, error: stockError } = await supabase
-    .from('inventario_stock')
-    .select('producto_id, bodega_id, cajas, piezas_sueltas')
-    .in('producto_id', productosIds.length > 0 ? productosIds : [-1])
-
+  // 3. Obtener stock actual de esos productos (en chunks <= 200)
+  const prodChunks = chunkIds(productosIds, 200)
+  const stockChunks = await Promise.all(
+    prodChunks.map((chunk) =>
+      supabase
+        .from('inventario_stock')
+        .select('producto_id, bodega_id, cajas, piezas_sueltas')
+        .in('producto_id', chunk)
+    )
+  )
+  const stockError = stockChunks.find((r) => r.error)?.error
   if (stockError) throw stockError
+  const stockRaw = stockChunks.flatMap((r) => r.data || [])
 
   // Mapa: producto_id -> { total: number, por_ciudad: Record<string, number> }
   // Con alcance a bodega, solo cuenta esa bodega (columnas colapsan a ella).
@@ -432,12 +451,13 @@ export async function fetchTrazabilidadData(
     })
     .sort((a, b) => a.ciudad.localeCompare(b.ciudad, 'es') || a.nombre.localeCompare(b.nombre, 'es'))
 
-  // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período.
-  // Regla: CANC y activo=false NUNCA suman. MODF sí movió stock vía trigger → cuenta como real.
-  // Hacemos join de nota_detalle_productos con notas_inventario
-  const { data: movimientosRaw, error: movError } = await supabase
-    .from('nota_detalle_productos')
-    .select(`
+  // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período (chunks <= 200).
+  const estadosConfIds = await fetchEstadoIdsPorCodigo(['CONF', 'MODF'])
+  const movChunks = await Promise.all(
+    prodChunks.map((chunk) =>
+      supabase
+        .from('nota_detalle_productos')
+        .select(`
       id,
       nota_id,
       producto_id,
@@ -466,41 +486,49 @@ export async function fetchTrazabilidadData(
         )
       )
     `)
-    .in('producto_id', productosIds.length > 0 ? productosIds : [-1])
-    .gte('notas_inventario.fecha_nota', desde)
-    .lte('notas_inventario.fecha_nota', hasta)
-    .eq('notas_inventario.activo', true)
-    .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['CONF', 'MODF']))
-    .order('id')
-
+        .in('producto_id', chunk)
+        .gte('notas_inventario.fecha_nota', desde)
+        .lte('notas_inventario.fecha_nota', hasta)
+        .eq('notas_inventario.activo', true)
+        .in('notas_inventario.estado_id', estadosConfIds)
+        .order('id')
+    )
+  )
+  const movError = movChunks.find((r) => r.error)?.error
   if (movError) throw movError
+  const movimientosRaw = movChunks.flatMap((r) => r.data || [])
 
   // 4b. Conteo de movimientos ocultos (CONF/MODF con activo=false) ignorados en el período.
-  // Solo para aviso de descuadre: el stock_actual sí incluye su efecto vía trigger.
   let movimientosOcultosIgnorados = 0
   try {
-    const { count } = await supabase
-      .from('nota_detalle_productos')
-      .select('id, notas_inventario!inner (id, activo, fecha_nota, cat_estados_nota!inner (codigo))', { count: 'exact', head: true })
-      .in('producto_id', productosIds.length > 0 ? productosIds : [-1])
-      .gte('notas_inventario.fecha_nota', desde)
-      .lte('notas_inventario.fecha_nota', hasta)
-      .eq('notas_inventario.activo', false)
-      .in('notas_inventario.cat_estados_nota.codigo', ['CONF', 'MODF'])
-    movimientosOcultosIgnorados = count ?? 0
+    const ocultosCounts = await Promise.all(
+      prodChunks.map((chunk) =>
+        supabase
+          .from('nota_detalle_productos')
+          .select('id, notas_inventario!inner (id, activo, fecha_nota, cat_estados_nota!inner (codigo))', { count: 'exact', head: true })
+          .in('producto_id', chunk)
+          .gte('notas_inventario.fecha_nota', desde)
+          .lte('notas_inventario.fecha_nota', hasta)
+          .eq('notas_inventario.activo', false)
+          .in('notas_inventario.cat_estados_nota.codigo', ['CONF', 'MODF'])
+      )
+    )
+    movimientosOcultosIgnorados = ocultosCounts.reduce((acc, r) => acc + (r.count ?? 0), 0)
   } catch (_) {
     movimientosOcultosIgnorados = 0
   }
 
   // 4c. Notas CANC con activo=true en el período — SOLO visual (gris), nunca suman.
-  // Se devuelven aparte cuando el toggle "Ver canceladas" está ON. Default OFF → lista vacía.
   const incluirCanceladas = filtros.incluir_canceladas === true
   let canceladas: NotaCanceladaResumen[] = []
-  if (incluirCanceladas && productosIds.length > 0) {
+  if (incluirCanceladas && prodChunks.length > 0) {
     try {
-      const { data: cancRaw } = await supabase
-        .from('nota_detalle_productos')
-        .select(`
+      const estadosCancIds = await fetchEstadoIdsPorCodigo(['CANC'])
+      const cancChunks = await Promise.all(
+        prodChunks.map((chunk) =>
+          supabase
+            .from('nota_detalle_productos')
+            .select(`
           id,
           nota_id,
           producto_id,
@@ -517,13 +545,16 @@ export async function fetchTrazabilidadData(
             cat_estados_nota (codigo)
           )
         `)
-        .in('producto_id', productosIds)
-        .gte('notas_inventario.fecha_nota', desde)
-        .lte('notas_inventario.fecha_nota', hasta)
-        .eq('notas_inventario.activo', true)
-        .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['CANC']))
-        .order('id')
-        .limit(500)
+            .in('producto_id', chunk)
+            .gte('notas_inventario.fecha_nota', desde)
+            .lte('notas_inventario.fecha_nota', hasta)
+            .eq('notas_inventario.activo', true)
+            .in('notas_inventario.estado_id', estadosCancIds)
+            .order('id')
+            .limit(500)
+        )
+      )
+      const cancRaw = cancChunks.flatMap((r) => r.data || [])
       canceladas = ((cancRaw || []) as any[])
         .filter((m: any) => {
           if (!bodegaAlcance) return true
@@ -557,10 +588,13 @@ export async function fetchTrazabilidadData(
   // Se guardan 2 valores: entradas (+) y salidas (−) con sus conteos de notas.
   const pendientesPorProducto = new Map<number, PendienteDetalle>()
   try {
-    if (productosIds.length > 0) {
-      const { data: pendRaw } = await supabase
-        .from('nota_detalle_productos')
-        .select(`
+    if (prodChunks.length > 0) {
+      const estadosPendIds = await fetchEstadoIdsPorCodigo(['PEND', 'PROC'])
+      const pendChunks = await Promise.all(
+        prodChunks.map((chunk) =>
+          supabase
+            .from('nota_detalle_productos')
+            .select(`
           id,
           nota_id,
           producto_id,
@@ -575,11 +609,14 @@ export async function fetchTrazabilidadData(
             cat_estados_nota (codigo)
           )
         `)
-        .in('producto_id', productosIds)
-        .eq('notas_inventario.activo', true)
-        .in('notas_inventario.estado_id', await fetchEstadoIdsPorCodigo(['PEND', 'PROC']))
-        .order('id')
-        .limit(2000)
+            .in('producto_id', chunk)
+            .eq('notas_inventario.activo', true)
+            .in('notas_inventario.estado_id', estadosPendIds)
+            .order('id')
+            .limit(2000)
+        )
+      )
+      const pendRaw = pendChunks.flatMap((r) => r.data || [])
       ;((pendRaw || []) as any[]).forEach((m: any) => {
         const nota = m.notas_inventario
         const tipoCod = String(nota?.cat_tipos_movimiento?.codigo || '').toUpperCase()
@@ -1054,11 +1091,16 @@ export async function fetchFamiliaSkusConStock(familia: string, limite = 100): P
   if (!prods || prods.length === 0) return []
   const ids = (prods as any[]).map((p) => p.id)
 
-  const { data: stockRows } = await supabase
-    .from('inventario_stock')
-    .select('producto_id, cajas')
-    .in('producto_id', ids)
-    .is('caja_id', null)
+  const stockChunks2 = await Promise.all(
+    chunkIds(ids, 200).map((chunk) =>
+      supabase
+        .from('inventario_stock')
+        .select('producto_id, cajas')
+        .in('producto_id', chunk)
+        .is('caja_id', null)
+    )
+  )
+  const stockRows = stockChunks2.flatMap((r) => r.data || [])
 
   const porProducto = new Map<number, number>()
   ;((stockRows || []) as any[]).forEach((s) => {

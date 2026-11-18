@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight, Loader2, Maximize2, Minimize2, Download, ExternalLink } from 'lucide-react'
 import { Fecha } from '@/components/shared/Fecha'
 import { toast } from 'sonner'
-import ExcelJS from 'exceljs'
+import type ExcelJS from 'exceljs'
 import { exportStockByBodegaAction } from '@/modules/inventario/actions'
 import type { StockListItem, StockDetalleCaja } from '@/modules/inventario/types'
 import { ADMIN_ROUTES } from '@/lib/constants'
@@ -210,6 +210,7 @@ export function StockTable({
         if (famCmp !== 0) return famCmp
         return compareSkuAsc(a.producto_sku, b.producto_sku)
       })
+      const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
 
       const dataSheet = workbook.addWorksheet(isPronostico ? 'Stock Pronosticado' : 'Datos Stock')

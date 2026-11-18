@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
-import ExcelJS from 'exceljs'
+import type ExcelJS from 'exceljs'
 import { exportStockMatrixAction } from '@/modules/inventario/actions'
 import type { StockMatrixItem } from '@/modules/inventario/types'
 import type { BodegaRow } from '@/lib/types/tables'
@@ -245,6 +245,7 @@ export function StockMatrixTable({ items, bodegasColumnas, total, agruparPor, to
         if (famCmp !== 0) return famCmp
         return compareSkuAsc(a.producto_sku, b.producto_sku)
       })
+      const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
       
       const canonMap = res.descripcionesCanonicas || descripcionesCanonicas || {}

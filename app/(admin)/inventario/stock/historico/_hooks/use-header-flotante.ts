@@ -31,7 +31,14 @@ export function useHeaderFlotante() {
     const scroller = scrollRef.current
     const header = headerRef.current
     if (!scroller || !header) return
-    header.style.transform = `translateX(${-scroller.scrollLeft}px)`
+    const sl = scroller.scrollLeft
+    header.style.transform = `translateX(${-sl}px)`
+    // Compensar el translateX negativo en las celdas sticky left-* del header flotante
+    const stickyThs = header.querySelectorAll<HTMLElement>('thead th.sticky')
+    stickyThs.forEach((th) => {
+      th.style.transform = `translateX(${sl}px)`
+      th.style.position = 'relative'
+    })
   }, [])
 
   useEffect(() => {
