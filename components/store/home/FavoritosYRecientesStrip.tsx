@@ -127,8 +127,11 @@ export function FavoritosYRecientesStrip({ config }: { config: ConfigEcommerce |
                   </span>
                 </div>
                 <div className="p-2.5">
-                  <div className="text-xs font-semibold text-foreground line-clamp-1">
-                    {prod.nombre}
+                  <div
+                    title={prod.descripcion || ''}
+                    className="text-xs leading-snug font-semibold text-foreground line-clamp-2 min-h-[2.1rem] uppercase"
+                  >
+                    {prod.descripcion || ''}
                   </div>
                   {showPrice && precio ? (
                     <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">

@@ -2,7 +2,7 @@
 'use client'
 
 import { Edit3 } from 'lucide-react'
-import { useLiveStoreEditor, EditableSection } from './LiveStoreEditorContext'
+import { useOptionalLiveStoreEditor, EditableSection } from './LiveStoreEditorContext'
 
 interface QuickEditButtonProps {
   section: EditableSection
@@ -11,9 +11,10 @@ interface QuickEditButtonProps {
 }
 
 export function QuickEditButton({ section, label, className = '' }: QuickEditButtonProps) {
-  const { canEdit, isEditMode, openEditor } = useLiveStoreEditor()
+  const editor = useOptionalLiveStoreEditor()
 
-  if (!canEdit || !isEditMode) return null
+  if (!editor || !editor.canEdit || !editor.isEditMode) return null
+  const { openEditor } = editor
 
   return (
     <button

@@ -28,6 +28,7 @@ import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { actualizarConfigEcommerce } from '@/modules/ecommerce/actions'
 import { ColeccionProductoSelector } from './ColeccionProductoSelector'
 import { ContactosListEditor } from './ContactosListEditor'
+import { RedesSocialesListEditor } from './RedesSocialesListEditor'
 import {
   parseStoreConfig,
   serializeStoreConfig,
@@ -104,6 +105,7 @@ export function LiveEditDrawer() {
       case 'footer_agradecimiento': return 'Mensaje de Agradecimiento'
       case 'seo_general': return 'SEO General y Redes'
       case 'barra_rapida': return 'Barra Rápida (Izquierda / Prendas)'
+      case 'redes_sociales': return 'Redes y Canales Oficiales'
       default: return 'Edición Rápida'
     }
   }
@@ -264,6 +266,7 @@ export function LiveEditDrawer() {
                 <SelectItem value="contactos_regionales">Contactos Regionales</SelectItem>
                 <SelectItem value="footer_agradecimiento">Mensaje de Agradecimiento</SelectItem>
                 <SelectItem value="barra_rapida">Barra Rápida (Izquierda / Prendas)</SelectItem>
+                <SelectItem value="redes_sociales">Redes y Canales Oficiales</SelectItem>
                 <SelectItem value="seo_general">SEO General y Redes (Google / WhatsApp)</SelectItem>
               </SelectContent>
             </Select>
@@ -570,6 +573,28 @@ export function LiveEditDrawer() {
                 onChange={(val) => setStoreConfig({ ...storeConfig, footerBgTheme: val })}
                 intensity={storeConfig.footerBgIntensity}
                 onIntensityChange={(val) => setStoreConfig({ ...storeConfig, footerBgIntensity: val })}
+              />
+            </div>
+          )}
+
+          {/* Section: Redes y Canales Oficiales */}
+          {activeSection === 'redes_sociales' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-foreground dark:text-gray-200">
+                  Título de la sección en Footer
+                </Label>
+                <Input
+                  value={storeConfig.redesSocialesTitle}
+                  onChange={(e) => setStoreConfig({ ...storeConfig, redesSocialesTitle: e.target.value })}
+                  placeholder="Redes y Canales Oficiales"
+                  className="bg-background dark:bg-zinc-950 text-xs"
+                />
+              </div>
+
+              <RedesSocialesListEditor
+                value={storeConfig.redesSocialesLista}
+                onChange={(next) => setStoreConfig({ ...storeConfig, redesSocialesLista: next })}
               />
             </div>
           )}

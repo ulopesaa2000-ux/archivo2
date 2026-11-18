@@ -1,7 +1,7 @@
 // components/store/editor/StoreQuickEditorToolbar.tsx
 'use client'
 
-import { Eye, Edit3, ShieldAlert, Globe, SlidersHorizontal } from 'lucide-react'
+import { Eye, Edit3, ShieldAlert, Globe, SlidersHorizontal, Share2 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useLiveStoreEditor } from './LiveStoreEditorContext'
 
@@ -17,29 +17,45 @@ export function StoreQuickEditorToolbar() {
         <span>Modo Administrador</span>
       </div>
 
-      <div className="h-4 w-px bg-zinc-700" />
+      {isEditMode && (
+        <>
+          <div className="h-4 w-px bg-zinc-700" />
 
-      <button
-        type="button"
-        onClick={() => openEditor('barra_rapida')}
-        className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
-        title="Editar barra rápida (Izquierda / Buscador / Prendas)"
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-        <span>Barra Rápida</span>
-      </button>
+          <button
+            type="button"
+            onClick={() => openEditor('barra_rapida')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 hover:text-sky-200 transition-colors cursor-pointer"
+            title="Editar barra rápida (Izquierda / Buscador / Prendas)"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Barra Rápida</span>
+          </button>
 
-      <div className="h-4 w-px bg-zinc-700" />
+          <div className="h-4 w-px bg-zinc-700" />
 
-      <button
-        type="button"
-        onClick={() => openEditor('seo_general')}
-        className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer"
-        title="Ver y editar SEO general de la portada"
-      >
-        <Globe className="h-3.5 w-3.5" />
-        <span>SEO Sitio</span>
-      </button>
+          <button
+            type="button"
+            onClick={() => openEditor('redes_sociales')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-pink-300 hover:text-pink-200 transition-colors cursor-pointer"
+            title="Editar redes sociales y canales oficiales"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            <span>Redes</span>
+          </button>
+
+          <div className="h-4 w-px bg-zinc-700" />
+
+          <button
+            type="button"
+            onClick={() => openEditor('seo_general')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer"
+            title="Ver y editar SEO general de la portada"
+          >
+            <Globe className="h-3.5 w-3.5" />
+            <span>SEO Sitio</span>
+          </button>
+        </>
+      )}
 
       <div className="h-4 w-px bg-zinc-700" />
 

@@ -6,6 +6,7 @@ import { cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
 import { PAGE_SIZE } from '@/lib/constants'
 import { sanitizePostgrestFilterTerm } from '@/lib/utils/postgrest-sanitize'
+import { parseStoreConfig } from '@/lib/utils/storeConfig'
 import type {
   ConfigEcommerce,
   ProductoWebExtendido,
@@ -17,6 +18,25 @@ import type {
   FiltrosProductoWeb,
   FiltrosOrdenesVenta,
 } from './types'
+
+const MS_POR_DIA = 86_400_000
+
+function getFechaCorteNuevoIso(diasVigencia: number): string | null {
+  if (!Number.isFinite(diasVigencia) || diasVigencia <= 0) return null
+  return new Date(Date.now() - diasVigencia * MS_POR_DIA).toISOString()
+}
+
+function esProductoNuevoVigente(
+  flagNuevo: boolean | null | undefined,
+  createdAt: string | null | undefined,
+  diasVigencia: number
+): boolean {
+  if (!flagNuevo) return false
+  if (!Number.isFinite(diasVigencia) || diasVigencia <= 0 || !createdAt) return true
+  const ts = new Date(createdAt).getTime()
+  if (!Number.isFinite(ts)) return true
+  return Date.now() - ts <= diasVigencia * MS_POR_DIA
+}
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURACIÓN GLOBAL
@@ -411,9 +431,11 @@ async function executeFetchProductosWebPublicos(
     const from = (page - 1) * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
 
-    // Consultar configuración global de visibilidad
+    // Consultar configuración global de visibilidad y vigencia de "Nuevo"
     const config = await fetchConfigEcommerce()
     const modoVisibilidad = config?.modo_visibilidad_catalogo || 'todos_publicados'
+    const diasNuevo = parseStoreConfig(config?.mensaje_precio_variable).diasProductoNuevo
+    const fechaCorteNuevoIso = getFechaCorteNuevoIso(diasNuevo)
 
     const allowedProductIds = await obtenerIdsProductosVisiblesSegunModo(supabase, modoVisibilidad)
 
@@ -435,6 +457,7 @@ async function executeFetchProductosWebPublicos(
         en_oferta,
         destacado,
         nuevo,
+        created_at,
         modo_override,
         unidad_venta,
         activo,
@@ -470,6 +493,9 @@ async function executeFetchProductosWebPublicos(
     }
     if (filtros.nuevo) {
       query = query.eq('nuevo', true)
+      if (fechaCorteNuevoIso) {
+        query = query.gte('created_at', fechaCorteNuevoIso)
+      }
     }
     if (filtros.marca_id) {
       query = query.eq('productos.marca_id', filtros.marca_id)
@@ -516,6 +542,9 @@ async function executeFetchProductosWebPublicos(
         query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
       } else if (t.includes('novedad')) {
         query = query.eq('nuevo', true)
+        if (fechaCorteNuevoIso) {
+          query = query.gte('created_at', fechaCorteNuevoIso)
+        }
       } else {
         const cleanTipo = sanitizePostgrestFilterTerm(t)
         if (cleanTipo) {
@@ -552,6 +581,7 @@ async function executeFetchProductosWebPublicos(
 
     query = query
       .order('orden_display', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, to)
 
     const { data, count, error } = await query
@@ -624,7 +654,7 @@ async function executeFetchProductosWebPublicos(
         precio_oferta: item.precio_oferta,
         en_oferta: item.en_oferta,
         destacado: item.destacado,
-        nuevo: item.nuevo,
+        nuevo: esProductoNuevoVigente(item.nuevo, item.created_at, diasNuevo),
         marca: item.productos?.cat_marcas?.nombre,
         tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
         genero: item.productos?.cat_generos?.nombre,
@@ -685,33 +715,38 @@ const fetchProductoWebBySlugCached = cache(async (
 
   const supabase = createStaticClient()
 
-  let { data, error } = await supabase
-    .from('productos_web')
-    .select(
-      `
-      id, slug, producto_id, titulo_seo, descripcion_seo, keywords,
-      precio_publico, precio_oferta, en_oferta, destacado, nuevo,
-      modo_override, unidad_venta, activo, visitas,
-      productos!inner(
-        sku_base,
-        nombre,
-        descripcion,
-        composicion,
-        tela_ext_id,
-        tela_forro_id,
-        activo,
-        cat_marcas!left(nombre),
-        cat_tipo_prenda!left(nombre),
-        cat_generos!left(nombre),
-        tela_ext:cat_telas!productos_tela_ext_id_fkey(nombre),
-        tela_forro:cat_telas!productos_tela_forro_id_fkey(nombre)
+  const [config, slugRes] = await Promise.all([
+    fetchConfigEcommerce(),
+    supabase
+      .from('productos_web')
+      .select(
+        `
+        id, slug, producto_id, titulo_seo, descripcion_seo, keywords,
+        precio_publico, precio_oferta, en_oferta, destacado, nuevo, created_at,
+        modo_override, unidad_venta, activo, visitas,
+        productos!inner(
+          sku_base,
+          nombre,
+          descripcion,
+          composicion,
+          tela_ext_id,
+          tela_forro_id,
+          activo,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre),
+          tela_ext:cat_telas!productos_tela_ext_id_fkey(nombre),
+          tela_forro:cat_telas!productos_tela_forro_id_fkey(nombre)
+        )
+        `
       )
-      `
-    )
-    .eq('slug', normalizedSlug)
-    .eq('activo', true)
-    .eq('productos.activo', true)
-    .maybeSingle()
+      .eq('slug', normalizedSlug)
+      .eq('activo', true)
+      .eq('productos.activo', true)
+      .maybeSingle(),
+  ])
+  let { data, error } = slugRes
+  const diasNuevo = parseStoreConfig(config?.mensaje_precio_variable).diasProductoNuevo
 
   if (!data) {
     const rawSearch = normalizedSlug.replace(/-/g, '/').toUpperCase()
@@ -720,7 +755,7 @@ const fetchProductoWebBySlugCached = cache(async (
       .select(
         `
         id, slug, producto_id, titulo_seo, descripcion_seo, keywords,
-        precio_publico, precio_oferta, en_oferta, destacado, nuevo,
+        precio_publico, precio_oferta, en_oferta, destacado, nuevo, created_at,
         modo_override, unidad_venta, activo, visitas,
         productos!inner(
           sku_base,
@@ -792,7 +827,7 @@ const fetchProductoWebBySlugCached = cache(async (
     precio_oferta: data.precio_oferta,
     en_oferta: data.en_oferta,
     destacado: data.destacado,
-    nuevo: data.nuevo,
+    nuevo: esProductoNuevoVigente(data.nuevo, (data as any).created_at, diasNuevo),
     marca: prod?.cat_marcas?.nombre ?? null,
     tipo_prenda: prod?.cat_tipo_prenda?.nombre ?? null,
     genero: prod?.cat_generos?.nombre ?? null,
@@ -868,7 +903,8 @@ export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at
 
 async function hydrateProductosWebPublicos(
   supabase: any,
-  rawRows: any[]
+  rawRows: any[],
+  diasNuevo = 90
 ): Promise<ProductoWebPublico[]> {
   if (!rawRows || rawRows.length === 0) return []
   const productoIds = rawRows.map((p: any) => p.producto_id)
@@ -920,7 +956,7 @@ async function hydrateProductosWebPublicos(
       precio_oferta: item.precio_oferta,
       en_oferta: item.en_oferta,
       destacado: item.destacado,
-      nuevo: item.nuevo,
+      nuevo: esProductoNuevoVigente(item.nuevo, item.created_at, diasNuevo),
       marca: item.productos?.cat_marcas?.nombre,
       tipo_prenda: item.productos?.cat_tipo_prenda?.nombre,
       genero: item.productos?.cat_generos?.nombre,
@@ -967,7 +1003,7 @@ export async function fetchProductosRecomendadosHome(
 
     const selectCols = `
       id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
-      en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+      en_oferta, destacado, nuevo, created_at, modo_override, unidad_venta, activo, visitas,
       productos!inner(
         sku_base, nombre, descripcion,
         cat_marcas!left(nombre),
@@ -975,6 +1011,8 @@ export async function fetchProductosRecomendadosHome(
         cat_generos!left(nombre)
       )
     `
+    const diasNuevo = parseStoreConfig(config?.mensaje_precio_variable).diasProductoNuevo
+    const fechaCorteNuevoIso = getFechaCorteNuevoIso(diasNuevo)
 
     let qTendencias = (supabase.from('productos_web') as any)
       .select(selectCols)
@@ -982,7 +1020,7 @@ export async function fetchProductosRecomendadosHome(
       .eq('productos.activo', true)
       .order('visitas', { ascending: false, nullsFirst: false })
       .order('orden_display', { ascending: true })
-      .limit(16)
+      .limit(24)
 
     let qNovedades = (supabase.from('productos_web') as any)
       .select(selectCols)
@@ -992,6 +1030,10 @@ export async function fetchProductosRecomendadosHome(
       .order('orden_display', { ascending: true })
       .order('id', { ascending: false })
       .limit(16)
+
+    if (fechaCorteNuevoIso) {
+      qNovedades = qNovedades.gte('created_at', fechaCorteNuevoIso)
+    }
 
     if (allowedProductIds !== null && allowedProductIds.length > 0) {
       const sliceIds = allowedProductIds.slice(0, 200)
@@ -1004,14 +1046,14 @@ export async function fetchProductosRecomendadosHome(
 
     const tendRows = ((tendRes.data || []) as any[])
       .filter((r) => !excludeSet.has(r.id))
-      .slice(0, 8)
+      .slice(0, 15)
     tendRows.forEach((r) => excludeSet.add(r.id))
 
     const novRows = ((novRes.data || []) as any[])
       .filter((r) => !excludeSet.has(r.id))
       .slice(0, 8)
 
-    const combined = await hydrateProductosWebPublicos(supabase, [...tendRows, ...novRows])
+    const combined = await hydrateProductosWebPublicos(supabase, [...tendRows, ...novRows], diasNuevo)
     const tendSet = new Set(tendRows.map((r) => r.id))
 
     return {
@@ -1637,6 +1679,7 @@ export async function fetchProductosFavoritos(
         productos!inner(
           sku_base,
           nombre,
+          descripcion,
           cat_marcas!left(nombre)
         )
         `
@@ -1671,7 +1714,7 @@ export async function fetchProductosFavoritos(
         producto_id: item.producto_id,
         sku_base: item.productos?.sku_base,
         nombre: item.productos?.nombre || item.productos?.sku_base || 'Producto',
-        descripcion: null,
+        descripcion: cleanJsonGarbage(item.productos?.descripcion),
         composicion: null,
         titulo_seo: null,
         descripcion_seo: null,

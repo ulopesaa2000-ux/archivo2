@@ -1,9 +1,9 @@
 // app/(store)/contactos/page.tsx
 import type { Metadata } from 'next'
-import { Phone, MapPin, User, MessageCircle, Instagram, ExternalLink } from 'lucide-react'
-import { TikTokIcon } from '@/components/shared/TikTokIcon'
+import { Phone, MapPin, User, MessageCircle, ExternalLink } from 'lucide-react'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
 import { parseStoreConfig, getContactosActivos, buildWhatsAppLink } from '@/lib/utils/storeConfig'
+import { SocialBrandIcon, getSocialCardStyle } from '@/components/store/SocialBrandIcon'
 
 export const metadata: Metadata = {
   title: 'Contactos | Catálogo IDOL NAVY',
@@ -12,7 +12,11 @@ export const metadata: Metadata = {
 
 export default async function ContactosPage() {
   const rawConfig = await fetchConfigEcommerce()
-  const distribuidores = getContactosActivos(parseStoreConfig(rawConfig?.mensaje_precio_variable)).map((c) => ({
+  const parsedConfig = parseStoreConfig(rawConfig?.mensaje_precio_variable)
+  const redesActivas = [...(parsedConfig.redesSocialesLista || [])]
+    .filter((r) => r.activo && r.url.trim())
+    .sort((a, b) => a.orden - b.orden)
+  const distribuidores = getContactosActivos(parsedConfig).map((c) => ({
     region: (c.zona || 'General').toUpperCase(),
     nombre: c.nombre,
     telefono: c.telefono_display,
@@ -105,56 +109,24 @@ export default async function ContactosPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Instagram */}
-            <a 
-              href="https://www.instagram.com/idol_navy" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-amber-500/10 border border-pink-500/20 text-store-ink hover:border-pink-500/40 transition-all shadow-xs group"
-            >
-              <div className="flex items-center gap-3">
-                <Instagram className="h-5 w-5 text-pink-600" />
-                <div>
-                  <div className="text-xs text-store-ink3 font-medium">Instagram</div>
-                  <div className="text-sm font-bold text-store-ink">@idol_navy</div>
+            {redesActivas.map((red) => (
+              <a
+                key={red.id}
+                href={red.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-between p-4 rounded-xl border transition-all shadow-xs group ${getSocialCardStyle(red.plataforma)}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <SocialBrandIcon plataforma={red.plataforma} className="h-5 w-5" />
+                  <div className="min-w-0">
+                    <div className="text-xs opacity-75 font-medium capitalize">{red.plataforma}</div>
+                    <div className="text-sm font-bold truncate">{red.texto || red.plataforma}</div>
+                  </div>
                 </div>
-              </div>
-              <ExternalLink className="h-4 w-4 text-store-ink3 group-hover:text-pink-600 transition-colors" />
-            </a>
-
-            {/* TikTok */}
-            <a 
-              href="https://www.tiktok.com/@idol_navy" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 rounded-xl bg-black/5 dark:bg-white/10 border border-store-border text-store-ink hover:border-black/30 transition-all shadow-xs group"
-            >
-              <div className="flex items-center gap-3">
-                <TikTokIcon className="h-6 w-6 shrink-0" />
-                <div>
-                  <div className="text-xs text-store-ink3 font-medium">TikTok</div>
-                  <div className="text-sm font-bold text-store-ink">@idol_navy</div>
-                </div>
-              </div>
-              <ExternalLink className="h-4 w-4 text-store-ink3 group-hover:text-store-ink transition-colors" />
-            </a>
-
-            {/* WhatsApp Group */}
-            <a 
-              href="https://chat.whatsapp.com/KvLFLG2hbYNKU56CGzDjcg" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 rounded-xl bg-[#25D366]/10 border border-[#25D366]/30 text-[#128C7E] hover:bg-[#25D366]/20 transition-all shadow-xs group"
-            >
-              <div className="flex items-center gap-3">
-                <Phone className="h-5 w-5 text-[#25D366]" />
-                <div>
-                  <div className="text-xs text-[#128C7E]/80 font-medium">Grupo de Novedades</div>
-                  <div className="text-sm font-bold text-[#128C7E]">Comunidad WhatsApp</div>
-                </div>
-              </div>
-              <ExternalLink className="h-4 w-4 text-[#128C7E]/60 group-hover:text-[#128C7E] transition-colors" />
-            </a>
+                <ExternalLink className="h-4 w-4 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+              </a>
+            ))}
           </div>
         </div>
       </div>

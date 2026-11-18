@@ -92,6 +92,15 @@ export interface StoreContacto {
   orden: number
 }
 
+export interface StoreRedSocial {
+  id: string
+  plataforma: string
+  texto: string
+  url: string
+  activo: boolean
+  orden: number
+}
+
 export interface ParsedStoreConfig {
   heroTitle: string
   heroTitleSize: TextSizeOption
@@ -146,6 +155,11 @@ export interface ParsedStoreConfig {
   contactosBgIntensity: SectionBgIntensity
   footerBgTheme: SectionBgTheme
   footerBgIntensity: SectionBgIntensity
+
+  redesSocialesTitle: string
+  redesSocialesLista: StoreRedSocial[]
+
+  diasProductoNuevo: number
 }
 
 export const DEFAULT_STORE_CONFIG: ParsedStoreConfig = {
@@ -216,6 +230,36 @@ export const DEFAULT_STORE_CONFIG: ParsedStoreConfig = {
   contactosBgIntensity: 'medio',
   footerBgTheme: 'esmeralda',
   footerBgIntensity: 'medio',
+
+  redesSocialesTitle: 'Redes y Canales Oficiales',
+  redesSocialesLista: [
+    {
+      id: 'red-instagram',
+      plataforma: 'instagram',
+      texto: 'Instagram @idol_navy',
+      url: 'https://www.instagram.com/idol_navy',
+      activo: true,
+      orden: 1,
+    },
+    {
+      id: 'red-tiktok',
+      plataforma: 'tiktok',
+      texto: 'TikTok @idol_navy',
+      url: 'https://www.tiktok.com/@idol_navy',
+      activo: true,
+      orden: 2,
+    },
+    {
+      id: 'red-whatsapp',
+      plataforma: 'whatsapp',
+      texto: 'Grupo Oficial WhatsApp',
+      url: 'https://chat.whatsapp.com/KvLFLG2hbYNKU56CGzDjcg',
+      activo: true,
+      orden: 3,
+    },
+  ],
+
+  diasProductoNuevo: 90,
 }
 
 export function normalizePhoneRaw(input: string | null | undefined): string {
@@ -276,6 +320,18 @@ function parseContactosLista(raw: unknown): StoreContacto[] {
     } as StoreContacto
   }).filter((c): c is StoreContacto => c !== null)
   return parsed.length > 0 ? parsed.slice(0, 20) : DEFAULT_STORE_CONFIG.contactosLista
+}
+
+function parseRedesSocialesLista(raw: unknown): StoreRedSocial[] {
+  if (!Array.isArray(raw)) return DEFAULT_STORE_CONFIG.redesSocialesLista
+  return raw.map((item: any, idx: number) => ({
+    id: String(item?.id || `red-${idx + 1}`),
+    plataforma: String(item?.plataforma || 'web').trim().toLowerCase(),
+    texto: String(item?.texto || '').trim(),
+    url: String(item?.url || '').trim(),
+    activo: item?.activo !== false,
+    orden: Number.isFinite(Number(item?.orden)) ? Number(item.orden) : idx + 1,
+  }))
 }
 
 export function parseStoreConfig(raw?: string | null): ParsedStoreConfig {
@@ -341,6 +397,17 @@ export function parseStoreConfig(raw?: string | null): ParsedStoreConfig {
       contactosBgIntensity: p.contactos_bg_intensity || DEFAULT_STORE_CONFIG.contactosBgIntensity,
       footerBgTheme: p.footer_bg_theme || DEFAULT_STORE_CONFIG.footerBgTheme,
       footerBgIntensity: p.footer_bg_intensity || DEFAULT_STORE_CONFIG.footerBgIntensity,
+
+      redesSocialesTitle: p.redes_sociales_title || DEFAULT_STORE_CONFIG.redesSocialesTitle,
+      redesSocialesLista: parseRedesSocialesLista(p.redes_sociales_lista),
+
+      diasProductoNuevo:
+        p.dias_producto_nuevo !== undefined &&
+        p.dias_producto_nuevo !== null &&
+        Number.isFinite(Number(p.dias_producto_nuevo)) &&
+        Number(p.dias_producto_nuevo) >= 0
+          ? Math.floor(Number(p.dias_producto_nuevo))
+          : DEFAULT_STORE_CONFIG.diasProductoNuevo,
     }
   } catch {
     return {
@@ -414,6 +481,11 @@ export function serializeStoreConfig(config: ParsedStoreConfig): string {
     contactos_bg_intensity: config.contactosBgIntensity,
     footer_bg_theme: config.footerBgTheme,
     footer_bg_intensity: config.footerBgIntensity,
+
+    redes_sociales_title: config.redesSocialesTitle,
+    redes_sociales_lista: config.redesSocialesLista,
+
+    dias_producto_nuevo: config.diasProductoNuevo,
   })
 }
 

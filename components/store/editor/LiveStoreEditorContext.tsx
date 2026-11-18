@@ -15,6 +15,7 @@ export type EditableSection =
   | 'footer_agradecimiento'
   | 'seo_general'
   | 'barra_rapida'
+  | 'redes_sociales'
   | null
 
 interface LiveStoreEditorContextType {
@@ -97,6 +98,10 @@ export function LiveStoreEditorProvider({
       {children}
     </LiveStoreEditorContext.Provider>
   )
+}
+
+export function useOptionalLiveStoreEditor() {
+  return useContext(LiveStoreEditorContext)
 }
 
 export function useLiveStoreEditor() {

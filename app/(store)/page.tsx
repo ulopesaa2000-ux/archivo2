@@ -26,6 +26,7 @@ import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
 import { StoreHomeQuickNav } from '@/components/store/home/StoreHomeQuickNav'
 import { RecomendacionesSection } from '@/components/store/home/RecomendacionesSection'
 import { FavoritosYRecientesStrip } from '@/components/store/home/FavoritosYRecientesStrip'
+import { ProductCarouselRail } from '@/components/store/home/ProductCarouselRail'
 import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
 import { SITE_NAME, SITE_URL } from '@/lib/seo/site'
 
@@ -75,6 +76,37 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
+async function fetchAllByFlag(flag: 'destacado' | 'nuevo') {
+  const filtro = flag === 'destacado' ? { destacado: true, page: 1 } : { nuevo: true, page: 1 }
+  const { productos: primeraPagina, total } = await fetchProductosWebPublicos(filtro)
+  if (total <= primeraPagina.length || primeraPagina.length === 0) {
+    return Array.from(new Map(primeraPagina.map((p) => [p.id, p])).values())
+  }
+
+  const totalPages = Math.ceil(total / primeraPagina.length)
+  const extraPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, i) =>
+      fetchProductosWebPublicos(flag === 'destacado' ? { destacado: true, page: i + 2 } : { nuevo: true, page: i + 2 })
+    )
+  )
+  const unicos = new Map(primeraPagina.map((p) => [p.id, p]))
+  for (const page of extraPages) {
+    for (const p of page.productos) {
+      if (!unicos.has(p.id)) unicos.set(p.id, p)
+    }
+  }
+  return Array.from(unicos.values())
+}
+
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 async function DestacadosSection({ title, titleSize, subtitle, subtitleSize, bgTheme, bgIntensity }: {
   title: string
   titleSize: string
@@ -83,102 +115,32 @@ async function DestacadosSection({ title, titleSize, subtitle, subtitleSize, bgT
   bgTheme?: string
   bgIntensity?: string
 }) {
-  const [{ productos: destacados }, config] = await Promise.all([
-    fetchProductosWebPublicos({ destacado: true, page: 1 }),
+  const [destacados, nuevos, config] = await Promise.all([
+    fetchAllByFlag('destacado'),
+    fetchAllByFlag('nuevo'),
     fetchConfigEcommerce(),
   ])
-  const top4 = destacados.slice(0, 4)
+
+  // Primero destacados en orden aleatorio; enseguida los nuevos (sin repetir los que ya están en destacados)
+  const destacadosAleatorios = shuffleArray(destacados)
+  const destacadosIds = new Set(destacados.map((p) => p.id))
+  const soloNuevosAleatorios = shuffleArray(nuevos.filter((p) => !destacadosIds.has(p.id)))
+  const ordenados = [...destacadosAleatorios, ...soloNuevosAleatorios]
 
   return (
-    <div className={`px-4 md:px-8 py-8 md:py-12 relative border-b border-border transition-colors ${getSectionBgClass(bgTheme, bgIntensity)}`}>
-      <div className="flex flex-col sm:flex-row items-start sm:items-baseline justify-between mb-8 gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className={`font-serif text-foreground dark:text-gray-100 ${getTitleSizeClass(titleSize)}`}>
-              {title}
-            </span>
-            <QuickEditButton section="destacados" label="Destacados" />
-          </div>
-          <p className={`text-muted-foreground dark:text-gray-400 mt-1 ${getSubtitleSizeClass(subtitleSize)}`}>
-            {subtitle}
-          </p>
-        </div>
-        <Link
-          href="/shop?destacado=true"
-          className="text-[12px] md:text-[14px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-[0.03em] hover:underline flex items-center gap-1 transition-all duration-300 group shrink-0"
-        >
-          Ver todo el catálogo
-          <ArrowRight className="inline h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        {top4.map((prod) => (
-          <div
-            key={prod.id}
-            className="bg-card dark:bg-zinc-900 rounded-2xl overflow-hidden group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border dark:border-zinc-800 relative"
-          >
-            <div className="absolute top-2.5 left-2.5 z-20">
-              <FavoriteButton productoWebId={prod.id} nombre={prod.nombre} />
-            </div>
-
-            <Link href={`/shop/${prod.slug}`} className="block">
-              <div className="relative aspect-[3/4] bg-muted dark:bg-zinc-800 overflow-hidden">
-                <ProgressiveProductImage
-                  src={prod.imagen_principal}
-                  alt={prod.nombre}
-                  preset="card_lg"
-                  objectFit="cover"
-                  sizes="(max-width: 768px) 50vw, 25vw"
-                  className="object-top group-hover:scale-105 duration-500"
-                  fallbackLabel="Sin Imagen"
-                />
-
-                <div className="absolute top-2.5 right-2.5 z-10 bg-black/70 backdrop-blur-xs text-amber-400 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" /> Destacado
-                </div>
-              </div>
-
-              <div className="p-3.5">
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  {config?.mostrar_sku && prod.sku_base && (
-                    <span className="text-[10px] font-mono text-muted-foreground uppercase truncate">
-                      {prod.sku_base}
-                    </span>
-                  )}
-                  {Boolean(config?.mostrar_stock) && (() => {
-                    const stockInfo = formatearStockDisponible(prod, config)
-                    return (
-                      <span
-                        className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded ${
-                          stockInfo.disponible
-                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
-                        }`}
-                        title={stockInfo.texto}
-                      >
-                        {stockInfo.textoCorto}
-                      </span>
-                    )
-                  })()}
-                </div>
-                <h4 className="text-xs md:text-sm font-semibold text-foreground dark:text-gray-100 line-clamp-1 group-hover:text-emerald-600 transition-colors">
-                  {prod.nombre}
-                </h4>
-                {config && mostrarPrecio(prod, config) && (() => {
-                  const { precio } = getPrecioAMostrar(prod, config)
-                  return precio ? (
-                    <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">
-                      ${precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                    </span>
-                  ) : null
-                })()}
-              </div>
-            </Link>
-          </div>
-        ))}
-      </div>
-    </div>
+    <ProductCarouselRail
+      title={title}
+      subtitle={subtitle}
+      href="/shop?destacado=true"
+      hrefLabel="Ver todo el catálogo"
+      productos={ordenados}
+      config={config}
+      badgeType="featured"
+      sectionClassName={getSectionBgClass(bgTheme, bgIntensity)}
+      titleClassName={getTitleSizeClass(titleSize)}
+      subtitleClassName={getSubtitleSizeClass(subtitleSize)}
+      headerAction={<QuickEditButton section="destacados" label="Destacados" />}
+    />
   )
 }
 

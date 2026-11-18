@@ -155,9 +155,12 @@ function ProductCard({ producto, config, priority = false }: ProductCardProps) {
           )}
         </div>
 
-        {/* Fila central: Nombre / Descripción principal (h1 estilo de tarjeta) */}
-        <div className="text-[14px] text-foreground dark:text-gray-100 font-semibold mb-2 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
-          {producto.nombre}
+        {/* Fila central: Descripción principal (2 líneas en móvil, 3 en escritorio) */}
+        <div
+          title={producto.descripcion || ''}
+          className="text-[12.5px] sm:text-[13.5px] leading-snug text-foreground dark:text-gray-100 font-semibold mb-2 line-clamp-2 sm:line-clamp-3 min-h-[2.2rem] sm:min-h-[3.4rem] uppercase group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors"
+        >
+          {producto.descripcion || ''}
         </div>
         
         {/* Fila inferior: SKU y Stock a la izquierda, Botón de acción a la derecha */}

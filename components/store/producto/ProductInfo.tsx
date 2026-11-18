@@ -31,9 +31,9 @@ export function ProductInfo({ producto, config }: ProductInfoProps) {
         </div>
       )}
 
-      {/* Descripción como título principal — serif, grande (siempre descripción si existe) */}
-      <h1 className="font-serif text-[28px] sm:text-[34px] leading-[1.15] text-store-ink mb-3">
-        {producto.descripcion || producto.nombre}
+      {/* Descripción como título principal — serif, grande, siempre en mayúsculas */}
+      <h1 className="font-serif text-[28px] sm:text-[34px] leading-[1.15] text-store-ink mb-3 uppercase">
+        {producto.descripcion || ''}
       </h1>
 
       {/* SKU destacado debajo del título */}

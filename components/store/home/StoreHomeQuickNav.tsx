@@ -68,11 +68,15 @@ function PillScrollRow({
       <div
         ref={rowRef}
         onScroll={checkOverflow}
-        className={`flex items-center gap-2 overflow-x-auto scroll-smooth min-w-0 flex-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${
-          alignRight ? 'lg:justify-end' : 'lg:justify-start'
-        }`}
+        className="overflow-x-auto scroll-smooth min-w-0 flex-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
-        {children}
+        <div
+          className={`flex items-center gap-2 w-max mx-auto ${
+            alignRight ? 'lg:ml-auto lg:mr-0' : 'lg:mr-auto lg:ml-0'
+          }`}
+        >
+          {children}
+        </div>
       </div>
 
       {canRight && (

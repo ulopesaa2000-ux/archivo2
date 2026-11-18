@@ -2,16 +2,21 @@
 'use client'
 
 import Link from 'next/link'
-import { Instagram, Facebook, Twitter, Phone, MessageCircle } from 'lucide-react'
-import { TikTokIcon } from '@/components/shared/TikTokIcon'
+import { MessageCircle } from 'lucide-react'
 import { StoreThemeToggle } from './StoreThemeToggle'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
 import { parseStoreConfig, getContactosActivos, buildWhatsAppLink } from '@/lib/utils/storeConfig'
+import { SocialBrandIcon, getSocialCardStyle } from '@/components/store/SocialBrandIcon'
+import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
 
 export function StoreFooter() {
   const currentYear = new Date().getFullYear()
   const { config } = useConfigEcommerce()
-  const contactos = getContactosActivos(parseStoreConfig(config?.mensaje_precio_variable))
+  const parsedConfig = parseStoreConfig(config?.mensaje_precio_variable)
+  const contactos = getContactosActivos(parsedConfig)
+  const redesActivas = [...(parsedConfig.redesSocialesLista || [])]
+    .filter((r) => r.activo && r.url.trim())
+    .sort((a, b) => a.orden - b.orden)
 
   return (
     <footer className="bg-store-surface border-t border-store-border">
@@ -99,41 +104,26 @@ export function StoreFooter() {
 
           {/* Legal links and social */}
           <div className="space-y-4">
-            <h3 className="font-serif text-base text-store-ink mb-4 font-bold">Redes y Canales Oficiales</h3>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h3 className="font-serif text-base text-store-ink font-bold">
+                {parsedConfig.redesSocialesTitle || 'Redes y Canales Oficiales'}
+              </h3>
+              <QuickEditButton section="redes_sociales" label="Redes" />
+            </div>
             <div className="space-y-3">
               <div className="flex flex-col space-y-2 text-xs">
-                {/* Instagram */}
-                <a 
-                  href="https://www.instagram.com/idol_navy" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2.5 p-2.5 rounded-lg bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-amber-500/10 border border-pink-500/20 text-store-ink hover:border-pink-500/40 font-medium transition-all shadow-xs"
-                >
-                  <Instagram className="h-4 w-4 text-pink-600" />
-                  <span>Instagram <strong>@idol_navy</strong></span>
-                </a>
-
-                {/* TikTok */}
-                <a 
-                  href="https://www.tiktok.com/@idol_navy" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2.5 p-2.5 rounded-lg bg-black/5 hover:bg-black/10 dark:bg-white/10 border border-store-border text-store-ink font-medium transition-all shadow-xs"
-                >
-                  <TikTokIcon className="h-5 w-5 shrink-0" />
-                  <span>TikTok <strong>@idol_navy</strong></span>
-                </a>
-
-                {/* WhatsApp Group */}
-                <a 
-                  href="https://chat.whatsapp.com/KvLFLG2hbYNKU56CGzDjcg" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2.5 p-2.5 rounded-lg bg-[#25D366]/10 border border-[#25D366]/30 text-[#128C7E] font-medium hover:bg-[#25D366]/20 transition-all shadow-xs"
-                >
-                  <Phone className="h-4 w-4 text-[#25D366]" />
-                  <span>Grupo Oficial WhatsApp</span>
-                </a>
+                {redesActivas.map((red) => (
+                  <a
+                    key={red.id}
+                    href={red.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-2.5 p-2.5 rounded-lg border font-medium transition-all shadow-xs ${getSocialCardStyle(red.plataforma)}`}
+                  >
+                    <SocialBrandIcon plataforma={red.plataforma} className="h-4 w-4" />
+                    <span className="truncate">{red.texto || red.plataforma}</span>
+                  </a>
+                ))}
               </div>
             </div>
           </div>

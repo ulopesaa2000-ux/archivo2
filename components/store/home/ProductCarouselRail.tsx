@@ -1,9 +1,9 @@
 // components/store/home/ProductCarouselRail.tsx
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowRight, ChevronLeft, ChevronRight, Flame, Sparkles } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, Flame, Sparkles, Tag } from 'lucide-react'
 import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
 import { FavoriteButton } from '@/components/store/producto/FavoriteButton'
 import { mostrarPrecio, formatearPrecio, getPrecioAMostrar, formatearStockDisponible } from '@/modules/ecommerce/utils'
@@ -18,7 +18,11 @@ interface ProductCarouselRailProps {
   hrefLabel: string
   productos: ProductoWebPublico[]
   config: ConfigEcommerce | null
-  badgeType: 'trending' | 'recommended'
+  badgeType: 'trending' | 'recommended' | 'featured'
+  headerAction?: ReactNode
+  sectionClassName?: string
+  titleClassName?: string
+  subtitleClassName?: string
 }
 
 export function ProductCarouselRail({
@@ -29,6 +33,10 @@ export function ProductCarouselRail({
   productos,
   config,
   badgeType,
+  headerAction,
+  sectionClassName = '',
+  titleClassName = '',
+  subtitleClassName = '',
 }: ProductCarouselRailProps) {
   const railRef = useRef<HTMLDivElement>(null)
   const [isPaused, setIsPaused] = useState(false)
@@ -67,7 +75,7 @@ export function ProductCarouselRail({
 
   return (
     <section
-      className="px-4 md:px-8 py-8 md:py-10 border-b border-border"
+      className={`px-4 md:px-8 py-8 md:py-10 border-b border-border relative transition-colors ${sectionClassName}`}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={() => setIsPaused(true)}
@@ -75,15 +83,20 @@ export function ProductCarouselRail({
     >
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="font-serif text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
-            {badgeType === 'trending' ? (
-              <Flame className="h-5 w-5 text-amber-500" />
-            ) : (
-              <Sparkles className="h-5 w-5 text-emerald-600" />
-            )}
-            <span>{title}</span>
-          </h2>
-          <p className="text-xs md:text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+          <div className="flex items-center gap-3">
+            <h2 className={`font-serif text-xl md:text-2xl font-bold text-foreground flex items-center gap-2 ${titleClassName}`}>
+              {badgeType === 'trending' ? (
+                <Flame className="h-5 w-5 text-amber-500" />
+              ) : badgeType === 'featured' ? (
+                <Sparkles className="h-5 w-5 text-amber-500" />
+              ) : (
+                <Sparkles className="h-5 w-5 text-emerald-600" />
+              )}
+              <span>{title}</span>
+            </h2>
+            {headerAction}
+          </div>
+          <p className={`text-xs md:text-sm text-muted-foreground mt-0.5 ${subtitleClassName}`}>{subtitle}</p>
         </div>
 
         <div className="flex items-center gap-3 self-end sm:self-auto">
@@ -153,6 +166,32 @@ export function ProductCarouselRail({
                       Popular
                     </span>
                   )}
+                  {badgeType === 'featured' && (prod.destacado || prod.nuevo) && (
+                    <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 flex-wrap max-w-[calc(100%-3.5rem)]">
+                      {prod.destacado && (
+                        <span
+                          title="Destacado"
+                          aria-label="Destacado"
+                          className="bg-black/70 backdrop-blur-xs text-amber-400 p-1.5 sm:px-2 sm:py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1"
+                        >
+                          <Sparkles className="h-3 w-3 shrink-0" />
+                          <span className="hidden sm:inline">Destacado</span>
+                        </span>
+                      )}
+                      {prod.nuevo && (
+                        <span
+                          title="Nuevo"
+                          aria-label="Nuevo"
+                          className={`${
+                            prod.destacado ? 'hidden sm:inline-flex' : 'inline-flex'
+                          } bg-[#2D5A3D] text-white p-1.5 sm:px-2 sm:py-0.5 rounded-full text-[10px] font-bold items-center gap-1`}
+                        >
+                          <Tag className="h-3 w-3 shrink-0 sm:hidden" />
+                          <span className="hidden sm:inline">Nuevo</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {badgeType === 'recommended' && prod.nuevo && (
                     <span className="absolute top-2.5 left-2.5 z-10 bg-emerald-700 text-white px-2 py-0.5 rounded-full text-[10px] font-semibold">
                       Recomendado
@@ -179,8 +218,11 @@ export function ProductCarouselRail({
                       </span>
                     )}
                   </div>
-                  <h3 className="text-xs md:text-sm font-semibold text-foreground line-clamp-1 group-hover:text-emerald-600 transition-colors">
-                    {prod.nombre}
+                  <h3
+                    title={prod.descripcion || ''}
+                    className="text-xs md:text-sm leading-snug font-semibold text-foreground line-clamp-2 sm:line-clamp-3 min-h-[2.1rem] sm:min-h-[3.3rem] uppercase group-hover:text-emerald-600 transition-colors"
+                  >
+                    {prod.descripcion || ''}
                   </h3>
                   {showPrice && precio ? (
                     <span className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 mt-1 block">

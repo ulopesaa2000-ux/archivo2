@@ -51,6 +51,7 @@ const formSchema = z.object({
   texto_boton_finalizar: z.string().min(1).max(50),
   titulo_seccion_carrito: z.string().min(1).max(50),
   mensaje_precio_variable: z.string(),
+  dias_producto_nuevo: z.coerce.number().int().min(0),
   
   // Flujo de órdenes y Carrito
   tipo_orden_generada: z.enum(['cotizacion', 'orden_b2b', 'orden_venta']),
@@ -92,6 +93,7 @@ export function ConfigForm({ config }: ConfigFormProps) {
       texto_boton_finalizar: config?.texto_boton_finalizar || 'Solicitar cotización',
       titulo_seccion_carrito: config?.titulo_seccion_carrito || 'Tu Cotización',
       mensaje_precio_variable: parseStoreConfig(config?.mensaje_precio_variable).mensajePrecioVariable,
+      dias_producto_nuevo: parseStoreConfig(config?.mensaje_precio_variable).diasProductoNuevo,
       tipo_orden_generada: (config?.tipo_orden_generada as any) || 'cotizacion',
       modo_vista_carrito: (config?.modo_vista_carrito as any) || 'drawer',
       requiere_aprobacion: config?.requiere_aprobacion ?? true,
@@ -437,6 +439,29 @@ export function ConfigForm({ config }: ConfigFormProps) {
                   </FormControl>
                   <FormDescription>
                     Mostrado cuando los precios pueden variar
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="dias_producto_nuevo"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Días de vigencia como &quot;Nuevo&quot;</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      {...field}
+                      onChange={(e) => field.onChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Días desde la publicación web durante los que aparece como Nuevo (90 = 3 meses, 0 = sin límite).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

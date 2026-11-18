@@ -17,7 +17,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Pagination } from '@/components/admin/Pagination'
 import {
-  Package, ExternalLink, Image as ImageIcon, Loader2, Check, X, Globe, DollarSign, Edit, Flag,
+  Package, ExternalLink, Image as ImageIcon, Loader2, Check, X, Globe, DollarSign, Edit, Flag, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DestacadoWebStarButton } from './DestacadoWebStarButton'
@@ -30,6 +30,7 @@ import {
   despublicarProductosMasivoAction,
   actualizarPreciosMasivoAction,
   actualizarFlagsMasivoAction,
+  quitarNuevoMasivoPorAntiguedadAction,
 } from '@/modules/ecommerce/actions'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -63,6 +64,37 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
   const [flagNuevo, setFlagNuevo] = useState<'sin_cambio' | 'activar' | 'quitar'>('sin_cambio')
   const [flagOferta, setFlagOferta] = useState<'sin_cambio' | 'activar' | 'quitar'>('sin_cambio')
   const [flagsPrecioOferta, setFlagsPrecioOferta] = useState<string>('')
+
+  // Modal para quitar etiqueta "Nuevo" por antigüedad o a todos
+  const [isCleanNuevoModalOpen, setIsCleanNuevoModalOpen] = useState(false)
+  const [limpiarTodosNuevo, setLimpiarTodosNuevo] = useState(false)
+  const [limpiarDiasNuevo, setLimpiarDiasNuevo] = useState('90')
+
+  const handleConfirmCleanNuevo = (e: React.FormEvent) => {
+    e.preventDefault()
+    const diasNum = Number(limpiarDiasNuevo)
+    if (!limpiarTodosNuevo && (!Number.isFinite(diasNum) || diasNum < 0)) {
+      toast.error('Ingresa un número válido de días (0 o mayor).')
+      return
+    }
+    startTransition(async () => {
+      const res = await quitarNuevoMasivoPorAntiguedadAction({
+        todos: limpiarTodosNuevo,
+        dias: limpiarTodosNuevo ? undefined : Math.floor(diasNum),
+      })
+      if (res.success) {
+        toast.success(
+          res.count > 0
+            ? `Se quitó "Nuevo" a ${res.count} producto(s).`
+            : 'No había productos que cumplieran la condición.'
+        )
+        setIsCleanNuevoModalOpen(false)
+        router.refresh()
+      } else {
+        toast.error(res.error || 'No se pudo limpiar la etiqueta Nuevo.')
+      }
+    })
+  }
 
   // Toggle individual
   const handleToggleSelect = (id: number) => {
@@ -327,6 +359,19 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
 
   return (
     <div className="space-y-4 relative">
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setIsCleanNuevoModalOpen(true)}
+          className="h-8 text-xs gap-1.5"
+        >
+          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+          Quitar &quot;Nuevo&quot; a productos...
+        </Button>
+      </div>
+
       <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
         <Table>
           <TableHeader className="bg-muted/40">
@@ -884,6 +929,71 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Modal: Quitar etiqueta Nuevo (todos o publicados hace más de N días) */}
+      <Dialog open={isCleanNuevoModalOpen} onOpenChange={setIsCleanNuevoModalOpen}>
+        <DialogContent className="sm:max-w-lg w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              Quitar etiqueta &quot;Nuevo&quot;
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConfirmCleanNuevo} className="space-y-4 text-sm">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Quita la marca <strong className="text-foreground">Nuevo</strong> en{' '}
+              <code className="font-mono text-[11px]">productos_web</code> por antigüedad de publicación o a todo el
+              catálogo de golpe.
+            </p>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer">
+              <Checkbox
+                checked={limpiarTodosNuevo}
+                onCheckedChange={(checked) => setLimpiarTodosNuevo(Boolean(checked))}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <span className="text-xs font-semibold text-foreground block">
+                  Seleccionar todos los productos marcados como Nuevo
+                </span>
+                <span className="text-[11px] text-muted-foreground block">
+                  Quita &quot;Nuevo&quot; a toda la tabla sin importar la fecha de publicación.
+                </span>
+              </div>
+            </label>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="limpiarDiasNuevo" className="text-xs font-semibold">
+                Productos publicados hace más de (días)
+              </Label>
+              <Input
+                id="limpiarDiasNuevo"
+                type="number"
+                min="0"
+                step="1"
+                value={limpiarDiasNuevo}
+                onChange={(e) => setLimpiarDiasNuevo(e.target.value)}
+                disabled={limpiarTodosNuevo}
+                placeholder="90"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Por defecto: <strong>90 días</strong> (3 meses). Se toma la fecha de publicación web (
+                <code className="font-mono text-[10px]">created_at</code>).
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsCleanNuevoModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" variant="destructive" disabled={isPending}>
+                {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Quitar etiqueta &quot;Nuevo&quot;
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

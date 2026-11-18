@@ -6,7 +6,11 @@ import { headers } from 'next/headers'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
-import { mergeMensajePrecioVariable } from '@/lib/utils/storeConfig'
+import {
+  mergeMensajePrecioVariable,
+  parseStoreConfig,
+  serializeStoreConfig,
+} from '@/lib/utils/storeConfig'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { can, type PermissionAction, type PermissionModule } from '@/lib/auth/permissions'
 import type { Database } from '@/lib/types/database.types'
@@ -80,6 +84,7 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
     campos_contacto_requeridos,
     notificar_whatsapp,
     numero_whatsapp,
+    dias_producto_nuevo,
     updated_by,
   } = data as any
 
@@ -110,10 +115,13 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
 
       try {
         const incoming = JSON.parse(trimmedMsg)
-        if (!incoming.mensaje_precio_variable_texto && currentCfg?.mensaje_precio_variable) {
+        if (currentCfg?.mensaje_precio_variable) {
           const prevParsed = JSON.parse(currentCfg.mensaje_precio_variable)
-          if (prevParsed?.mensaje_precio_variable_texto) {
+          if (!incoming.mensaje_precio_variable_texto && prevParsed?.mensaje_precio_variable_texto) {
             incoming.mensaje_precio_variable_texto = prevParsed.mensaje_precio_variable_texto
+          }
+          if (incoming.dias_producto_nuevo === undefined && prevParsed?.dias_producto_nuevo !== undefined) {
+            incoming.dias_producto_nuevo = prevParsed.dias_producto_nuevo
           }
         }
         updatePayload.mensaje_precio_variable = JSON.stringify(incoming)
@@ -127,11 +135,27 @@ export async function actualizarConfigEcommerce(data: Partial<ConfigEcommerceUpd
         .select('mensaje_precio_variable')
         .eq('id', 1)
         .maybeSingle()
-      updatePayload.mensaje_precio_variable = mergeMensajePrecioVariable(
-        currentCfg?.mensaje_precio_variable,
-        trimmedMsg
-      )
+      let merged = mergeMensajePrecioVariable(currentCfg?.mensaje_precio_variable, trimmedMsg)
+      if (dias_producto_nuevo !== undefined && Number.isFinite(Number(dias_producto_nuevo)) && Number(dias_producto_nuevo) >= 0) {
+        const parsed = parseStoreConfig(merged)
+        merged = serializeStoreConfig({
+          ...parsed,
+          diasProductoNuevo: Math.floor(Number(dias_producto_nuevo)),
+        })
+      }
+      updatePayload.mensaje_precio_variable = merged
     }
+  } else if (dias_producto_nuevo !== undefined && Number.isFinite(Number(dias_producto_nuevo)) && Number(dias_producto_nuevo) >= 0) {
+    const { data: currentCfg } = await supabase
+      .from('config_ecommerce')
+      .select('mensaje_precio_variable')
+      .eq('id', 1)
+      .maybeSingle()
+    const parsed = parseStoreConfig(currentCfg?.mensaje_precio_variable)
+    updatePayload.mensaje_precio_variable = serializeStoreConfig({
+      ...parsed,
+      diasProductoNuevo: Math.floor(Number(dias_producto_nuevo)),
+    })
   }
   if (tipo_orden_generada !== undefined) updatePayload.tipo_orden_generada = tipo_orden_generada
   if (requiere_aprobacion !== undefined) updatePayload.requiere_aprobacion = requiere_aprobacion
@@ -611,6 +635,47 @@ export async function actualizarFlagsMasivoAction(
     return { success: true, count: productoIds.length }
   } catch (err: any) {
     return { success: false, count: 0, error: err?.message || 'Error al actualizar flags.' }
+  }
+}
+
+/**
+ * Quita el flag `nuevo = false` en lote en `productos_web`:
+ * - Si `todos = true`: limpia todos los registros que actualmente tienen `nuevo = true`.
+ * - Si `todos = false`: limpia los que tienen `nuevo = true` y `created_at` anterior a `dias` días (default 90).
+ */
+export async function quitarNuevoMasivoPorAntiguedadAction(params: {
+  todos: boolean
+  dias?: number
+}): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
+    const dias = Number.isFinite(Number(params.dias)) ? Math.floor(Number(params.dias)) : 90
+    if (!params.todos && dias < 0) {
+      return { success: false, count: 0, error: 'Ingresa un número de días válido (0 o mayor).' }
+    }
+
+    const supabase = await createClient()
+    const nowIso = new Date().toISOString()
+
+    let query = (supabase as any)
+      .from('productos_web')
+      .update({ nuevo: false, updated_at: nowIso })
+      .eq('nuevo', true)
+
+    if (!params.todos) {
+      const fechaCorteIso = new Date(Date.now() - dias * 86_400_000).toISOString()
+      query = query.lt('created_at', fechaCorteIso)
+    }
+
+    const { data, error } = await query.select('id')
+    if (error) {
+      return { success: false, count: 0, error: error.message }
+    }
+
+    revalidateStoreCatalogo({ includeBanners: true })
+    return { success: true, count: (data || []).length }
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Error al limpiar etiqueta Nuevo.' }
   }
 }
 

@@ -17,6 +17,20 @@ export function RecentProductTracker({ productoWebId }: { productoWebId: number 
         : []
       const next = [productoWebId, ...cleanPrev].slice(0, MAX_RECENT)
       localStorage.setItem(RECENT_PRODUCTS_KEY, JSON.stringify(next))
+
+      const visitKey = `inv:store:visita:${productoWebId}`
+      if (!sessionStorage.getItem(visitKey)) {
+        sessionStorage.setItem(visitKey, '1')
+        void fetch('/api/ecommerce/visita', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productoWebId }),
+          keepalive: true,
+        }).catch(() => {
+          // Si falla la red, permitir reintento en la siguiente vista
+          sessionStorage.removeItem(visitKey)
+        })
+      }
     } catch {
       // Ignorar errores de almacenamiento privado
     }
