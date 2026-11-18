@@ -69,6 +69,7 @@ export function useDirectorio({
 
   // Modal: Crear familia intermedia
   const [isCreateIntermediateDialogOpen, setIsCreateIntermediateDialogOpen] = useState(false)
+  const [pendingIntermediateProductId, setPendingIntermediateProductId] = useState<number | null>(null)
   const [refFamilyName, setRefFamilyName] = useState('')
   const [newFamilyInput, setNewFamilyInput] = useState('')
   const [suggestedKeywords, setSuggestedKeywords] = useState<string[]>([])
@@ -389,29 +390,24 @@ export function useDirectorio({
       return
     }
 
-    const selectedIds = Object.entries(selectedProductIds)
-      .filter(([, isSelected]) => isSelected)
-      .map(([id]) => parseInt(id, 10))
-
-    if (selectedIds.length === 0) {
-      toast.warning('No hay productos seleccionados para mover')
+    if (pendingIntermediateProductId === null) {
+      toast.warning('No hay producto seleccionado para mover')
       return
     }
 
-    setStagedMoves((prev) => {
-      const next = { ...prev }
-      selectedIds.forEach((id) => {
-        next[id] = code
-      })
-      return next
-    })
+    const prodId = pendingIntermediateProductId
+
+    setStagedMoves((prev) => ({
+      ...prev,
+      [prodId]: code,
+    }))
 
     if (!familias.some((f) => f.familia === code)) {
       setFamilias((prev) => [
         ...prev,
         {
           familia: code,
-          total_productos: selectedIds.length,
+          total_productos: 1,
           es_codigo_raw: /^F[0-9]{3}-[0-9]{3}[A-Z]$/i.test(code),
           descripcion: refFamilyName ? familias.find((f) => f.familia === refFamilyName)?.descripcion || '' : '',
           skus: [],
@@ -419,29 +415,57 @@ export function useDirectorio({
       ])
     }
 
-    const movedProductsList: ProductListItem[] = []
-    selectedIds.forEach((id) => {
-      for (const prods of Object.values(loadedProducts)) {
-        const found = prods.find((p) => p.id === id)
-        if (found) {
-          movedProductsList.push({ ...found, familia: code })
+    let movedProduct: ProductListItem | null = null
+    for (const prods of Object.values(loadedProducts)) {
+      const found = prods.find((p) => p.id === prodId)
+      if (found) {
+        movedProduct = { ...found, familia: code }
+        break
+      }
+    }
+
+    if (!movedProduct) {
+      for (const f of familias) {
+        const sku = f.skus?.find((s) => s.id === prodId)
+        if (sku) {
+          movedProduct = {
+            id: prodId,
+            sku_base: sku.sku_base,
+            nombre: null,
+            descripcion: sku.descripcion || null,
+            familia: code,
+            precio_ec: null,
+            pz_en_caja: null,
+            activo: sku.activo ?? true,
+            imagen_principal: sku.imagen_principal ?? null,
+          }
+          break
         }
       }
-    })
+    }
 
-    setLoadedProducts((prev) => ({
-      ...prev,
-      [code]: movedProductsList,
-    }))
+    if (movedProduct) {
+      const productToAdd = movedProduct
+      setLoadedProducts((prev) => {
+        const existing = prev[code] || []
+        if (existing.some((p) => p.id === prodId)) return prev
+        return {
+          ...prev,
+          [code]: [...existing, productToAdd],
+        }
+      })
+    }
 
-    setSelectedProductIds({})
+    // Quitar solo el producto movido de la bandeja de Reasignación, conservando el resto
+    setSelectedProductIds((prev) => (prev[prodId] ? { ...prev, [prodId]: false } : prev))
+    setPendingIntermediateProductId(null)
     setIsCreateIntermediateDialogOpen(false)
     setRefFamilyName('')
     setExpandedFamilies((prev) => ({ ...prev, [code]: true }))
     toast.success(`Familia "${code}" creada localmente en borrador`)
   }, [
     newFamilyInput,
-    selectedProductIds,
+    pendingIntermediateProductId,
     setStagedMoves,
     familias,
     setFamilias,
@@ -502,6 +526,8 @@ export function useDirectorio({
     // Create intermediate modal
     isCreateIntermediateDialogOpen,
     setIsCreateIntermediateDialogOpen,
+    pendingIntermediateProductId,
+    setPendingIntermediateProductId,
     refFamilyName,
     setRefFamilyName,
     newFamilyInput,

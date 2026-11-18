@@ -58,7 +58,7 @@ export function SidebarBandeja({
   const totalSelectedCount = Object.values(selectedProductIds).filter(Boolean).length
 
   return (
-    <aside className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full bg-card shrink-0 select-none overflow-hidden">
+    <aside className="w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full min-h-0 bg-card shrink-0 select-none overflow-hidden">
       {/* SECCIÓN 1: SIN ASIGNAR */}
       <div
         className={cn(
@@ -119,7 +119,7 @@ export function SidebarBandeja({
                         onDragStart={(e) => onDragStart(e, p.id, p.sku_base)}
                         onDragEnd={onDragEnd}
                         className={cn(
-                          'flex items-center gap-2 p-2 rounded-lg border bg-card/50 hover:bg-accent/45 hover:border-primary/40 transition-all cursor-grab group relative',
+                          'flex items-center gap-2 p-2 rounded-lg border bg-card hover:bg-accent/45 hover:border-primary/40 transition-all cursor-grab group relative',
                           isSelected && 'border-primary bg-primary/[0.02]'
                         )}
                       >

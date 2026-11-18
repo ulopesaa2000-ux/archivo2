@@ -1,6 +1,7 @@
 // app/api/inventario/notas/ocr/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionOptional } from '@/lib/dal'
+import { getActiveN8nOcrWebhookUrl } from '@/lib/supabase/env'
 import { fetchConfigInventarioLive, fetchConfigInventario } from '@/modules/inventario/config-queries'
 import { isModoSoloCajas, DEFAULT_CONFIG_INVENTARIO } from '@/modules/inventario/config-types'
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const n8nWebhookUrl = process.env.N8N_OCR_WEBHOOK_URL
+    const n8nWebhookUrl = getActiveN8nOcrWebhookUrl()
     if (!n8nWebhookUrl) {
       return NextResponse.json(
         { ok: false, error: 'La variable de entorno N8N_OCR_WEBHOOK_URL no está configurada.' },

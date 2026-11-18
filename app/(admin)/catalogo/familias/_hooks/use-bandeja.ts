@@ -309,7 +309,17 @@ export function useBandeja({
     setDraggedProductId(prodId)
     e.dataTransfer.setData('text/plain', prodId.toString())
     e.dataTransfer.effectAllowed = 'move'
+
     if (skuBase) {
+      // Cápsula limpia para que el navegador no capture capas/scroll de fondo al arrastrar
+      const ghost = document.createElement('div')
+      ghost.className =
+        'fixed -top-[9999px] -left-[9999px] pointer-events-none inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-primary/50 bg-card text-foreground font-mono text-xs font-bold shadow-md'
+      ghost.textContent = skuBase
+      document.body.appendChild(ghost)
+      e.dataTransfer.setDragImage(ghost, 16, 14)
+      setTimeout(() => ghost.remove(), 0)
+
       setDragTooltip({ text: `Mover ${skuBase}`, x: e.clientX + 14, y: e.clientY + 14 })
     }
   }, [])

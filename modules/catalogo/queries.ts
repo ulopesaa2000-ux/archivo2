@@ -739,27 +739,83 @@ export interface FamiliaResumen {
 
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
+  const PAGE_SIZE = 1000
 
-  // Obtenemos productos e imágenes principales en paralelo ordenados alfabéticamente por sku_base
-  const [productosRes, imagenesRes] = await Promise.all([
-    supabase.from('productos')
-      .select('id, familia, descripcion, sku_base, activo')
-      .eq('cliente_b2b_id' as any, 27)
-      .order('sku_base', { ascending: true }),
-    supabase.from('producto_imagenes')
-      .select('producto_id, url')
-      .eq('es_principal', true)
-  ])
+  // 1. Primera página con count exacto; orden determinista (sku_base + id) para paginación segura con .range()
+  const firstPage = await supabase
+    .from('productos')
+    .select('id, familia, descripcion, sku_base, activo', { count: 'exact' })
+    .eq('cliente_b2b_id' as any, 27)
+    .order('sku_base', { ascending: true })
+    .order('id', { ascending: true })
+    .range(0, PAGE_SIZE - 1)
 
-  if (productosRes.error) {
-    console.error('Error fetchResumenFamilias productos:', productosRes.error)
+  if (firstPage.error) {
+    console.error('Error fetchResumenFamilias productos:', firstPage.error)
     return []
   }
 
+  let allProductos = firstPage.data || []
+  const totalCount = firstPage.count ?? allProductos.length
+
+  // 2. Si hay más de 1000 productos, traer las páginas restantes en paralelo
+  if (totalCount > PAGE_SIZE) {
+    const offsets: number[] = []
+    for (let from = PAGE_SIZE; from < totalCount; from += PAGE_SIZE) {
+      offsets.push(from)
+    }
+
+    const remainingPages = await Promise.all(
+      offsets.map((from) =>
+        supabase
+          .from('productos')
+          .select('id, familia, descripcion, sku_base, activo')
+          .eq('cliente_b2b_id' as any, 27)
+          .order('sku_base', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
+      )
+    )
+
+    for (const page of remainingPages) {
+      if (page.error) {
+        console.error('Error fetchResumenFamilias página:', page.error)
+        continue
+      }
+      if (page.data) {
+        allProductos = allProductos.concat(page.data)
+      }
+    }
+  }
+
+  // 3. Imágenes principales en chunks de ≤ 200 IDs en paralelo (AGENTS.md 3.7.2)
+  const IMG_CHUNK_SIZE = 200
+  const productoIds = allProductos.map((p) => p.id)
+  const imgChunks: number[][] = []
+  for (let i = 0; i < productoIds.length; i += IMG_CHUNK_SIZE) {
+    imgChunks.push(productoIds.slice(i, i + IMG_CHUNK_SIZE))
+  }
+
+  const imgResults = await Promise.all(
+    imgChunks.map((ids) =>
+      supabase
+        .from('producto_imagenes')
+        .select('producto_id, url')
+        .eq('es_principal', true)
+        .in('producto_id', ids)
+    )
+  )
+
   const imagenesMap = new Map<number, string>()
-  for (const img of imagenesRes.data || []) {
-    if (img.producto_id && img.url) {
-      imagenesMap.set(img.producto_id, img.url)
+  for (const imgRes of imgResults) {
+    if (imgRes.error) {
+      console.error('Error fetchResumenFamilias imagenes:', imgRes.error)
+      continue
+    }
+    for (const img of imgRes.data || []) {
+      if (img.producto_id && img.url) {
+        imagenesMap.set(img.producto_id, img.url)
+      }
     }
   }
 
@@ -767,7 +823,7 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const skusPorFamilia: Record<string, FamiliaResumenSku[]> = {}
   let countNull = 0
 
-  for (const p of productosRes.data || []) {
+  for (const p of allProductos) {
     const imgUrl = imagenesMap.get(p.id) || null
     if (p.familia) {
       conteos[p.familia] = (conteos[p.familia] || 0) + 1
@@ -813,7 +869,7 @@ export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   })
 
   if (countNull > 0) {
-    const unassignedSkus = (productosRes.data || [])
+    const unassignedSkus = allProductos
       .filter((p: any) => !p.familia && p.sku_base)
       .map((p: any) => ({
         id: p.id,

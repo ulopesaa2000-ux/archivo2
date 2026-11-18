@@ -41,6 +41,10 @@ export default function FamiliasLoading() {
 
         {/* Columna Central: Directorio / Workspace */}
         <main className="flex-1 flex flex-col p-6 space-y-4 overflow-hidden bg-muted/10">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-card border rounded-md px-3 py-2 w-fit shadow-xs">
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+            Trayendo datos completos del catálogo...
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="border rounded-lg p-4 bg-card space-y-3 shadow-xs">

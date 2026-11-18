@@ -69,3 +69,19 @@ export function getActiveSupabaseConfig(): ActiveSupabaseConfig {
     supabaseServiceRoleKey: serviceRoleKey,
   }
 }
+
+/**
+ * Resuelve la URL del webhook de n8n para OCR de notas según el entorno activo.
+ * - Si NEXT_PUBLIC_DB_TARGET === 'sandbox': usa SANDBOX_N8N_OCR_WEBHOOK_URL
+ *   (o el webhook por defecto de sandbox).
+ * - En cualquier otro caso (Dokploy/VPS o 'production'): usa N8N_OCR_WEBHOOK_URL.
+ */
+export function getActiveN8nOcrWebhookUrl(): string | undefined {
+  if (process.env.NEXT_PUBLIC_DB_TARGET === 'sandbox') {
+    return (
+      process.env.SANDBOX_N8N_OCR_WEBHOOK_URL ||
+      'https://n8n.sistemaindumentaria.com/webhook/nota-sandbox'
+    )
+  }
+  return process.env.N8N_OCR_WEBHOOK_URL
+}

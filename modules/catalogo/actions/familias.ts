@@ -153,6 +153,17 @@ export async function fetchProductosPorFamiliaAction(familia: string) {
   return fetchProductosPorFamilia(familia)
 }
 
+export async function fetchResumenFamiliasAction() {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('No autenticado')
+  const { can, isClienteEcommerce } = await import('@/lib/auth/permissions')
+  if (isClienteEcommerce(user) || !can(user, 'catalogo_familias', 'puede_leer')) {
+    throw new Error('No autorizado')
+  }
+  const { fetchResumenFamilias } = await import('../queries')
+  return fetchResumenFamilias()
+}
+
 export async function fetchStockTotalesPorProductoAction(productoIds: number[]) {
   const user = await getCurrentUser()
   if (!user) throw new Error('No autenticado')

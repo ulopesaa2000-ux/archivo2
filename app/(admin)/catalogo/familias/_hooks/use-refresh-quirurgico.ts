@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react'
 import { toast } from 'sonner'
-import { fetchProductosPorFamiliaAction } from '@/modules/catalogo/actions/familias'
+import { fetchProductosPorFamiliaAction, fetchResumenFamiliasAction } from '@/modules/catalogo/actions/familias'
 import type { FamiliaResumen } from '@/modules/catalogo/queries'
 import { buildInitialProductsMap, type ProductListItem } from './familias-types'
 
@@ -47,51 +47,88 @@ export function useRefreshQuirurgico({
     }))
   }, [initialFamilias, setFamilias, setLoadedProducts])
 
-  // Ajuste de viewport a pantalla completa al montar el módulo
+  // Ajuste de viewport a pantalla completa al montar el módulo (anula padding/max-width del wrapper en AdminLayoutClient)
   useEffect(() => {
     const container = document.getElementById('familias-organizer-container')
+    const wrapper = container?.parentElement as HTMLElement | null
     const main = container?.closest('main') as HTMLElement | null
     if (!main) return
 
-    const prevStyle = {
+    const prevMain = {
       overflow: main.style.overflow,
       padding: main.style.padding,
-      height: main.style.height,
+      minHeight: main.style.minHeight,
     }
-    const prevParentOverflow = main.parentElement ? main.parentElement.style.overflow : ''
+    const prevWrapper = wrapper
+      ? {
+          overflow: wrapper.style.overflow,
+          padding: wrapper.style.padding,
+          maxWidth: wrapper.style.maxWidth,
+          margin: wrapper.style.margin,
+          width: wrapper.style.width,
+          height: wrapper.style.height,
+        }
+      : null
 
     main.style.overflow = 'hidden'
     main.style.padding = '0px'
-    main.style.height = '100%'
-    if (main.parentElement) {
-      main.parentElement.style.overflow = 'hidden'
+    main.style.minHeight = '0px'
+
+    if (wrapper && wrapper !== main) {
+      wrapper.style.overflow = 'hidden'
+      wrapper.style.padding = '0px'
+      wrapper.style.maxWidth = 'none'
+      wrapper.style.margin = '0px'
+      wrapper.style.width = '100%'
+      wrapper.style.height = '100%'
     }
 
     return () => {
-      main.style.overflow = prevStyle.overflow
-      main.style.padding = prevStyle.padding
-      main.style.height = prevStyle.height
-      if (main.parentElement) {
-        main.parentElement.style.overflow = prevParentOverflow
+      main.style.overflow = prevMain.overflow
+      main.style.padding = prevMain.padding
+      main.style.minHeight = prevMain.minHeight
+      if (wrapper && prevWrapper && wrapper !== main) {
+        wrapper.style.overflow = prevWrapper.overflow
+        wrapper.style.padding = prevWrapper.padding
+        wrapper.style.maxWidth = prevWrapper.maxWidth
+        wrapper.style.margin = prevWrapper.margin
+        wrapper.style.width = prevWrapper.width
+        wrapper.style.height = prevWrapper.height
       }
     }
   }, [])
 
-  // Refresh quirúrgico (AGENTS.md 3.7.6): solo recarga entidades visibles sin borrar borrador/bandeja
+  // Refresh completo del directorio + entidades visibles sin borrar borrador/bandeja (AGENTS.md 3.7.6)
   const handleRefreshInfo = useCallback(async () => {
     if (refreshingInfo) return
     setRefreshingInfo(true)
+    const toastId = toast.loading('Trayendo datos completos del catálogo...')
     try {
       const prevIds = new Set((loadedProducts['F000-000C'] || []).map((p) => p.id))
-      const frescos = (await fetchProductosPorFamiliaAction('F000-000C')) as ProductListItem[]
-      setLoadedProducts((prev) => ({ ...prev, ['F000-000C']: frescos }))
       const extras = Array.from(
         new Set([
           ...pinnedFamilies.filter((f) => f !== 'F000-000C'),
           ...(highlightedFamily && highlightedFamily !== 'F000-000C' ? [highlightedFamily] : []),
         ])
       )
-      await Promise.all(extras.map((f) => loadProductsForFamily(f, true)))
+
+      const [familiasFrescas, frescos] = await Promise.all([
+        fetchResumenFamiliasAction(),
+        fetchProductosPorFamiliaAction('F000-000C') as Promise<ProductListItem[]>,
+        ...extras.map((f) => loadProductsForFamily(f, true)),
+      ])
+
+      // Conservar familias creadas localmente en borrador que aún tienen movimientos pendientes
+      const draftDestinations = new Set(Object.values(stagedMoves))
+      setFamilias((prev) => {
+        const freshKeys = new Set(familiasFrescas.map((f) => f.familia))
+        const draftsPendientes = prev.filter(
+          (f) => f.familia && draftDestinations.has(f.familia) && !freshKeys.has(f.familia)
+        )
+        return draftsPendientes.length > 0 ? [...familiasFrescas, ...draftsPendientes] : familiasFrescas
+      })
+
+      setLoadedProducts((prev) => ({ ...prev, ['F000-000C']: frescos }))
       const nuevos = frescos.filter((p) => !prevIds.has(p.id) && stagedMoves[p.id] === undefined)
       if (modoStock) {
         const ids: number[] = [...frescos.map((p) => p.id)]
@@ -102,17 +139,21 @@ export function useRefreshQuirurgico({
       }
       const hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
       setUltimoRefresh(hora)
-      if (nuevos.length > 0) toast.success(`${nuevos.length} nuevo(s) sin asignar · actualizado ${hora}`)
-      else toast.success(`Información actualizada ${hora}`)
+      if (nuevos.length > 0) {
+        toast.success(`${nuevos.length} nuevo(s) sin asignar · actualizado ${hora}`, { id: toastId })
+      } else {
+        toast.success(`Catálogo actualizado (${familiasFrescas.length} familias) · ${hora}`, { id: toastId })
+      }
     } catch (err) {
       console.error('Error al refrescar información:', err)
-      toast.error('No se pudo refrescar la información')
+      toast.error('No se pudo refrescar la información', { id: toastId })
     } finally {
       setRefreshingInfo(false)
     }
   }, [
     refreshingInfo,
     loadedProducts,
+    setFamilias,
     setLoadedProducts,
     pinnedFamilies,
     highlightedFamily,

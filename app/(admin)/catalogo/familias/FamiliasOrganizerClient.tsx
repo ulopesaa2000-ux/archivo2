@@ -246,10 +246,10 @@ export function FamiliasOrganizerClient({
 
       directorio.setRefFamilyName(prevFamilyCode)
       directorio.setNewFamilyInput(suggestion)
-      borrador.setSelectedProductIds({ [prodId]: true })
+      directorio.setPendingIntermediateProductId(prodId)
       directorio.setIsCreateIntermediateDialogOpen(true)
     },
-    [bandeja, directorio, borrador]
+    [bandeja, directorio]
   )
 
   return (
@@ -282,7 +282,7 @@ export function FamiliasOrganizerClient({
       )}
 
       {/* CONTENEDOR PRINCIPAL EN 3 COLUMNAS */}
-      <div className="flex-1 flex overflow-hidden bg-card text-foreground w-full h-full">
+      <div className="flex-1 min-h-0 flex overflow-hidden bg-card text-foreground w-full h-full">
         <SidebarBandeja
           isSinAsignarCollapsed={directorio.isSinAsignarCollapsed}
           onToggleSinAsignar={() => directorio.setIsSinAsignarCollapsed((v) => !v)}
@@ -420,7 +420,12 @@ export function FamiliasOrganizerClient({
         isCreatingProduct={bandeja.isCreatingProduct}
         onCreateProductSubmit={(e) => void bandeja.handleCreateProductSubmit(e)}
         isCreateIntermediateDialogOpen={directorio.isCreateIntermediateDialogOpen}
-        onOpenCreateIntermediateDialogChange={directorio.setIsCreateIntermediateDialogOpen}
+        onOpenCreateIntermediateDialogChange={(open) => {
+          directorio.setIsCreateIntermediateDialogOpen(open)
+          if (!open) {
+            directorio.setPendingIntermediateProductId(null)
+          }
+        }}
         refFamilyName={directorio.refFamilyName}
         newFamilyInput={directorio.newFamilyInput}
         onNewFamilyInputChange={directorio.setNewFamilyInput}
@@ -431,7 +436,7 @@ export function FamiliasOrganizerClient({
         onCompactDenseBlock={directorio.handleCompactDenseBlock}
         onCancelCreateIntermediate={() => {
           directorio.setIsCreateIntermediateDialogOpen(false)
-          borrador.setSelectedProductIds({})
+          directorio.setPendingIntermediateProductId(null)
         }}
         onConfirmCreateIntermediate={directorio.handleConfirmCreateIntermediate}
         isConfirmModalOpen={borrador.isConfirmModalOpen}
