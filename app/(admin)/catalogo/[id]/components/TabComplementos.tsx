@@ -1,25 +1,28 @@
 // app/(admin)/catalogo/[id]/components/TabComplementos.tsx
 'use client'
 
-import { useState, useTransition } from 'react'
-import type { ComplementoResuelto, CatalogosEdicion, CatalogoItem } from '@/modules/catalogo/types'
-import { Puzzle, Plus, Pencil, Trash2, MoreVertical, Loader2, Layers } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import type { CatalogosEdicion, ComplementoResuelto } from '@/modules/catalogo/types'
+import { sugerirComplementosDesdeProducto } from '@/lib/catalogo/atributos-sugerencias'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  clearAllComplementosAction,
+  deleteComplementoAction,
+  saveComplementoAction,
+  saveComplementosBatchAction,
+} from '@/modules/catalogo/actions'
+import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -28,369 +31,511 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ConfirmDeleteModal } from '@/components/shared/ConfirmDeleteModal'
-import { saveComplementoAction, deleteComplementoAction } from '@/modules/catalogo/actions'
-
-// ─────────────────────────────────────────────────────────────────────────────
+import {
+  ArrowLeftRight,
+  Loader2,
+  Maximize2,
+  Pencil,
+  Puzzle,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
+import { ComplementosQuickEditor, type QuickComplementoInput } from './ComplementosQuickEditor'
+import { TabComplementosFullModal } from './TabComplementosFullModal'
 
 export function TabComplementos({
   complementos,
   productoId,
   catalogos,
+  descripcion = null,
+  tipoPrenda = null,
+  skuBase = null,
+  imagenPrincipalUrl = null,
   canEdit = true,
 }: {
   complementos: ComplementoResuelto[]
   productoId: number
   catalogos: CatalogosEdicion
+  descripcion?: string | null
+  tipoPrenda?: string | null
+  skuBase?: string | null
+  imagenPrincipalUrl?: string | null
   canEdit?: boolean
 }) {
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isFullModalOpen, setIsFullModalOpen] = useState(false)
+  const [expandedEditor, setExpandedEditor] = useState(false)
+  const [showClearModal, setShowClearModal] = useState(false)
   const [editingComp, setEditingComp] = useState<ComplementoResuelto | null>(null)
-  const [deletingComp, setDeletingComp] = useState<ComplementoResuelto | null>(null)
-  const [isPending, startTransition] = useTransition()
-  // Estado para trackear la parte de prenda seleccionada (filtra tipos y cortes)
-  const [selectedParteId, setSelectedParteId] = useState<string>('')
-  // Estado para trackear el tipo de componente seleccionado (filtra cortes)
-  const [selectedTipoCompId, setSelectedTipoCompId] = useState<string>('')
-  // Estados para cortes y materiales
-  const [selectedCorteFormaId, setSelectedCorteFormaId] = useState<string>('')
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>('')
+  const [editParteId, setEditParteId] = useState('')
+  const [editTipoId, setEditTipoId] = useState('')
+  const [editCorteId, setEditCorteId] = useState('')
+  const [editMaterialId, setEditMaterialId] = useState('')
+  const [isEditPending, startEditTransition] = useTransition()
 
-  const handleOpenAdd = () => {
-    setEditingComp(null)
-    setSelectedParteId('')
-    setSelectedTipoCompId('')
-    setIsDialogOpen(true)
+  const [localItems, setLocalItems] = useState<ComplementoResuelto[]>(complementos)
+  const [pendingCount, setPendingCount] = useState(0)
+  const pendingRef = useRef(0)
+
+  useEffect(() => {
+    if (pendingRef.current === 0) setLocalItems(complementos)
+  }, [complementos])
+
+  const beginOp = () => {
+    pendingRef.current += 1
+    setPendingCount(pendingRef.current)
+  }
+  const endOp = () => {
+    pendingRef.current = Math.max(0, pendingRef.current - 1)
+    setPendingCount(pendingRef.current)
+  }
+
+  const sugerencias = useMemo(
+    () =>
+      sugerirComplementosDesdeProducto({
+        descripcion,
+        tipoPrenda,
+        catalogos,
+        actuales: localItems,
+      }),
+    [catalogos, descripcion, localItems, tipoPrenda]
+  )
+
+  const buildOptimistic = useCallback(
+    (input: QuickComplementoInput, tempId: number): ComplementoResuelto => ({
+      id: tempId,
+      parte_prenda_id: input.parte_prenda_id,
+      parte_prenda: catalogos.partes.find((p) => p.id === input.parte_prenda_id)?.nombre ?? null,
+      tipo_comp_id: input.tipo_comp_id,
+      tipo_complemento:
+        input.tipo_comp_id != null
+          ? catalogos.componente_tipos.find((t) => t.id === input.tipo_comp_id)?.nombre ?? null
+          : null,
+      material_id: input.material_id,
+      material:
+        input.material_id != null
+          ? catalogos.materiales.find((m) => m.id === input.material_id)?.nombre ?? null
+          : null,
+      corte_forma_id: input.corte_forma_id,
+      corte_forma:
+        input.corte_forma_id != null
+          ? catalogos.corte_formas.find((c) => c.id === input.corte_forma_id)?.nombre ?? null
+          : null,
+      descripcion_adicional: input.descripcion_adicional,
+    }),
+    [catalogos]
+  )
+
+  const handleAdd = (input: QuickComplementoInput) => {
+    const tempId = -Math.floor(Date.now() + Math.random() * 100000)
+    const optimistic = buildOptimistic(input, tempId)
+    setLocalItems((prev) => [...prev, optimistic])
+
+    beginOp()
+    void saveComplementosBatchAction({ productoId, items: [input] })
+      .then((res) => {
+        if (!res.success) {
+          setLocalItems((prev) => prev.filter((x) => x.id !== tempId))
+          toast.error(res.error ?? 'No se pudo agregar el complemento')
+          return
+        }
+        const realRow = res.data?.inserted?.[0]
+        if (realRow) {
+          setLocalItems((prev) =>
+            prev.map((x) => (x.id === tempId ? { ...x, id: realRow.id } : x))
+          )
+        }
+      })
+      .catch(() => {
+        setLocalItems((prev) => prev.filter((x) => x.id !== tempId))
+        toast.error('Error de conexión al guardar complemento')
+      })
+      .finally(endOp)
+  }
+
+  const handleRemove = (id: number) => {
+    let removed: ComplementoResuelto | undefined
+    setLocalItems((prev) => {
+      removed = prev.find((x) => x.id === id)
+      return prev.filter((x) => x.id !== id)
+    })
+    if (id < 0) return
+
+    beginOp()
+    void deleteComplementoAction(id, productoId)
+      .then((res) => {
+        if (!res.success && removed) {
+          setLocalItems((prev) => [...prev, removed!])
+          toast.error(res.error ?? 'No se pudo eliminar el complemento')
+        }
+      })
+      .catch(() => {
+        if (removed) setLocalItems((prev) => [...prev, removed!])
+        toast.error('Error de conexión al eliminar complemento')
+      })
+      .finally(endOp)
+  }
+
+  const handleApplyAllSuggestions = () => {
+    if (sugerencias.length === 0) return
+    const items: QuickComplementoInput[] = sugerencias
+      .filter((s) => s.parte_prenda_id != null)
+      .map((s) => ({
+        parte_prenda_id: s.parte_prenda_id!,
+        tipo_comp_id: s.tipo_comp_id,
+        corte_forma_id: s.corte_forma_id,
+        material_id: s.material_id,
+        descripcion_adicional: null,
+      }))
+
+    const tempItems = items.map((it, idx) =>
+      buildOptimistic(it, -Math.floor(Date.now() + idx * 100 + Math.random() * 90))
+    )
+    setLocalItems((prev) => [...prev, ...tempItems])
+
+    beginOp()
+    void saveComplementosBatchAction({ productoId, items })
+      .then((res) => {
+        if (!res.success) {
+          const tempIds = new Set(tempItems.map((t) => t.id))
+          setLocalItems((prev) => prev.filter((x) => !tempIds.has(x.id)))
+          toast.error(res.error ?? 'No se pudieron aplicar sugerencias')
+          return
+        }
+        const inserted = res.data?.inserted ?? []
+        setLocalItems((prev) => {
+          const tempIds = new Set(tempItems.map((t) => t.id))
+          let cursor = 0
+          return prev.map((x) => {
+            if (!tempIds.has(x.id)) return x
+            const real = inserted[cursor++]
+            return real ? { ...x, id: real.id } : x
+          })
+        })
+        toast.success(`${items.length} complementos sugeridos aplicados`)
+      })
+      .finally(endOp)
+  }
+
+  const handleClearAll = async () => {
+    const snapshot = localItems
+    setLocalItems([])
+    beginOp()
+    try {
+      const res = await clearAllComplementosAction(productoId)
+      if (!res.success) {
+        setLocalItems(snapshot)
+        toast.error(res.error ?? 'No se pudieron limpiar los complementos')
+        return
+      }
+      toast.success('Todos los complementos fueron eliminados')
+      setShowClearModal(false)
+    } finally {
+      endOp()
+    }
   }
 
   const handleOpenEdit = (comp: ComplementoResuelto) => {
     setEditingComp(comp)
-    setSelectedParteId(comp.parte_prenda_id?.toString() || '')
-    setSelectedTipoCompId(comp.tipo_comp_id?.toString() || '')
-    setSelectedCorteFormaId(comp.corte_forma_id?.toString() || '')
-    setSelectedMaterialId(comp.material_id?.toString() || '')
-    setIsDialogOpen(true)
+    setEditParteId(comp.parte_prenda_id?.toString() || '')
+    setEditTipoId(comp.tipo_comp_id?.toString() || '')
+    setEditCorteId(comp.corte_forma_id?.toString() || '')
+    setEditMaterialId(comp.material_id?.toString() || '')
   }
 
-  // Obtener nombre de la parte seleccionada para filtrar
-  const selectedParteNombre = selectedParteId
-    ? catalogos.partes.find((p) => p.id === parseInt(selectedParteId))?.nombre
-    : undefined
-
-  // Obtener nombre del tipo de componente seleccionado para filtrar cortes
-  const selectedTipoCompNombre = selectedTipoCompId
-    ? catalogos.componente_tipos.find((tc) => tc.id === parseInt(selectedTipoCompId))?.nombre
-    : undefined
-
-  // Filtrar tipo_comp: complemento_en = nombre_parte O "TODO"
-  const tiposFiltrados = selectedParteNombre
-    ? catalogos.componente_tipos.filter(
-        (tc) => tc.complemento_en === selectedParteNombre || tc.complemento_en === 'TODO'
-      )
-    : []
-
-  // Filtrar corte_forma: corte_forma_en = nombre_parte O "TODO" O nombre_tipo_comp
-  const cortesFiltrados = selectedParteNombre
-    ? catalogos.corte_formas.filter(
-        (cf) =>
-          cf.corte_forma_en === selectedParteNombre ||
-          cf.corte_forma_en === 'TODO' ||
-          (selectedTipoCompNombre && cf.corte_forma_en === selectedTipoCompNombre)
-      )
-    : []
-
-  // Nombres seleccionados para mostrar en SelectValue
-  const selectedParteNombreDisplay = selectedParteId
-    ? catalogos.partes.find((p) => p.id.toString() === selectedParteId)?.nombre
-    : undefined
-
-  const selectedTipoCompNombreDisplay = selectedTipoCompId
-    ? (tiposFiltrados.find(tc => tc.id.toString() === selectedTipoCompId)?.nombre ??
-        catalogos.componente_tipos.find(tc => tc.id.toString() === selectedTipoCompId)?.nombre)
-    : undefined
-
-  const selectedCorteFormaNombre = selectedCorteFormaId === '_null'
-    ? 'Ninguno'
-    : selectedCorteFormaId
-    ? (cortesFiltrados.find(cf => cf.id.toString() === selectedCorteFormaId)?.nombre ??
-        catalogos.corte_formas.find(cf => cf.id.toString() === selectedCorteFormaId)?.nombre)
-    : undefined
-
-  const selectedMaterialNombre = selectedMaterialId === '_null'
-    ? 'Ninguno'
-    : selectedMaterialId
-    ? catalogos.materiales.find(m => m.id.toString() === selectedMaterialId)?.nombre
-    : undefined
-
-  const handleDelete = async () => {
-    if (!deletingComp) return
-    await deleteComplementoAction(deletingComp.id, productoId)
-    setDeletingComp(null)
-  }
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!editingComp) return
     const fd = new FormData(e.currentTarget)
     fd.set('producto_id', String(productoId))
-    if (editingComp) fd.set('id', String(editingComp.id))
+    fd.set('id', String(editingComp.id))
 
-    startTransition(async () => {
+    startEditTransition(async () => {
       const res = await saveComplementoAction(fd)
       if (res.success) {
-        setIsDialogOpen(false)
+        setEditingComp(null)
+        toast.success('Complemento actualizado')
       } else {
-        alert(res.error)
+        toast.error(res.error ?? 'No se pudo actualizar')
       }
     })
   }
 
+  const isSaving = pendingCount > 0
+
   return (
     <div className="space-y-4 mt-4">
-      {canEdit && (
-        <div className="flex justify-end">
-          <Button size="sm" onClick={handleOpenAdd} className="h-8 gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> Agregar Complemento
-          </Button>
-        </div>
-      )}
-
-      {complementos.length === 0 ? (
-        <div className="flex flex-col items-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
-          <Puzzle className="h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm mt-2 font-medium">Sin complementos asignados.</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <tr>
-                <th className="px-4 py-2 text-left">Parte Prenda</th>
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Material</th>
-                <th className="px-4 py-2 text-left">Corte/Forma</th>
-                <th className="px-4 py-2 text-left">Descripción</th>
-                {canEdit && <th className="px-4 py-2 w-10"></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {complementos.map((c) => (
-                <tr key={c.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-2.5 font-medium">{c.parte_prenda ?? '—'}</td>
-                  <td className="px-4 py-2.5">{c.tipo_complemento ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-xs">{c.material ?? '—'}</td>
-                  <td className="px-4 py-2.5">{c.corte_forma ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground italic truncate max-w-[200px]">
-                    {c.descripcion_adicional ?? '—'}
-                  </td>
-                  {canEdit && (
-                    <td className="px-4 py-2.5 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
-                            <Pencil className="h-3.5 w-3.5 mr-2" /> Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => setDeletingComp(c)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* DIALOGO DE FORMULARIO */}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        if (!open) {
-          setSelectedParteId('')
-          setSelectedTipoCompId('')
-          setSelectedCorteFormaId('')
-          setSelectedMaterialId('')
-          setEditingComp(null)
-        }
-        setIsDialogOpen(open)
-      }}>
-        <DialogContent className="sm:max-w-[425px]">
-          <form onSubmit={handleSubmit}>
-            <DialogHeader>
-              <DialogTitle>{editingComp ? 'Editar Complemento' : 'Nuevo Complemento'}</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="parte_prenda_id">Parte de la Prenda *</Label>
-                <Select
-                  name="parte_prenda_id"
-                  value={selectedParteId}
-                  onValueChange={(val) => {
-                    setSelectedParteId(val || '')
-                    setSelectedTipoCompId('') // Reset tipo cuando cambia la parte
-                    setSelectedCorteFormaId('')
-                  }}
-                  required
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona parte...">
-                      {selectedParteNombreDisplay}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {catalogos.partes.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
-                        {cat.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      {localItems.length === 0 ? (
+        <Card className="border-dashed">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2 space-y-0">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <Puzzle className="h-4 w-4" />
               </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="tipo_comp_id">Tipo de Componente *</Label>
-                <Select
-                  name="tipo_comp_id"
-                  value={selectedTipoCompId}
-                  onValueChange={(val) => {
-                    setSelectedTipoCompId(val || '')
-                    setSelectedCorteFormaId('')
-                  }}
-                  disabled={!selectedParteId || tiposFiltrados.length === 0}
-                  required
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={
-                      !selectedParteId
-                        ? "Primero selecciona una parte..."
-                        : tiposFiltrados.length === 0
-                          ? "Sin tipos para esta parte"
-                          : "Selecciona tipo..."
-                    }>
-                      {selectedTipoCompNombreDisplay}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tiposFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
-                        {cat.nombre}
-                        {cat.complemento_en === 'TODO' && (
-                          <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedParteId && tiposFiltrados.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground">
-                    No hay tipos de componente configurados para &ldquo;{selectedParteNombre}&rdquo;.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="corte_forma_id">Corte / Forma</Label>
-                <Select
-                  name="corte_forma_id"
-                  value={selectedCorteFormaId}
-                  onValueChange={(val) => setSelectedCorteFormaId(val || '')}
-                  disabled={!selectedParteId || cortesFiltrados.length === 0}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={
-                      !selectedParteId
-                        ? "Primero selecciona una parte..."
-                        : cortesFiltrados.length === 0
-                          ? "Sin cortes para esta parte/tipo"
-                          : "Selecciona corte/forma..."
-                    }>
-                      {selectedCorteFormaNombre}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
-                    {cortesFiltrados.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
-                        {cat.nombre}
-                        {cat.corte_forma_en === 'TODO' && (
-                          <span className="ml-2 text-[10px] text-muted-foreground">(TODO)</span>
-                        )}
-                        {selectedTipoCompNombre && cat.corte_forma_en === selectedTipoCompNombre && (
-                          <span className="ml-2 text-[10px] text-blue-500">→ {selectedTipoCompNombre}</span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedParteId && cortesFiltrados.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground">
-                    No hay cortes/formas configurados para &ldquo;{selectedParteNombre}&rdquo; o tipo seleccionado.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="material_id">Material</Label>
-                <Select
-                  name="material_id"
-                  value={selectedMaterialId}
-                  onValueChange={(val) => setSelectedMaterialId(val || '')}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona material...">
-                      {selectedMaterialNombre}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_null">Ninguno</SelectItem>
-                    {catalogos.materiales.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
-                        {cat.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="descripcion_adicional">Descripción / Detalles</Label>
-                <Textarea
-                  id="descripcion_adicional"
-                  name="descripcion_adicional"
-                  defaultValue={editingComp?.descripcion_adicional ?? ''}
-                  placeholder="Detalles específicos..."
-                />
+              <div>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  Sin complementos asignados
+                  {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {sugerencias.length > 0
+                    ? `Detectamos ${sugerencias.length} sugerencias desde la descripción. Agrégalas en 1 clic o usa el constructor rápido.`
+                    : 'Agrega partes de prenda, cierres, bolsas o revestimientos directo desde aquí.'}
+                </p>
               </div>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isPending}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={isPending}>
-                {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                {editingComp ? 'Guardar Cambios' : 'Crear Complemento'}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIsFullModalOpen(true)}
+              className="h-8 gap-1.5 shrink-0"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Editor completo
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <ComplementosQuickEditor
+              catalogos={catalogos}
+              sugerencias={sugerencias}
+              canEdit={canEdit}
+              onAdd={handleAdd}
+              onApplyAllSuggestions={handleApplyAllSuggestions}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <Card className={cn('transition-all duration-200', expandedEditor ? 'lg:col-span-4' : 'lg:col-span-8')}>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2 space-y-0">
+              <div className="flex items-center gap-2">
+                <Puzzle className="h-4 w-4 text-primary" />
+                <CardTitle className="text-sm font-semibold">Complementos asignados</CardTitle>
+                <Badge variant="secondary" className="h-5 px-1.5 text-[11px]">{localItems.length}</Badge>
+                {isSaving && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Guardando
+                  </span>
+                )}
+              </div>
+              {canEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowClearModal(true)}
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Limpiar todos
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {localItems.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2 text-xs hover:bg-muted/30 transition-colors"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-semibold text-foreground">{c.parte_prenda ?? '—'}</span>
+                      {c.tipo_complemento && <Badge variant="outline" className="h-5 text-[10px]">{c.tipo_complemento}</Badge>}
+                      {c.corte_forma && <Badge variant="secondary" className="h-5 text-[10px]">{c.corte_forma}</Badge>}
+                      {c.material && <span className="text-muted-foreground">· {c.material}</span>}
+                    </div>
+                    {c.descripcion_adicional && (
+                      <p className="text-[11px] text-muted-foreground truncate">{c.descripcion_adicional}</p>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={c.id < 0}
+                        onClick={() => handleOpenEdit(c)}
+                        className="h-7 w-7"
+                        title="Editar"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemove(c.id)}
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        title="Quitar"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className={cn('transition-all duration-200', expandedEditor ? 'lg:col-span-8' : 'lg:col-span-4')}>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2 space-y-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                <CardTitle className="text-sm font-semibold truncate">Agregar rápido</CardTitle>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setExpandedEditor((prev) => !prev)}
+                  className="h-7 px-2 text-xs gap-1 hidden lg:inline-flex"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  {expandedEditor ? '1/3' : '2/3'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsFullModalOpen(true)}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Ampliar
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ComplementosQuickEditor
+                catalogos={catalogos}
+                sugerencias={sugerencias}
+                canEdit={canEdit}
+                compact={!expandedEditor}
+                onAdd={handleAdd}
+                onApplyAllSuggestions={handleApplyAllSuggestions}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <TabComplementosFullModal
+        open={isFullModalOpen}
+        onOpenChange={setIsFullModalOpen}
+        complementos={localItems}
+        catalogos={catalogos}
+        sugerencias={sugerencias}
+        imagenPrincipalUrl={imagenPrincipalUrl}
+        skuBase={skuBase}
+        descripcion={descripcion}
+        tipoPrenda={tipoPrenda}
+        isSaving={isSaving}
+        canEdit={canEdit}
+        onAdd={handleAdd}
+        onRemove={handleRemove}
+        onApplyAllSuggestions={handleApplyAllSuggestions}
+        onRequestClearAll={() => setShowClearModal(true)}
+      />
+
+      <Dialog open={!!editingComp} onOpenChange={(open) => !open && setEditingComp(null)}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>Editar Complemento</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Parte de la Prenda *</Label>
+              <Select name="parte_prenda_id" value={editParteId} onValueChange={(v) => setEditParteId(v ?? '')} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona parte...">
+                    {catalogos.partes.find((p) => String(p.id) === editParteId)?.nombre}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {catalogos.partes.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo de Componente</Label>
+              <Select name="tipo_comp_id" value={editTipoId} onValueChange={(v) => setEditTipoId(v ?? '')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Opcional...">
+                    {editTipoId === '_null' ? 'Ninguno' : catalogos.componente_tipos.find((tc) => String(tc.id) === editTipoId)?.nombre}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_null">Ninguno</SelectItem>
+                  {catalogos.componente_tipos.map((tc) => (
+                    <SelectItem key={tc.id} value={String(tc.id)}>{tc.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Corte / Forma</Label>
+                <Select name="corte_forma_id" value={editCorteId} onValueChange={(v) => setEditCorteId(v ?? '')}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Opcional...">
+                      {editCorteId === '_null' ? 'Ninguno' : catalogos.corte_formas.find((cf) => String(cf.id) === editCorteId)?.nombre}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_null">Ninguno</SelectItem>
+                    {catalogos.corte_formas.map((cf) => (
+                      <SelectItem key={cf.id} value={String(cf.id)}>{cf.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Material</Label>
+                <Select name="material_id" value={editMaterialId} onValueChange={(v) => setEditMaterialId(v ?? '')}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Opcional...">
+                      {editMaterialId === '_null' ? 'Ninguno' : catalogos.materiales.find((m) => String(m.id) === editMaterialId)?.nombre}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_null">Ninguno</SelectItem>
+                    {catalogos.materiales.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)}>{m.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notas / Descripción adicional</Label>
+              <Textarea name="descripcion_adicional" defaultValue={editingComp?.descripcion_adicional ?? ''} rows={2} />
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setEditingComp(null)}>Cancelar</Button>
+              <Button type="submit" disabled={isEditPending}>
+                {isEditPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Guardar
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* CONFIRMAR ELIMINACIÓN */}
       <ConfirmDeleteModal
-        isOpen={!!deletingComp}
-        onOpenChange={(open) => !open && setDeletingComp(null)}
-        onConfirm={handleDelete}
-        title="Eliminar Complemento"
-        description="¿Estás seguro de que deseas eliminar este complemento? Esta acción no se puede deshacer."
-        elementName={deletingComp?.tipo_complemento ?? 'Elemento seleccionado'}
+        isOpen={showClearModal}
+        onOpenChange={setShowClearModal}
+        title="¿Limpiar todos los complementos?"
+        description="Se quitarán todos los complementos asignados a este producto."
+        elementName={`${localItems.length} complemento(s) asignados`}
+        confirmText="Limpiar todos"
+        confirmLoadingText="Limpiando..."
+        onConfirm={handleClearAll}
       />
     </div>
   )

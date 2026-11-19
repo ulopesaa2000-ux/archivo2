@@ -7,7 +7,7 @@ import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosOrdenesB2B, OrdenB2BListItem, OrdenDetalleResuelto,
   OrdenCajaResuelta, CatalogosB2B, FiltrosCajas, CajaListItem,
-  CajaDetalle, CajaDetalleTC,
+  CajaDetalle, CajaDetalleTC, GrupoContenedorOrdenes,
 } from './types'
 import type {
   OrdenB2BRow,
@@ -29,6 +29,27 @@ function applyCommercialScopeToOrderQuery(query: any, scope: Awaited<ReturnType<
   }
 
   return query.or(filter)
+}
+
+async function resolveOrdenSearchOrFilter(supabase: any, rawQ?: string): Promise<string | null> {
+  const term = rawQ?.trim()
+  if (!term) return null
+
+  const safeTerm = term.replace(/[(),]/g, ' ').trim()
+  if (!safeTerm) return null
+
+  const { data: contMatches } = await supabase
+    .from('contenedores')
+    .select('id')
+    .ilike('codigo_contenedor', `%${safeTerm}%`)
+    .limit(200)
+
+  const contIds = (contMatches ?? []).map((c: { id: number }) => c.id)
+  const parts = [`folio_proveedor.ilike.%${safeTerm}%`]
+  if (contIds.length > 0) {
+    parts.push(`contenedor_id.in.(${contIds.join(',')})`)
+  }
+  return parts.join(',')
 }
 
 function mapOrderRow(o: any): OrdenB2BListItem {
@@ -208,6 +229,7 @@ export async function fetchOrdenesB2B(
   const to = from + PAGE_SIZE - 1
 
   const scope = await getCommercialScope()
+  const searchOrFilter = await resolveOrdenSearchOrFilter(supabase, filtros.q)
 
   let query: any = supabase
     .from('ordenes_b2b')
@@ -233,8 +255,8 @@ export async function fetchOrdenesB2B(
 
   query = query.eq('activo', true)
 
-  if (filtros.q) {
-    query = query.ilike('folio_proveedor', `%${filtros.q}%`)
+  if (searchOrFilter) {
+    query = query.or(searchOrFilter)
   }
   if (filtros.estado) {
     query = query.eq('estado', filtros.estado)
@@ -279,6 +301,121 @@ export async function fetchOrdenesB2B(
   const items: OrdenB2BListItem[] = (data ?? []).map(mapOrderRow)
 
   return { items, total: count ?? 0 }
+}
+
+export async function fetchOrdenesB2BAgrupadasPorContenedor(
+  filtros: FiltrosOrdenesB2B,
+  pageSize = 12
+): Promise<{ grupos: GrupoContenedorOrdenes[]; totalGrupos: number; totalOrdenes: number }> {
+  const supabase = await createClient()
+  const scope = await getCommercialScope()
+
+  const probe = applyCommercialScopeToOrderQuery(supabase.from('ordenes_b2b').select('id'), scope)
+  if (!probe) {
+    return { grupos: [], totalGrupos: 0, totalOrdenes: 0 }
+  }
+
+  const searchOrFilter = await resolveOrdenSearchOrFilter(supabase, filtros.q)
+
+  const { data: rows } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query: any = supabase
+        .from('ordenes_b2b')
+        .select(`
+          id, proveedor_id, cliente_b2b_id, folio_proveedor, estado, moneda, tipo_cambio,
+          total_cajas, total_piezas, cbm_orden, observaciones,
+          fecha_orden, contenedor_id,
+          contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+            codigo_contenedor, estado, fecha_eta
+          ),
+          proveedor:personas!ordenes_b2b_proveedor_id_fkey (
+            nombre_completo
+          ),
+          cliente:personas!ordenes_b2b_cliente_b2b_id_fkey (
+            nombre_completo
+          )
+        `, isFirst ? { count: 'exact' } : undefined)
+
+      query = applyCommercialScopeToOrderQuery(query, scope)
+      query = query.eq('activo', true)
+
+      if (searchOrFilter) {
+        query = query.or(searchOrFilter)
+      }
+      if (filtros.estado) {
+        query = query.eq('estado', filtros.estado)
+      }
+      if (filtros.proveedor_id) {
+        query = query.eq('proveedor_id', filtros.proveedor_id)
+      }
+      if (filtros.año) {
+        query = query
+          .gte('fecha_orden', `${filtros.año}-01-01T00:00:00`)
+          .lt('fecha_orden', `${filtros.año + 1}-01-01T00:00:00`)
+      }
+
+      const sort = filtros.sort_by || 'fecha_orden'
+      const ascending = filtros.order === 'asc'
+      if (sort === 'proveedor_nombre') {
+        query = query.order('proveedor(nombre_completo)', { ascending })
+      } else if (sort === 'cliente_nombre') {
+        query = query.order('cliente(nombre_completo)', { ascending })
+      } else if (sort === 'contenedor_codigo') {
+        query = query.order('contenedor(codigo_contenedor)', { ascending })
+      } else {
+        query = query.order(sort, { ascending })
+      }
+
+      return query.range(fromIdx, toIdx)
+    },
+    { label: 'fetchOrdenesB2BAgrupadasPorContenedor' }
+  )
+
+  const gruposMap = new Map<number, GrupoContenedorOrdenes>()
+
+  for (const row of rows) {
+    const cont = Array.isArray(row.contenedor) ? row.contenedor[0] : row.contenedor
+    const key = row.contenedor_id ?? 0
+    const orden = mapOrderRow(row)
+
+    const existing = gruposMap.get(key)
+    if (existing) {
+      existing.ordenes.push(orden)
+      existing.total_ordenes += 1
+      existing.total_cajas += Number(orden.total_cajas ?? 0)
+      existing.total_piezas += Number(orden.total_piezas ?? 0)
+      existing.total_cbm += Number(orden.cbm_orden ?? 0)
+    } else {
+      gruposMap.set(key, {
+        contenedor_id: row.contenedor_id ?? null,
+        contenedor_codigo: cont?.codigo_contenedor ?? null,
+        contenedor_estado: cont?.estado ?? null,
+        contenedor_fecha_eta: cont?.fecha_eta ?? null,
+        total_ordenes: 1,
+        total_cajas: Number(orden.total_cajas ?? 0),
+        total_piezas: Number(orden.total_piezas ?? 0),
+        total_cbm: Number(orden.cbm_orden ?? 0),
+        ordenes: [orden],
+      })
+    }
+  }
+
+  // Contenedores asignados primero (más recientes arriba), "Sin contenedor" al final
+  const allGrupos = Array.from(gruposMap.values()).sort((a, b) => {
+    if (a.contenedor_id === null && b.contenedor_id !== null) return 1
+    if (a.contenedor_id !== null && b.contenedor_id === null) return -1
+    return (b.contenedor_id ?? 0) - (a.contenedor_id ?? 0)
+  })
+
+  const page = Math.max(1, filtros.page ?? 1)
+  const from = (page - 1) * pageSize
+  const grupos = allGrupos.slice(from, from + pageSize)
+
+  return {
+    grupos,
+    totalGrupos: allGrupos.length,
+    totalOrdenes: rows.length,
+  }
 }
 
 // ════════════════════════════════════════════════════════════

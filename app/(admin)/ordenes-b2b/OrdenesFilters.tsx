@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { useCallback, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,15 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const urlQ = searchParams.get('q') ?? ''
+  const [searchValue, setSearchValue] = useState(urlQ)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setSearchValue(urlQ)
+    }
+  }, [urlQ])
 
   const updateParam = useCallback(
     (key: string, value: string | null) => {
@@ -44,15 +53,34 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
     })
   }, [searchParams, pathname, router])
 
-  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page')
+  const hasFilters = Array.from(searchParams.entries()).some(([k]) => k !== 'page' && k !== 'vista')
   const currentSort = `${searchParams.get('sort_by') || 'fecha_orden'}:${searchParams.get('order') || 'desc'}`
+
+  const handleClearFilters = () => {
+    setSearchValue('')
+    handleSearch.cancel()
+    startTransition(() => {
+      const vista = searchParams.get('vista')
+      const nextUrl = vista ? `${pathname}?vista=${encodeURIComponent(vista)}` : pathname
+      router.push(nextUrl, { scroll: false })
+    })
+  }
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
       <div className="relative flex-1 max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar folio proveedor..." defaultValue={searchParams.get('q') ?? ''}
-          onChange={(e) => handleSearch(e.target.value)} className="pl-10" />
+        <Input
+          ref={inputRef}
+          placeholder="Buscar folio o contenedor (ej. 2026-04)..."
+          value={searchValue}
+          onChange={(e) => {
+            const val = e.target.value
+            setSearchValue(val)
+            handleSearch(val)
+          }}
+          className="pl-10"
+        />
         {isPending && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
       </div>
 
@@ -108,7 +136,7 @@ export function OrdenesFilters({ catalogos }: { catalogos: CatalogosB2B }) {
       </Select>
 
       {hasFilters && (
-        <Button variant="ghost" size="sm" onClick={() => startTransition(() => router.push(pathname, { scroll: false }))}
+        <Button variant="ghost" size="sm" onClick={handleClearFilters}
           className="text-muted-foreground"><X className="h-3 w-3 mr-1" /> Limpiar</Button>
       )}
     </div>

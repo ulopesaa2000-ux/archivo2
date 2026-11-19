@@ -249,19 +249,43 @@ async function CatalogoTabsAsync({
 
         <TabsContent value="tags">
           <Suspense fallback={<TabSkeleton />}>
-            <TabTagsAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
+            <TabTagsAsync
+              productoId={producto.id}
+              catalogos={catalogos}
+              descripcion={producto.descripcion}
+              tipoPrenda={fk.tipo_prenda}
+              skuBase={producto.sku_base}
+              imagenesPromise={imagenesPromise}
+              canEdit={userCanEdit}
+            />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="complementos">
           <Suspense fallback={<TabSkeleton />}>
-            <TabComplementosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
+            <TabComplementosAsync
+              productoId={producto.id}
+              catalogos={catalogos}
+              descripcion={producto.descripcion}
+              tipoPrenda={fk.tipo_prenda}
+              skuBase={producto.sku_base}
+              imagenesPromise={imagenesPromise}
+              canEdit={userCanEdit}
+            />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="acabados">
           <Suspense fallback={<TabSkeleton />}>
-            <TabAcabadosAsync productoId={producto.id} catalogos={catalogos} canEdit={userCanEdit} />
+            <TabAcabadosAsync
+              productoId={producto.id}
+              catalogos={catalogos}
+              descripcion={producto.descripcion}
+              tipoPrenda={fk.tipo_prenda}
+              skuBase={producto.sku_base}
+              imagenesPromise={imagenesPromise}
+              canEdit={userCanEdit}
+            />
           </Suspense>
         </TabsContent>
 
@@ -355,19 +379,115 @@ async function TabCajasAsync({
   return <TabCajas cajas={cajas} productoId={productoId} tallasDisponibles={catalogos.tallas} coloresDisponibles={catalogos.colores} edadNombre={edadNombre} canEdit={canEdit} canDelete={canDelete} precioEcMxn={precioEcMxn} />
 }
 
-async function TabTagsAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
-  const tags = await fetchTagsProducto(productoId)
-  return <TabTags tags={tags} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
+async function TabTagsAsync({
+  productoId,
+  catalogos,
+  descripcion,
+  tipoPrenda,
+  skuBase,
+  imagenesPromise,
+  canEdit,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+  descripcion: string | null
+  tipoPrenda: string | null
+  skuBase: string
+  imagenesPromise: ReturnType<typeof fetchImagenesProducto>
+  canEdit: boolean
+}) {
+  const [tags, imagenes] = await Promise.all([
+    fetchTagsProducto(productoId),
+    imagenesPromise,
+  ])
+  const imagenPrincipalUrl =
+    imagenes.find((img) => img.es_principal)?.url ?? imagenes[0]?.url ?? null
+  return (
+    <TabTags
+      tags={tags}
+      productoId={productoId}
+      catalogos={catalogos}
+      descripcion={descripcion}
+      tipoPrenda={tipoPrenda}
+      skuBase={skuBase}
+      imagenPrincipalUrl={imagenPrincipalUrl}
+      canEdit={canEdit}
+    />
+  )
 }
 
-async function TabComplementosAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
-  const complementos = await fetchComplementosProducto(productoId)
-  return <TabComplementos complementos={complementos} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
+async function TabComplementosAsync({
+  productoId,
+  catalogos,
+  descripcion,
+  tipoPrenda,
+  skuBase,
+  imagenesPromise,
+  canEdit,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+  descripcion: string | null
+  tipoPrenda: string | null
+  skuBase: string
+  imagenesPromise: ReturnType<typeof fetchImagenesProducto>
+  canEdit: boolean
+}) {
+  const [complementos, imagenes] = await Promise.all([
+    fetchComplementosProducto(productoId),
+    imagenesPromise,
+  ])
+  const imagenPrincipalUrl =
+    imagenes.find((img) => img.es_principal)?.url ?? imagenes[0]?.url ?? null
+  return (
+    <TabComplementos
+      complementos={complementos}
+      productoId={productoId}
+      catalogos={catalogos}
+      descripcion={descripcion}
+      tipoPrenda={tipoPrenda}
+      skuBase={skuBase}
+      imagenPrincipalUrl={imagenPrincipalUrl}
+      canEdit={canEdit}
+    />
+  )
 }
 
-async function TabAcabadosAsync({ productoId, catalogos, canEdit }: { productoId: number; catalogos: CatalogosEdicion; canEdit: boolean }) {
-  const acabados = await fetchAcabadosProducto(productoId)
-  return <TabAcabados acabados={acabados} productoId={productoId} catalogos={catalogos} canEdit={canEdit} />
+async function TabAcabadosAsync({
+  productoId,
+  catalogos,
+  descripcion,
+  tipoPrenda,
+  skuBase,
+  imagenesPromise,
+  canEdit,
+}: {
+  productoId: number
+  catalogos: CatalogosEdicion
+  descripcion: string | null
+  tipoPrenda: string | null
+  skuBase: string
+  imagenesPromise: ReturnType<typeof fetchImagenesProducto>
+  canEdit: boolean
+}) {
+  const [acabados, imagenes] = await Promise.all([
+    fetchAcabadosProducto(productoId),
+    imagenesPromise,
+  ])
+  const imagenPrincipalUrl =
+    imagenes.find((img) => img.es_principal)?.url ?? imagenes[0]?.url ?? null
+  return (
+    <TabAcabados
+      acabados={acabados}
+      productoId={productoId}
+      catalogos={catalogos}
+      descripcion={descripcion}
+      tipoPrenda={tipoPrenda}
+      skuBase={skuBase}
+      imagenPrincipalUrl={imagenPrincipalUrl}
+      canEdit={canEdit}
+    />
+  )
 }
 
 async function TabVariantesAsync({ productoId, skuBase, catalogos, canEdit, cajasPromise }: { productoId: number; skuBase: string; catalogos: CatalogosEdicion; canEdit: boolean; cajasPromise: ReturnType<typeof fetchCajasProducto> }) {

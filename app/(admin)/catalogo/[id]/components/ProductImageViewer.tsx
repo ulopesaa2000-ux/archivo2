@@ -14,9 +14,10 @@ interface ProductImageViewerProps {
   src: string | null
   alt: string
   sku: string
+  className?: string
 }
 
-export function ProductImageViewer({ src, alt, sku }: ProductImageViewerProps) {
+export function ProductImageViewer({ src, alt, sku, className }: ProductImageViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   
   // Estado de zoom inline (al hacer click/tap en la foto)
@@ -118,7 +119,7 @@ export function ProductImageViewer({ src, alt, sku }: ProductImageViewerProps) {
 
   if (!src) {
     return (
-      <div className="relative flex items-center justify-center bg-muted/30 rounded-xl aspect-[3/4] sm:aspect-[4/5] border">
+      <div className={cn('relative flex items-center justify-center bg-muted/30 rounded-xl aspect-[3/4] sm:aspect-[4/5] border', className)}>
         <Package className="h-16 w-16 text-muted-foreground/30" />
       </div>
     )
@@ -138,7 +139,8 @@ export function ProductImageViewer({ src, alt, sku }: ProductImageViewerProps) {
         onMouseLeave={() => setIsInlineZoomed(false)}
         className={cn(
           'group relative flex items-center justify-center bg-muted/30 rounded-xl aspect-[3/4] sm:aspect-[4/5] overflow-hidden border shadow-sm transition-all duration-200 select-none',
-          isInlineZoomed ? 'cursor-zoom-out ring-2 ring-primary/60 touch-none' : 'cursor-zoom-in hover:shadow-md'
+          isInlineZoomed ? 'cursor-zoom-out ring-2 ring-primary/60 touch-none' : 'cursor-zoom-in hover:shadow-md',
+          className
         )}
       >
         {/* Imagen principal */}

@@ -26,11 +26,17 @@ export {
 // Acabados, Tags, Complementos, Conjunto
 export {
   saveAcabadoAction,
+  saveAcabadosBatchAction,
   deleteAcabadoAction,
+  clearAllAcabadosAction,
   saveTagAction,
+  saveTagsBatchAction,
   deleteTagAction,
+  clearAllTagsAction,
   saveComplementoAction,
+  saveComplementosBatchAction,
   deleteComplementoAction,
+  clearAllComplementosAction,
   saveConjuntoItemAction,
   deleteConjuntoItemAction,
 } from './actions/detalle'

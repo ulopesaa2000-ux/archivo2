@@ -249,7 +249,7 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
   const [hero, tabs] = await Promise.all([
     fetchCatalogosHero(),
     Promise.all([
-      supabase.from('tipo_tag').select('id, nombre, es_multiple').eq('activo', true).order('nombre'),
+      supabase.from('tipo_tag').select('id, nombre, es_multiple, codigo, tipo_dato, orden').eq('activo', true).order('orden', { ascending: true }),
       supabase.from('ref_tag').select('id, nombre, tipo_tag_id').eq('activo', true).order('nombre'),
       supabase.from('parte_prenda_comp').select('id, nombre').order('nombre'),
       supabase.from('tipo_comp').select('id, nombre, complemento_en').order('nombre'),
@@ -268,7 +268,7 @@ export async function fetchCatalogosEdicion(): Promise<CatalogosEdicion> {
 
   return {
     ...hero,
-    tipos_tag: (tiposTagRes.data ?? []) as { id: number; nombre: string; es_multiple: boolean | null }[],
+    tipos_tag: (tiposTagRes.data ?? []) as import('./types').TipoTagCatalogo[],
     ref_tags: (refTagsRes.data ?? []) as { id: number; nombre: string; tipo_tag_id: number }[],
     partes: mapToCatalogo(partesRes.data),
     componente_tipos: (compTiposRes.data ?? []) as { id: number; nombre: string; complemento_en: string | null }[],

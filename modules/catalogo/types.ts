@@ -63,7 +63,14 @@ export type CatalogosParaFiltros = {
 // Incluye todos los FK que aparecen en el formulario del Hero
 export type CatalogoItem = { id: number; nombre: string; codigo?: string; nombre_intern?: string | null }
 
-export type TipoTagCatalogo = { id: number; nombre: string; es_multiple: boolean | null }
+export type TipoTagCatalogo = {
+  id: number
+  nombre: string
+  es_multiple: boolean | null
+  codigo?: string | null
+  tipo_dato?: string | null
+  orden?: number | null
+}
 export type RefTagCatalogo = { id: number; nombre: string; tipo_tag_id: number }
 
 // Tipos de catálogo con campos de filtrado jerárquico

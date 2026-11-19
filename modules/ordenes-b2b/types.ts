@@ -47,6 +47,19 @@ export type OrdenB2BListItem = {
   cliente_nombre: string | null
 }
 
+// ── Agrupación por contenedor ───────────────────────────────
+export type GrupoContenedorOrdenes = {
+  contenedor_id: number | null
+  contenedor_codigo: string | null
+  contenedor_estado: string | null
+  contenedor_fecha_eta: string | null
+  total_ordenes: number
+  total_cajas: number
+  total_piezas: number
+  total_cbm: number
+  ordenes: OrdenB2BListItem[]
+}
+
 // ── Detalle de producto en orden ────────────────────────────
 export type OrdenDetalleResuelto = {
   id: number
