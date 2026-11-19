@@ -28,6 +28,7 @@ import { toast } from 'sonner'
 import type { UsoImagen } from '@/lib/types/tables'
 import { USO_IMAGEN_LABELS, USO_OPTIONS } from './imagenesConstants'
 import { cn } from '@/lib/utils'
+import { FileDropzone } from '@/components/shared/FileDropzone'
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB (se optimizará a < 2.5MB)
 
@@ -97,9 +98,8 @@ export function SubirImagenModal({
     onOpenChange(false)
   }
 
-  // ── Selección de archivo ───────────────────────────────────
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0]
+  // ── Selección de archivo (clic o drag & drop) ─────────────
+  const applySelectedFile = (selected: File | null) => {
     setFileError(null)
     if (!selected) { setFile(null); setPreview(null); return }
 
@@ -246,17 +246,18 @@ export function SubirImagenModal({
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center gap-2 aspect-video w-full rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:bg-muted/40 hover:border-primary/40 transition-all text-muted-foreground"
-                  >
-                    <ImageIcon className="h-8 w-8 opacity-40" />
-                    <span className="text-sm font-medium">Haz clic para seleccionar</span>
-                    <span className="text-xs opacity-70">PNG, JPG, WebP · Máx 5 MB (Auto-optimizado)</span>
-                  </button>
+                  <FileDropzone
+                    accept="image/*"
+                    maxSizeMB={5}
+                    className="aspect-video w-full"
+                    icon={<ImageIcon className="mb-2 h-8 w-8 opacity-40" />}
+                    title="Arrastra una imagen o haz clic para seleccionar"
+                    description="PNG, JPG, WebP · Máx 5 MB (Auto-optimizado)"
+                    buttonLabel="Examinar imagen"
+                    onFilesSelected={(files) => applySelectedFile(files[0] ?? null)}
+                    onValidationError={(msg) => setFileError(msg)}
+                  />
                 )}
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
                 {fileError && <p className="text-xs text-destructive">{fileError}</p>}
               </div>
             )}

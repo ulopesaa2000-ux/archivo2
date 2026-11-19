@@ -138,6 +138,10 @@ export function OrdenRapidaWizard({
     coloresPorConfirmar: cajasColores.coloresPorConfirmar,
     setColoresModalOpen: cajasColores.setColoresModalOpen,
     totalCajasCount: cajasColores.totalCajasCount,
+    totalCbm: cajasColores.totalCbm,
+    totalPesoBruto: cajasColores.totalPesoBruto,
+    overrideCbm: cajasColores.overrideCbm,
+    overridePeso: cajasColores.overridePeso,
     cajaPrincipalDe: cajasColores.cajaPrincipalDe,
   })
 

@@ -10,13 +10,15 @@ import type { NotaDetalleResuelto } from '@/modules/inventario/types'
 
 export function NotaProductos({
   detalles,
+  modoSoloCajas = true,
 }: {
   detalles: NotaDetalleResuelto[]
+  modoSoloCajas?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   // Oculto por defecto cuando todo viene en 0 (modo solo cajas); visible si hay sueltas reales
   const [mostrarPiezas, setMostrarPiezas] = useState(() =>
-    (detalles ?? []).some((d) => (d.piezas_sueltas ?? 0) !== 0)
+    !modoSoloCajas || (detalles ?? []).some((d) => (d.piezas_sueltas ?? 0) !== 0)
   )
 
   if (!detalles || detalles.length === 0) {
@@ -30,10 +32,18 @@ export function NotaProductos({
 
   const handleCopyExcel = async () => {
     try {
-      const header = ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
+      const header = modoSoloCajas
+        ? ['SKU', 'Descripción', 'Cajas'].join('\t')
+        : ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
+
       const rows = detalles.map((d) => {
         const sku = d.producto_sku ?? d.variante_sku ?? '—'
         const nombre = d.producto_nombre ?? '—'
+
+        if (modoSoloCajas) {
+          return [sku, nombre, d.cajas].join('\t')
+        }
+
         const caja = d.caja_codigo ? `${d.caja_codigo}${d.caja_nombre_pack ? ` (${d.caja_nombre_pack})` : ''}` : '—'
         const totalEst = (d.cajas * (d.producto_pz_en_caja ?? 0)) + d.piezas_sueltas
 
@@ -44,7 +54,11 @@ export function NotaProductos({
       await navigator.clipboard.writeText(tsvContent)
 
       setCopied(true)
-      toast.success('¡Tabla copiada al portapapeles en formato Excel!')
+      toast.success(
+        modoSoloCajas
+          ? '¡Tabla copiada al portapapeles (SKU, Descripción, Cajas)!'
+          : '¡Tabla copiada al portapapeles en formato Excel!'
+      )
       setTimeout(() => setCopied(false), 2500)
     } catch (err) {
       toast.error('No se pudo copiar la tabla al portapapeles.')

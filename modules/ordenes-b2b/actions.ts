@@ -910,6 +910,8 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   vinculosDb?: Record<string, number>
   /** Caja principal seleccionada por producto (skuUpper -> codigo_caja) para pz_en_caja */
   principalPorSku?: Record<string, string>
+  /** CBM total del documento/JSON (referencia aduanas/BL; prevalece sobre suma por caja si > 0) */
+  cbmOrdenOverride?: number | null
 }): Promise<ActionResult> {
   const denied = await requireB2BPermission('puede_crear')
   if (denied) return denied
@@ -980,15 +982,52 @@ export async function guardarOrdenRapidaB2BAction(payload: {
 
   const provNombre = provData?.nombre_completo ?? ''
 
-  const { data: existingProds } = await supabase
-    .from('productos')
-    .select('id, sku_base, nombre, descripcion, composicion, marca_id, tipo_prenda_id, genero_id, edad_id')
-
-  const dbProductsList = (existingProds || []).map((p: any) => ({ id: p.id, sku_base: String(p.sku_base) }))
-  const dbProductsById = new Map<number, any>((existingProds || []).map((p: any) => [p.id, p]))
-  const prodIdMap = new Map<string, number>()
   // Vínculos explícitos sincronizados por el usuario en ámbar (skuUpper -> producto_id)
   const vinculos = payload.vinculosDb ?? {}
+
+  // Consulta dirigida sin límite de 1,000 filas: candidatos por patrones de SKU + IDs explícitos de vinculosDb
+  const skuPatterns = Array.from(
+    new Set(
+      (payload.productos || [])
+        .map((p: any) => String(p.sku_base || '').trim())
+        .filter(Boolean)
+        .flatMap((s: string) => skuSearchPatterns(s))
+    )
+  ).slice(0, 300)
+
+  const vinculoIds = Array.from(
+    new Set(
+      Object.values(vinculos).filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0)
+    )
+  )
+
+  const PROD_MERGE_COLS = 'id, sku_base, nombre, descripcion, composicion, marca_id, tipo_prenda_id, genero_id, edad_id, persona_id'
+  const [candidateRows, vinculoChunks] = await Promise.all([
+    skuPatterns.length > 0 ? fetchSkuCandidates(supabase, skuPatterns, PROD_MERGE_COLS) : Promise.resolve([]),
+    (async () => {
+      const out: any[] = []
+      for (let i = 0; i < vinculoIds.length; i += 200) {
+        const chunk = vinculoIds.slice(i, i + 200)
+        const { data } = await supabase.from('productos').select(PROD_MERGE_COLS).in('id', chunk)
+        if (data) out.push(...data)
+      }
+      return out
+    })(),
+  ])
+
+  const existingProdsMap = new Map<number, any>()
+  for (const r of [...candidateRows, ...vinculoChunks]) {
+    if (r?.id) existingProdsMap.set(r.id, r)
+  }
+  const existingProds = Array.from(existingProdsMap.values())
+
+  const dbProductsList = existingProds.map((p: any) => ({
+    id: p.id,
+    sku_base: String(p.sku_base),
+    persona_id: p.persona_id ?? null,
+  }))
+  const dbProductsById = existingProdsMap
+  const prodIdMap = new Map<string, number>()
 
   for (const p of payload.productos) {
     const sku = String(p.sku_base).trim()
@@ -1025,7 +1064,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         descripcion: aMayusculasDescripcion(merged.descripcion) || null,
         persona_id: p.persona_id || payload.proveedorId || null,
       }
-      if (pzPrincipal != null) updPayload.pz_en_caja = pzPrincipal
+      if (pzPrincipal != null) updPayload.pz_en_caja = Math.round(pzPrincipal)
       const { error: updErr } = await supabase
         .from('productos')
         .update(updPayload)
@@ -1050,7 +1089,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
         activo: true,
         estado: 'pendiente'
       }
-      if (pzPrincipal != null) insertPayload.pz_en_caja = pzPrincipal
+      if (pzPrincipal != null) insertPayload.pz_en_caja = Math.round(pzPrincipal)
       // Insertar nuevo producto con persona_id (proveedor seleccionado)
       const { data: newProd, error: insErr } = await supabase
         .from('productos')
@@ -1177,25 +1216,21 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     return String(_rawColor || '').trim().toUpperCase()
   }
 
-  // 4. Crear/Actualizar Cajas y sus Detalles
+  // 4. Crear/Actualizar Cajas y sus Detalles (solo cajas físicas reales, excluyendo padre_resumen)
+  const cajasReales = (payload.cajas || []).filter((c: any) => c.tipo_caja !== 'padre_resumen')
   // Defensa en fondo (el wizard ya bloquea sinPz): ninguna caja sin piezas.
   const sinPzServidor = Array.from(new Set(
-    payload.cajas
-      .filter((c: any) => c.tipo_caja !== 'padre_resumen')
+    cajasReales
       .filter((c: any) => !(Number(c.piezas_por_caja ?? 0) > 0))
       .map((c: any) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código')),
   ))
   if (sinPzServidor.length > 0) {
     return { success: false, error: `Bloqueo servidor: cajas sin piezas por caja: ${sinPzServidor.join(', ')}` }
   }
-  // NULL tolerado como relleno parcial: lo no resuelto viaja con color_id NULL
-  // + aviso y NUNCA error de subida por color (la BD admite NULL; variantes lo
-  // saltan). El modal mapea/crea y rellena; el raw queda trazable en
-  // cajas.colores + lista de nuevos. Ningun string falso rompe el upload.
   const coloresSinMatch: string[] = []
+  let detallesIgnoradosSinColor = 0
   for (const d of (payload.detalles || []) as Array<{ codigo_caja_temporal?: string; color_raw?: string; color_id?: number | null }>) {
     const rawColorCheck = String(d.color_raw || '').trim()
-    // Fase 1: tela/material o patron puro (FUR, 11321-121) no es color: no bloquea.
     if (!rawColorCheck || esColorIgnorable(rawColorCheck)) continue
     const colorIdCheck = resolverColorId(rawColorCheck, (d as { color_id?: unknown }).color_id)
     if (!colorIdCheck && rawColorCheck && !coloresSinMatch.includes(rawColorCheck)) {
@@ -1203,19 +1238,19 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     }
   }
   const colorWarnings: string[] = coloresSinMatch.length > 0
-    ? [`${coloresSinMatch.length} color(es) sin match (NULL pendiente, no bloqueó): ${coloresSinMatch.slice(0, 5).join(', ')}${coloresSinMatch.length > 5 ? ` +${coloresSinMatch.length - 5}` : ''}. Resuélvelos en el panel de colores.`]
+    ? [`${coloresSinMatch.length} color(es) sin match omitidos en desglose (CHECK caja_detalles_identificacion_chk): ${coloresSinMatch.slice(0, 5).join(', ')}${coloresSinMatch.length > 5 ? ` +${coloresSinMatch.length - 5}` : ''}.`]
     : []
   const cajaMap = new Map<string, number>()
-  for (const c of payload.cajas) {
+  for (const c of cajasReales) {
     const code = String(c.codigo_caja || c.codigo_caja_temporal).trim()
-    const prodId = prodIdMap.get(c.sku_base.toUpperCase()) || null
+    const prodId = prodIdMap.get(String(c.sku_base || '').trim().toUpperCase()) || null
 
     const payloadCaja = {
       codigo_caja: code,
       nombre_pack: c.nombre_pack || 'PACK UNICO',
       producto_id: prodId,
       proveedor_id: payload.proveedorId,
-      piezas_por_caja: c.piezas_por_caja || 0,
+      piezas_por_caja: Math.round(Number(c.piezas_por_caja || 0)),
       largo_cm: c.largo_cm || null,
       ancho_cm: c.ancho_cm || null,
       alto_cm: c.alto_cm || null,
@@ -1242,68 +1277,85 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     // Sobrescribir caja_detalles
     await supabase.from('caja_detalles').delete().eq('caja_id', cajaId)
 
-    const boxDetails = payload.detalles.filter(
+    const boxDetails = (payload.detalles || []).filter(
       (d: any) => String(d.codigo_caja_temporal).toUpperCase() === code.toUpperCase()
     )
-    // Omision silenciosa: celdas en cero no se insertan (CHECK cantidad>0 en
-    // BD; el packing lista colores con 0 en remanentes). Solo celdas > 0.
-    const boxDetailsPositivos = boxDetails.filter((d: any) => Number(d.cantidad_por_caja ?? 0) > 0)
+    const boxDetailsPositivos = boxDetails.filter((d: any) => Math.round(Number(d.cantidad_por_caja ?? 0)) > 0)
 
     if (boxDetailsPositivos.length > 0) {
-      const payloadDetails = boxDetailsPositivos.map((d: any) => {
-        const rawTalla = String(d.talla_codigo || '').trim().toUpperCase()
-        const stdTalla = standardizeTallaNameAction(rawTalla)
-        let tallaId = tallasMap.get(stdTalla) || tallasMap.get(rawTalla) || null
+      // CHECK caja_detalles_identificacion_chk exige (variante_id IS NOT NULL) OR (talla_id IS NOT NULL AND color_id IS NOT NULL)
+      const payloadDetails = boxDetailsPositivos
+        .map((d: any) => {
+          const rawTalla = String(d.talla_codigo || '').trim().toUpperCase()
+          const stdTalla = standardizeTallaNameAction(rawTalla)
+          let tallaId = tallasMap.get(stdTalla) || tallasMap.get(rawTalla) || null
 
-        if (!tallaId) {
-          if (rawTalla === 'UNITALLA' || rawTalla === 'OS' || rawTalla === 'ONE SIZE') tallaId = 21
-          else if (rawTalla.includes('CH') || rawTalla === 'S') tallaId = 3
-          else if (rawTalla.includes('G') || rawTalla === 'L') tallaId = 5
-          else if (rawTalla.includes('EG') || rawTalla === 'XL') tallaId = 6
-          else if (rawTalla.includes('M')) tallaId = 4
-          else tallaId = 21 // Fallback a UNITALLA (id: 21) si no coincide
+          if (!tallaId) {
+            if (rawTalla === 'UNITALLA' || rawTalla === 'OS' || rawTalla === 'ONE SIZE') tallaId = 21
+            else if (rawTalla.includes('CH') || rawTalla === 'S') tallaId = 3
+            else if (rawTalla.includes('G') || rawTalla === 'L') tallaId = 5
+            else if (rawTalla.includes('EG') || rawTalla === 'XL') tallaId = 6
+            else if (rawTalla.includes('M')) tallaId = 4
+            else tallaId = 21
+          }
+
+          const rawColor = String(d.color_raw || '').trim()
+          const colorId = esColorIgnorable(rawColor) ? null : resolverColorId(rawColor, (d as { color_id?: unknown }).color_id)
+          if (!colorId || !tallaId) {
+            detallesIgnoradosSinColor++
+            return null
+          }
+
+          return {
+            caja_id: cajaId,
+            cantidad: Math.round(Number(d.cantidad_por_caja || 0)),
+            talla_id: tallaId,
+            color_id: colorId
+          }
+        })
+        .filter((row): row is { caja_id: number; cantidad: number; talla_id: number; color_id: number } => row !== null)
+
+      if (payloadDetails.length > 0) {
+        const { error: detErr } = await supabase
+          .from('caja_detalles')
+          .insert(payloadDetails)
+
+        if (detErr) {
+          return { success: false, error: `Error al registrar desglose de caja ${code}: ${detErr.message}` }
         }
-
-        const rawColor = String(d.color_raw || '').trim()
-        // Pre-resuelto por el wizard (panel mapeado/creado/existente o parcial
-        // auto) o match unificado. NULL tolerado: aviso, nunca error de subida.
-        const colorId = resolverColorId(rawColor, (d as { color_id?: unknown }).color_id)
-
-        return {
-          caja_id: cajaId,
-          cantidad: d.cantidad_por_caja || 0,
-          talla_id: tallaId,
-          color_id: colorId
-        }
-      })
-
-      const { error: detErr } = await supabase
-        .from('caja_detalles')
-        .insert(payloadDetails)
-
-      if (detErr) {
-        return { success: false, error: `Error al registrar desglose de caja ${code}: ${detErr.message}` }
       }
     }
   }
 
-  // 5. Crear la Cabecera de la Orden B2B
+  if (detallesIgnoradosSinColor > 0 && colorWarnings.length === 0) {
+    colorWarnings.push(`Se omitieron ${detallesIgnoradosSinColor} fila(s) de desglose con texto ignorable/sin color para cumplir el constraint de BD.`)
+  }
+
+  // 5. Crear la Cabecera de la Orden B2B (solo cajas reales; CBM documental prevalece si viene en JSON/override)
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const randomStr = Math.random().toString(36).slice(2, 6).toUpperCase()
   const autoFolio = `B2B-PL-${dateStr}-${randomStr}`
 
-  const totalCajas = payload.cajas.reduce((sum: number, c: any) => sum + (c.cantidad_cajas || 0), 0)
-  const totalPiezas = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)), 0)
-  const totalCbm = payload.cajas.reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.cbm_por_caja || c.cbm || 0)), 0)
+  const totalCajas = Math.round(cajasReales.reduce((sum: number, c: any) => sum + (Number(c.cantidad_cajas ?? 0) || 0), 0))
+  const totalPiezas = Math.round(
+    cajasReales.reduce((sum: number, c: any) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * Math.round(Number(c.piezas_por_caja ?? 0) || 0)), 0)
+  )
+  const totalCbmCalculado = cajasReales.reduce(
+    (sum: number, c: any) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * (Number(c.cbm_por_caja ?? c.cbm ?? 0) || 0)),
+    0
+  )
+  const cbmDocumental =
+    payload.cbmOrdenOverride != null && Number.isFinite(Number(payload.cbmOrdenOverride)) && Number(payload.cbmOrdenOverride) > 0
+      ? Number(payload.cbmOrdenOverride)
+      : totalCbmCalculado
 
   // Bloqueo absoluto modo solo cajas: cada producto debe tener cajas físicas armadas.
-  // Solo cuentan filas físicas reales (se excluyen resúmenes padre).
   const sinCajasArmadas: string[] = []
   for (const p of (payload.productos || [])) {
     const skuUpper = String(p.sku_base || '').trim().toUpperCase()
     if (!skuUpper) continue
-    const armadas = (payload.cajas || [])
-      .filter((c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen')
+    const armadas = cajasReales
+      .filter((c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUpper)
       .reduce((sum: number, c: any) => sum + (Number(c.cantidad_cajas ?? 0) || 0), 0)
     if (armadas <= 0) sinCajasArmadas.push(String(p.sku_base))
   }
@@ -1325,7 +1377,7 @@ export async function guardarOrdenRapidaB2BAction(payload: {
       moneda: 'USD',
       total_cajas: totalCajas,
       total_piezas: totalPiezas,
-      cbm_orden: totalCbm,
+      cbm_orden: Number(cbmDocumental.toFixed(4)),
       observaciones: payload.observaciones || `Importado vía Packing List. Folio automático: ${autoFolio}`
     })
     .select('id')
@@ -1336,21 +1388,23 @@ export async function guardarOrdenRapidaB2BAction(payload: {
   }
   const ordenId = newOrder.id
 
-  // 6. Crear los Detalles de la Orden B2B
+  // 6. Crear los Detalles de la Orden B2B (solo cajas reales)
   const orderDetailsPayload = payload.productos.map((p: any) => {
-    const prodId = prodIdMap.get(p.sku_base.toUpperCase()) || null
-    const prodBoxes = payload.cajas
-      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
-      .reduce((sum: number, c: any) => sum + (c.cantidad_cajas || 0), 0)
-    const prodPieces = payload.cajas
-      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
-      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)), 0)
-    const prodCbm = payload.cajas
-      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
-      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.cbm_por_caja || c.cbm || 0)), 0)
-    const prodWeight = payload.cajas
-      .filter((c: any) => c.sku_base.toUpperCase() === p.sku_base.toUpperCase())
-      .reduce((sum: number, c: any) => sum + ((c.cantidad_cajas || 0) * (c.peso_bruto_kg || 0)), 0)
+    const skuUp = String(p.sku_base || '').trim().toUpperCase()
+    const prodId = prodIdMap.get(skuUp) || null
+    const cajasProd = cajasReales.filter((c: any) => String(c.sku_base || '').trim().toUpperCase() === skuUp)
+    const prodBoxes = Math.round(cajasProd.reduce((sum: number, c: any) => sum + (Number(c.cantidad_cajas ?? 0) || 0), 0))
+    const prodPieces = Math.round(
+      cajasProd.reduce((sum: number, c: any) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * Math.round(Number(c.piezas_por_caja ?? 0) || 0)), 0)
+    )
+    const prodCbm = cajasProd.reduce(
+      (sum: number, c: any) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * (Number(c.cbm_por_caja ?? c.cbm ?? 0) || 0)),
+      0
+    )
+    const prodWeight = cajasProd.reduce(
+      (sum: number, c: any) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * (Number(c.peso_bruto_kg ?? 0) || 0)),
+      0
+    )
 
     return {
       orden_id: ordenId,
@@ -1374,19 +1428,21 @@ export async function guardarOrdenRapidaB2BAction(payload: {
     return { success: false, error: `Error al crear detalles de la orden B2B: ${detErr.message}` }
   }
 
-  // 7. Crear la relación de Cajas de la Orden (orden_cajas)
-  const orderCajasPayload = []
-  for (const c of payload.cajas) {
+  // 7. Crear la relación de Cajas de la Orden (orden_cajas), deduplicada por caja_id (UNIQUE orden_id, caja_id)
+  const orderCajasById = new Map<number, number>()
+  for (const c of cajasReales) {
     const codeUpper = String(c.codigo_caja || c.codigo_caja_temporal).trim().toUpperCase()
     const dbCajaId = cajaMap.get(codeUpper)
     if (dbCajaId) {
-      orderCajasPayload.push({
-        orden_id: ordenId,
-        caja_id: dbCajaId,
-        cantidad_cajas: c.cantidad_cajas || 0
-      })
+      const qty = Math.round(Number(c.cantidad_cajas ?? 0) || 0)
+      orderCajasById.set(dbCajaId, (orderCajasById.get(dbCajaId) || 0) + qty)
     }
   }
+  const orderCajasPayload = Array.from(orderCajasById.entries()).map(([caja_id, cantidad_cajas]) => ({
+    orden_id: ordenId,
+    caja_id,
+    cantidad_cajas,
+  }))
 
   if (orderCajasPayload.length > 0) {
     const { error: linkErr } = await supabase

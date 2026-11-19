@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator'
 import { NotaComparadorLayout } from '@/app/(admin)/inventario/notas/[id]/components/NotaComparadorLayout'
 
 import { fetchConfigInventario } from '@/modules/inventario/config-queries'
+import { isModoSoloCajas } from '@/modules/inventario/config-types'
 import { puedeVerNotaPorCotizacion } from '@/modules/ecommerce/queries'
 
 export async function generateMetadata({
@@ -174,7 +175,7 @@ export default async function NotaDetallePage({
         <Separator />
 
         {/* Tabla de Productos con exportación Excel */}
-        <NotaProductos detalles={nota.detalles} />
+        <NotaProductos detalles={nota.detalles} modoSoloCajas={isModoSoloCajas(config)} />
 
         <Separator />
 

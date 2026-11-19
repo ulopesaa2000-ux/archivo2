@@ -40,6 +40,10 @@ interface UseOrdenVerificacionProps {
   coloresPorConfirmar: ColorPorConfirmar[]
   setColoresModalOpen: Dispatch<SetStateAction<boolean>>
   totalCajasCount: number
+  totalCbm?: number
+  totalPesoBruto?: number
+  overrideCbm?: number | null
+  overridePeso?: number | null
   cajaPrincipalDe: (skuUpper: string, cajas: WizardCaja[]) => WizardCaja | null
 }
 
@@ -71,6 +75,10 @@ export function useOrdenVerificacion({
   coloresPorConfirmar,
   setColoresModalOpen,
   totalCajasCount,
+  totalCbm = 0,
+  totalPesoBruto = 0,
+  overrideCbm = null,
+  overridePeso = null,
   cajaPrincipalDe,
 }: UseOrdenVerificacionProps) {
   const [isPending, startTransition] = useTransition()
@@ -383,9 +391,11 @@ export function useOrdenVerificacion({
       .map((c) => String(c.codigo_caja || c.codigo_caja_temporal || 's/código'))
     const conPrincipal = editableProductos.filter((p) => {
       const up = String(p.sku_base || '').trim().toUpperCase()
-      const reales = editableCajas.filter(
-        (c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up
-      )
+      const reales = editableCajas.filter((c) => {
+        if (c.tipo_caja === 'padre_resumen') return false
+        const resolved = ((c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || '').trim()).toUpperCase()
+        return resolved === up
+      })
       return reales.length > 0 && cajaPrincipalDe(up, reales) !== null
     }).length
     const fallasPacks = matchPacks.diffs.filter((d) => d.estado !== 'OK')
@@ -401,22 +411,22 @@ export function useOrdenVerificacion({
       totalCajas: totalCajasCount,
       coloresPendientes,
       todoOk:
-        match.ok &&
-        matchPacks.ok &&
         sinPz.length === 0 &&
         editableProductos.length > 0 &&
         totalCajasCount > 0 &&
         coloresPendientes === 0,
     }
-  }, [editableProductos, editableCajas, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount, coloresPorConfirmar])
+  }, [editableProductos, editableCajas, skuPorTempId, calcularMatchCajasOrdenRapida, calcularMatchPacks, cajaPrincipalDe, totalCajasCount, coloresPorConfirmar])
 
   const resumenSku = useMemo(() => {
     const filas = editableProductos.map((p) => {
       const sku = String(p.sku_base || '').trim()
       const up = sku.toUpperCase()
-      const reales = editableCajas.filter(
-        (c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up
-      )
+      const reales = editableCajas.filter((c) => {
+        if (c.tipo_caja === 'padre_resumen') return false
+        const resolved = ((c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || '').trim()).toUpperCase()
+        return resolved === up
+      })
       const armadas = reales.reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
       const linea = lineaEsperada(sku)
       const principal = cajaPrincipalDe(up, reales)
@@ -494,6 +504,14 @@ export function useOrdenVerificacion({
         paso: 1,
         fix: 'Escribe el código del contenedor.',
       })
+    if (selectedContenedor === 'new' && newContainerNumber.trim().length > 50)
+      out.push({
+        id: 'cont-num-len',
+        codigo: 'CONTENEDOR_NUM_LARGO',
+        mensaje: `Número de contenedor excede 50 caracteres (${newContainerNumber.trim().length}/50, varchar(50)).`,
+        paso: 1,
+        fix: 'Acorta el número de contenedor en paso 1.',
+      })
     if (editableProductos.length === 0)
       out.push({
         id: 'ord-sin-prod',
@@ -515,7 +533,19 @@ export function useOrdenVerificacion({
           paso: 3,
           fix: 'Edita el SKU en paso 3.',
         })
-      else vistosSku.set(up, (vistosSku.get(up) || 0) + 1)
+      else {
+        if (sku.length > 50) {
+          out.push({
+            id: `sku-len-${p.temp_id || up}`,
+            codigo: 'SKU_LARGO',
+            mensaje: `SKU "${sku.slice(0, 24)}…" excede 50 caracteres (${sku.length}/50, varchar(50)).`,
+            sku,
+            paso: 3,
+            fix: 'Acorta el SKU en paso 3 a máximo 50 caracteres.',
+          })
+        }
+        vistosSku.set(up, (vistosSku.get(up) || 0) + 1)
+      }
     })
     for (const [up, n] of vistosSku) {
       if (n > 1)
@@ -533,7 +563,11 @@ export function useOrdenVerificacion({
       const up = sku.toUpperCase()
       if (!up) continue
       const armadas = editableCajas
-        .filter((c) => c.tipo_caja !== 'padre_resumen' && String(c.sku_base || '').trim().toUpperCase() === up)
+        .filter((c) => {
+          if (c.tipo_caja === 'padre_resumen') return false
+          const resolved = ((c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || '').trim()).toUpperCase()
+          return resolved === up
+        })
         .reduce((s, c) => s + (Number(c.cantidad_cajas ?? 0) || 0), 0)
       if (armadas <= 0)
         out.push({
@@ -565,21 +599,23 @@ export function useOrdenVerificacion({
         l.push(cod)
         vistosCod.set(up, l)
       }
-      if (!(Number(c.piezas_por_caja ?? 0) > 0))
+      const pzNum = Number(c.piezas_por_caja ?? 0)
+      if (!(pzNum > 0) || !Number.isInteger(pzNum))
         out.push({
           id: `sinpz-${cod || c.sku_base}`,
           codigo: 'SIN_PZ',
-          mensaje: `Caja "${cod || '(s/código)'}" sin piezas por caja (>0 requerido).`,
+          mensaje: `Caja "${cod || '(s/código)'}" con pz/caja=${String(c.piezas_por_caja ?? 0)} (debe ser entero >0, columna integer).`,
           sku: String(c.sku_base || '').trim(),
           codigoCaja: cod,
           paso: 4,
-          fix: 'Edita pz/caja en su tarjeta o usa Fijar 1 pza.',
+          fix: 'Edita pz/caja a un número entero >0.',
         })
-      if (!(Number(c.cantidad_cajas ?? 0) > 0))
+      const cantNum = Number(c.cantidad_cajas ?? 0)
+      if (!(cantNum > 0) || !Number.isInteger(cantNum))
         out.push({
           id: `cant-${cod || c.sku_base}`,
           codigo: 'CANTIDAD_INVALIDA',
-          mensaje: `Caja "${cod || '(s/código)'}" con cantidad ${String(c.cantidad_cajas ?? 0)} (debe ser >0).`,
+          mensaje: `Caja "${cod || '(s/código)'}" con cantidad ${String(c.cantidad_cajas ?? 0)} (debe ser entero >0, columna integer).`,
           sku: String(c.sku_base || '').trim(),
           codigoCaja: cod,
           paso: 4,
@@ -661,16 +697,37 @@ export function useOrdenVerificacion({
       /* sin catalogo */
     }
 
+    return out
+  }, [
+    selectedProveedor,
+    selectedCliente,
+    selectedContenedor,
+    newContainerCode,
+    newContainerNumber,
+    editableProductos,
+    editableCajas,
+    skuPorTempId,
+    coloresPorConfirmar,
+    catalogoColores,
+  ])
+
+  const erroresBloqueantes = erroresSubida
+
+  const advertenciasSubida = useMemo<ErrorSubida[]>(() => {
+    const out: ErrorSubida[] = []
+    const reales = editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen')
+
+    // 1. Diferencias Nota JSON original vs Cajas armadas en vivo (NO bloquean; se sube lo armado en vivo)
     try {
       const m = calcularMatchCajasOrdenRapida()
       for (const d of m.diffs.filter((x) => x.estado !== 'OK')) {
         out.push({
           id: `match-${d.sku}`,
           codigo: 'MATCH_CAJAS_DIF',
-          mensaje: `"${d.sku}": línea ${d.cajasLinea} vs armadas ${d.cajasFisicas} (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}).`,
+          mensaje: `"${d.sku}": Nota JSON ${d.cajasLinea} cjs vs Armadas en vivo ${d.cajasFisicas} cjs (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}). Se guardarán las ${d.cajasFisicas} cajas armadas.`,
           sku: d.sku,
           paso: 4,
-          fix: 'Ajusta línea esperada o mueve/agrega cajas.',
+          fix: 'Aviso informativo: la subida usa lo armado en vivo.',
         })
       }
     } catch {
@@ -682,37 +739,47 @@ export function useOrdenVerificacion({
         out.push({
           id: `pack-${d.sku}-${d.pack}`,
           codigo: 'MATCH_PACK_DIF',
-          mensaje: `"${d.sku} · ${d.pack}": línea ${d.linea} vs armadas ${d.armadas} (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}).`,
+          mensaje: `"${d.sku} · ${d.pack}": Nota JSON ${d.linea} cjs vs Armadas ${d.armadas} cjs (dif ${d.dif > 0 ? `+${d.dif}` : d.dif}).`,
           sku: d.sku,
           pack: d.pack,
           paso: 4,
-          fix: 'Ajusta línea del pack o renombra/divide packs.',
+          fix: 'Aviso informativo: la subida usa lo armado en vivo.',
         })
       }
     } catch {
       /* sin packs */
     }
-    return out
-  }, [
-    selectedProveedor,
-    selectedCliente,
-    selectedContenedor,
-    newContainerCode,
-    editableProductos,
-    editableCajas,
-    coloresPorConfirmar,
-    catalogoColores,
-    calcularMatchCajasOrdenRapida,
-    calcularMatchPacks,
-  ])
 
-  const erroresBloqueantes = erroresSubida
+    // 2. Diferencia documental de CBM / Peso Bruto (JSON aduanas/BL se conserva como verdadero, aviso visible)
+    const cbmJson = overrideCbm ?? parsedData?.orden?.cbm_estimado ?? null
+    if (cbmJson != null && Number.isFinite(cbmJson) && cbmJson > 0 && Math.abs(cbmJson - totalCbm) > 0.05) {
+      out.push({
+        id: 'cbm-json-dif',
+        codigo: 'CBM_KG_DIF_JSON',
+        mensaje: `CBM documento/BL (${cbmJson.toFixed(3)} m³) difiere del calculado en vivo (${totalCbm.toFixed(3)} m³). Se guardará el CBM del documento para aduanas/BL.`,
+        paso: 4,
+        fix: 'Referencia documental para aduanas (BL): no detiene la subida.',
+      })
+    }
+    const pesoJson = overridePeso ?? parsedData?.orden?.peso_bruto_total_kg ?? null
+    if (pesoJson != null && Number.isFinite(pesoJson) && pesoJson > 0 && Math.abs(pesoJson - totalPesoBruto) > 1) {
+      out.push({
+        id: 'peso-json-dif',
+        codigo: 'CBM_KG_DIF_JSON',
+        mensaje: `Peso bruto documento/BL (${pesoJson.toFixed(1)} kg) difiere del calculado en vivo (${totalPesoBruto.toFixed(1)} kg). Referencia documental conservada.`,
+        paso: 4,
+        fix: 'Referencia documental para aduanas (BL): no detiene la subida.',
+      })
+    }
 
-  const advertenciasSubida = useMemo<ErrorSubida[]>(() => {
-    const out: ErrorSubida[] = []
-    const reales = editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen')
+    // 3. Cajas con matriz vacía o colores ignorables omitidos (para respetar CHECK caja_detalles_identificacion_chk)
+    const ignorablesEncontrados = new Set<string>()
     reales.forEach((c) => {
       const cod = String(c.codigo_caja || c.codigo_caja_temporal || '').trim()
+      for (const col of c.matriz?.colores || []) {
+        const raw = String(col || '').trim()
+        if (raw && esColorIgnorable(raw)) ignorablesEncontrados.add(raw)
+      }
       try {
         const dets = detallesDesdeMatriz(c as Parameters<typeof detallesDesdeMatriz>[0])
         if (dets.length === 0) {
@@ -730,8 +797,26 @@ export function useOrdenVerificacion({
         /* matriz inválida */
       }
     })
+    if (ignorablesEncontrados.size > 0) {
+      out.push({
+        id: 'col-ignorable-omitido',
+        codigo: 'COLOR_IGNORABLE_OMITIDO',
+        mensaje: `Texto no-color en matriz (${Array.from(ignorablesEncontrados).slice(0, 4).join(', ')}) se omitirá de caja_detalles para cumplir el constraint de BD.`,
+        paso: 4,
+        fix: 'No bloquea la subida.',
+      })
+    }
     return out
-  }, [editableCajas])
+  }, [
+    editableCajas,
+    calcularMatchCajasOrdenRapida,
+    calcularMatchPacks,
+    overrideCbm,
+    overridePeso,
+    parsedData,
+    totalCbm,
+    totalPesoBruto,
+  ])
 
   const hashVerificacion = useMemo(() => {
     try {
@@ -876,9 +961,9 @@ export function useOrdenVerificacion({
 
   const handleAjustarCajaNumero = useCallback(
     (codigo: string, campo: 'cantidad_cajas' | 'piezas_por_caja', valorRaw: string) => {
-      const v = campo === 'cantidad_cajas' ? parseInt(valorRaw, 10) : Number(valorRaw)
-      if (!codigo || isNaN(v) || v < 0 || (campo === 'cantidad_cajas' && !Number.isInteger(v))) {
-        toast.error('Ingresa un número válido (entero ≥0 para cajas).')
+      const v = parseInt(valorRaw, 10)
+      if (!codigo || isNaN(v) || v < 0 || !Number.isInteger(Number(valorRaw))) {
+        toast.error('Ingresa un número entero válido (>0).')
         return
       }
       if (campo === 'cantidad_cajas' && v === 0) {
@@ -943,33 +1028,6 @@ export function useOrdenVerificacion({
       )
       return
     }
-    const matchFinal = calcularMatchCajasOrdenRapida()
-    const matchPacksFinal = calcularMatchPacks()
-    const fallasPacksFinal = matchPacksFinal.diffs.filter((d) => d.estado !== 'OK')
-    if (!matchFinal.ok || !matchPacksFinal.ok) {
-      setCajasBlockModal({
-        open: true,
-        blocking: true,
-        items: [
-          ...matchFinal.diffs
-            .filter((d) => d.estado !== 'OK')
-            .map((d) => ({
-              sku: d.sku,
-              cajasEsperadas: d.cajasLinea,
-              cajasArmadas: d.cajasFisicas,
-              diferencia: d.dif,
-            })),
-          ...fallasPacksFinal.map((d) => ({
-            sku: `${d.sku} · ${d.pack}`,
-            cajasEsperadas: d.linea,
-            cajasArmadas: d.armadas,
-            diferencia: d.dif,
-          })),
-        ],
-      })
-      toast.error('Bloqueo modo cajas: hay líneas sin match con las cajas armadas (SKU o pack).')
-      return
-    }
     startTransition(async () => {
       try {
         if (!selectedProveedor || !selectedCliente) {
@@ -1014,6 +1072,7 @@ export function useOrdenVerificacion({
           detalles: detallesEditados,
           vinculosDb: Object.fromEntries(Object.entries(vinculosDb).map(([k, v]) => [k, v.dbId])),
           principalPorSku,
+          cbmOrdenOverride: (overrideCbm ?? parsedData?.orden?.cbm_estimado) ?? null,
         })
 
         if (!res.success) {
@@ -1089,16 +1148,28 @@ export function useOrdenVerificacion({
       const discrepancias: Array<{ sku: string; piezasProducto: number; piezasCajas: number; diferencia: number }> = []
       for (const prod of editableProductos) {
         const skuUpper = prod.sku_base.trim().toUpperCase()
-        const cajasDelSku = editableCajas.filter(
-          (c) => String(c.sku_base || '').trim().toUpperCase() === skuUpper && c.tipo_caja !== 'padre_resumen'
-        )
+        const cajasDelSku = editableCajas.filter((c) => {
+          if (c.tipo_caja === 'padre_resumen') return false
+          const resolved = ((c.producto_temp_id && skuPorTempId.get(c.producto_temp_id)) || String(c.sku_base || '').trim()).toUpperCase()
+          return resolved === skuUpper
+        })
         const piezasEnCajas = cajasDelSku.reduce(
-          (sum, c) => sum + (c.total_piezas || (c.cantidad_cajas || 0) * (c.piezas_por_caja || 0)),
+          (sum, c) => sum + ((Number(c.cantidad_cajas ?? 0) || 0) * Math.round(Number(c.piezas_por_caja ?? 0) || 0)),
           0
         )
 
-        const jsonInfo = jsonTotalesPorSku.get(prod.sku_base)
-        const piezasEsperadas = jsonInfo?.piezas || Number((prod as Record<string, unknown>).piezas_pedidas || 0) || 0
+        const origUp = skuOriginalPorActual.get(skuUpper)
+        let jsonPiezas = jsonTotalesPorSku.get(prod.sku_base)?.piezas ?? 0
+        if (!jsonPiezas) {
+          for (const [k, v] of jsonTotalesPorSku) {
+            const kUp = String(k || '').trim().toUpperCase()
+            if (kUp === skuUpper || (origUp && kUp === origUp)) {
+              jsonPiezas = Number(v.piezas) || 0
+              break
+            }
+          }
+        }
+        const piezasEsperadas = jsonPiezas || Number((prod as Record<string, unknown>).piezas_pedidas || 0) || 0
 
         if (piezasEsperadas > 0 && piezasEnCajas > 0 && Math.abs(piezasEsperadas - piezasEnCajas) > 0.01) {
           discrepancias.push({

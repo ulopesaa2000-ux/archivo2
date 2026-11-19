@@ -225,12 +225,16 @@ export function useOrdenCajasColores({
   const cajasRealesMemo = useMemo(() => editableCajas.filter((c) => c.tipo_caja !== 'padre_resumen'), [editableCajas])
 
   const totalCajasCount = useMemo(
-    () => cajasRealesMemo.reduce((sum, c) => sum + (c.cantidad_cajas || 1), 0),
+    () => cajasRealesMemo.reduce((sum, c) => sum + (Number(c.cantidad_cajas ?? 0) || 0), 0),
     [cajasRealesMemo]
   )
 
   const totalPiezasCount = useMemo(
-    () => cajasRealesMemo.reduce((sum, c) => sum + (c.total_piezas || c.piezas_por_caja * (c.cantidad_cajas || 1)), 0),
+    () =>
+      cajasRealesMemo.reduce(
+        (sum, c) => sum + (Number(c.cantidad_cajas ?? 0) || 0) * Math.round(Number(c.piezas_por_caja ?? 0) || 0),
+        0
+      ),
     [cajasRealesMemo]
   )
 

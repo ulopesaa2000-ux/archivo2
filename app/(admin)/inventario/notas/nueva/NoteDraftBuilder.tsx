@@ -425,14 +425,28 @@ export function NoteDraftBuilder({
               onCopyDraftExcel={async () => {
                 if (draft.productos.length === 0) return toast.error('No hay productos en la nota para copiar.')
                 try {
-                  const header = ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
+                  const header = modoSoloCajas
+                    ? ['SKU', 'Descripción', 'Cajas'].join('\t')
+                    : ['SKU', 'Producto', 'Caja', 'Cajas', 'Piezas', 'Total est.'].join('\t')
                   const rows = draft.productos.map((p) => {
+                    const sku = p.producto_sku ?? '—'
+                    const nombre = p.producto_nombre ?? '—'
+
+                    if (modoSoloCajas) {
+                      return [sku, nombre, p.cajas].join('\t')
+                    }
+
                     const caja = p.caja_codigo ? `${p.caja_codigo}${p.caja_nombre_pack ? ` (${p.caja_nombre_pack})` : ''}` : '—'
-                    return [p.producto_sku ?? '—', p.producto_nombre ?? '—', caja, p.cajas, p.piezas_sueltas, p.cajas * (p.producto_pz_en_caja ?? 0) + p.piezas_sueltas].join('\t')
+                    const totalEst = p.cajas * (p.producto_pz_en_caja ?? 0) + p.piezas_sueltas
+                    return [sku, nombre, caja, p.cajas, p.piezas_sueltas, totalEst].join('\t')
                   })
                   await navigator.clipboard.writeText([header, ...rows].join('\n'))
                   setCopiedDraft(true)
-                  toast.success('Tabla copiada al portapapeles en formato Excel (TSV)')
+                  toast.success(
+                    modoSoloCajas
+                      ? 'Tabla copiada al portapapeles (SKU, Descripción, Cajas)'
+                      : 'Tabla copiada al portapapeles en formato Excel (TSV)'
+                  )
                   setTimeout(() => setCopiedDraft(false), 2000)
                 } catch {
                   toast.error('No se pudo copiar la tabla.')

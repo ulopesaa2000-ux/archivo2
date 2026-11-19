@@ -66,42 +66,117 @@ export function PasteExcelProductosModal({
     if (!clean) return []
 
     const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    const rows: ParsedRow[] = []
+    if (lines.length === 0) return []
 
-    // Palabras reservadas de encabezado típicas para omitir automáticamente
-    const headerKeywords = ['sku', 'código', 'codigo', 'estilo', 'cajas', 'cantidad', 'qty', 'piezas', 'modelo']
+    // Determinar delimitador principal del texto
+    let delimiter: string | null = '\t'
+    if (lines[0].includes('\t')) {
+      delimiter = '\t'
+    } else if (lines[0].includes(';')) {
+      delimiter = ';'
+    } else if (lines[0].includes(',')) {
+      delimiter = ','
+    } else {
+      delimiter = null // Espacios
+    }
 
-    for (const line of lines) {
-      // Separar por tabulador (Excel), punto y coma, coma, o espacios múltiples
-      let parts: string[] = []
-      if (line.includes('\t')) {
-        parts = line.split('\t').map((p) => p.trim())
-      } else if (line.includes(';')) {
-        parts = line.split(';').map((p) => p.trim())
-      } else if (line.includes(',')) {
-        parts = line.split(',').map((p) => p.trim())
-      } else {
-        parts = line.split(/\s+/).map((p) => p.trim())
+    const splitLine = (line: string): string[] => {
+      if (delimiter) {
+        return line.split(delimiter).map((p) => p.trim())
       }
+      return line.split(/\s+/).map((p) => p.trim()).filter(Boolean)
+    }
 
-      parts = parts.filter(Boolean)
+    const rows: ParsedRow[] = []
+    let skuColIdx = -1
+    let cajasColIdx = -1
+    let descColIdx = -1
+    let hasHeader = false
+
+    const firstParts = splitLine(lines[0])
+    const normalizeHeader = (s: string) =>
+      s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+
+    const isSkuHeader = (h: string) =>
+      ['sku', 'codigo', 'estilo', 'clave', 'articulo'].some((k) => h === k || h.includes('sku') || h.includes('codigo'))
+    const isCajasHeader = (h: string) =>
+      ['cajas', 'cantidad', 'qty', 'cant', 'piezas'].some((k) => h === k || h.includes('caja') || h.includes('cant'))
+    const isDescHeader = (h: string) =>
+      ['descripcion', 'producto', 'nombre', 'detalle', 'prenda'].some((k) => h === k || h.includes('desc') || h.includes('prod'))
+
+    firstParts.forEach((part, idx) => {
+      const norm = normalizeHeader(part)
+      if (isSkuHeader(norm) && skuColIdx === -1) skuColIdx = idx
+      else if (isCajasHeader(norm) && cajasColIdx === -1) cajasColIdx = idx
+      else if (isDescHeader(norm) && descColIdx === -1) descColIdx = idx
+    })
+
+    let startIndex = 0
+    if (skuColIdx !== -1 || (firstParts.length > 1 && isNaN(Number(firstParts[firstParts.length - 1])))) {
+      hasHeader = true
+      startIndex = 1
+      if (skuColIdx === -1) skuColIdx = 0
+      if (cajasColIdx === -1) {
+        for (let i = firstParts.length - 1; i >= 0; i--) {
+          if (i !== skuColIdx && i !== descColIdx) {
+            cajasColIdx = i
+            break
+          }
+        }
+      }
+    }
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i]
+      const parts = splitLine(line).filter((p) => p !== '')
       if (parts.length === 0) continue
 
-      const col0 = parts[0].toLowerCase()
-      const isHeader = headerKeywords.some((k) => col0 === k || col0.includes('sku') || col0.includes('codigo'))
-      if (isHeader && parts.length > 1 && isNaN(Number(parts[1]))) {
-        continue // Omitir fila de encabezado
-      }
-
-      const sku = parts[0].trim()
+      let sku = ''
       let cajas = 1
 
-      if (parts.length >= 2) {
-        // Limpiar caracteres extraños en la cantidad (como comas o signos)
-        const cleanedQty = parts[1].replace(/,/g, '').trim()
-        const parsedQty = parseFloat(cleanedQty)
-        if (!isNaN(parsedQty) && parsedQty > 0) {
-          cajas = parsedQty
+      if (hasHeader && skuColIdx !== -1 && skuColIdx < parts.length) {
+        sku = parts[skuColIdx].trim()
+
+        if (cajasColIdx !== -1 && cajasColIdx < parts.length) {
+          const cleaned = parts[cajasColIdx].replace(/,/g, '').trim()
+          const parsed = parseFloat(cleaned)
+          if (!isNaN(parsed) && parsed > 0) {
+            cajas = parsed
+          }
+        } else {
+          // Fallback: si cajasColIdx no coincide con la longitud, buscar la última columna numérica
+          for (let c = parts.length - 1; c > skuColIdx; c--) {
+            const val = parseFloat(parts[c].replace(/,/g, '').trim())
+            if (!isNaN(val) && val > 0) {
+              cajas = val
+              break
+            }
+          }
+        }
+      } else {
+        // Sin encabezado: inferir inteligentemente
+        sku = parts[0].trim()
+        if (parts.length === 2) {
+          // [SKU, Cajas]
+          const val = parseFloat(parts[1].replace(/,/g, '').trim())
+          if (!isNaN(val) && val > 0) cajas = val
+        } else if (parts.length >= 3) {
+          // Formato [SKU, Descripción, Cajas]
+          // Buscar el último campo numérico
+          let foundNum = false
+          for (let c = parts.length - 1; c >= 1; c--) {
+            const raw = parts[c].replace(/,/g, '').trim()
+            const val = parseFloat(raw)
+            if (!isNaN(val) && val > 0 && /^\d+(\.\d+)?$/.test(raw)) {
+              cajas = val
+              foundNum = true
+              break
+            }
+          }
+          if (!foundNum) {
+            const val = parseFloat(parts[parts.length - 1].replace(/,/g, '').trim())
+            if (!isNaN(val) && val > 0) cajas = val
+          }
         }
       }
 

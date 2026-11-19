@@ -232,6 +232,10 @@ export type ErrorSubida = {
     | 'COLOR_SIN_RESOLVER'
     | 'MATCH_CAJAS_DIF'
     | 'MATCH_PACK_DIF'
+    | 'CONTENEDOR_NUM_LARGO'
+    | 'SKU_LARGO'
+    | 'CBM_KG_DIF_JSON'
+    | 'COLOR_IGNORABLE_OMITIDO'
   mensaje: string
   detalle?: string
   sku?: string
