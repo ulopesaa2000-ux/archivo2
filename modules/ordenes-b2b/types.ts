@@ -60,6 +60,27 @@ export type GrupoContenedorOrdenes = {
   ordenes: OrdenB2BListItem[]
 }
 
+export type GrupoContenedorCajas = {
+  contenedor_id: number | null
+  contenedor_codigo: string | null
+  contenedor_estado: string | null
+  contenedor_fecha_eta: string | null
+  total_cajas: number
+  total_piezas: number
+  total_cbm: number
+  cajas: CajaListItem[]
+}
+
+export type GrupoProductoCajas = {
+  producto_id: number | null
+  producto_sku: string | null
+  producto_nombre: string | null
+  total_cajas: number
+  total_piezas: number
+  total_cbm: number
+  cajas: CajaListItem[]
+}
+
 // ── Detalle de producto en orden ────────────────────────────
 export type OrdenDetalleResuelto = {
   id: number
@@ -130,6 +151,7 @@ export type CajaListItem = {
   costo_total_caja: number | null
   total_ordenes: number
   contenedores: string | null
+  contenedores_vinculados?: { id: number; codigo: string }[]
 }
 
 // ── Detalle de caja (para Sheet) ────────────────────────────

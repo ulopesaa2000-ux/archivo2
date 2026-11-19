@@ -7,7 +7,7 @@ import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosOrdenesB2B, OrdenB2BListItem, OrdenDetalleResuelto,
   OrdenCajaResuelta, CatalogosB2B, FiltrosCajas, CajaListItem,
-  CajaDetalle, CajaDetalleTC, GrupoContenedorOrdenes,
+  CajaDetalle, CajaDetalleTC, GrupoContenedorOrdenes, GrupoContenedorCajas, GrupoProductoCajas,
 } from './types'
 import type {
   OrdenB2BRow,
@@ -584,7 +584,7 @@ export async function fetchOrdenCajas(
     const p = c?.producto
       ? (Array.isArray(c.producto) ? c.producto[0] : c.producto)
       : null
-      
+
     let contenidoMap = null
     const detalles = Array.isArray(c?.caja_detalles) ? c.caja_detalles : []
     if (detalles.length > 0) {
@@ -867,6 +867,472 @@ export async function fetchCajasListado(
   })
 
   return { items, total: count ?? 0 }
+}
+
+async function resolveCajasScopeClauses(
+  supabase: any,
+  scope: Awaited<ReturnType<typeof getCommercialScope>>
+): Promise<string[] | null> {
+  if (scope.is_super_admin) return null
+
+  const clauses: string[] = []
+  if (scope.primary_persona_tipo === 'Proveedor') {
+    if (scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    }
+  } else {
+    if (scope.primary_persona_tipo !== 'Cliente B2B' && scope.allowed_proveedor_ids.length > 0) {
+      clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
+    }
+    if (scope.allowed_cliente_ids.length > 0) {
+      const { data: allowedProducts } = await fetchAllPages<{ id: number }>(
+        (fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('productos')
+            .select('id', isFirst ? { count: 'exact' } : undefined)
+            .in('cliente_b2b_id', scope.allowed_cliente_ids)
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { label: 'resolveCajasScopeClauses:productos' }
+      )
+      const allowedProductIds = allowedProducts.map((p) => p.id)
+      if (allowedProductIds.length > 0) {
+        if (allowedProductIds.length <= 200) {
+          clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+        } else {
+          const matchedCajas = await fetchInChunksPaginated<number, { id: number }>(
+            allowedProductIds,
+            (chunk, fromIdx, toIdx, isFirst) =>
+              supabase
+                .from('cajas_producto')
+                .select('id', isFirst ? { count: 'exact' } : undefined)
+                .in('producto_id', chunk)
+                .order('id', { ascending: true })
+                .range(fromIdx, toIdx),
+            { chunkSize: 150, label: 'resolveCajasScopeClauses:cajas' }
+          )
+          const cajaIds = matchedCajas.map((c) => c.id)
+          if (cajaIds.length > 0) clauses.push(`id.in.(${cajaIds.join(',')})`)
+        }
+      }
+    }
+  }
+
+  return clauses
+}
+
+function extractContenedorYear(codigo?: string | null): number | null {
+  if (!codigo) return null
+  const match = codigo.trim().match(/^(\d{4})/)
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
+export async function fetchCajasAgrupadasPorProducto(
+  filtros: FiltrosCajas,
+  pageSize = 12
+): Promise<{ grupos: GrupoProductoCajas[]; totalGrupos: number; totalCajas: number }> {
+  const supabase = await createClient()
+  const scope = await getCommercialScope()
+  const scopeClauses = await resolveCajasScopeClauses(supabase, scope)
+
+  if (scopeClauses && scopeClauses.length === 0) {
+    return { grupos: [], totalGrupos: 0, totalCajas: 0 }
+  }
+
+  const sort = filtros.sort_by || 'codigo_caja'
+  const ascending = filtros.order !== 'desc'
+
+  const { data: cajasRows } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('cajas_producto')
+        .select(`
+          id, codigo_caja, nombre_pack, producto_id,
+          piezas_por_caja, tallas, colores, cbm, peso_bruto_kg, peso_neto,
+          costo_total_caja,
+          producto:productos!cajas_producto_producto_id_fkey ( sku_base, nombre ),
+          proveedor:personas!cajas_producto_proveedor_id_fkey ( nombre_completo )
+        `, isFirst ? { count: 'exact' } : undefined)
+        .or('activo.is.null,activo.eq.true')
+
+      if (scopeClauses && scopeClauses.length > 0) {
+        query = query.or(scopeClauses.join(','))
+      }
+      if (filtros.proveedor_id) {
+        query = query.eq('proveedor_id', filtros.proveedor_id)
+      }
+
+      if (sort === 'proveedor_nombre') {
+        query = query.order('proveedor(nombre_completo)', { ascending })
+      } else if (sort === 'producto_sku') {
+        query = query.order('producto(sku_base)', { ascending })
+      } else {
+        query = query.order(sort, { ascending })
+      }
+
+      return query.range(fromIdx, toIdx)
+    },
+    { label: 'fetchCajasAgrupadasPorProducto:cajas' }
+  )
+
+  if (cajasRows.length === 0) {
+    return { grupos: [], totalGrupos: 0, totalCajas: 0 }
+  }
+
+  const qNorm = filtros.q?.trim().toLowerCase() ?? ''
+  const maxYear = filtros.año
+  const candidateItems: CajaListItem[] = []
+  const candidateIds: number[] = []
+
+  for (const c of cajasRows) {
+    const prod = Array.isArray(c.producto) ? c.producto[0] : c.producto
+    const prov = Array.isArray(c.proveedor) ? c.proveedor[0] : c.proveedor
+
+    const item: CajaListItem = {
+      id: c.id,
+      codigo_caja: c.codigo_caja,
+      nombre_pack: c.nombre_pack,
+      producto_id: c.producto_id,
+      producto_sku: prod?.sku_base ?? null,
+      producto_nombre: prod?.nombre ?? null,
+      proveedor_nombre: prov?.nombre_completo ?? null,
+      piezas_por_caja: c.piezas_por_caja,
+      tallas: c.tallas,
+      colores: c.colores,
+      cbm: c.cbm,
+      peso_bruto_kg: c.peso_bruto_kg,
+      peso_neto: c.peso_neto,
+      costo_total_caja: c.costo_total_caja,
+      total_ordenes: 0,
+      contenedores: null,
+      contenedores_vinculados: [],
+    }
+
+    if (qNorm) {
+      const matchCodigo = (item.codigo_caja ?? '').toLowerCase().includes(qNorm)
+      const matchSku = (item.producto_sku ?? '').toLowerCase().includes(qNorm)
+      const matchNombre = (item.producto_nombre ?? '').toLowerCase().includes(qNorm)
+      if (!matchCodigo && !matchSku && !matchNombre) continue
+    }
+
+    candidateItems.push(item)
+    candidateIds.push(item.id)
+  }
+
+  // Enriquecer cada caja con sus contenedores vinculados (caja -> orden -> contenedor)
+  if (candidateIds.length > 0) {
+    const ordenCajasRows = await fetchInChunksPaginated<number, any>(
+      candidateIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_cajas')
+          .select(`
+            caja_id,
+            orden:ordenes_b2b!orden_cajas_orden_id_fkey (
+              id, activo, contenedor_id,
+              contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+                id, codigo_contenedor
+              )
+            )
+          `, isFirst ? { count: 'exact' } : undefined)
+          .in('caja_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchCajasAgrupadasPorProducto:ordenCajas' }
+    )
+
+    const contsByCaja = new Map<number, Map<number, string>>()
+    for (const oc of ordenCajasRows) {
+      const orden = Array.isArray(oc.orden) ? oc.orden[0] : oc.orden
+      if (!orden || orden.activo === false || !orden.contenedor_id) continue
+      const cont = Array.isArray(orden.contenedor) ? orden.contenedor[0] : orden.contenedor
+      if (!cont?.codigo_contenedor) continue
+
+      if (!contsByCaja.has(oc.caja_id)) {
+        contsByCaja.set(oc.caja_id, new Map<number, string>())
+      }
+      contsByCaja.get(oc.caja_id)!.set(cont.id, cont.codigo_contenedor)
+    }
+
+    for (const item of candidateItems) {
+      const map = contsByCaja.get(item.id)
+      if (map) {
+        item.contenedores_vinculados = Array.from(map.entries())
+          .map(([id, codigo]) => ({ id, codigo }))
+          .sort((a, b) => b.id - a.id)
+      }
+    }
+  }
+
+  const gruposMap = new Map<number, GrupoProductoCajas>()
+  let totalCajas = 0
+
+  for (const item of candidateItems) {
+    if (maxYear !== undefined) {
+      const hasMatchingYear = (item.contenedores_vinculados ?? []).some((c) => {
+        const y = extractContenedorYear(c.codigo)
+        return y !== null && y <= maxYear
+      })
+      if (!hasMatchingYear) continue
+    }
+
+    totalCajas += 1
+    const key = item.producto_id ?? 0
+    const existing = gruposMap.get(key)
+    if (existing) {
+      existing.cajas.push(item)
+      existing.total_cajas += 1
+      existing.total_piezas += Number(item.piezas_por_caja ?? 0)
+      existing.total_cbm += Number(item.cbm ?? 0)
+    } else {
+      gruposMap.set(key, {
+        producto_id: item.producto_id ?? null,
+        producto_sku: item.producto_sku,
+        producto_nombre: item.producto_nombre,
+        total_cajas: 1,
+        total_piezas: Number(item.piezas_por_caja ?? 0),
+        total_cbm: Number(item.cbm ?? 0),
+        cajas: [item],
+      })
+    }
+  }
+
+  // Productos asignados primero (más recientes arriba), "Sin producto" al final
+  const allGrupos = Array.from(gruposMap.values()).sort((a, b) => {
+    if (a.producto_id === null && b.producto_id !== null) return 1
+    if (a.producto_id !== null && b.producto_id === null) return -1
+    return (b.producto_id ?? 0) - (a.producto_id ?? 0)
+  })
+
+  const page = Math.max(1, filtros.page ?? 1)
+  const from = (page - 1) * pageSize
+  const grupos = allGrupos.slice(from, from + pageSize)
+
+  return {
+    grupos,
+    totalGrupos: allGrupos.length,
+    totalCajas,
+  }
+}
+
+export async function fetchCajasAgrupadasPorContenedor(
+  filtros: FiltrosCajas,
+  pageSize = 6
+): Promise<{ grupos: GrupoContenedorCajas[]; totalGrupos: number; totalCajas: number }> {
+  const supabase = await createClient()
+  const scope = await getCommercialScope()
+  const scopeClauses = await resolveCajasScopeClauses(supabase, scope)
+
+  if (scopeClauses && scopeClauses.length === 0) {
+    return { grupos: [], totalGrupos: 0, totalCajas: 0 }
+  }
+
+  const sort = filtros.sort_by || 'codigo_caja'
+  const ascending = filtros.order !== 'desc'
+
+  const { data: cajasRows } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('cajas_producto')
+        .select(`
+          id, codigo_caja, nombre_pack, producto_id,
+          piezas_por_caja, tallas, colores, cbm, peso_bruto_kg, peso_neto,
+          costo_total_caja,
+          producto:productos!cajas_producto_producto_id_fkey ( sku_base, nombre ),
+          proveedor:personas!cajas_producto_proveedor_id_fkey ( nombre_completo )
+        `, isFirst ? { count: 'exact' } : undefined)
+        .or('activo.is.null,activo.eq.true')
+
+      if (scopeClauses && scopeClauses.length > 0) {
+        query = query.or(scopeClauses.join(','))
+      }
+      if (filtros.proveedor_id) {
+        query = query.eq('proveedor_id', filtros.proveedor_id)
+      }
+
+      if (sort === 'proveedor_nombre') {
+        query = query.order('proveedor(nombre_completo)', { ascending })
+      } else if (sort === 'producto_sku') {
+        query = query.order('producto(sku_base)', { ascending })
+      } else {
+        query = query.order(sort, { ascending })
+      }
+
+      return query.range(fromIdx, toIdx)
+    },
+    { label: 'fetchCajasAgrupadasPorContenedor:cajas' }
+  )
+
+  if (cajasRows.length === 0) {
+    return { grupos: [], totalGrupos: 0, totalCajas: 0 }
+  }
+
+  const cajaItemsMap = new Map<number, CajaListItem>()
+  const cajaIds: number[] = []
+  for (const c of cajasRows) {
+    const prod = Array.isArray(c.producto) ? c.producto[0] : c.producto
+    const prov = Array.isArray(c.proveedor) ? c.proveedor[0] : c.proveedor
+    cajaIds.push(c.id)
+    cajaItemsMap.set(c.id, {
+      id: c.id,
+      codigo_caja: c.codigo_caja,
+      nombre_pack: c.nombre_pack,
+      producto_id: c.producto_id,
+      producto_sku: prod?.sku_base ?? null,
+      producto_nombre: prod?.nombre ?? null,
+      proveedor_nombre: prov?.nombre_completo ?? null,
+      piezas_por_caja: c.piezas_por_caja,
+      tallas: c.tallas,
+      colores: c.colores,
+      cbm: c.cbm,
+      peso_bruto_kg: c.peso_bruto_kg,
+      peso_neto: c.peso_neto,
+      costo_total_caja: c.costo_total_caja,
+      total_ordenes: 0,
+      contenedores: null,
+    })
+  }
+
+  const ordenCajasRows = await fetchInChunksPaginated<number, any>(
+    cajaIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('orden_cajas')
+        .select(`
+          caja_id, orden_id,
+          orden:ordenes_b2b!orden_cajas_orden_id_fkey (
+            id, activo, contenedor_id,
+            contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+              id, codigo_contenedor, estado, fecha_eta
+            )
+          )
+        `, isFirst ? { count: 'exact' } : undefined)
+        .in('caja_id', chunk)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchCajasAgrupadasPorContenedor:ordenCajas' }
+  )
+
+  type ContMeta = {
+    contenedor_id: number | null
+    contenedor_codigo: string | null
+    contenedor_estado: string | null
+    contenedor_fecha_eta: string | null
+  }
+
+  const cajasPorContenedor = new Map<number, { meta: ContMeta; cajaIds: Set<number> }>()
+  const cajasConContenedor = new Set<number>()
+
+  for (const oc of ordenCajasRows) {
+    const orden = Array.isArray(oc.orden) ? oc.orden[0] : oc.orden
+    if (!orden || orden.activo === false) continue
+
+    const cont = Array.isArray(orden.contenedor) ? orden.contenedor[0] : orden.contenedor
+    const contId: number | null = orden.contenedor_id ?? null
+    const key = contId ?? 0
+
+    if (!cajasPorContenedor.has(key)) {
+      cajasPorContenedor.set(key, {
+        meta: {
+          contenedor_id: contId,
+          contenedor_codigo: cont?.codigo_contenedor ?? null,
+          contenedor_estado: cont?.estado ?? null,
+          contenedor_fecha_eta: cont?.fecha_eta ?? null,
+        },
+        cajaIds: new Set<number>(),
+      })
+    }
+    cajasPorContenedor.get(key)!.cajaIds.add(oc.caja_id)
+    if (contId !== null) {
+      cajasConContenedor.add(oc.caja_id)
+    }
+  }
+
+  for (const id of cajaIds) {
+    if (!cajasConContenedor.has(id)) {
+      const existingSinCont = cajasPorContenedor.get(0)
+      if (existingSinCont) {
+        existingSinCont.cajaIds.add(id)
+      } else {
+        cajasPorContenedor.set(0, {
+          meta: {
+            contenedor_id: null,
+            contenedor_codigo: null,
+            contenedor_estado: null,
+            contenedor_fecha_eta: null,
+          },
+          cajaIds: new Set<number>([id]),
+        })
+      }
+    }
+  }
+
+  const qNorm = filtros.q?.trim().toLowerCase() ?? ''
+  const maxYear = filtros.año
+  const gruposFiltrados: GrupoContenedorCajas[] = []
+  const cajasUnicasContadas = new Set<number>()
+
+  for (const { meta, cajaIds: groupCajaIds } of cajasPorContenedor.values()) {
+    if (maxYear !== undefined) {
+      const contYear = extractContenedorYear(meta.contenedor_codigo)
+      if (contYear === null || contYear > maxYear) continue
+    }
+
+    const contMatch = qNorm ? (meta.contenedor_codigo ?? '').toLowerCase().includes(qNorm) : false
+
+    const cajasGrupo: CajaListItem[] = []
+    for (const id of cajaIds) {
+      if (!groupCajaIds.has(id)) continue
+      const item = cajaItemsMap.get(id)
+      if (!item) continue
+
+      if (qNorm && !contMatch) {
+        const matchCodigo = (item.codigo_caja ?? '').toLowerCase().includes(qNorm)
+        const matchSku = (item.producto_sku ?? '').toLowerCase().includes(qNorm)
+        const matchNombre = (item.producto_nombre ?? '').toLowerCase().includes(qNorm)
+        if (!matchCodigo && !matchSku && !matchNombre) continue
+      }
+
+      cajasGrupo.push(item)
+      cajasUnicasContadas.add(item.id)
+    }
+
+    if (cajasGrupo.length === 0) continue
+
+    let totalPiezas = 0
+    let totalCbm = 0
+    for (const c of cajasGrupo) {
+      totalPiezas += Number(c.piezas_por_caja ?? 0)
+      totalCbm += Number(c.cbm ?? 0)
+    }
+
+    gruposFiltrados.push({
+      contenedor_id: meta.contenedor_id,
+      contenedor_codigo: meta.contenedor_codigo,
+      contenedor_estado: meta.contenedor_estado,
+      contenedor_fecha_eta: meta.contenedor_fecha_eta,
+      total_cajas: cajasGrupo.length,
+      total_piezas: totalPiezas,
+      total_cbm: totalCbm,
+      cajas: cajasGrupo,
+    })
+  }
+
+  gruposFiltrados.sort((a, b) => {
+    if (a.contenedor_id === null && b.contenedor_id !== null) return 1
+    if (a.contenedor_id !== null && b.contenedor_id === null) return -1
+    return (b.contenedor_id ?? 0) - (a.contenedor_id ?? 0)
+  })
+
+  const page = Math.max(1, filtros.page ?? 1)
+  const from = (page - 1) * pageSize
+  const grupos = gruposFiltrados.slice(from, from + pageSize)
+
+  return {
+    grupos,
+    totalGrupos: gruposFiltrados.length,
+    totalCajas: cajasUnicasContadas.size,
+  }
 }
 
 export async function fetchCajaDetalle(

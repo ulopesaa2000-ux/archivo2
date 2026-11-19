@@ -1,11 +1,19 @@
 // app/(admin)/ordenes-b2b/cajas/page.tsx
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { fetchCajasListado, fetchCatalogosB2B, fetchCatalogoTallasColores } from '@/modules/ordenes-b2b/queries'
+import {
+  fetchCajasListado,
+  fetchCajasAgrupadasPorContenedor,
+  fetchCajasAgrupadasPorProducto,
+  fetchCatalogosB2B,
+  fetchCatalogoTallasColores,
+} from '@/modules/ordenes-b2b/queries'
 import { fetchUserTableConfig } from '@/modules/admin-table/config/queries'
 import { getDefaultFeatures } from '@/modules/admin-table/config/defaults'
 import { CajasFilters } from './CajasFilters'
 import { CajasTable } from './CajasTable'
+import { CajasVistaToggle } from './_components/CajasVistaToggle'
+import { VistaAgrupadaCajas } from './_components/VistaAgrupadaCajas'
 import { Pagination } from '@/components/admin/Pagination'
 import type { FiltrosCajas } from '@/modules/ordenes-b2b/types'
 import type { TableFeatures } from '@/components/admin/DataTable/types'
@@ -16,6 +24,9 @@ import { ListPageSkeleton } from '@/components/admin/PageSkeleton'
 
 export const metadata: Metadata = { title: 'Cajas de Producto' }
 
+const PAGE_SIZE_CONTENEDOR = 6
+const PAGE_SIZE_PRODUCTO = 12
+
 type CajasSearchParams = {
   q?: string
   proveedor_id?: string
@@ -24,17 +35,62 @@ type CajasSearchParams = {
   page?: string
   sort_by?: string
   order?: string
+  vista?: string
+  agrupar?: string
 }
 
 async function CajasTableData({
   filtros,
   features,
+  vista,
+  agrupar,
   canEdit = true,
 }: {
   filtros: FiltrosCajas
   features: TableFeatures
+  vista: 'agrupado' | 'tabla'
+  agrupar: 'contenedor' | 'producto'
   canEdit?: boolean
 }) {
+  if (vista === 'agrupado') {
+    if (agrupar === 'producto') {
+      const { grupos, totalGrupos, totalCajas } = await fetchCajasAgrupadasPorProducto(
+        filtros,
+        PAGE_SIZE_PRODUCTO
+      )
+      return (
+        <div className="space-y-4">
+          <VistaAgrupadaCajas
+            agruparPor="producto"
+            grupos={grupos}
+            totalGrupos={totalGrupos}
+            totalCajas={totalCajas}
+            canEdit={canEdit}
+          />
+          <Pagination total={totalGrupos} pageSize={PAGE_SIZE_PRODUCTO} />
+        </div>
+      )
+    }
+
+    const { grupos, totalGrupos, totalCajas } = await fetchCajasAgrupadasPorContenedor(
+      filtros,
+      PAGE_SIZE_CONTENEDOR
+    )
+
+    return (
+      <div className="space-y-4">
+        <VistaAgrupadaCajas
+          agruparPor="contenedor"
+          grupos={grupos}
+          totalGrupos={totalGrupos}
+          totalCajas={totalCajas}
+          canEdit={canEdit}
+        />
+        <Pagination total={totalGrupos} pageSize={PAGE_SIZE_CONTENEDOR} />
+      </div>
+    )
+  }
+
   const { items, total } = await fetchCajasListado(filtros)
 
   return (
@@ -61,6 +117,8 @@ export default async function CajasPage({
 
   const params = await searchParams
   const yearParam = params.anio ?? params.año
+  const vista = params.vista === 'tabla' ? 'tabla' : 'agrupado'
+  const agrupar = params.agrupar === 'producto' ? 'producto' : 'contenedor'
 
   const filtros: FiltrosCajas = {
     q: params.q,
@@ -68,7 +126,7 @@ export default async function CajasPage({
     año: yearParam ? parseInt(yearParam, 10) : undefined,
     page: params.page ? parseInt(params.page, 10) : 1,
     sort_by: params.sort_by ?? 'codigo_caja',
-    order: params.order === 'asc' ? 'asc' : 'desc',
+    order: params.order === 'desc' ? 'desc' : 'asc',
   }
 
   const user = await getCurrentUser()
@@ -88,12 +146,19 @@ export default async function CajasPage({
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight">Cajas de Producto</h1>
+        <CajasVistaToggle />
       </div>
       <CajasFilters catalogos={catalogos} catalogoCajas={catalogoCajas} puedeCrear={puedeCrear} />
       <Suspense fallback={<ListPageSkeleton rows={8} />}>
-        <CajasTableData filtros={filtros} features={features} canEdit={puedeEditar} />
+        <CajasTableData
+          filtros={filtros}
+          features={features}
+          vista={vista}
+          agrupar={agrupar}
+          canEdit={puedeEditar}
+        />
       </Suspense>
     </div>
   )

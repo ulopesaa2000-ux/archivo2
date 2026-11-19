@@ -6,6 +6,7 @@ import { useCallback, useTransition, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { X, Plus, Upload } from 'lucide-react'
+import { AÑOS_DISPONIBLES } from '@/lib/constants'
 import type { CatalogosB2B } from '@/modules/ordenes-b2b/types'
 import { CrearCajaDialog } from '@/components/admin/cajas/CrearCajaDialog'
 import { ImportCajasModal } from './components/ImportCajasModal'
@@ -64,18 +65,30 @@ export function CajasFilters({
 
   const clearFilters = useCallback(() => {
     startTransition(() => {
-      router.push(pathname, { scroll: false })
+      const preserved = new URLSearchParams()
+      const vista = searchParams.get('vista')
+      const agrupar = searchParams.get('agrupar')
+      if (vista) preserved.set('vista', vista)
+      if (agrupar) preserved.set('agrupar', agrupar)
+      const qs = preserved.toString()
+      router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
     })
-  }, [pathname, router])
+  }, [pathname, router, searchParams])
 
-  const hasFilters = searchParams.has('q') || searchParams.has('proveedor_id') || searchParams.has('año') || searchParams.has('anio')
-  const currentSort = `${searchParams.get('sort_by') ?? 'codigo_caja'}:${searchParams.get('order') ?? 'desc'}`
+  const currentAnio = searchParams.get('anio') ?? searchParams.get('año') ?? '_all'
+  const hasFilters =
+    searchParams.has('q') ||
+    searchParams.has('proveedor_id') ||
+    searchParams.has('año') ||
+    searchParams.has('anio')
+  const currentSort = `${searchParams.get('sort_by') ?? 'codigo_caja'}:${searchParams.get('order') ?? 'asc'}`
+  const isPorProducto = searchParams.get('agrupar') === 'producto'
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${isPending ? 'opacity-70' : ''}`}>
       <SearchInput
         id="cajas-search"
-        placeholder="Buscar código de caja..."
+        placeholder={isPorProducto ? 'Buscar código de caja o SKU...' : 'Buscar caja, SKU o contenedor...'}
         currentValue={searchParams.get('q')}
         onSearch={(term) => updateParam('q', term)}
         delay={300}
@@ -104,6 +117,25 @@ export function CajasFilters({
         </SelectContent>
       </Select>
 
+      <Select
+        value={currentAnio}
+        onValueChange={(v) => updateParam('anio', v === '_all' ? null : v)}
+      >
+        <SelectTrigger className="w-[155px] h-9 text-sm">
+          <span className="truncate">
+            {currentAnio === '_all' ? 'Todos los años' : `Hasta ${currentAnio}`}
+          </span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_all">Todos los años</SelectItem>
+          {[...AÑOS_DISPONIBLES].reverse().map((anio) => (
+            <SelectItem key={anio} value={String(anio)}>
+              Hasta {anio}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
       <Select value={currentSort} onValueChange={updateSort}>
         <SelectTrigger className="w-[170px] h-9 text-sm">
           <SelectValue placeholder="Ordenar por" />
@@ -123,7 +155,7 @@ export function CajasFilters({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => startTransition(() => router.push(pathname, { scroll: false }))}
+          onClick={clearFilters}
           className="text-muted-foreground"
         >
           <X className="h-3 w-3 mr-1" /> Limpiar
