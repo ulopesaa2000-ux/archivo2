@@ -15,7 +15,8 @@ function isChunkOrCacheError(err: unknown): boolean {
     /Loading chunk [0-9]+ failed/i.test(msg) ||
     /ChunkLoadError/i.test(msg) ||
     /ERR_CACHE_READ_FAILURE/i.test(msg) ||
-    /Failed to register a ServiceWorker/i.test(msg)
+    /Failed to register a ServiceWorker/i.test(msg) ||
+    /module factory is not available/i.test(msg)
   )
 }
 

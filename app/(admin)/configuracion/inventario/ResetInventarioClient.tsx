@@ -161,7 +161,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
               Herramienta de Reinicio Operativo de Inventario
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Esta sección permite vaciar el historial de notas e iniciar las existencias de stock en cero para reiniciar las operaciones. Reservado exclusivamente para la Administración General.
+              Esta sección permite reiniciar las existencias de cajas a cero mediante notas AJU confirmadas, sin ocultar el historial. Reservado exclusivamente para la Administración General.
             </p>
           </div>
         </CardContent>
@@ -200,7 +200,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
             </div>
             <CardTitle className="text-sm font-bold">2. Stock 0 (Global)</CardTitle>
             <CardDescription className="text-xs">
-              Establece existencias en `0 cajas` y `0 piezas` para todos los productos en todas las bodegas.
+              Establece las existencias en `0 cajas` para todos los productos en todas las bodegas. Las piezas sueltas legacy no afectan el Kardex ni bloquean el cierre.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -223,7 +223,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
             </div>
             <CardTitle className="text-sm font-bold text-indigo-950 dark:text-indigo-200">3. Stock 0 (Por Bodega)</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              Establece a 0 las existencias únicamente en la bodega que selecciones sin tocar las demás.
+              Establece a 0 las existencias de cajas únicamente en la bodega que selecciones, sin tocar las demás.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
@@ -260,7 +260,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
             </div>
             <CardTitle className="text-sm font-black text-red-600 dark:text-red-400">4. Reinicio Total</CardTitle>
             <CardDescription className="text-xs">
-              Oculta todo el historial de notas y reinicia todas las existencias de stock a 0 en un solo paso.
+              Reinicia todas las existencias de cajas a 0 en un solo paso mediante notas AJU confirmadas, sin ocultar el historial.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -287,7 +287,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
               <div>
                 <CardTitle className="text-base font-bold">Detalle y Acciones Rápidas por Bodega</CardTitle>
                 <CardDescription className="text-xs">
-                  Consulta el listado de bodegas y ejecuta de forma individual el vaciado de notas o el reinicio de stock a 0.
+                  Consulta el listado de bodegas y ejecuta de forma individual el reinicio de cajas a 0.
                 </CardDescription>
               </div>
             </div>
@@ -434,7 +434,7 @@ export function ResetInventarioClient({ bodegas = [] }: Props) {
                   <div className="space-y-1">
                     <p className="font-semibold text-foreground">{dryRunResult.message}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Bodegas afectadas: <strong>{dryRunResult.totalBodegas ?? 0}</strong> · Líneas con stock ≠ 0: <strong>{dryRunResult.totalLineas ?? 0}</strong>
+                      Bodegas afectadas: <strong>{dryRunResult.totalBodegas ?? 0}</strong> · Líneas con cajas ≠ 0: <strong>{dryRunResult.totalLineas ?? 0}</strong>
                     </p>
                   </div>
                 ) : dryRunResult?.error ? (

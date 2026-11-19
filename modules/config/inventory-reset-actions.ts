@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser, fetchBodegasUsuario } from '@/modules/auth/queries'
 import { can, isClienteEcommerce, isSuperAdmin } from '@/lib/auth/permissions'
+import { esFilaCajasNoCero, payloadCierreCajas } from '@/lib/inventario/reset-stock'
 
 export type BodegaResetReport = {
   bodegaId: number
@@ -27,11 +28,12 @@ export type ResetResult = {
   bodegas?: BodegaResetReport[]
 }
 
-type NonZeroStockRow = {
+type CajasNoCeroRow = {
   id: number
   producto_id: number
   caja_id: number | null
   cajas: number
+  /** Solo diagnóstico: el cierre opera exclusivamente sobre cajas. */
   piezas_sueltas: number
 }
 
@@ -58,11 +60,19 @@ async function runWithConcurrency<T, R>(
   return results
 }
 
-async function fetchNonZeroStockForBodega(
+/**
+ * Lee únicamente las filas con CAJAS distintas de 0 en la bodega.
+ *
+ * La unidad oficial de stock es CAJAS (AGENTS.md 3.1.3) y el motor de Stock
+ * Histórico ignora `piezas_sueltas`. Por eso el cierre no incluye filas que
+ * solo tienen piezas: no se pueden restar vía nota AJU (el detalle exige
+ * `piezas_sueltas >= 0`) y no forman parte del Kardex.
+ */
+async function fetchCajasNoCeroBodega(
   supabase: Awaited<ReturnType<typeof createClient>>,
   bodegaId: number
-): Promise<NonZeroStockRow[]> {
-  const rows: NonZeroStockRow[] = []
+): Promise<CajasNoCeroRow[]> {
+  const rows: CajasNoCeroRow[] = []
   let from = 0
   const pageSize = 1000
 
@@ -71,7 +81,7 @@ async function fetchNonZeroStockForBodega(
       .from('inventario_stock')
       .select('id, producto_id, caja_id, cajas, piezas_sueltas')
       .eq('bodega_id', bodegaId)
-      .or('cajas.neq.0,piezas_sueltas.neq.0')
+      .neq('cajas', 0)
       .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
 
@@ -82,16 +92,14 @@ async function fetchNonZeroStockForBodega(
 
     for (const r of data) {
       const cajas = Number(r.cajas ?? 0)
-      const piezas = Number(r.piezas_sueltas ?? 0)
-      if (cajas !== 0 || piezas !== 0) {
-        rows.push({
-          id: Number(r.id),
-          producto_id: Number(r.producto_id),
-          caja_id: r.caja_id !== null && r.caja_id !== undefined ? Number(r.caja_id) : null,
-          cajas,
-          piezas_sueltas: piezas,
-        })
-      }
+      if (!esFilaCajasNoCero({ cajas })) continue
+      rows.push({
+        id: Number(r.id),
+        producto_id: Number(r.producto_id),
+        caja_id: r.caja_id !== null && r.caja_id !== undefined ? Number(r.caja_id) : null,
+        cajas,
+        piezas_sueltas: Number(r.piezas_sueltas ?? 0),
+      })
     }
 
     if (data.length < pageSize) break
@@ -102,9 +110,41 @@ async function fetchNonZeroStockForBodega(
 }
 
 /**
- * Procesa el cierre a 0 de una bodega exclusivamente via nota AJU (codigo='AJU', id=4)
- * + sp_crear_nota + sp_agregar_producto_nota (-cajas, -piezas_sueltas, respetando caja_id)
- * + CONF (fn_procesar_nota_inventario).
+ * Descarta una nota borrador que falló antes de confirmarse.
+ *
+ * No se borra físicamente porque `historial_estados_nota.nota_id` no tiene
+ * ON DELETE CASCADE: el DELETE fallaría y dejaría la nota PEND huérfana.
+ * Marcarla `activo = false` la oculta de los listados sin disparar stock
+ * (`fn_procesar_nota_inventario` retorna temprano si el estado no cambió).
+ */
+async function descartarNotaBorrador(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  notaId: number,
+  motivo: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('notas_inventario')
+    .update({
+      activo: false,
+      observaciones: `Cierre abortado: ${motivo}`,
+    })
+    .eq('id', notaId)
+
+  if (error) {
+    console.error(
+      `[AUDIT_INVENTORY_RESET] No se pudo descartar la nota borrador #${notaId}: ${error.message}`
+    )
+  }
+}
+
+/**
+ * Procesa el cierre a 0 de las CAJAS de una bodega exclusivamente vía nota AJU
+ * (codigo='AJU') + sp_crear_nota + sp_agregar_producto_nota (-cajas, 0 piezas,
+ * respetando caja_id) + CONF (fn_procesar_nota_inventario).
+ *
+ * Las `piezas_sueltas` son legado informativo: no se envían en el detalle (el
+ * CHECK exige piezas >= 0) ni se usan para verificar el cierre. Así una fila
+ * con cajas = 0 y piezas > 0 no bloquea el reset.
  *
  * NOTA IMPORTANTE DE BD: cat_tipos_movimiento.AJU tiene afecta_inventario = 0 en esquema,
  * pero fn_procesar_nota_inventario SI procesa AJU cuando estado pasa a CONF y registra
@@ -120,7 +160,7 @@ async function resetBodegaViaNotaAju(
   runId: string,
   dryRun: boolean
 ): Promise<BodegaResetReport> {
-  const initialRows = await fetchNonZeroStockForBodega(supabase, bodegaId)
+  const initialRows = await fetchCajasNoCeroBodega(supabase, bodegaId)
   if (initialRows.length === 0) {
     return {
       bodegaId,
@@ -182,18 +222,18 @@ async function resetBodegaViaNotaAju(
 
     // Agregar líneas en serie dentro de la misma nota (evita locks/contención en la misma nota)
     for (const row of pendingRows) {
+      const payload = payloadCierreCajas(row)
+      if (!payload) continue
+
       const { error: addErr } = await supabase.rpc('sp_agregar_producto_nota', {
         p_nota_id: notaId,
-        p_cajas: -row.cajas,
         p_producto_id: row.producto_id,
         p_variante_id: undefined,
-        p_piezas_sueltas: -row.piezas_sueltas,
-        p_caja_id: row.caja_id ?? undefined,
+        ...payload,
       })
 
       if (addErr) {
-        // Limpiar borrador no confirmado antes de abortar
-        await supabase.from('notas_inventario').delete().eq('id', notaId)
+        await descartarNotaBorrador(supabase, notaId, addErr.message)
         return {
           bodegaId,
           bodegaNombre,
@@ -212,7 +252,7 @@ async function resetBodegaViaNotaAju(
       .eq('id', notaId)
 
     if (confErr) {
-      await supabase.from('notas_inventario').delete().eq('id', notaId)
+      await descartarNotaBorrador(supabase, notaId, confErr.message)
       return {
         bodegaId,
         bodegaNombre,
@@ -226,8 +266,8 @@ async function resetBodegaViaNotaAju(
     createdNotaIds.push(notaId)
     totalLines += pendingRows.length
 
-    // Verificación post-CONF (cajas y piezas_sueltas = 0)
-    pendingRows = await fetchNonZeroStockForBodega(supabase, bodegaId)
+    // Verificación post-CONF: solo cajas (las piezas legacy no bloquean)
+    pendingRows = await fetchCajasNoCeroBodega(supabase, bodegaId)
   }
 
   const zeroVerified = pendingRows.length === 0
@@ -238,7 +278,7 @@ async function resetBodegaViaNotaAju(
       linesCount: totalLines,
       notaIds: createdNotaIds,
       zeroVerified: false,
-      error: `Quedaron ${pendingRows.length} filas con stock distinto de 0 en ${bodegaNombre} tras ${MAX_POST_CONF_RETRIES} reintentos.`,
+      error: `Quedaron ${pendingRows.length} filas con cajas distintas de 0 en ${bodegaNombre} tras ${MAX_POST_CONF_RETRIES} reintentos.`,
     }
   }
 
@@ -324,7 +364,7 @@ async function executeBodegasReset(
       totalLineas,
       notaIds: [],
       bodegas: reports,
-      message: `Simulación (dry-run): se generarían notas AJU para ${bodegasConStock} bodega(s) (${totalLineas} líneas con stock ≠ 0).`,
+      message: `Simulación (dry-run): se generarían notas AJU para ${bodegasConStock} bodega(s) (${totalLineas} líneas con cajas ≠ 0).`,
     }
   }
 
@@ -338,8 +378,8 @@ async function executeBodegasReset(
     bodegas: reports,
     message:
       totalLineas === 0
-        ? 'El inventario ya se encontraba en 0. No fue necesario crear notas AJU.'
-        : `Reinicio a 0 completado vía ${notaIds.length} nota(s) AJU confirmadas (${totalLineas} líneas procesadas en Kardex y auditoría).`,
+        ? 'El inventario ya se encontraba en 0 cajas. No fue necesario crear notas AJU.'
+        : `Reinicio a 0 completado vía ${notaIds.length} nota(s) AJU confirmadas (${totalLineas} líneas de cajas procesadas en Kardex y auditoría).`,
   }
 }
 

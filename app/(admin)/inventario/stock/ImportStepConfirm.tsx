@@ -149,8 +149,8 @@ export function ImportStepConfirm({ filas, modo, bodegaDefaultId = 0, onSuccess,
             </div>
             <p className="text-xs text-amber-800 dark:text-amber-300/80 leading-relaxed">
               {grupos.length === 1
-                ? `Establece a 0 todas las existencias de '${grupos[0]?.bodega_nombre}' antes de registrar las nuevas cantidades del archivo. Los productos no presentes en el archivo quedarán con 0 existencias.`
-                : `Establece a 0 todas las existencias en las ${grupos.length} bodegas (${grupos.map((g) => g.bodega_nombre).join(', ')}) antes de registrar las nuevas cantidades.`}
+                ? `Establece a 0 todas las cajas de '${grupos[0]?.bodega_nombre}' antes de registrar las nuevas cantidades del archivo. Los productos no presentes en el archivo quedarán con 0 cajas.`
+                : `Establece a 0 todas las cajas en las ${grupos.length} bodegas (${grupos.map((g) => g.bodega_nombre).join(', ')}) antes de registrar las nuevas cantidades.`}
             </p>
           </div>
         </label>
