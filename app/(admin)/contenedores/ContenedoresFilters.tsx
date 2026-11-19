@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select'
-import { ArrowUpDown, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, X } from 'lucide-react'
 import {
   ESTADOS_CONTENEDOR,
   ESTADO_CONTENEDOR_LABELS,
@@ -97,7 +97,7 @@ export function ContenedoresFilters({
 
         <Select
           value={sortBy}
-          onValueChange={(value) => updateParam('sort_by', value === 'fecha_eta' ? null : value)}
+          onValueChange={(value) => updateParam('sort_by', value === 'codigo_contenedor' ? null : value)}
         >
           <SelectTrigger className="h-9 w-[180px] text-sm">
             <span className="flex items-center gap-1.5 truncate">
@@ -114,16 +114,19 @@ export function ContenedoresFilters({
           </SelectContent>
         </Select>
 
-        {sortBy !== 'fecha_eta' && (
-          <button
-            type="button"
-            onClick={() => updateParam('order', order === 'asc' ? 'desc' : 'asc')}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-            title={order === 'asc' ? 'Ascendente, click para invertir' : 'Descendente, click para invertir'}
-          >
-            {order === 'asc' ? '^' : 'v'}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => updateParam('order', order === 'asc' ? 'desc' : 'asc')}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+          title={order === 'asc' ? 'Ascendente, click para invertir' : 'Descendente, click para invertir'}
+          aria-label={order === 'asc' ? 'Orden ascendente' : 'Orden descendente'}
+        >
+          {order === 'asc' ? (
+            <ArrowUp className="h-4 w-4" />
+          ) : (
+            <ArrowDown className="h-4 w-4" />
+          )}
+        </button>
 
         <div className="flex-1" />
 

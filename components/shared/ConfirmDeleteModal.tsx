@@ -21,6 +21,8 @@ interface ConfirmDeleteModalProps {
   title?: string
   elementName: string
   description?: string
+  confirmText?: string
+  confirmLoadingText?: string
 }
 
 export function ConfirmDeleteModal({
@@ -29,7 +31,9 @@ export function ConfirmDeleteModal({
   onConfirm,
   title = '¿Eliminar elemento?',
   elementName,
-  description = 'Esta acción marcará este elemento como inactivo y ya no será visible en el sistema. Puedes recuperarlo contactando al administrador.'
+  description = 'Esta acción marcará este elemento como inactivo y ya no será visible en el sistema. Puedes recuperarlo contactando al administrador.',
+  confirmText = 'Eliminar',
+  confirmLoadingText = 'Eliminando...'
 }: ConfirmDeleteModalProps) {
   const [isPending, startTransition] = useTransition()
 
@@ -69,7 +73,7 @@ export function ConfirmDeleteModal({
             className="gap-2"
           >
             {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-            {isPending ? 'Eliminando...' : 'Eliminar'}
+            {isPending ? confirmLoadingText : confirmText}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

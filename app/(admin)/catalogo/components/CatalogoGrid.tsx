@@ -2,7 +2,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ProgressiveProductImage } from '@/components/shared/ProgressiveProductImage'
@@ -29,6 +29,8 @@ interface Props {
  */
 export function CatalogoGrid({ productos, mode = 'admin' }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const isReadOnly = mode === 'readonly'
 
   if (productos.length === 0) {
@@ -86,9 +88,13 @@ export function CatalogoGrid({ productos, mode = 'admin' }: Props) {
                         className="h-8 px-3 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary dark:hover:text-primary-foreground backdrop-blur-md shadow-lg border border-white/20 dark:border-black/20 text-xs font-semibold gap-1.5 transition-all hover:scale-105 active:scale-95"
                         onClick={(e) => {
                           e.preventDefault()
-                          router.push(detalleUrl)
+                          e.stopPropagation()
+                          const params = new URLSearchParams(searchParams.toString())
+                          params.set('modal', 'edit')
+                          params.set('edit_id', String(producto.id))
+                          router.push(`${pathname || '/catalogo'}?${params.toString()}`, { scroll: false })
                         }}
-                        title="Editar producto"
+                        title="Edición rápida"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                         <span>Editar</span>

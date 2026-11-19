@@ -1143,6 +1143,8 @@ export const CajaCard = memo(function CajaCard({
         title="Marcar como caja principal"
         description="Solo una caja puede ser principal por producto. Si ya existe una caja principal marcada, será reemplazada automáticamente. La caja principal se utiliza para generar variantes de ecommerce (talla × color)."
         elementName={`Caja: ${caja.codigo_caja} ${caja.nombre_pack ? `(${caja.nombre_pack})` : ''}`}
+        confirmText="Aceptar"
+        confirmLoadingText="Procesando..."
         onConfirm={async () => {
           if (!onMarcarPrincipal || !productoId) return
           setIsMarkingPrincipal(true)

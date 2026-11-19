@@ -72,6 +72,7 @@ interface NotaHeaderCardProps {
   onDragLeave: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent) => void
   mismatchBanner?: React.ReactNode
+  despachoControl?: React.ReactNode
 }
 
 export function NotaHeaderCard({
@@ -104,6 +105,7 @@ export function NotaHeaderCard({
   onDragLeave,
   onDrop,
   mismatchBanner,
+  despachoControl,
 }: NotaHeaderCardProps) {
   return (
     <Card className="w-full shadow-xl shadow-black/5 bg-gradient-to-br from-card to-muted/20 border">
@@ -178,9 +180,12 @@ export function NotaHeaderCard({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Bodega Origen *
-            </Label>
+            <div className="flex items-center justify-between gap-2 flex-wrap min-h-[24px]">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Bodega Origen *
+              </Label>
+              {despachoControl}
+            </div>
             <Select
               value={draft.bodega_origen_id?.toString() ?? ''}
               onValueChange={(v) => v && onRequestBodegaOrigenChange(parseInt(v, 10))}

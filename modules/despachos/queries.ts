@@ -5,7 +5,10 @@ import { createClient } from '@/lib/supabase/server'
 import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import type { Database } from '@/lib/types/database.types'
-import type { FiltrosDespacho, DespachoListaItem, StockVirtualItem } from './types'
+import type { FiltrosDespacho, DespachoListaItem, StockVirtualItem, DespachoVinculadoNota } from './types'
+import { extractDespachoIdFromReferencia } from './types'
+export type { DespachoVinculadoNota } from './types'
+export { extractDespachoIdFromReferencia } from './types'
 
 // ════════════════════════════════════════════════════════════
 // BODEGAS VIRTUALES
@@ -103,7 +106,9 @@ export async function fetchStockVirtual(
     }
   }
 
-  return Array.from(map.values())
+  return Array.from(map.values()).sort((a, b) =>
+    (a.sku_base ?? '').localeCompare(b.sku_base ?? '', 'es', { sensitivity: 'base' })
+  )
 }
 
 export async function fetchStockVirtualResumenes(
@@ -284,8 +289,35 @@ export type NotaTraspasoDespacho = {
 } | null
 
 /**
+ * Obtiene el despacho vinculado a una nota a partir de su `nota_referencia`
+ * (convención `Despacho <id>` o `Despacho <id> · <folio_original>`).
+ */
+export async function fetchDespachoPorNotaRef(
+  notaReferencia: string | null | undefined
+): Promise<DespachoVinculadoNota> {
+  const despachoId = extractDespachoIdFromReferencia(notaReferencia)
+  if (!despachoId) return null
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('despachos')
+    .select('id, estado, fecha_programada, chofer, vehiculo_info')
+    .eq('id', despachoId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return {
+    id: data.id,
+    estado: data.estado ?? 'Programado',
+    fecha_programada: data.fecha_programada ?? null,
+    chofer: data.chofer ?? null,
+    vehiculo_info: data.vehiculo_info ?? null,
+  }
+}
+
+/**
  * Nota TRF vinculada a un despacho por convención
- * nota_referencia = 'Despacho <id>' (sin columnas nuevas en BD).
+ * nota_referencia = 'Despacho <id>' (o 'Despacho <id> · ...').
  */
 export async function fetchNotaTraspasoDespacho(
   despachoId: number
@@ -295,24 +327,25 @@ export async function fetchNotaTraspasoDespacho(
   const { data, error } = await supabase
     .from('notas_inventario')
     .select(`
-      id, numero_nota, fecha_confirmacion, total_cajas,
+      id, numero_nota, nota_referencia, fecha_confirmacion, total_cajas,
       tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
       estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo, nombre )
     `)
-    .eq('nota_referencia', `Despacho ${despachoId}`)
+    .ilike('nota_referencia', `Despacho ${despachoId}%`)
     .order('id', { ascending: false })
     .limit(10)
 
   if (error || !data) return null
 
-  const rows = data as unknown as {
+  const rows = (data as unknown as {
     id: number
     numero_nota: string
+    nota_referencia: string | null
     fecha_confirmacion: string | null
     total_cajas: number | null
     tipo: { codigo: string } | { codigo: string }[] | null
     estado: { codigo: string; nombre: string | null } | { codigo: string; nombre: string | null }[] | null
-  }[]
+  }[]).filter((r) => extractDespachoIdFromReferencia(r.nota_referencia) === despachoId)
 
   const trf = rows.find((r) => {
     const t = Array.isArray(r.tipo) ? r.tipo[0] : r.tipo
@@ -325,12 +358,12 @@ export async function fetchNotaTraspasoDespacho(
   const est = Array.isArray(row.estado) ? row.estado[0] : row.estado
   return {
     id: row.id,
-    numero_nota: row.numero_nota,
-    estado_codigo: est?.codigo ?? '',
-    estado_nombre: est?.nombre ?? null,
-    fecha_confirmacion: row.fecha_confirmacion,
-    total_cajas: row.total_cajas,
-  }
+  numero_nota: row.numero_nota,
+  estado_codigo: est?.codigo ?? '',
+  estado_nombre: est?.nombre ?? null,
+  fecha_confirmacion: row.fecha_confirmacion,
+  total_cajas: row.total_cajas,
+}
 }
 
 /**
@@ -343,10 +376,9 @@ export async function fetchMapaNotasDespacho(
   if (despachoIds.length === 0) return mapa
 
   const supabase = await createClient()
-  const referencias = despachoIds.map((id) => `Despacho ${id}`)
 
-  const data = await fetchInChunksPaginated<string, any>(
-    referencias,
+  const data = await fetchInChunksPaginated<number, any>(
+    despachoIds,
     (chunk, fromIdx, toIdx, isFirst) =>
       supabase
         .from('notas_inventario')
@@ -358,10 +390,10 @@ export async function fetchMapaNotasDespacho(
         `,
           isFirst ? { count: 'exact' } : undefined
         )
-        .in('nota_referencia', chunk)
+        .or(chunk.map((id) => `nota_referencia.ilike.Despacho ${id}%`).join(','))
         .order('id', { ascending: true })
         .range(fromIdx, toIdx),
-    { chunkSize: 150, label: 'fetchMapaNotasDespacho' }
+    { chunkSize: 100, label: 'fetchMapaNotasDespacho' }
   )
 
   const rows = data as unknown as {
@@ -377,9 +409,8 @@ export async function fetchMapaNotasDespacho(
   // Preferir TRF; si no hay, la más reciente (histórico SAL/ENT)
   const porDespacho = new Map<number, typeof rows>()
   for (const r of rows) {
-    const match = /^Despacho (\d+)$/.exec(r.nota_referencia ?? '')
-    if (!match) continue
-    const did = Number(match[1])
+    const did = extractDespachoIdFromReferencia(r.nota_referencia)
+    if (!did) continue
     const list = porDespacho.get(did) ?? []
     list.push(r)
     porDespacho.set(did, list)

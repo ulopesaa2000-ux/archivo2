@@ -13,6 +13,11 @@ import {
   validarDisponibilidadNotaAction,
 } from '@/modules/inventario/actions'
 import {
+  crearDespachoDesdeNotaAction,
+  sincronizarDespachoDesdeNotaAction,
+} from '@/modules/despachos/actions'
+import { extractDespachoIdFromReferencia } from '@/modules/despachos/types'
+import {
   ajustarLineasADisponible,
   claveStock,
   consolidarLineas,
@@ -85,7 +90,11 @@ export function useNotaValidacion({
   const hayAvisosRevision = (): boolean =>
     (hayDeficitStock && permitirStockNegativo) || hayAvisoFecha() || !!ladoDurazno()
 
-  const doSave = (confirmar: boolean, draftOverride?: DraftNota) => {
+  const doSave = (
+    confirmar: boolean,
+    draftOverride?: DraftNota,
+    despachoOpts?: { vehiculo?: string; chofer?: string }
+  ) => {
     setError(null)
     setSuccess(null)
     setShowConfirmDialog(false)
@@ -126,8 +135,27 @@ export function useNotaValidacion({
         }
       }
 
+      let despachoSuffix = ''
+      if (confirmar && destId) {
+        const despachoYaVinculado = extractDespachoIdFromReferencia(draftAGuardar.nota_referencia)
+        if (despachoYaVinculado) {
+          await sincronizarDespachoDesdeNotaAction(destId).catch(() => null)
+        } else if (despachoOpts) {
+          const despRes = await crearDespachoDesdeNotaAction({
+            notaId: destId,
+            vehiculo_info: despachoOpts.vehiculo,
+            chofer: despachoOpts.chofer,
+          })
+          if (despRes.success && despRes.despacho_id) {
+            despachoSuffix = ` y Despacho #${despRes.despacho_id} generado`
+          } else {
+            toast.warning(`Nota confirmada, pero no se pudo crear el despacho: ${despRes.error ?? 'Error'}`)
+          }
+        }
+      }
+
       const successMsg = confirmar
-        ? `Nota confirmada exitosamente${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
+        ? `Nota confirmada exitosamente${result.numero_nota ? ` (${result.numero_nota})` : ''}${despachoSuffix}.`
         : `Nota guardada como borrador${result.numero_nota ? ` (${result.numero_nota})` : ''}.`
 
       setSuccess(successMsg)

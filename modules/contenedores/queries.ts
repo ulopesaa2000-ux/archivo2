@@ -28,7 +28,7 @@ export async function fetchContenedores(
   const page = filtros.page ?? 1
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
-  const sortBy: ContenedorSortBy = filtros.sort_by ?? 'fecha_eta'
+  const sortBy: ContenedorSortBy = filtros.sort_by ?? 'codigo_contenedor'
   const ascending = filtros.order === 'asc'
 
   const scope = await getCommercialScope()

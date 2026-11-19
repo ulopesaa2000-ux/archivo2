@@ -36,6 +36,10 @@ import {
 import type { NotaListItem, NavegacionNota } from '@/modules/inventario/types'
 import { cn } from '@/lib/utils'
 import { subirComprobanteNotaAction, eliminarComprobanteNotaAction } from '@/modules/inventario/actions'
+import { crearDespachoDesdeNotaAction } from '@/modules/despachos/actions'
+import type { DespachoVinculadoNota } from '@/modules/despachos/types'
+import { NotaDespachoPopover } from '../../_components/NotaDespachoPopover'
+import { toast } from 'sonner'
 import Image from 'next/image'
 import { NotaNavigation } from './NotaNavigation'
 
@@ -51,14 +55,54 @@ export function NotaCabecera({
   nota,
   showComprobante = true,
   navegacion,
+  despachoVinculado: initialDespachoVinculado = null,
+  origenEsVirtual = false,
+  destinoEsFisica = false,
 }: { 
   nota: NotaListItem
   showComprobante?: boolean
   navegacion?: NavegacionNota | null
+  despachoVinculado?: DespachoVinculadoNota
+  origenEsVirtual?: boolean
+  destinoEsFisica?: boolean
 }) {
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(nota.comprobante_url)
+  const [despachoVinculado, setDespachoVinculado] = useState<DespachoVinculadoNota>(initialDespachoVinculado)
+  const [isCreatingDespacho, setIsCreatingDespacho] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+
+  const esElegibleDespacho =
+    nota.tipo_codigo === 'TRF' &&
+    origenEsVirtual &&
+    destinoEsFisica &&
+    nota.estado_codigo !== 'CANC'
+
+  const handleCrearDespachoDesdeNota = async (opts: { vehiculo?: string; chofer?: string }) => {
+    setIsCreatingDespacho(true)
+    try {
+      const res = await crearDespachoDesdeNotaAction({
+        notaId: nota.id,
+        vehiculo_info: opts.vehiculo,
+        chofer: opts.chofer,
+      })
+      if (!res.success || !res.despacho_id) {
+        toast.error(res.error ?? 'No se pudo crear el despacho.')
+        return false
+      }
+      setDespachoVinculado({
+        id: res.despacho_id,
+        estado: res.despacho_estado ?? 'Recibido',
+        fecha_programada: nota.fecha_nota ? String(nota.fecha_nota).slice(0, 10) : null,
+        chofer: opts.chofer ?? null,
+        vehiculo_info: opts.vehiculo ?? null,
+      })
+      toast.success(`Despacho #${res.despacho_id} vinculado exitosamente.`)
+      return true
+    } finally {
+      setIsCreatingDespacho(false)
+    }
+  }
 
   const estadoColor = ESTADO_NOTA_COLORS[nota.estado_codigo] ?? 'bg-gray-100 text-gray-800'
   const Icon = ICONS_MAP[nota.tipo_codigo] ?? Box
@@ -178,9 +222,19 @@ export function NotaCabecera({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-4">
                 <div className="space-y-2 group">
-                  <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-70 group-hover:opacity-100 transition-opacity">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Bodega Origen
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-70 group-hover:opacity-100 transition-opacity">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Bodega Origen
+                    </div>
+                    {(esElegibleDespacho || despachoVinculado) && (
+                      <NotaDespachoPopover
+                        despachoVinculado={despachoVinculado}
+                        fechaNota={nota.fecha_nota ? String(nota.fecha_nota).slice(0, 10) : ''}
+                        isSubmitting={isCreatingDespacho}
+                        onCreate={handleCrearDespachoDesdeNota}
+                      />
+                    )}
                   </div>
                   <div className="p-4 rounded-xl bg-background/50 border shadow-sm group-hover:border-emerald-500/30 transition-colors">
                     <p className="font-bold text-lg">{nota.bodega_origen_nombre}</p>

@@ -1,6 +1,7 @@
 // app/(admin)/inventario/notas/nueva/_components/NotaModales.tsx
 'use client'
 
+import { useState, useEffect } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +15,9 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertCircle, AlertTriangle, ArrowLeftRight, CalendarClock, RefreshCw, Sparkles } from 'lucide-react'
+import { Label } from '@/components/ui/label'
+import { AlertCircle, AlertTriangle, ArrowLeftRight, Calendar, CalendarClock, RefreshCw, Sparkles, Truck } from 'lucide-react'
+import type { DespachoVinculadoNota } from '@/modules/despachos/types'
 import { todayMX, formatDate } from '@/lib/utils'
 import { OcrLineasSyncModal } from '@/components/admin/OcrLineasSyncModal'
 import { SustitutoFamiliaModal } from '@/components/admin/inventario/SustitutoFamiliaModal'
@@ -45,7 +48,8 @@ interface NotaModalesProps {
   productosConDeficitCount: number
   showConfirmDialog: boolean
   onShowConfirmDialogChange: (open: boolean) => void
-  onConfirmSave: () => void
+  onConfirmSave: (despachoOpts?: { vehiculo?: string; chofer?: string }) => void
+  despachoVinculado?: DespachoVinculadoNota
   swapProductTempId: string | null
   swapSearchTerm: string
   onCloseSwap: () => void
@@ -110,6 +114,7 @@ export function NotaModales({
   showConfirmDialog,
   onShowConfirmDialogChange,
   onConfirmSave,
+  despachoVinculado = null,
   swapProductTempId,
   swapSearchTerm,
   onCloseSwap,
@@ -157,7 +162,25 @@ export function NotaModales({
   onGuardarBorrador,
   onVerSustitutosPorProducto,
 }: NotaModalesProps) {
-  const bodegaOrigenNombre = bodegas.find((b) => b.id === draft.bodega_origen_id)?.nombre
+  const bodegaOrigen = bodegas.find((b) => b.id === draft.bodega_origen_id)
+  const bodegaOrigenNombre = bodegaOrigen?.nombre
+  const bodegaDestino = bodegas.find((b) => b.id === draft.bodega_destino_id)
+  const esElegibleDespacho =
+    tipoSeleccionado?.codigo === 'TRF' &&
+    Boolean(bodegaOrigen?.es_virtual) &&
+    Boolean(bodegaDestino && !bodegaDestino.es_virtual)
+
+  const [generarDespacho, setGenerarDespacho] = useState(false)
+  const [despVehiculo, setDespVehiculo] = useState('')
+  const [despChofer, setDespChofer] = useState('')
+
+  useEffect(() => {
+    if (!showConfirmDialog) {
+      setGenerarDespacho(false)
+      setDespVehiculo('')
+      setDespChofer('')
+    }
+  }, [showConfirmDialog])
 
   return (
     <>
@@ -182,9 +205,96 @@ export function NotaModales({
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {esElegibleDespacho && (
+            despachoVinculado ? (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2 font-semibold">
+                <Truck className="h-4 w-4 shrink-0" />
+                <span>
+                  Vinculada a Despacho #{despachoVinculado.id} ({despachoVinculado.estado}). Sus líneas se sincronizarán al confirmar.
+                </span>
+              </div>
+            ) : (
+              <div className="relative overflow-hidden rounded-xl p-[1.5px] shadow-sm shadow-blue-500/15">
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-[-180%] animate-[spin_4.5s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_0_230deg,rgba(37,99,235,0.55)_290deg,rgba(96,165,250,0.8)_330deg,transparent_360deg)]"
+                />
+                <div className="relative rounded-[10.5px] bg-card p-3 space-y-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={generarDespacho}
+                      onChange={(e) => setGenerarDespacho(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-input accent-blue-600"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <Truck className="h-3.5 w-3.5 text-blue-500" />
+                        ¿Generar también Despacho desde {bodegaOrigenNombre}?
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        Crea el registro logístico en Despachos usando esta misma nota (sin duplicar movimientos).
+                      </span>
+                    </div>
+                  </label>
+
+                  {generarDespacho && (
+                    <div className="space-y-2.5 pt-2 border-t border-border/60">
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                        <span>
+                          Fecha programada: <strong className="text-foreground">{draft.fecha_nota || todayMX()}</strong>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label htmlFor="confirm-desp-vehiculo" className="text-[11px]">
+                            Vehículo (opcional)
+                          </Label>
+                          <Input
+                            id="confirm-desp-vehiculo"
+                            value={despVehiculo}
+                            onChange={(e) => setDespVehiculo(e.target.value)}
+                            placeholder="Ej: Camión 3.5t"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="confirm-desp-chofer" className="text-[11px]">
+                            Chofer (opcional)
+                          </Label>
+                          <Input
+                            id="confirm-desp-chofer"
+                            value={despChofer}
+                            onChange={(e) => setDespChofer(e.target.value)}
+                            placeholder="Nombre del chofer"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={onConfirmSave} className="rounded-xl font-bold uppercase tracking-wider">
+            <AlertDialogAction
+              onClick={() =>
+                onConfirmSave(
+                  esElegibleDespacho && !despachoVinculado && generarDespacho
+                    ? {
+                      vehiculo: despVehiculo.trim() || undefined,
+                      chofer: despChofer.trim() || undefined,
+                    }
+                    : undefined
+                )
+              }
+              className="rounded-xl font-bold uppercase tracking-wider"
+            >
               Confirmar Nota
             </AlertDialogAction>
           </AlertDialogFooter>

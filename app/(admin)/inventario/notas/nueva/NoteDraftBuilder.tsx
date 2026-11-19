@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Save } from 'lucide-react'
@@ -11,7 +12,13 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import { formatForDateInput } from '@/lib/utils'
 import { agregarLineasPorClave } from '@/lib/inventario/validacion-stock'
 import { isModoSoloCajas, type ConfigInventario } from '@/modules/inventario/config-types'
-import type { ResolvedProductoPegado } from '@/modules/inventario/actions'
+import { guardarNotaAction, actualizarNotaAction, type ResolvedProductoPegado } from '@/modules/inventario/actions'
+import {
+  crearDespachoDesdeNotaAction,
+  sincronizarDespachoDesdeNotaAction,
+} from '@/modules/despachos/actions'
+import type { DespachoVinculadoNota } from '@/modules/despachos/types'
+import { NotaDespachoPopover } from '../_components/NotaDespachoPopover'
 import type { BodegaRow, UsuarioBodegaRow } from '@/lib/types/tables'
 import type {
   CatalogosInventario,
@@ -50,6 +57,7 @@ type Props = {
   autoOpenOcrSync?: boolean
   config?: ConfigInventario
   userRoleId?: number
+  initialDespachoVinculado?: DespachoVinculadoNota
 }
 
 export function NoteDraftBuilder({
@@ -67,7 +75,11 @@ export function NoteDraftBuilder({
   autoOpenOcrSync,
   config,
   userRoleId,
+  initialDespachoVinculado = null,
 }: Props) {
+  const router = useRouter()
+  const [despachoVinculado, setDespachoVinculado] = useState<DespachoVinculadoNota>(initialDespachoVinculado)
+  const [isDespachoSubmitting, setIsDespachoSubmitting] = useState(false)
   const [draft, setDraft] = useState<DraftNota>(() =>
     buildInitialDraft({ mode, initialData, catalogos, defaultBodegaOrigenId, config, currentUserLevel, userRoleId })
   )
@@ -112,11 +124,11 @@ export function NoteDraftBuilder({
     currentUserLevel <= 2
       ? catalogos.bodegas
       : catalogos.bodegas.filter(
-          (b) =>
-            userBodegas.some((ub) => ub.id === b.id) ||
-            b.id === draft.bodega_origen_id ||
-            b.id === draft.bodega_destino_id
-        )
+        (b) =>
+          userBodegas.some((ub) => ub.id === b.id) ||
+          b.id === draft.bodega_origen_id ||
+          b.id === draft.bodega_destino_id
+      )
 
   const rolKey = userRoleId ? String(userRoleId) : ''
   const nivelKey = String(currentUserLevel)
@@ -140,6 +152,90 @@ export function NoteDraftBuilder({
   })
 
   const tipoSeleccionado = catalogos.tiposMovimiento.find((t) => t.id === draft.tipo_movimiento_id)
+  const bodegaOrigenObj = catalogos.bodegas.find((b) => b.id === draft.bodega_origen_id)
+  const bodegaDestinoObj = catalogos.bodegas.find((b) => b.id === draft.bodega_destino_id)
+  const esElegibleDespacho =
+    tipoSeleccionado?.codigo === 'TRF' &&
+    Boolean(bodegaOrigenObj?.es_virtual) &&
+    Boolean(bodegaDestinoObj && !bodegaDestinoObj.es_virtual)
+
+  const handleGenerarDespachoDesdeHeader = async (opts: { vehiculo?: string; chofer?: string }) => {
+    if (draft.productos.length === 0) {
+      toast.warning('Agrega al menos un producto a la nota antes de generar el despacho.')
+      return false
+    }
+    setIsDespachoSubmitting(true)
+    try {
+      // Aseguramos que la nota y sus líneas estén guardadas en PEND antes de crear el despacho
+      const saveRes =
+        mode === 'edit' && notaId
+          ? await actualizarNotaAction(notaId, draft, false, ocrProposalId)
+          : await guardarNotaAction(draft, false, ocrProposalId)
+
+      if (!saveRes.success) {
+        toast.error(saveRes.error ?? 'No se pudo guardar la nota antes de generar el despacho.')
+        return false
+      }
+
+      const targetNotaId = saveRes.nota_id ?? notaId
+      if (!targetNotaId) {
+        toast.error('No se obtuvo el ID de la nota.')
+        return false
+      }
+
+      const despRes = await crearDespachoDesdeNotaAction({
+        notaId: targetNotaId,
+        vehiculo_info: opts.vehiculo,
+        chofer: opts.chofer,
+      })
+
+      if (!despRes.success || !despRes.despacho_id) {
+        toast.error(despRes.error ?? 'No se pudo generar el despacho.')
+        return false
+      }
+
+      setDespachoVinculado({
+        id: despRes.despacho_id,
+        estado: despRes.despacho_estado ?? 'Programado',
+        fecha_programada: draft.fecha_nota || null,
+        chofer: opts.chofer ?? null,
+        vehiculo_info: opts.vehiculo ?? null,
+      })
+      if (despRes.nota_referencia) {
+        setDraft((prev) => ({ ...prev, nota_referencia: despRes.nota_referencia ?? prev.nota_referencia }))
+      }
+      toast.success(`Despacho #${despRes.despacho_id} generado y vinculado a esta nota.`)
+      if (mode === 'create') {
+        router.push(ADMIN_ROUTES.inventario.notaDetalle(targetNotaId))
+      } else {
+        router.refresh()
+      }
+      return true
+    } finally {
+      setIsDespachoSubmitting(false)
+    }
+  }
+
+  const handleSincronizarDespacho = async () => {
+    if (!notaId || !despachoVinculado) return
+    setIsDespachoSubmitting(true)
+    try {
+      const saveRes = await actualizarNotaAction(notaId, draft, false, ocrProposalId)
+      if (!saveRes.success) {
+        toast.error(saveRes.error ?? 'No se pudo guardar la nota antes de sincronizar.')
+        return
+      }
+      const syncRes = await sincronizarDespachoDesdeNotaAction(notaId)
+      if (!syncRes.success) {
+        toast.error(syncRes.error ?? 'No se pudo sincronizar el despacho.')
+        return
+      }
+      toast.success(`Líneas sincronizadas con Despacho #${despachoVinculado.id}.`)
+      router.refresh()
+    } finally {
+      setIsDespachoSubmitting(false)
+    }
+  }
   const esAjuste = tipoSeleccionado?.codigo === 'AJU'
   const modoSoloCajas = isModoSoloCajas(config)
   const esMovimientoSalidaOTraslado =
@@ -160,12 +256,12 @@ export function NoteDraftBuilder({
   const hayRenglonesDuplicados = Array.from(agregadoPorClave.values()).filter((a) => a.renglones > 1).length
   const productosConDeficit = draft.bodega_origen_id
     ? draft.productos.filter((p) =>
-        esMovimientoSalidaOTraslado
-          ? p.cajas > (p.stock_origen_cajas ?? 0)
-          : esAjuste && p.cajas < 0
+      esMovimientoSalidaOTraslado
+        ? p.cajas > (p.stock_origen_cajas ?? 0)
+        : esAjuste && p.cajas < 0
           ? Math.abs(p.cajas) > (p.stock_origen_cajas ?? 0)
           : false
-      )
+    )
     : []
 
   const comprobante = useNotaComprobante(initialData?.cabecera.comprobante_url)
@@ -238,8 +334,8 @@ export function NoteDraftBuilder({
       const sugerida = headerBodega
         ? headerBodega.id
         : defaultBodegaOrigenId && allowedBodegas.some((b) => b.id === defaultBodegaOrigenId)
-        ? defaultBodegaOrigenId
-        : userBodegas[0]?.id ?? allowedBodegas[0]?.id
+          ? defaultBodegaOrigenId
+          : userBodegas[0]?.id ?? allowedBodegas[0]?.id
       if (sugerida) setDraft((prev) => ({ ...prev, bodega_origen_id: sugerida }))
     }
   }, [mode, defaultBodegaOrigenId, allowedBodegas, userBodegas, draft.bodega_origen_id])
@@ -343,6 +439,17 @@ export function NoteDraftBuilder({
               onDragOver={comprobante.handleComprobanteDragOver}
               onDragLeave={comprobante.handleComprobanteDragLeave}
               onDrop={comprobante.handleComprobanteDrop}
+              despachoControl={
+                (esElegibleDespacho || despachoVinculado) ? (
+                  <NotaDespachoPopover
+                    despachoVinculado={despachoVinculado}
+                    fechaNota={draft.fecha_nota ?? ''}
+                    isSubmitting={isDespachoSubmitting}
+                    onCreate={handleGenerarDespachoDesdeHeader}
+                    onSync={mode === 'edit' && notaId ? handleSincronizarDespacho : undefined}
+                  />
+                ) : null
+              }
               mismatchBanner={
                 <NotaOcrMismatchBanner
                   visible={ocrDiffs.hasAnyHeaderMismatch}
@@ -365,8 +472,8 @@ export function NoteDraftBuilder({
                       bodega_destino_id: ocrDiffs.detectedDestinoBodega
                         ? ocrDiffs.detectedDestinoBodega.id
                         : ocrDiffs.detectedTipoObj && !ocrDiffs.detectedTipoObj.requiere_destino
-                        ? null
-                        : prev.bodega_destino_id,
+                          ? null
+                          : prev.bodega_destino_id,
                       fecha_nota: ocrDiffs.detectedFechaRaw ? formatForDateInput(ocrDiffs.detectedFechaRaw) : prev.fecha_nota,
                       nota_referencia: ocrDiffs.detectedFolioRaw || prev.nota_referencia,
                     }))
@@ -466,7 +573,7 @@ export function NoteDraftBuilder({
                 i > 0 &&
                 setDraft((prev) => {
                   const list = [...prev.productos]
-                  ;[list[i - 1], list[i]] = [list[i], list[i - 1]]
+                    ;[list[i - 1], list[i]] = [list[i], list[i - 1]]
                   return { ...prev, productos: list }
                 })
               }
@@ -474,7 +581,7 @@ export function NoteDraftBuilder({
                 i < draft.productos.length - 1 &&
                 setDraft((prev) => {
                   const list = [...prev.productos]
-                  ;[list[i + 1], list[i]] = [list[i], list[i + 1]]
+                    ;[list[i + 1], list[i]] = [list[i], list[i + 1]]
                   return { ...prev, productos: list }
                 })
               }
@@ -591,7 +698,8 @@ export function NoteDraftBuilder({
         productosConDeficitCount={productosConDeficit.length}
         showConfirmDialog={validacion.showConfirmDialog}
         onShowConfirmDialogChange={validacion.setShowConfirmDialog}
-        onConfirmSave={() => validacion.doSave(true)}
+        onConfirmSave={(despachoOpts) => validacion.doSave(true, undefined, despachoOpts)}
+        despachoVinculado={despachoVinculado}
         swapProductTempId={buscador.swapProductTempId}
         swapSearchTerm={buscador.swapSearchTerm}
         onCloseSwap={() => buscador.setSwapProductTempId(null)}
@@ -680,14 +788,14 @@ export function NoteDraftBuilder({
                 p.tempId !== targetTempId
                   ? p
                   : {
-                      ...p,
-                      producto_id: sustituto.id,
-                      producto_sku: sustituto.sku_base,
-                      producto_nombre: sustituto.descripcion || sustituto.nombre || '',
-                      producto_pz_en_caja: sustituto.pz_en_caja,
-                      stock_origen_cajas: sustituto.cajas_disponibles,
-                      stock_origen_piezas: sustituto.piezas_disponibles,
-                    }
+                    ...p,
+                    producto_id: sustituto.id,
+                    producto_sku: sustituto.sku_base,
+                    producto_nombre: sustituto.descripcion || sustituto.nombre || '',
+                    producto_pz_en_caja: sustituto.pz_en_caja,
+                    stock_origen_cajas: sustituto.cajas_disponibles,
+                    stock_origen_piezas: sustituto.piezas_disponibles,
+                  }
               ),
               observaciones: prev.observaciones ? `${prev.observaciones.trim()}\n${logEntry}` : logEntry,
             }
@@ -706,15 +814,15 @@ export function NoteDraftBuilder({
                 p.tempId !== tempId
                   ? p
                   : {
-                      ...p,
-                      producto_id: nuevo.id,
-                      producto_sku: nuevo.sku_base,
-                      producto_nombre: nuevo.descripcion || nuevo.nombre || '',
-                      producto_pz_en_caja: ('pz_en_caja' in nuevo ? nuevo.pz_en_caja : null) ?? p.producto_pz_en_caja,
-                      stock_origen_cajas: ('cajas_disponibles' in nuevo ? nuevo.cajas_disponibles : null) ?? p.stock_origen_cajas,
-                      stock_origen_piezas: ('piezas_disponibles' in nuevo ? nuevo.piezas_disponibles : null) ?? p.stock_origen_piezas,
-                      codigo_original: codFisico,
-                    }
+                    ...p,
+                    producto_id: nuevo.id,
+                    producto_sku: nuevo.sku_base,
+                    producto_nombre: nuevo.descripcion || nuevo.nombre || '',
+                    producto_pz_en_caja: ('pz_en_caja' in nuevo ? nuevo.pz_en_caja : null) ?? p.producto_pz_en_caja,
+                    stock_origen_cajas: ('cajas_disponibles' in nuevo ? nuevo.cajas_disponibles : null) ?? p.stock_origen_cajas,
+                    stock_origen_piezas: ('piezas_disponibles' in nuevo ? nuevo.piezas_disponibles : null) ?? p.stock_origen_piezas,
+                    codigo_original: codFisico,
+                  }
               ),
               observaciones: prev.observaciones ? `${prev.observaciones.trim()}\n${logEntry}` : logEntry,
             }

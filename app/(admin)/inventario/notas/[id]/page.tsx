@@ -26,6 +26,7 @@ import { NotaComparadorLayout } from '@/app/(admin)/inventario/notas/[id]/compon
 import { fetchConfigInventario } from '@/modules/inventario/config-queries'
 import { isModoSoloCajas } from '@/modules/inventario/config-types'
 import { puedeVerNotaPorCotizacion } from '@/modules/ecommerce/queries'
+import { fetchDespachoPorNotaRef } from '@/modules/despachos/queries'
 
 export async function generateMetadata({
   params,
@@ -87,8 +88,8 @@ export default async function NotaDetallePage({
 
   if (!nota) notFound()
 
-  // Excepción de lectura por cotización + navegación contextual en paralelo
-  const [accesoPorCotizacion, navegacion] = await Promise.all([
+  // Excepción de lectura por cotización + navegación contextual + despacho vinculado en paralelo
+  const [accesoPorCotizacion, navegacion, despachoVinculado] = await Promise.all([
     puedeVerNotaPorCotizacion(nota.cabecera.nota_referencia),
     fetchNavegacionNota(id, {
       usuarioId: user.id,
@@ -97,7 +98,15 @@ export default async function NotaDetallePage({
       bodegaActivaId,
       userBodegaIds: userBodegas.map(b => b.id),
     }),
+    fetchDespachoPorNotaRef(nota.cabecera.nota_referencia),
   ])
+
+  const bodegaOrigenMeta = catalogos.bodegas.find((b) => b.id === nota.cabecera.bodega_origen_id)
+  const bodegaDestinoMeta = nota.cabecera.bodega_destino_id
+    ? catalogos.bodegas.find((b) => b.id === nota.cabecera.bodega_destino_id)
+    : undefined
+  const origenEsVirtual = Boolean(bodegaOrigenMeta?.es_virtual)
+  const destinoEsFisica = Boolean(bodegaDestinoMeta && !bodegaDestinoMeta.es_virtual)
 
   // Validación de acceso por rol
   if (!isSuperAdmin && !isAdminInventario && !accesoPorCotizacion) {
@@ -148,6 +157,7 @@ export default async function NotaDetallePage({
           autoOpenOcrSync={sp.edit_ocr === 'true'}
           config={config}
           userRoleId={user.rol_id ?? user.rol?.id}
+          initialDespachoVinculado={despachoVinculado}
         />
 
         <Separator className="my-6" />
@@ -167,6 +177,9 @@ export default async function NotaDetallePage({
           nota={nota.cabecera} 
           showComprobante={!nota.cabecera.comprobante_url} 
           navegacion={navegacion}
+          despachoVinculado={despachoVinculado}
+          origenEsVirtual={origenEsVirtual}
+          destinoEsFisica={destinoEsFisica}
         />
 
         {/* Acciones (cancelar si procede, duplicar, etc.) */}

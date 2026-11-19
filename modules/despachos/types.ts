@@ -93,3 +93,23 @@ export type StockVirtualItem = {
   bodega_id: number
   bodega_nombre: string
 }
+
+// ── Vínculo Nota TRF <-> Despacho ───────────────────────────
+
+export type DespachoVinculadoNota = {
+  id: number
+  estado: string
+  fecha_programada: string | null
+  chofer: string | null
+  vehiculo_info: string | null
+} | null
+
+export function extractDespachoIdFromReferencia(
+  notaReferencia: string | null | undefined
+): number | null {
+  if (!notaReferencia) return null
+  const match = /^Despacho (\d+)/i.exec(notaReferencia.trim())
+  if (!match) return null
+  const id = Number(match[1])
+  return Number.isInteger(id) && id > 0 ? id : null
+}

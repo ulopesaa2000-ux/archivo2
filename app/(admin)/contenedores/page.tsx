@@ -54,7 +54,7 @@ export default async function ContenedoresPage({
 
   const sortBy = (VALID_SORT_BY.includes(params.sort_by as ContenedorSortBy)
     ? params.sort_by
-    : 'fecha_eta') as ContenedorSortBy
+    : 'codigo_contenedor') as ContenedorSortBy
   const order = params.order === 'asc' ? 'asc' : 'desc'
 
   const filtros: FiltrosContenedores = {

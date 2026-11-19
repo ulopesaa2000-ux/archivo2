@@ -310,3 +310,206 @@ export async function fetchStockVirtualAction(bodegaVirtualId: number) {
   const { fetchStockVirtual } = await import('./queries')
   return fetchStockVirtual(bodegaVirtualId)
 }
+
+// ════════════════════════════════════════════════════════════
+// CREAR / SINCRONIZAR DESPACHO DESDE NOTA TRF (SIN DUPLICAR NOTA)
+// ════════════════════════════════════════════════════════════
+
+export async function crearDespachoDesdeNotaAction(input: {
+  notaId: number
+  vehiculo_info?: string
+  chofer?: string
+}): Promise<ActionResult & { despacho_estado?: string; nota_referencia?: string }> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_crear')) {
+    return { success: false, error: 'No autorizado para crear despachos.' }
+  }
+
+  const supabase = await createClient()
+
+  // 1. Leer cabecera de la nota + bodegas + tipo + estado
+  const { data: notaRaw, error: notaErr } = await supabase
+    .from('notas_inventario')
+    .select(`
+      id, numero_nota, fecha_nota, fecha_confirmacion, nota_referencia,
+      bodega_origen_id, bodega_destino_id, activo,
+      tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
+      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo ),
+      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey ( id, es_virtual ),
+      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey ( id, es_virtual )
+    `)
+    .eq('id', input.notaId)
+    .single()
+
+  if (notaErr || !notaRaw) {
+    return { success: false, error: 'No se encontró la nota.' }
+  }
+
+  const nota: any = notaRaw
+  const tipoCod = String((Array.isArray(nota.tipo) ? nota.tipo[0] : nota.tipo)?.codigo ?? '').toUpperCase()
+  const estadoCod = String((Array.isArray(nota.estado) ? nota.estado[0] : nota.estado)?.codigo ?? '').toUpperCase()
+  const origen = Array.isArray(nota.bodega_origen) ? nota.bodega_origen[0] : nota.bodega_origen
+  const destino = Array.isArray(nota.bodega_destino) ? nota.bodega_destino[0] : nota.bodega_destino
+
+  if (nota.activo === false || estadoCod === 'CANC') {
+    return { success: false, error: 'No se puede generar un despacho de una nota cancelada.' }
+  }
+  if (tipoCod !== 'TRF') {
+    return { success: false, error: 'Solo se puede generar despacho desde notas de Traslado (TRF).' }
+  }
+  if (!origen?.es_virtual) {
+    return { success: false, error: 'La bodega origen debe ser una bodega virtual.' }
+  }
+  if (!nota.bodega_destino_id || destino?.es_virtual) {
+    return { success: false, error: 'La bodega destino debe ser una bodega física.' }
+  }
+
+  const { extractDespachoIdFromReferencia } = await import('./queries')
+  const existenteId = extractDespachoIdFromReferencia(nota.nota_referencia)
+  if (existenteId) {
+    return { success: false, error: `Esta nota ya está vinculada al Despacho #${existenteId}.` }
+  }
+
+  // 2. Leer detalles de la nota
+  const { data: detalles, error: detErr } = await supabase
+    .from('nota_detalle_productos')
+    .select('producto_id, caja_id, cajas')
+    .eq('nota_id', input.notaId)
+    .order('id')
+
+  if (detErr || !detalles || detalles.length === 0) {
+    return { success: false, error: 'La nota no tiene productos para despachar.' }
+  }
+
+  const yaConfirmada = estadoCod === 'CONF' || estadoCod === 'MODF'
+  const estadoDespacho = yaConfirmada ? 'Recibido' : 'Programado'
+  const fechaProgramada = nota.fecha_nota
+    ? String(nota.fecha_nota).slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
+
+  // 3. Crear despacho (solo registro logístico; la nota TRF ya existe)
+  const { data: despachoData, error: despErr } = await supabase
+    .from('despachos')
+    .insert({
+      bodega_origen_id: nota.bodega_origen_id,
+      bodega_destino_id: nota.bodega_destino_id,
+      vehiculo_info: input.vehiculo_info?.trim() || null,
+      chofer: input.chofer?.trim() || null,
+      estado: estadoDespacho,
+      fecha_programada: fechaProgramada,
+      fecha_recepcion: yaConfirmada ? (nota.fecha_confirmacion || new Date().toISOString()) : null,
+    })
+    .select('id')
+    .single()
+
+  if (despErr || !despachoData) {
+    return { success: false, error: despErr?.message ?? 'Error al crear el despacho.' }
+  }
+
+  const despachoId = despachoData.id
+
+  // 4. Copiar líneas de la nota a despachos_detalles
+  const rowsDetalles = detalles
+    .filter((d) => d.producto_id != null && Number(d.cajas ?? 0) > 0)
+    .map((d) => ({
+      despacho_id: despachoId,
+      producto_id: d.producto_id,
+      caja_id: d.caja_id ?? null,
+      cantidad_cajas_solicitadas: Number(d.cajas ?? 0),
+    }))
+
+  if (rowsDetalles.length > 0) {
+    const { error: insDetErr } = await supabase
+      .from('despachos_detalles')
+      .insert(rowsDetalles)
+
+    if (insDetErr) {
+      return { success: false, error: `Despacho #${despachoId} creado, pero fallaron sus detalles: ${insDetErr.message}` }
+    }
+  }
+
+  // 5. Vincular nota sin perder la referencia OCR previa
+  const refOriginal = (nota.nota_referencia ?? '').trim()
+  const nuevaReferencia = refOriginal
+    ? `Despacho ${despachoId} · ${refOriginal}`
+    : `Despacho ${despachoId}`
+
+  const { error: updRefErr } = await supabase
+    .from('notas_inventario')
+    .update({ nota_referencia: nuevaReferencia })
+    .eq('id', input.notaId)
+
+  if (updRefErr) {
+    return { success: false, error: `Despacho #${despachoId} creado, pero no se pudo vincular la referencia en la nota: ${updRefErr.message}` }
+  }
+
+  revalidatePath('/despachos')
+  revalidatePath(`/despachos/${despachoId}`)
+  revalidatePath('/inventario/notas')
+  revalidatePath(`/inventario/notas/${input.notaId}`)
+
+  return {
+    success: true,
+    despacho_id: despachoId,
+    despacho_estado: estadoDespacho,
+    nota_referencia: nuevaReferencia,
+    nota_id: input.notaId,
+    numero_nota: nota.numero_nota,
+  }
+}
+
+export async function sincronizarDespachoDesdeNotaAction(
+  notaId: number
+): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user) return { success: false, error: 'No autenticado.' }
+  if (isClienteEcommerce(user) || !can(user, 'despachos', 'puede_editar')) {
+    return { success: false, error: 'No autorizado para sincronizar despachos.' }
+  }
+
+  const supabase = await createClient()
+  const { data: nota } = await supabase
+    .from('notas_inventario')
+    .select('id, nota_referencia')
+    .eq('id', notaId)
+    .single()
+
+  const { extractDespachoIdFromReferencia } = await import('./queries')
+  const despachoId = extractDespachoIdFromReferencia(nota?.nota_referencia)
+  if (!despachoId) {
+    return { success: false, error: 'Esta nota no tiene un despacho vinculado.' }
+  }
+
+  const { data: detalles, error: detErr } = await supabase
+    .from('nota_detalle_productos')
+    .select('producto_id, caja_id, cajas')
+    .eq('nota_id', notaId)
+    .order('id')
+
+  if (detErr || !detalles || detalles.length === 0) {
+    return { success: false, error: 'La nota no tiene líneas para sincronizar.' }
+  }
+
+  await supabase.from('despachos_detalles').delete().eq('despacho_id', despachoId)
+
+  const rows = detalles
+    .filter((d) => d.producto_id != null && Number(d.cajas ?? 0) > 0)
+    .map((d) => ({
+      despacho_id: despachoId,
+      producto_id: d.producto_id,
+      caja_id: d.caja_id ?? null,
+      cantidad_cajas_solicitadas: Number(d.cajas ?? 0),
+    }))
+
+  if (rows.length > 0) {
+    const { error: insErr } = await supabase.from('despachos_detalles').insert(rows)
+    if (insErr) {
+      return { success: false, error: insErr.message }
+    }
+  }
+
+  revalidatePath(`/despachos/${despachoId}`)
+  revalidatePath(`/inventario/notas/${notaId}`)
+  return { success: true, despacho_id: despachoId }
+}
