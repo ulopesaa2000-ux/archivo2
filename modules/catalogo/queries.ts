@@ -4,6 +4,7 @@ import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
 import { cache } from 'react'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunks, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosCatalogo, ResultadoListado, CatalogosParaFiltros, CatalogosEdicion,
@@ -691,24 +692,47 @@ export async function fetchAuditoriaGeneral(
   limit: number = 100
 ): Promise<AuditoriaGeneralRow[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .schema('inv-tienda')
-    .from('v_auditoria_productos' as any)
-    .select('*')
-    .limit(limit)
+  if (limit <= 1000) {
+    const { data, error } = await supabase
+      .schema('inv-tienda')
+      .from('v_auditoria_productos' as any)
+      .select('*')
+      .order('fechaauditoria', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('fetchAuditoriaGeneral error:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        limit,
+      })
+      return []
+    }
+
+    return (data as any) ?? []
+  }
+
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .schema('inv-tienda')
+        .from('v_auditoria_productos' as any)
+        .select('*', isFirst ? { count: 'exact' } : undefined)
+        .order('fechaauditoria', { ascending: false })
+        .order('id', { ascending: false })
+        .range(fromIdx, Math.min(toIdx, limit - 1)),
+    { label: 'fetchAuditoriaGeneral' }
+  )
 
   if (error) {
-    console.error('fetchAuditoriaGeneral error:', {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-      limit,
-    })
+    console.error('fetchAuditoriaGeneral error:', error)
     return []
   }
 
-  return (data as any) ?? []
+  return data.slice(0, limit) as AuditoriaGeneralRow[]
 }
 
 export async function fetchPuntosMedida() {
@@ -739,83 +763,42 @@ export interface FamiliaResumen {
 
 export async function fetchResumenFamilias(): Promise<FamiliaResumen[]> {
   const supabase = await createClient()
-  const PAGE_SIZE = 1000
 
-  // 1. Primera página con count exacto; orden determinista (sku_base + id) para paginación segura con .range()
-  const firstPage = await supabase
-    .from('productos')
-    .select('id, familia, descripcion, sku_base, activo', { count: 'exact' })
-    .eq('cliente_b2b_id' as any, 27)
-    .order('sku_base', { ascending: true })
-    .order('id', { ascending: true })
-    .range(0, PAGE_SIZE - 1)
+  // 1. Paginación segura (> 1,000 productos) con orden determinista (sku_base + id)
+  const { data: allProductos, error: prodError } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos')
+        .select('id, familia, descripcion, sku_base, activo', isFirst ? { count: 'exact' } : undefined)
+        .eq('cliente_b2b_id' as any, 27)
+        .order('sku_base', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchResumenFamilias:productos' }
+  )
 
-  if (firstPage.error) {
-    console.error('Error fetchResumenFamilias productos:', firstPage.error)
+  if (prodError) {
+    console.error('Error fetchResumenFamilias productos:', prodError)
     return []
   }
 
-  let allProductos = firstPage.data || []
-  const totalCount = firstPage.count ?? allProductos.length
-
-  // 2. Si hay más de 1000 productos, traer las páginas restantes en paralelo
-  if (totalCount > PAGE_SIZE) {
-    const offsets: number[] = []
-    for (let from = PAGE_SIZE; from < totalCount; from += PAGE_SIZE) {
-      offsets.push(from)
-    }
-
-    const remainingPages = await Promise.all(
-      offsets.map((from) =>
-        supabase
-          .from('productos')
-          .select('id, familia, descripcion, sku_base, activo')
-          .eq('cliente_b2b_id' as any, 27)
-          .order('sku_base', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, from + PAGE_SIZE - 1)
-      )
-    )
-
-    for (const page of remainingPages) {
-      if (page.error) {
-        console.error('Error fetchResumenFamilias página:', page.error)
-        continue
-      }
-      if (page.data) {
-        allProductos = allProductos.concat(page.data)
-      }
-    }
-  }
-
-  // 3. Imágenes principales en chunks de ≤ 200 IDs en paralelo (AGENTS.md 3.7.2)
-  const IMG_CHUNK_SIZE = 200
+  // 2. Imágenes principales en chunks de ≤ 200 IDs en paralelo (AGENTS.md 3.7.2)
   const productoIds = allProductos.map((p) => p.id)
-  const imgChunks: number[][] = []
-  for (let i = 0; i < productoIds.length; i += IMG_CHUNK_SIZE) {
-    imgChunks.push(productoIds.slice(i, i + IMG_CHUNK_SIZE))
-  }
-
-  const imgResults = await Promise.all(
-    imgChunks.map((ids) =>
+  const imgRows = await fetchInChunks<number, { producto_id: number; url: string }>(
+    productoIds,
+    (ids) =>
       supabase
         .from('producto_imagenes')
         .select('producto_id, url')
         .eq('es_principal', true)
-        .in('producto_id', ids)
-    )
+        .in('producto_id', ids),
+    { chunkSize: 200, label: 'fetchResumenFamilias:imagenes' }
   )
 
   const imagenesMap = new Map<number, string>()
-  for (const imgRes of imgResults) {
-    if (imgRes.error) {
-      console.error('Error fetchResumenFamilias imagenes:', imgRes.error)
-      continue
-    }
-    for (const img of imgRes.data || []) {
-      if (img.producto_id && img.url) {
-        imagenesMap.set(img.producto_id, img.url)
-      }
+  for (const img of imgRows) {
+    if (img.producto_id && img.url) {
+      imagenesMap.set(img.producto_id, img.url)
     }
   }
 
@@ -910,14 +893,25 @@ export async function fetchDescripcionesCanonicasFamilias(): Promise<Record<stri
   cacheTag('catalogo-familias')
 
   const supabase = createStaticClient()
-  const { data, error } = await supabase
-    .from('productos')
-    .select('familia, descripcion, nombre, sku_base')
-    .eq('activo', true)
-    .not('familia', 'is', null)
-    .order('sku_base', { ascending: true })
+  const { data, error } = await fetchAllPages<{
+    familia: string | null
+    descripcion: string | null
+    nombre: string | null
+    sku_base: string
+  }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos')
+        .select('familia, descripcion, nombre, sku_base', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .not('familia', 'is', null)
+        .order('sku_base', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchDescripcionesCanonicasFamilias' }
+  )
 
-  if (error || !data) return {}
+  if (error || data.length === 0) return {}
 
   const map: Record<string, string> = {}
   for (const p of data) {
@@ -993,25 +987,23 @@ export async function fetchStockTotalesPorProducto(
   if (unicos.length === 0) return totales
 
   const supabase = await createClient()
-  const CHUNK = 200
-  for (let i = 0; i < unicos.length; i += CHUNK) {
-    const chunk = unicos.slice(i, i + CHUNK)
-    const { data, error } = await supabase
-      .from('inventario_stock')
-      .select('producto_id, cajas, piezas_sueltas')
-      .in('producto_id', chunk)
+  const rows = await fetchInChunksPaginated<number, { producto_id: number; cajas: number | null; piezas_sueltas: number | null }>(
+    unicos,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select('producto_id, cajas, piezas_sueltas', isFirst ? { count: 'exact' } : undefined)
+        .in('producto_id', chunk)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchStockTotalesPorProducto' }
+  )
 
-    if (error) {
-      console.error('Error fetchStockTotalesPorProducto:', error)
-      continue
-    }
-
-    for (const row of data || []) {
-      const pid = (row as any).producto_id as number
-      if (!totales[pid]) totales[pid] = { cajas: 0, piezas: 0 }
-      totales[pid].cajas += (row as any).cajas || 0
-      totales[pid].piezas += (row as any).piezas_sueltas || 0
-    }
+  for (const row of rows) {
+    const pid = row.producto_id
+    if (!totales[pid]) totales[pid] = { cajas: 0, piezas: 0 }
+    totales[pid].cajas += row.cajas || 0
+    totales[pid].piezas += row.piezas_sueltas || 0
   }
 
   return totales

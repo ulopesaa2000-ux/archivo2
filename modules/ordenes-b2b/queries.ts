@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosOrdenesB2B, OrdenB2BListItem, OrdenDetalleResuelto,
@@ -80,33 +81,55 @@ async function fetchAutoresMap(supabase: any, usuarioIds: number[]) {
 
 async function fetchDetalleConversationMap(ordenId: number) {
   const supabase = await createClient()
-  const [detalleRowsRes, comentariosRes, eventosRes] = await Promise.all([
-    supabase
-      .from('ordenes_b2b_detalles')
-      .select('id, orden_id, producto_id')
-      .eq('orden_id', ordenId),
-    supabase
-      .from('orden_detalles_comentarios' as any)
-      .select('id, orden_detalle_id, usuario_id, mensaje, archivo_adjunto_url, created_at')
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('orden_detalle_eventos' as any)
-      .select('id, orden_detalle_id, usuario_id, tipo_evento, comentario_id, payload, created_at')
-      .order('created_at', { ascending: true }),
-  ])
+  const { data: detalleRows } = await fetchAllPages<{ id: number; orden_id: number | null; producto_id: number | null }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('ordenes_b2b_detalles')
+        .select('id, orden_id, producto_id', isFirst ? { count: 'exact' } : undefined)
+        .eq('orden_id', ordenId)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchDetalleConversationMap:detalles' }
+  )
 
-  const detalleRows = detalleRowsRes.data ?? []
   const detalleMap = new Map<number, { orden_id: number; producto_id: number | null }>(
     detalleRows.map((detalle) => [detalle.id, { orden_id: detalle.orden_id ?? ordenId, producto_id: detalle.producto_id ?? null }])
   )
+  const detalleIds = Array.from(detalleMap.keys())
 
-  const comentariosData = comentariosRes.error?.code === '42P01' || comentariosRes.error?.code === 'PGRST205'
-    ? []
-    : ((comentariosRes.data as any) ?? []).filter((comentario: any) => detalleMap.has(comentario.orden_detalle_id))
+  if (detalleIds.length === 0) {
+    return {
+      comentariosPorDetalle: new Map<number, OrdenDetalleComentario[]>(),
+      eventosPorDetalle: new Map<number, OrdenDetalleEvento[]>(),
+    }
+  }
 
-  const eventosData = eventosRes.error?.code === '42P01' || eventosRes.error?.code === 'PGRST205'
-    ? []
-    : ((eventosRes.data as any) ?? []).filter((evento: any) => detalleMap.has(evento.orden_detalle_id))
+  const [comentariosData, eventosData] = await Promise.all([
+    fetchInChunksPaginated<number, any>(
+      detalleIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_detalles_comentarios' as any)
+          .select('id, orden_detalle_id, usuario_id, mensaje, archivo_adjunto_url, created_at', isFirst ? { count: 'exact' } : undefined)
+          .in('orden_detalle_id', chunk)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchDetalleConversationMap:comentarios' }
+    ).catch(() => [] as any[]),
+    fetchInChunksPaginated<number, any>(
+      detalleIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_detalle_eventos' as any)
+          .select('id, orden_detalle_id, usuario_id, tipo_evento, comentario_id, payload, created_at', isFirst ? { count: 'exact' } : undefined)
+          .in('orden_detalle_id', chunk)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchDetalleConversationMap:eventos' }
+    ).catch(() => [] as any[]),
+  ])
 
   const autores = await fetchAutoresMap(
     supabase,
@@ -301,22 +324,33 @@ export async function fetchOrdenDetalles(
   ordenId: number
 ): Promise<OrdenDetalleResuelto[]> {
   const supabase = await createClient()
-  const conversation = await fetchDetalleConversationMap(ordenId)
-  const { data, error } = await supabase
-    .from('ordenes_b2b_detalles')
-    .select(`
-      id, orden_id, producto_id, cantidad_solicitada, cantidad_aprobada,
-      precio_acordado, precio_unitario, precio_yuan, importe_total,
-      piezas_pedidas, cajas_pedidas, cbm_detalle, peso_bruto_kg,
-      estado_producto,
-      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
-        sku_base, nombre, descripcion, precio_ec
-      )
-    `)
-    .eq('orden_id', ordenId)
-    .order('id')
+  const [conversation, detallesRes] = await Promise.all([
+    fetchDetalleConversationMap(ordenId),
+    fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('ordenes_b2b_detalles')
+          .select(
+            `
+            id, orden_id, producto_id, cantidad_solicitada, cantidad_aprobada,
+            precio_acordado, precio_unitario, precio_yuan, importe_total,
+            piezas_pedidas, cajas_pedidas, cbm_detalle, peso_bruto_kg,
+            estado_producto,
+            producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+              sku_base, nombre, descripcion, precio_ec
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .eq('orden_id', ordenId)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { label: 'fetchOrdenDetalles' }
+    ),
+  ])
 
-  if (error || !data) return []
+  if (detallesRes.error) return []
+  const data = detallesRes.data
 
   return data.map((d: any) => {
     const prod = Array.isArray(d.producto) ? d.producto[0] : d.producto
@@ -379,26 +413,34 @@ export async function fetchOrdenCajas(
   ordenId: number
 ): Promise<OrdenCajaResuelta[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('orden_cajas')
-    .select(`
-      id, orden_id, caja_id, cantidad_cajas,
-      caja:cajas_producto!orden_cajas_caja_id_fkey (
-        codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg, peso_neto,
-        largo_cm, ancho_cm, alto_cm, costo_total_caja,
-        tallas, colores,
-        producto:productos!cajas_producto_producto_id_fkey ( sku_base, precio_ec ),
-        caja_detalles (
-          cantidad,
-          talla:cat_tallas!caja_detalles_talla_id_fkey (codigo, nombre),
-          color:cat_colores!caja_detalles_color_id_fkey (nombre, hex_code)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('orden_cajas')
+        .select(
+          `
+          id, orden_id, caja_id, cantidad_cajas,
+          caja:cajas_producto!orden_cajas_caja_id_fkey (
+            codigo_caja, nombre_pack, piezas_por_caja, cbm, peso_bruto_kg, peso_neto,
+            largo_cm, ancho_cm, alto_cm, costo_total_caja,
+            tallas, colores,
+            producto:productos!cajas_producto_producto_id_fkey ( sku_base, precio_ec ),
+            caja_detalles (
+              cantidad,
+              talla:cat_tallas!caja_detalles_talla_id_fkey (codigo, nombre),
+              color:cat_colores!caja_detalles_color_id_fkey (nombre, hex_code)
+            )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
         )
-      )
-    `)
-    .eq('orden_id', ordenId)
-    .order('id')
+        .eq('orden_id', ordenId)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchOrdenCajas' }
+  )
 
-  if (error || !data) return []
+  if (error) return []
 
   return data.map((oc: any) => {
     const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
@@ -564,14 +606,36 @@ export async function fetchCajasListado(
     } else if (scope.primary_persona_tipo === 'Cliente B2B') {
       // Si es un Cliente B2B primario, SÓLO puede ver cajas de los productos de su empresa
       if (scope.allowed_cliente_ids.length > 0) {
-        const { data: allowedProducts } = await supabase
-          .from('productos')
-          .select('id')
-          .in('cliente_b2b_id', scope.allowed_cliente_ids)
+        const { data: allowedProducts } = await fetchAllPages<{ id: number }>(
+          (fromIdx, toIdx, isFirst) =>
+            supabase
+              .from('productos')
+              .select('id', isFirst ? { count: 'exact' } : undefined)
+              .in('cliente_b2b_id', scope.allowed_cliente_ids)
+              .order('id', { ascending: true })
+              .range(fromIdx, toIdx),
+          { label: 'fetchCajasListado:clienteProductos' }
+        )
 
-        const allowedProductIds = (allowedProducts ?? []).map((p: any) => p.id)
+        const allowedProductIds = allowedProducts.map((p) => p.id)
         if (allowedProductIds.length > 0) {
-          clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+          if (allowedProductIds.length <= 200) {
+            clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+          } else {
+            const matchedCajas = await fetchInChunksPaginated<number, { id: number }>(
+              allowedProductIds,
+              (chunk, fromIdx, toIdx, isFirst) =>
+                supabase
+                  .from('cajas_producto')
+                  .select('id', isFirst ? { count: 'exact' } : undefined)
+                  .in('producto_id', chunk)
+                  .order('id', { ascending: true })
+                  .range(fromIdx, toIdx),
+              { chunkSize: 150, label: 'fetchCajasListado:cajasCliente' }
+            )
+            const cajaIds = matchedCajas.map((c) => c.id)
+            if (cajaIds.length > 0) clauses.push(`id.in.(${cajaIds.join(',')})`)
+          }
         }
       }
     } else {
@@ -580,14 +644,36 @@ export async function fetchCajasListado(
         clauses.push(`proveedor_id.in.(${scope.allowed_proveedor_ids.join(',')})`)
       }
       if (scope.allowed_cliente_ids.length > 0) {
-        const { data: allowedProducts } = await supabase
-          .from('productos')
-          .select('id')
-          .in('cliente_b2b_id', scope.allowed_cliente_ids)
+        const { data: allowedProducts } = await fetchAllPages<{ id: number }>(
+          (fromIdx, toIdx, isFirst) =>
+            supabase
+              .from('productos')
+              .select('id', isFirst ? { count: 'exact' } : undefined)
+              .in('cliente_b2b_id', scope.allowed_cliente_ids)
+              .order('id', { ascending: true })
+              .range(fromIdx, toIdx),
+          { label: 'fetchCajasListado:staffProductos' }
+        )
 
-        const allowedProductIds = (allowedProducts ?? []).map((p: any) => p.id)
+        const allowedProductIds = allowedProducts.map((p) => p.id)
         if (allowedProductIds.length > 0) {
-          clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+          if (allowedProductIds.length <= 200) {
+            clauses.push(`producto_id.in.(${allowedProductIds.join(',')})`)
+          } else {
+            const matchedCajas = await fetchInChunksPaginated<number, { id: number }>(
+              allowedProductIds,
+              (chunk, fromIdx, toIdx, isFirst) =>
+                supabase
+                  .from('cajas_producto')
+                  .select('id', isFirst ? { count: 'exact' } : undefined)
+                  .in('producto_id', chunk)
+                  .order('id', { ascending: true })
+                  .range(fromIdx, toIdx),
+              { chunkSize: 150, label: 'fetchCajasListado:cajasStaff' }
+            )
+            const cajaIds = matchedCajas.map((c) => c.id)
+            if (cajaIds.length > 0) clauses.push(`id.in.(${cajaIds.join(',')})`)
+          }
         }
       }
     }
@@ -831,13 +917,20 @@ export async function fetchCajasAfectadasPorCambioSku(
 
   let usosPorCaja = new Map<number, number>()
   if (cajaIds.length > 0) {
-    const { data: usos } = await supabase
-      .from('orden_cajas')
-      .select('caja_id, orden_id')
-      .in('caja_id', cajaIds)
+    const usos = await fetchInChunksPaginated<number, { caja_id: number; orden_id: number }>(
+      cajaIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_cajas')
+          .select('caja_id, orden_id', isFirst ? { count: 'exact' } : undefined)
+          .in('caja_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchCajasAfectadasPorCambioSku:usos' }
+    )
 
     const ordenesPorCaja = new Map<number, Set<number>>()
-    for (const u of (usos ?? []) as any[]) {
+    for (const u of usos) {
       if (!ordenesPorCaja.has(u.caja_id)) ordenesPorCaja.set(u.caja_id, new Set())
       ordenesPorCaja.get(u.caja_id)!.add(u.orden_id)
     }

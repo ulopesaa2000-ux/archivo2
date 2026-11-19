@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import type { Database } from '@/lib/types/database.types'
 import type { FiltrosDespacho, DespachoListaItem, StockVirtualItem } from './types'
@@ -35,21 +36,30 @@ export async function fetchStockVirtual(
 ): Promise<StockVirtualItem[]> {
   const supabase = await createClient()
 
-  // Obtenemos inventario_stock por producto sumando cajas
-  const { data, error } = await supabase
-    .from('inventario_stock')
-    .select(`
-      producto_id,
-      cajas,
-      piezas_sueltas,
-      bodega_id,
-      bodega:bodegas!inventario_stock_bodega_id_fkey (nombre),
-      producto:productos!inventario_stock_producto_id_fkey (sku_base, nombre, descripcion)
-    `)
-    .eq('bodega_id', bodegaId)
-    .gt('cajas', 0)
+  // Obtenemos inventario_stock por producto sumando cajas (paginado completo)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select(
+          `
+          producto_id,
+          cajas,
+          piezas_sueltas,
+          bodega_id,
+          bodega:bodegas!inventario_stock_bodega_id_fkey (nombre),
+          producto:productos!inventario_stock_producto_id_fkey (sku_base, nombre, descripcion)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('bodega_id', bodegaId)
+        .gt('cajas', 0)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchStockVirtual' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchStockVirtual:', error)
     return []
   }
@@ -106,13 +116,19 @@ export async function fetchStockVirtualResumenes(
   }
 
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('inventario_stock')
-    .select('bodega_id, producto_id, cajas')
-    .in('bodega_id', bodegaIds)
-    .gt('cajas', 0)
+  const { data, error } = await fetchAllPages<{ bodega_id: number; producto_id: number; cajas: number | null }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select('bodega_id, producto_id, cajas', isFirst ? { count: 'exact' } : undefined)
+        .in('bodega_id', bodegaIds)
+        .gt('cajas', 0)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchStockVirtualResumenes' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchStockVirtualResumenes:', error)
     return resumenes
   }
@@ -329,16 +345,24 @@ export async function fetchMapaNotasDespacho(
   const supabase = await createClient()
   const referencias = despachoIds.map((id) => `Despacho ${id}`)
 
-  const { data, error } = await supabase
-    .from('notas_inventario')
-    .select(`
-      id, numero_nota, nota_referencia, fecha_confirmacion, total_cajas,
-      tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
-      estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo, nombre )
-    `)
-    .in('nota_referencia', referencias)
-
-  if (error || !data) return mapa
+  const data = await fetchInChunksPaginated<string, any>(
+    referencias,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('notas_inventario')
+        .select(
+          `
+          id, numero_nota, nota_referencia, fecha_confirmacion, total_cajas,
+          tipo:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey ( codigo ),
+          estado:cat_estados_nota!notas_inventario_estado_id_fkey ( codigo, nombre )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .in('nota_referencia', chunk)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchMapaNotasDespacho' }
+  )
 
   const rows = data as unknown as {
     id: number

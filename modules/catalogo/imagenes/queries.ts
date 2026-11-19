@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────
@@ -176,22 +177,7 @@ export async function fetchImagenesAgrupadas(
 ): Promise<ResultadoImagenesAgrupadas> {
   const supabase = await createClient()
 
-  // Query con join a productos
-  let query = (supabase
-    .from('producto_imagenes') as any)
-    .select(`
-      id,
-      producto_id,
-      url,
-      url_og,
-      es_principal,
-      orden,
-      alt_text,
-      uso_imagen,
-      origen_imagen,
-      created_at,
-      productos!inner(sku_base, nombre, descripcion)
-    `)
+  let matchedProductIds: number[] | null = null
 
   // Filtro: búsqueda por SKU o nombre del producto
   if (filtros.q) {
@@ -210,36 +196,58 @@ export async function fetchImagenesAgrupadas(
       console.error('[fetchImagenesAgrupadas] Error buscando productos:', prodErr.message || prodErr)
     }
 
-    const productIds = (matchedProducts || []).map((p: any) => p.id)
-    if (productIds.length === 0) {
+    const ids = (matchedProducts || []).map((p: any) => p.id)
+    if (ids.length === 0) {
       return { grupos: [], totalGrupos: 0, totalImagenes: 0, page: 1, totalPages: 0 }
     }
-
-    query = query.in('producto_id', productIds)
+    matchedProductIds = ids
   }
 
-  // Filtro: tipo de uso
-  if (filtros.uso_imagen) {
-    query = query.eq('uso_imagen', filtros.uso_imagen)
-  }
-
-  // Filtro: origen
-  if (filtros.origen) {
-    query = query.eq('origen_imagen', filtros.origen)
-  }
-
-  // Filtro: solo principales
-  if (filtros.es_principal === true) {
-    query = query.eq('es_principal', true)
-  }
-
-  // Ordenar imágenes por created_at DESC:
+  // Ordenar imágenes por created_at DESC (+ id DESC determinista):
   // Al iterar en orden descendente, la primera vez que encontramos un producto,
   // esa es su imagen más reciente. El orden de inserción en el Map preserva
   // de forma natural los productos de más reciente a más antiguo.
-  query = query.order('created_at', { ascending: false })
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = (supabase
+        .from('producto_imagenes') as any)
+        .select(
+          `
+          id,
+          producto_id,
+          url,
+          url_og,
+          es_principal,
+          orden,
+          alt_text,
+          uso_imagen,
+          origen_imagen,
+          created_at,
+          productos!inner(sku_base, nombre, descripcion)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
 
-  const { data, error } = await query
+      if (matchedProductIds) {
+        query = query.in('producto_id', matchedProductIds)
+      }
+      if (filtros.uso_imagen) {
+        query = query.eq('uso_imagen', filtros.uso_imagen)
+      }
+      if (filtros.origen) {
+        query = query.eq('origen_imagen', filtros.origen)
+      }
+      if (filtros.es_principal === true) {
+        query = query.eq('es_principal', true)
+      }
+
+      return query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(fromIdx, toIdx)
+    },
+    { label: 'fetchImagenesAgrupadas' }
+  )
 
   if (error) {
     console.error('[fetchImagenesAgrupadas] Error:', error.message || error)

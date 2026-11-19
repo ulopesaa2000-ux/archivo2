@@ -2,6 +2,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { compareFamiliaAsc } from '@/lib/inventario/familias-orden'
 
 export interface FiltrosPdfCatalog {
@@ -45,17 +46,27 @@ export async function fetchProductosParaCatalogoPdfAction(
   try {
     const supabase = await createClient()
 
-    // 1. Obtener inventario_stock agrupado
-    const { data: stockData, error: stockError } = await supabase
-      .from('inventario_stock')
-      .select('producto_id, cajas, piezas_sueltas')
+    // 1. Obtener inventario_stock agrupado (paginado completo, supera tope de 1000)
+    const { data: stockData, error: stockError } = await fetchAllPages<{
+      producto_id: number
+      cajas: number | null
+      piezas_sueltas: number | null
+    }>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('inventario_stock')
+          .select('producto_id, cajas, piezas_sueltas', isFirst ? { count: 'exact' } : undefined)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { label: 'fetchProductosParaCatalogoPdfAction:stock' }
+    )
 
     if (stockError) {
       console.warn('Advertencia al consultar inventario_stock:', stockError)
     }
 
     const stockMap: Record<number, { cajas: number; piezas: number }> = {}
-    for (const s of stockData || []) {
+    for (const s of stockData) {
       if (!stockMap[s.producto_id]) {
         stockMap[s.producto_id] = { cajas: 0, piezas: 0 }
       }
@@ -64,47 +75,55 @@ export async function fetchProductosParaCatalogoPdfAction(
     }
 
     // 2. Consulta de productos (solo activos: base del catálogo completo y selectivo)
-    let query = (supabase.from('productos') as any)
-      .select(`
-        id,
-        sku_base,
-        nombre,
-        descripcion,
-        familia,
-        genero_id,
-        tipo_prenda_id,
-        marca_id,
-        edad_id,
-        created_at,
-        activo,
-        cat_generos!left(nombre),
-        cat_tipo_prenda!left(nombre),
-        cat_marcas!left(nombre),
-        productos_web!left(id, activo, slug, precio_publico, precio_oferta)
-      `)
-      .eq('activo', true)
+    const { data: prods, error: prodsError } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) => {
+        let query = (supabase.from('productos') as any)
+          .select(
+            `
+            id,
+            sku_base,
+            nombre,
+            descripcion,
+            familia,
+            genero_id,
+            tipo_prenda_id,
+            marca_id,
+            edad_id,
+            created_at,
+            activo,
+            cat_generos!left(nombre),
+            cat_tipo_prenda!left(nombre),
+            cat_marcas!left(nombre),
+            productos_web!left(id, activo, slug, precio_publico, precio_oferta)
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .eq('activo', true)
 
-    // Filtro Género
-    if (filtros.generoId && filtros.generoId !== 'todos') {
-      if (filtros.generoId === 'infantil') {
-        query = query.or('genero_id.in.(4,5),edad_id.eq.1')
-      } else {
-        query = query.eq('genero_id', Number(filtros.generoId))
-      }
-    }
+        // Filtro Género
+        if (filtros.generoId && filtros.generoId !== 'todos') {
+          if (filtros.generoId === 'infantil') {
+            query = query.or('genero_id.in.(4,5),edad_id.eq.1')
+          } else {
+            query = query.eq('genero_id', Number(filtros.generoId))
+          }
+        }
 
-    // Filtro Tipos de prenda (multi-select)
-    if (filtros.tiposPrendaIds && filtros.tiposPrendaIds.length > 0) {
-      query = query.in('tipo_prenda_id', filtros.tiposPrendaIds)
-    }
+        // Filtro Tipos de prenda (multi-select)
+        if (filtros.tiposPrendaIds && filtros.tiposPrendaIds.length > 0) {
+          query = query.in('tipo_prenda_id', filtros.tiposPrendaIds)
+        }
 
-    // Búsqueda de texto libre
-    if (filtros.busqueda && filtros.busqueda.trim()) {
-      const term = `%${filtros.busqueda.trim()}%`
-      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term}`)
-    }
+        // Búsqueda de texto libre
+        if (filtros.busqueda && filtros.busqueda.trim()) {
+          const term = `%${filtros.busqueda.trim()}%`
+          query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term}`)
+        }
 
-    const { data: prods, error: prodsError } = await query.order('id', { ascending: false })
+        return query.order('id', { ascending: false }).range(fromIdx, toIdx)
+      },
+      { label: 'fetchProductosParaCatalogoPdfAction:productos' }
+    )
 
     if (prodsError) {
       console.error('Error fetchProductosParaCatalogoPdfAction:', prodsError)
@@ -112,25 +131,27 @@ export async function fetchProductosParaCatalogoPdfAction(
     }
 
     // 3. Obtener imágenes principales por chunks para evitar límites de URL o de filas (1000)
-    const prodIds = (prods || []).map((p: any) => p.id)
-    let imgMap: Record<number, string> = {}
+    const prodIds = prods.map((p: any) => p.id)
+    const imgMap: Record<number, string> = {}
 
     if (prodIds.length > 0) {
-      const CHUNK_SIZE = 150
-      for (let i = 0; i < prodIds.length; i += CHUNK_SIZE) {
-        const chunk = prodIds.slice(i, i + CHUNK_SIZE)
-        const { data: imgData } = await (supabase
-          .from('producto_imagenes') as any)
-          .select('producto_id, url, es_principal, orden, uso_imagen')
-          .in('producto_id', chunk)
-          .not('uso_imagen', 'in', '("oculta","oculto","ficha_tecnica","etiqueta_logistica")')
-          .order('es_principal', { ascending: false })
-          .order('orden', { ascending: true })
+      const imgData = await fetchInChunksPaginated<number, any>(
+        prodIds,
+        (chunk, fromIdx, toIdx, isFirst) =>
+          (supabase.from('producto_imagenes') as any)
+            .select('producto_id, url, es_principal, orden, uso_imagen', isFirst ? { count: 'exact' } : undefined)
+            .in('producto_id', chunk)
+            .not('uso_imagen', 'in', '("oculta","oculto","ficha_tecnica","etiqueta_logistica")')
+            .order('es_principal', { ascending: false })
+            .order('orden', { ascending: true })
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { chunkSize: 150, label: 'fetchProductosParaCatalogoPdfAction:imagenes' }
+      )
 
-        for (const img of imgData || []) {
-          if (!imgMap[img.producto_id] && img.url) {
-            imgMap[img.producto_id] = img.url
-          }
+      for (const img of imgData) {
+        if (!imgMap[img.producto_id] && img.url) {
+          imgMap[img.producto_id] = img.url
         }
       }
     }

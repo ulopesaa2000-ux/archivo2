@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient, createStaticClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import { PAGE_SIZE, ESTADO_NOTA } from '@/lib/constants'
 import { cacheLife, cacheTag } from 'next/cache'
 import { SupabaseClient } from '@supabase/supabase-js'
@@ -635,28 +636,36 @@ export async function fetchStockByBodega(
 
   // En modo pronóstico con solo_afectados o cuando necesitamos cruzar datos completos:
   if (isPronostico) {
-    let query = supabase
-      .from('inventario_stock')
-      .select(`
-        id, bodega_id, producto_id, cajas, piezas_sueltas,
-        ubicacion_pasillo, updated_at, caja_id,
-        producto:productos!inner (
-          id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
-          marca:cat_marcas!productos_marca_id_fkey ( nombre )
-        ),
-        caja:cajas_producto!inventario_stock_caja_id_fkey (
-          codigo_caja, nombre_pack
-        )
-      `)
-      .eq('bodega_id', bodegaId)
-      .is('caja_id', null)
-      .eq('producto.activo', true)
+    const { data: stockData, error } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) => {
+        let query = supabase
+          .from('inventario_stock')
+          .select(
+            `
+            id, bodega_id, producto_id, cajas, piezas_sueltas,
+            ubicacion_pasillo, updated_at, caja_id,
+            producto:productos!inner (
+              id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
+              marca:cat_marcas!productos_marca_id_fkey ( nombre )
+            ),
+            caja:cajas_producto!inventario_stock_caja_id_fkey (
+              codigo_caja, nombre_pack
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .eq('bodega_id', bodegaId)
+          .is('caja_id', null)
+          .eq('producto.activo', true)
 
-    if (!filtros?.con_stock_cero && !isSoloAfectados) {
-      query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
-    }
+        if (!filtros?.con_stock_cero && !isSoloAfectados) {
+          query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
+        }
 
-    const { data: stockData, error } = await query
+        return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+      },
+      { label: 'fetchStockByBodega:pronostico' }
+    )
 
     if (error) {
       console.error('Error fetchStockByBodega (pronostico):', formatQueryError(error))
@@ -798,47 +807,51 @@ export async function fetchStockByBodega(
     .is('caja_id', null)
     .eq('producto.activo', true)
 
-  let sumQuery: any = supabase
-    .from('inventario_stock')
-    .select('cajas, producto:productos!inner(activo)')
-    .eq('bodega_id', bodegaId)
-    .is('caja_id', null)
-    .eq('producto.activo', true)
+  const cleanQ = filtros?.q && filtros.q.trim() ? filtros.q.replace(/[,()"]/g, ' ').trim() : ''
+  const qTerm = cleanQ ? `%${cleanQ.replace(/\s+/g, '%')}%` : ''
 
   if (!filtros?.con_stock_cero) {
     query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
-    sumQuery = sumQuery.or('cajas.gt.0,piezas_sueltas.gt.0')
   }
 
-  if (filtros?.q && filtros.q.trim()) {
-    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
-    if (cleanQ) {
-      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
-      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
-        foreignTable: 'producto',
-      })
-      sumQuery = supabase
-        .from('inventario_stock')
-        .select('cajas, producto:productos!inner(sku_base, nombre, descripcion, familia, activo)')
-        .eq('bodega_id', bodegaId)
-        .is('caja_id', null)
-        .eq('producto.activo', true)
-
-      if (!filtros?.con_stock_cero) {
-        sumQuery = sumQuery.or('cajas.gt.0,piezas_sueltas.gt.0')
-      }
-
-      sumQuery = sumQuery.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
-        foreignTable: 'producto',
-      })
-    }
+  if (qTerm) {
+    query = query.or(`sku_base.ilike.${qTerm},nombre.ilike.${qTerm},descripcion.ilike.${qTerm},familia.ilike.${qTerm}`, {
+      foreignTable: 'producto',
+    })
   }
 
   query = query.order('producto_id').range(from, to)
 
   const [{ data, count, error }, sumRes] = await Promise.all([
     query,
-    sumQuery,
+    fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) => {
+        let sq: any = qTerm
+          ? supabase
+            .from('inventario_stock')
+            .select('cajas, producto:productos!inner(sku_base, nombre, descripcion, familia, activo)', isFirst ? { count: 'exact' } : undefined)
+            .eq('bodega_id', bodegaId)
+            .is('caja_id', null)
+            .eq('producto.activo', true)
+          : supabase
+            .from('inventario_stock')
+            .select('cajas, producto:productos!inner(activo)', isFirst ? { count: 'exact' } : undefined)
+            .eq('bodega_id', bodegaId)
+            .is('caja_id', null)
+            .eq('producto.activo', true)
+
+        if (!filtros?.con_stock_cero) {
+          sq = sq.or('cajas.gt.0,piezas_sueltas.gt.0')
+        }
+        if (qTerm) {
+          sq = sq.or(`sku_base.ilike.${qTerm},nombre.ilike.${qTerm},descripcion.ilike.${qTerm},familia.ilike.${qTerm}`, {
+            foreignTable: 'producto',
+          })
+        }
+        return sq.order('id', { ascending: true }).range(fromIdx, toIdx)
+      },
+      { label: 'fetchStockByBodega:sumQuery' }
+    ),
   ])
 
   if (error) {
@@ -897,42 +910,47 @@ export async function fetchStockByBodegaAll(
     ? await fetchNotasPendientesImpactoPorBodega(bodegaId)
     : { mapImpacto: new Map(), productosEnNotasMap: new Map() }
 
-  let query = supabase
-    .from('inventario_stock')
-    .select(`
-      id, bodega_id, producto_id, cajas, piezas_sueltas,
-      ubicacion_pasillo, updated_at, caja_id,
-      producto:productos!inner (
-        id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
-        marca:cat_marcas!productos_marca_id_fkey ( nombre )
-      ),
-      caja:cajas_producto!inventario_stock_caja_id_fkey (
-        codigo_caja, nombre_pack
-      )
-    `)
-    .eq('bodega_id', bodegaId)
-    .is('caja_id', null)
-    .eq('producto.activo', true)
+  const cleanQ = filtros?.q && filtros.q.trim() ? filtros.q.replace(/[,()"]/g, ' ').trim() : ''
+  const term = cleanQ ? `%${cleanQ.replace(/\s+/g, '%')}%` : ''
 
-  if (!filtros?.con_stock_cero && !filtros?.solo_afectados) {
-    query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
-  }
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('inventario_stock')
+        .select(
+          `
+          id, bodega_id, producto_id, cajas, piezas_sueltas,
+          ubicacion_pasillo, updated_at, caja_id,
+          producto:productos!inner (
+            id, sku_base, nombre, descripcion, familia, pz_en_caja, activo,
+            marca:cat_marcas!productos_marca_id_fkey ( nombre )
+          ),
+          caja:cajas_producto!inventario_stock_caja_id_fkey (
+            codigo_caja, nombre_pack
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('bodega_id', bodegaId)
+        .is('caja_id', null)
+        .eq('producto.activo', true)
 
-  if (filtros?.q && filtros.q.trim()) {
-    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
-    if (cleanQ) {
-      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
-      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
-        foreignTable: 'producto',
-      })
-    }
-  }
+      if (!filtros?.con_stock_cero && !filtros?.solo_afectados) {
+        query = query.or('cajas.gt.0,piezas_sueltas.gt.0')
+      }
 
-  query = query.order('producto_id')
+      if (term) {
+        query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`, {
+          foreignTable: 'producto',
+        })
+      }
 
-  const { data, error } = await query
+      return query.order('producto_id', { ascending: true }).order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchStockByBodegaAll' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchStockByBodegaAll:', error?.message || error)
     return []
   }
@@ -1330,9 +1348,36 @@ export async function fetchStockMatrix(
   }
 
   // ── MODO PRONÓSTICO MULTI-BODEGA ──
-  const { data, error } = await query
+  const cleanQMatrix = filtros.q && filtros.q.trim() ? filtros.q.replace(/[,()"]/g, ' ').trim() : ''
+  const termMatrix = cleanQMatrix ? `%${cleanQMatrix.replace(/\s+/g, '%')}%` : ''
 
-  if (error || !data) {
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let q = supabase
+        .from('productos')
+        .select(
+          `
+          id, sku_base, nombre, descripcion, familia, pz_en_caja,
+          inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
+        .in('inventario_stock.bodega_id', bodegasIds)
+        .is('inventario_stock.caja_id', null)
+
+      if (!filtros.con_stock_cero && !isSoloAfectados) {
+        q = q.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
+      }
+      if (termMatrix) {
+        q = q.or(`sku_base.ilike.${termMatrix},nombre.ilike.${termMatrix},descripcion.ilike.${termMatrix},familia.ilike.${termMatrix}`)
+      }
+      return q.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchStockMatrix:pronostico' }
+  )
+
+  if (error) {
     console.error('Error fetchStockMatrix (pronostico):', error?.message || error)
     return { items: [], total: 0, totalNotasPendientes: 0 }
   }
@@ -1464,34 +1509,38 @@ export async function fetchStockMatrixAll(
     ? await fetchNotasPendientesImpactoMultiBodega(bodegasIds)
     : { mapImpacto: new Map(), productosEnNotasMap: new Map() }
 
-  let query = supabase
-    .from('productos')
-    .select(`
-      id, sku_base, nombre, descripcion, familia, pz_en_caja,
-      inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
-    `)
-    .eq('activo', true)
+  const cleanQAll = filtros.q && filtros.q.trim() ? filtros.q.replace(/[,()"]/g, ' ').trim() : ''
+  const termAll = cleanQAll ? `%${cleanQAll.replace(/\s+/g, '%')}%` : ''
 
-  query = query.in('inventario_stock.bodega_id', bodegasIds)
-  query = query.is('inventario_stock.caja_id', null)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('productos')
+        .select(
+          `
+          id, sku_base, nombre, descripcion, familia, pz_en_caja,
+          inventario_stock!inner(bodega_id, cajas, piezas_sueltas, caja_id)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
+        .in('inventario_stock.bodega_id', bodegasIds)
+        .is('inventario_stock.caja_id', null)
 
-  if (!filtros.con_stock_cero && !filtros.solo_afectados) {
-    query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
-  }
+      if (!filtros.con_stock_cero && !filtros.solo_afectados) {
+        query = query.or('cajas.gt.0,piezas_sueltas.gt.0', { foreignTable: 'inventario_stock' })
+      }
 
-  if (filtros.q && filtros.q.trim()) {
-    const cleanQ = filtros.q.replace(/[,()"]/g, ' ').trim()
-    if (cleanQ) {
-      const term = `%${cleanQ.replace(/\s+/g, '%')}%`
-      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term},familia.ilike.${term}`)
-    }
-  }
+      if (termAll) {
+        query = query.or(`sku_base.ilike.${termAll},nombre.ilike.${termAll},descripcion.ilike.${termAll},familia.ilike.${termAll}`)
+      }
 
-  query = query.order('id')
+      return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchStockMatrixAll' }
+  )
 
-  const { data, error } = await query
-
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchStockMatrixAll:', error?.message || error)
     return []
   }
@@ -1605,14 +1654,20 @@ export async function fetchTotalesCajasPorBodegas(
 ): Promise<Record<number, number>> {
   if (bodegasIds.length === 0) return {}
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('inventario_stock')
-    .select('bodega_id, cajas, producto:productos!inner(activo)')
-    .in('bodega_id', bodegasIds)
-    .is('caja_id', null)
-    .eq('producto.activo', true)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select('bodega_id, cajas, producto:productos!inner(activo)', isFirst ? { count: 'exact' } : undefined)
+        .in('bodega_id', bodegasIds)
+        .is('caja_id', null)
+        .eq('producto.activo', true)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchTotalesCajasPorBodegas' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchTotalesCajasPorBodegas:', error)
     return {}
   }
@@ -1697,9 +1752,9 @@ export async function fetchAuditoriaInversaPorProducto(
   const prod: any = (prodRes as any)?.data
   if (!prod) return null
   const stockActualByBodega = new Map<number, number>()
-  ;((stockRes as any)?.data || []).forEach((r: any) => {
-    stockActualByBodega.set(Number(r.bodega_id), (stockActualByBodega.get(Number(r.bodega_id)) || 0) + (Number(r.cajas) || 0))
-  })
+    ; ((stockRes as any)?.data || []).forEach((r: any) => {
+      stockActualByBodega.set(Number(r.bodega_id), (stockActualByBodega.get(Number(r.bodega_id)) || 0) + (Number(r.cajas) || 0))
+    })
 
   // Blindaje: solo CONF/MODF con activo=true suman. CANC y activo=false nunca entran al cálculo.
   let movQuery = supabase
@@ -1738,7 +1793,7 @@ export async function fetchAuditoriaInversaPorProducto(
   }
 
   const metaById = new Map<number, BodegaRow>()
-  ;(bodegasMeta || []).forEach((b) => metaById.set(b.id, b))
+    ; (bodegasMeta || []).forEach((b) => metaById.set(b.id, b))
 
   const bodegasMap = new Map<number, AuditoriaInversaBodega>()
   bodegaIds.forEach((bId) => {
@@ -1764,10 +1819,10 @@ export async function fetchAuditoriaInversaPorProducto(
   let userNames = new Map<number, string>()
   if (userIds.length > 0) {
     const { data: usersData } = await supabase.from('usuarios').select('id, nombre').in('id', userIds as number[])
-    ;(usersData || []).forEach((u: any) => userNames.set(Number(u.id), String(u.nombre || '')))
+      ; (usersData || []).forEach((u: any) => userNames.set(Number(u.id), String(u.nombre || '')))
   }
 
-  ;((movRaw || []) as any[]).forEach((m: any) => {
+  ; ((movRaw || []) as any[]).forEach((m: any) => {
     const nota = Array.isArray(m.notas_inventario) ? m.notas_inventario[0] : m.notas_inventario
     if (!nota) return
     // Blindaje defensivo: CANC y activo=false nunca suman aunque el filtro SQL fallara.
@@ -2353,34 +2408,8 @@ export async function fetchNotasParaReporte(
 ): Promise<NotaListItem[]> {
   const supabase = await createClient()
 
-  let query = supabase
-    .from('notas_inventario')
-    .select(`
-      id, numero_nota, fecha_nota, fecha_confirmacion,
-      total_cajas, nota_referencia, observaciones, usuario_id,
-      costo_total, comprobante_url,
-      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
-        codigo, nombre, afecta_inventario
-      ),
-      estado:cat_estados_nota!notas_inventario_estado_id_fkey (
-        codigo, nombre, color
-      ),
-      bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
-        id, nombre, codigo
-      ),
-      bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (
-        id, nombre, codigo
-      )
-    `)
-    .eq('activo', true)
-
-  if (filtros.q) {
-    query = query.ilike('numero_nota', `%${filtros.q}%`)
-  }
-
-  if (filtros.tipo_movimiento_id) {
-    query = query.eq('tipo_movimiento_id', filtros.tipo_movimiento_id)
-  }
+  let matchingEstadoIds: number[] | null = null
+  let forceEmpty = false
 
   if (filtros.estado_codigo) {
     const { data: estadosData } = await supabase
@@ -2402,25 +2431,15 @@ export async function fetchNotasParaReporte(
       }
 
       targetCodigos = Array.from(new Set(targetCodigos))
-
-      const matchingIds = estadosData
+      matchingEstadoIds = estadosData
         .filter(e => targetCodigos.includes(e.codigo.toUpperCase()))
         .map(e => e.id)
 
-      if (matchingIds.length === 1) {
-        query = query.eq('estado_id', matchingIds[0])
-      } else if (matchingIds.length > 1) {
-        query = query.in('estado_id', matchingIds)
-      } else {
-        query = query.eq('id', -1)
-      }
+      if (matchingEstadoIds.length === 0) forceEmpty = true
     }
   }
 
-  if (filtros.bodega_origen_id) {
-    query = query.or(`bodega_origen_id.eq.${filtros.bodega_origen_id},bodega_destino_id.eq.${filtros.bodega_origen_id}`)
-  }
-
+  let ciudadBodegaIdsStr: string | null = null
   if (filtros.ciudad) {
     const { data: bodegasCiudad } = await supabase
       .from('bodegas')
@@ -2429,36 +2448,85 @@ export async function fetchNotasParaReporte(
       .eq('activa', true)
 
     if (bodegasCiudad && bodegasCiudad.length > 0) {
-      const idsStr = bodegasCiudad.map(b => b.id).join(',')
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+      ciudadBodegaIdsStr = bodegasCiudad.map(b => b.id).join(',')
     } else {
-      query = query.eq('id', -1)
+      forceEmpty = true
     }
   }
 
-  if (filtros.fecha_desde) {
-    query = query.gte('fecha_nota', filtros.fecha_desde)
-  }
-  if (filtros.fecha_hasta) {
-    query = query.lte('fecha_nota', `${filtros.fecha_hasta}T23:59:59`)
-  }
+  if (forceEmpty) return []
 
-  if (filtros.limit_bodega_ids && filtros.limit_bodega_ids.length > 0) {
-    const idsStr = filtros.limit_bodega_ids.join(',')
-    if (filtros.limit_usuario_id) {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
-    } else {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
-    }
-  } else if (filtros.limit_usuario_id) {
-    query = query.eq('usuario_id', filtros.limit_usuario_id)
-  }
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('notas_inventario')
+        .select(
+          `
+          id, numero_nota, fecha_nota, fecha_confirmacion,
+          total_cajas, nota_referencia, observaciones, usuario_id,
+          costo_total, comprobante_url,
+          tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey (
+            codigo, nombre, afecta_inventario
+          ),
+          estado:cat_estados_nota!notas_inventario_estado_id_fkey (
+            codigo, nombre, color
+          ),
+          bodega_origen:bodegas!notas_inventario_bodega_origen_id_fkey (
+            id, nombre, codigo
+          ),
+          bodega_destino:bodegas!notas_inventario_bodega_destino_id_fkey (
+            id, nombre, codigo
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
 
-  query = query.order('fecha_nota', { ascending: false }).limit(10000)
+      if (filtros.q) {
+        query = query.ilike('numero_nota', `%${filtros.q}%`)
+      }
+      if (filtros.tipo_movimiento_id) {
+        query = query.eq('tipo_movimiento_id', filtros.tipo_movimiento_id)
+      }
+      if (matchingEstadoIds) {
+        if (matchingEstadoIds.length === 1) {
+          query = query.eq('estado_id', matchingEstadoIds[0])
+        } else if (matchingEstadoIds.length > 1) {
+          query = query.in('estado_id', matchingEstadoIds)
+        }
+      }
+      if (filtros.bodega_origen_id) {
+        query = query.or(`bodega_origen_id.eq.${filtros.bodega_origen_id},bodega_destino_id.eq.${filtros.bodega_origen_id}`)
+      }
+      if (ciudadBodegaIdsStr) {
+        query = query.or(`bodega_origen_id.in.(${ciudadBodegaIdsStr}),bodega_destino_id.in.(${ciudadBodegaIdsStr})`)
+      }
+      if (filtros.fecha_desde) {
+        query = query.gte('fecha_nota', filtros.fecha_desde)
+      }
+      if (filtros.fecha_hasta) {
+        query = query.lte('fecha_nota', `${filtros.fecha_hasta}T23:59:59`)
+      }
+      if (filtros.limit_bodega_ids && filtros.limit_bodega_ids.length > 0) {
+        const idsStr = filtros.limit_bodega_ids.join(',')
+        if (filtros.limit_usuario_id) {
+          query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
+        } else {
+          query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+        }
+      } else if (filtros.limit_usuario_id) {
+        query = query.eq('usuario_id', filtros.limit_usuario_id)
+      }
 
-  const { data, error } = await query
+      return query
+        .order('fecha_nota', { ascending: false })
+        .order('id', { ascending: false })
+        .range(fromIdx, toIdx)
+    },
+    { label: 'fetchNotasParaReporte' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchNotasParaReporte:', error)
     return []
   }
@@ -2512,32 +2580,37 @@ export async function fetchResumenReporteNotas(filtros: {
 }): Promise<{ total: number; porTipo: Record<string, number> }> {
   const supabase = await createClient()
 
-  let query = supabase
-    .from('notas_inventario')
-    .select('id, tipo_movimiento_id')
-    .eq('activo', true)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('notas_inventario')
+        .select('id, tipo_movimiento_id', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
 
-  if (filtros.fechaDesde) {
-    query = query.gte('fecha_nota', filtros.fechaDesde)
-  }
-  if (filtros.fechaHasta) {
-    query = query.lte('fecha_nota', `${filtros.fechaHasta}T23:59:59`)
-  }
+      if (filtros.fechaDesde) {
+        query = query.gte('fecha_nota', filtros.fechaDesde)
+      }
+      if (filtros.fechaHasta) {
+        query = query.lte('fecha_nota', `${filtros.fechaHasta}T23:59:59`)
+      }
 
-  if (filtros.bodegaIds && filtros.bodegaIds.length > 0) {
-    const idsStr = filtros.bodegaIds.join(',')
-    if (filtros.limit_usuario_id) {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
-    } else {
-      query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
-    }
-  } else if (filtros.limit_usuario_id) {
-    query = query.eq('usuario_id', filtros.limit_usuario_id)
-  }
+      if (filtros.bodegaIds && filtros.bodegaIds.length > 0) {
+        const idsStr = filtros.bodegaIds.join(',')
+        if (filtros.limit_usuario_id) {
+          query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr}),usuario_id.eq.${filtros.limit_usuario_id}`)
+        } else {
+          query = query.or(`bodega_origen_id.in.(${idsStr}),bodega_destino_id.in.(${idsStr})`)
+        }
+      } else if (filtros.limit_usuario_id) {
+        query = query.eq('usuario_id', filtros.limit_usuario_id)
+      }
 
-  const { data, error } = await query
+      return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchResumenReporteNotas' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error fetchResumenReporteNotas:', error)
     return { total: 0, porTipo: {} }
   }
@@ -2980,23 +3053,31 @@ export async function getNotasKPIsGlobales(
 ): Promise<{ pendientes: number; enProceso: number; cajasIngresadas: number; cajasEgresadas: number }> {
   const supabase = await createClient()
 
-  let query = supabase
-    .from('notas_inventario')
-    .select(`
-      id,
-      total_cajas,
-      tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey(codigo),
-      estado:cat_estados_nota!notas_inventario_estado_id_fkey(codigo)
-    `)
-    .eq('activo', true)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('notas_inventario')
+        .select(
+          `
+          id,
+          total_cajas,
+          tipo_movimiento:cat_tipos_movimiento!notas_inventario_tipo_movimiento_id_fkey(codigo),
+          estado:cat_estados_nota!notas_inventario_estado_id_fkey(codigo)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
 
-  if (bodegaId && bodegaId !== 'todas') {
-    query = query.or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
-  }
+      if (bodegaId && bodegaId !== 'todas') {
+        query = query.or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
+      }
 
-  const { data, error } = await query
+      return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'getNotasKPIsGlobales' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('Error getNotasKPIsGlobales:', error)
     return { pendientes: 0, enProceso: 0, cajasIngresadas: 0, cajasEgresadas: 0 }
   }
@@ -3012,11 +3093,11 @@ export async function getNotasKPIsGlobales(
     return Array.isArray(t) ? (t[0] as { codigo: string })?.codigo : (t as { codigo: string } | null)?.codigo
   }
 
-  const pendientes      = notas.filter(n => { const c = getCodEstado(n); return c === 'PEND' || c === 'BORR' }).length
-  const enProceso       = notas.filter(n => { const c = getCodEstado(n); return c === 'PROC' || c === 'PROCESO' }).length
+  const pendientes = notas.filter(n => { const c = getCodEstado(n); return c === 'PEND' || c === 'BORR' }).length
+  const enProceso = notas.filter(n => { const c = getCodEstado(n); return c === 'PROC' || c === 'PROCESO' }).length
   const isConfOrModf = (c?: string) => c === 'CONF' || c === 'MODF'
   const cajasIngresadas = notas.filter(n => getCodTipo(n) === 'ENT' && isConfOrModf(getCodEstado(n))).reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
-  const cajasEgresadas  = notas.filter(n => getCodTipo(n) === 'SAL' && isConfOrModf(getCodEstado(n))).reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
+  const cajasEgresadas = notas.filter(n => getCodTipo(n) === 'SAL' && isConfOrModf(getCodEstado(n))).reduce((a, n) => a + (Number(n.total_cajas) || 0), 0)
 
   return { pendientes, enProceso, cajasIngresadas, cajasEgresadas }
 }

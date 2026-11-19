@@ -13,6 +13,7 @@ import 'server-only'
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import {
   aplicarRollback,
   calcularRollback,
@@ -195,18 +196,27 @@ export async function fetchStockHistoricoFilas(
   if (bodegaIds.length === 0) return { filas: [], productos: new Map() }
   const supabase = await createClient()
 
-  const { data, error } = await supabase
-    .from('inventario_stock')
-    .select(`
-      bodega_id, producto_id, cajas, updated_at, updated_by,
-      producto:productos!inner (
-        id, sku_base, descripcion, nombre, familia, pz_en_caja,
-        marca:cat_marcas!productos_marca_id_fkey ( nombre )
-      )
-    `)
-    .in('bodega_id', bodegaIds)
-    .is('caja_id', null)
-    .eq('producto.activo', true)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select(
+          `
+          bodega_id, producto_id, cajas, updated_at, updated_by,
+          producto:productos!inner (
+            id, sku_base, descripcion, nombre, familia, pz_en_caja,
+            marca:cat_marcas!productos_marca_id_fkey ( nombre )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .in('bodega_id', bodegaIds)
+        .is('caja_id', null)
+        .eq('producto.activo', true)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchStockHistoricoFilas' }
+  )
 
   if (error) {
     console.error('Error fetchStockHistoricoFilas:', error.message)
@@ -264,26 +274,33 @@ export async function fetchMovimientosConfirmados(opts: {
   if (estadoIds.length === 0) return []
 
   // ── 1) Cabeceras ──
-  let q = supabase
-    .from('notas_inventario')
-    .select(
-      'id, numero_nota, fecha_nota, fecha_confirmacion, bodega_origen_id, bodega_destino_id, estado_id, tipo_movimiento_id, activo'
-    )
-    .in('estado_id', estadoIds)
-    .eq('activo', true)
+  const { data: notasRaw, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let q = supabase
+        .from('notas_inventario')
+        .select(
+          'id, numero_nota, fecha_nota, fecha_confirmacion, bodega_origen_id, bodega_destino_id, estado_id, tipo_movimiento_id, activo',
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .in('estado_id', estadoIds)
+        .eq('activo', true)
 
-  if (opts.desde) {
-    q = opts.desdeExclusivo ? q.gt('fecha_nota', opts.desde) : q.gte('fecha_nota', opts.desde)
-  }
-  if (opts.hasta) {
-    q = opts.hastaExclusivo ? q.lt('fecha_nota', opts.hasta) : q.lte('fecha_nota', opts.hasta)
-  }
-  if (opts.bodegaIds && opts.bodegaIds.length > 0) {
-    const ids = opts.bodegaIds.join(',')
-    q = q.or(`bodega_origen_id.in.(${ids}),bodega_destino_id.in.(${ids})`)
-  }
+      if (opts.desde) {
+        q = opts.desdeExclusivo ? q.gt('fecha_nota', opts.desde) : q.gte('fecha_nota', opts.desde)
+      }
+      if (opts.hasta) {
+        q = opts.hastaExclusivo ? q.lt('fecha_nota', opts.hasta) : q.lte('fecha_nota', opts.hasta)
+      }
+      if (opts.bodegaIds && opts.bodegaIds.length > 0) {
+        const ids = opts.bodegaIds.join(',')
+        q = q.or(`bodega_origen_id.in.(${ids}),bodega_destino_id.in.(${ids})`)
+      }
 
-  const { data: notasRaw, error } = await q
+      return q.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchMovimientosConfirmados:cabeceras' }
+  )
+
   if (error) {
     console.error('Error fetchMovimientosConfirmados (cabeceras):', error.message)
     return []
@@ -291,7 +308,7 @@ export async function fetchMovimientosConfirmados(opts: {
 
   const cat = await fetchCatalogosMovimiento()
   const notas = new Map<number, MovimientoHistorico>()
-  for (const n of (notasRaw ?? []) as any[]) {
+  for (const n of notasRaw) {
     const tipo = cat.tipos.get(Number(n.tipo_movimiento_id))
     const tipoCodigo = normalizaTipo(tipo?.codigo)
     if (!tipoCodigo) continue
@@ -316,20 +333,18 @@ export async function fetchMovimientosConfirmados(opts: {
   const notaIds = Array.from(notas.keys())
   if (notaIds.length === 0) return []
 
-  // ── 2) Detalles en chunks de 200 ──
-  const detalles: any[] = []
-  for (let i = 0; i < notaIds.length; i += 200) {
-    const chunk = notaIds.slice(i, i + 200)
-    const { data, error: errDet } = await supabase
-      .from('nota_detalle_productos')
-      .select('nota_id, producto_id, cajas')
-      .in('nota_id', chunk)
-    if (errDet) {
-      console.error('Error fetchMovimientosConfirmados (detalles):', errDet.message)
-      continue
-    }
-    detalles.push(...(data ?? []))
-  }
+  // ── 2) Detalles en chunks de <= 200 y paginados ──
+  const detalles = await fetchInChunksPaginated<number, any>(
+    notaIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('nota_detalle_productos')
+        .select('nota_id, producto_id, cajas', isFirst ? { count: 'exact' } : undefined)
+        .in('nota_id', chunk)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchMovimientosConfirmados:detalles' }
+  )
 
   // ── 3) Join ──
   const out: MovimientoHistorico[] = []
@@ -359,14 +374,23 @@ export async function fetchNotasConfirmadasHeaders(bodegaIds: number[]): Promise
   const supabase = await createClient()
   const ids = bodegaIds.join(',')
 
-  const { data, error } = await supabase
-    .from('notas_inventario')
-    .select(`
-      id, numero_nota, fecha_nota, fecha_confirmacion,
-      bodega_origen_id, bodega_destino_id, activo, estado_id, tipo_movimiento_id
-    `)
-    .in('estado_id', estadoIds)
-    .or(`bodega_origen_id.in.(${ids}),bodega_destino_id.in.(${ids})`)
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('notas_inventario')
+        .select(
+          `
+          id, numero_nota, fecha_nota, fecha_confirmacion,
+          bodega_origen_id, bodega_destino_id, activo, estado_id, tipo_movimiento_id
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .in('estado_id', estadoIds)
+        .or(`bodega_origen_id.in.(${ids}),bodega_destino_id.in.(${ids})`)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchNotasConfirmadasHeaders' }
+  )
 
   if (error) {
     console.error('Error fetchNotasConfirmadasHeaders:', error.message)

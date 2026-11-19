@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import type { BodegaRow } from '@/lib/types/tables'
 
 export type ProductoMatch = {
@@ -251,24 +252,33 @@ export async function generarConciliacionInventarioTotal(
 
   const uploadedIds = Array.from(consolidadas.keys())
 
-  // 3. Consultar todo el inventario stock actual activo de la bodega
-  const { data: stockBodega } = await supabase
-    .from('inventario_stock')
-    .select(`
-      producto_id,
-      cajas,
-      piezas_sueltas,
-      producto:productos (
-        id,
-        sku_base,
-        nombre,
-        descripcion,
-        familia
-      )
-    `)
-    .eq('bodega_id', bodegaId)
-    .is('caja_id', null)
-    .gt('cajas', 0)
+  // 3. Consultar todo el inventario stock actual activo de la bodega (paginado completo)
+  const { data: stockBodega } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('inventario_stock')
+        .select(
+          `
+          producto_id,
+          cajas,
+          piezas_sueltas,
+          producto:productos (
+            id,
+            sku_base,
+            nombre,
+            descripcion,
+            familia
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('bodega_id', bodegaId)
+        .is('caja_id', null)
+        .gt('cajas', 0)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'generarConciliacionInventarioTotal:stock' }
+  )
 
   const stockMap = new Map<number, { cajas: number; producto: any }>()
   for (const row of stockBodega ?? []) {

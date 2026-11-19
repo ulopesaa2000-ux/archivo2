@@ -4,6 +4,7 @@ import 'server-only'
 import { cache } from 'react'
 import { cacheLife, cacheTag } from 'next/cache'
 import { createClient, createStaticClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import { sanitizePostgrestFilterTerm } from '@/lib/utils/postgrest-sanitize'
 import { parseStoreConfig } from '@/lib/utils/storeConfig'
@@ -86,72 +87,85 @@ export async function fetchProductosWebAdmin(
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  let query = (supabase.from('productos') as any)
-    .select(
-      `
-      id,
-      sku_base,
-      nombre,
-      descripcion,
-      marca_id,
-      genero_id,
-      tipo_prenda_id,
-      pz_en_caja,
-      composicion,
-      activo,
-      created_at,
-      cat_marcas!left(nombre),
-      cat_tipo_prenda!left(nombre),
-      cat_generos!left(nombre),
-      productos_web!left(
+  const buildProductosQuery = (fromIdx: number, toIdx: number, isFirst: boolean) => {
+    let query = (supabase.from('productos') as any)
+      .select(
+        `
         id,
-        slug,
-        precio_publico,
-        precio_oferta,
-        en_oferta,
-        destacado,
-        nuevo,
-        activo
+        sku_base,
+        nombre,
+        descripcion,
+        marca_id,
+        genero_id,
+        tipo_prenda_id,
+        pz_en_caja,
+        composicion,
+        activo,
+        created_at,
+        cat_marcas!left(nombre),
+        cat_tipo_prenda!left(nombre),
+        cat_generos!left(nombre),
+        productos_web!left(
+          id,
+          slug,
+          precio_publico,
+          precio_oferta,
+          en_oferta,
+          destacado,
+          nuevo,
+          activo
+        )
+        `,
+        isFirst ? { count: 'exact' } : undefined
       )
-      `,
-      { count: 'exact' }
-    )
-    .eq('activo', true)
+      .eq('activo', true)
 
-  // Filtro de texto (SKU, nombre o descripción)
-  if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term}`)
-  }
-  if (filtros.marca_id) {
-    query = query.eq('marca_id', filtros.marca_id)
-  }
-  if (filtros.genero_id) {
-    query = query.eq('genero_id', filtros.genero_id)
-  }
-  if (filtros.tipo_prenda_id) {
-    query = query.eq('tipo_prenda_id', filtros.tipo_prenda_id)
+    // Filtro de texto (SKU, nombre o descripción)
+    if (filtros.q) {
+      const term = `%${filtros.q}%`
+      query = query.or(`sku_base.ilike.${term},nombre.ilike.${term},descripcion.ilike.${term}`)
+    }
+    if (filtros.marca_id) {
+      query = query.eq('marca_id', filtros.marca_id)
+    }
+    if (filtros.genero_id) {
+      query = query.eq('genero_id', filtros.genero_id)
+    }
+    if (filtros.tipo_prenda_id) {
+      query = query.eq('tipo_prenda_id', filtros.tipo_prenda_id)
+    }
+
+    return query.order('id', { ascending: true }).range(fromIdx, toIdx)
   }
 
-  const { data: rawData, count, error } = await query
+  const { data: rawData, error } = await fetchAllPages<any>(buildProductosQuery, {
+    label: 'fetchProductosWebAdmin',
+  })
 
   if (error) {
     console.error('Error fetchProductosWebAdmin:', error)
     return { productos: [], total: 0 }
   }
 
-  // Obtener imágenes principales de los productos
+  // Obtener imágenes principales de los productos en chunks <= 200 y paginados
   const productoIds = (rawData || []).map((p: any) => p.id)
   let imagenesMap: Record<number, string> = {}
   if (productoIds.length > 0) {
-    const { data: imagenes } = await supabase
-      .from('producto_imagenes')
-      .select('producto_id, url, es_principal')
-      .in('producto_id', productoIds)
-      .order('es_principal', { ascending: false })
-      .order('orden', { ascending: true })
+    const imagenes = await fetchInChunksPaginated<number, any>(
+      productoIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('producto_imagenes')
+          .select('producto_id, url, es_principal', isFirst ? { count: 'exact' } : undefined)
+          .in('producto_id', chunk)
+          .order('es_principal', { ascending: false })
+          .order('orden', { ascending: true })
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchProductosWebAdmin:imagenes' }
+    )
 
-    imagenesMap = (imagenes || []).reduce((acc: Record<number, string>, img: any) => {
+    imagenesMap = imagenes.reduce((acc: Record<number, string>, img: any) => {
       if (!acc[img.producto_id] || img.es_principal) {
         acc[img.producto_id] = img.url
       }
@@ -265,24 +279,36 @@ export async function fetchProductosNoPublicados(): Promise<
   const supabase = await createClient()
 
   // First get all published product IDs
-  const { data: publishedIds, error: publishedError } = await supabase
-    .from('productos_web')
-    .select('producto_id')
+  const { data: publishedIds, error: publishedError } = await fetchAllPages<{ producto_id: number }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos_web')
+        .select('producto_id', isFirst ? { count: 'exact' } : undefined)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchProductosNoPublicados:publishedIds' }
+  )
 
   if (publishedError) {
     console.error('Error fetching published IDs:', publishedError)
     return []
   }
 
-  const excludeIds = publishedIds?.map(p => p.producto_id) || []
+  const excludeIds = publishedIds.map(p => p.producto_id)
 
   // Get all active published products
-  const { data, error } = await supabase
-    .from('productos')
-    .select('id, sku_base, nombre, marca_id')
-    .eq('activo', true)
-    .eq('estado', 'publicado')
-    .order('sku_base')
+  const { data, error } = await fetchAllPages<{ id: number; sku_base: string; nombre: string | null; marca_id: number | null }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos')
+        .select('id, sku_base, nombre, marca_id', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .eq('estado', 'publicado')
+        .order('sku_base', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchProductosNoPublicados:productos' }
+  )
 
   if (error) {
     console.error('Error fetchProductosNoPublicados:', error)
@@ -290,28 +316,31 @@ export async function fetchProductosNoPublicados(): Promise<
   }
 
   // Get marcas and images separately
-  const productoIds = data?.map(p => p.id) || []
+  const productoIds = data.map(p => p.id)
 
   let marcas: { id: number; nombre: string }[] = []
   let imagenes: { producto_id: number; url: string; es_principal: boolean | null }[] = []
 
   if (productoIds.length > 0) {
-    // Get marcas
-    const { data: marcasData } = await supabase
-      .from('cat_marcas')
-      .select('id, nombre')
+    const [marcasRes, imagenesData] = await Promise.all([
+      supabase.from('cat_marcas').select('id, nombre'),
+      fetchInChunksPaginated<number, { producto_id: number; url: string; es_principal: boolean | null }>(
+        productoIds,
+        (chunk, fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('producto_imagenes')
+            .select('producto_id, url, es_principal', isFirst ? { count: 'exact' } : undefined)
+            .in('producto_id', chunk)
+            .order('es_principal', { ascending: false })
+            .order('orden', { ascending: true })
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { chunkSize: 150, label: 'fetchProductosNoPublicados:imagenes' }
+      ),
+    ])
 
-    marcas = marcasData || []
-
-    // Get principal images for these products with fallback
-    const { data: imagenesData } = await supabase
-      .from('producto_imagenes')
-      .select('producto_id, url, es_principal')
-      .in('producto_id', productoIds)
-      .order('es_principal', { ascending: false })
-      .order('orden', { ascending: true })
-
-    imagenes = imagenesData || []
+    marcas = marcasRes.data || []
+    imagenes = imagenesData
   }
 
   // Filter out already published products and map data
@@ -344,26 +373,38 @@ async function obtenerIdsProductosVisiblesSegunModo(
 
   // Modo 2: Stock propio del producto >= 1 caja
   if (modoVisibilidad === 'stock_individual') {
-    const { data, error } = await supabase
-      .from('v_stock_consolidado')
-      .select('producto_id')
-      .gte('cajas_total_global', 1)
+    const { data, error } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('v_stock_consolidado')
+          .select('producto_id', isFirst ? { count: 'exact' } : undefined)
+          .gte('cajas_total_global', 1)
+          .order('producto_id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { label: 'obtenerIdsProductosVisiblesSegunModo:stock_individual' }
+    )
 
-    if (error || !data) {
+    if (error) {
       console.error('Error al consultar stock individual en fetchProductosWebPublicos:', error)
       return []
     }
-    return (data as any[]).map((d) => d.producto_id)
+    return data.map((d) => d.producto_id)
   }
 
   // Modo 3: Stock por familia >= 1 caja (o stock propio si no tiene familia)
   if (modoVisibilidad === 'stock_familia') {
-    const { data: stockData, error: stockErr } = await supabase
-      .from('v_stock_consolidado')
-      .select('producto_id, cajas_total_global, producto:productos!inner(id, familia)')
-      .gte('cajas_total_global', 1)
+    const { data: stockData, error: stockErr } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('v_stock_consolidado')
+          .select('producto_id, cajas_total_global, producto:productos!inner(id, familia)', isFirst ? { count: 'exact' } : undefined)
+          .gte('cajas_total_global', 1)
+          .order('producto_id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { label: 'obtenerIdsProductosVisiblesSegunModo:stock_familia' }
+    )
 
-    if (stockErr || !stockData) {
+    if (stockErr) {
       console.error('Error al consultar stock por familia en fetchProductosWebPublicos:', stockErr)
       return []
     }
@@ -371,7 +412,7 @@ async function obtenerIdsProductosVisiblesSegunModo(
     const familiasConStock: string[] = []
     const prodsSinFamiliaConStock: number[] = []
 
-    for (const item of stockData as any[]) {
+    for (const item of stockData) {
       const fam = item.producto?.familia?.trim()
       if (fam) {
         familiasConStock.push(fam)
@@ -381,18 +422,23 @@ async function obtenerIdsProductosVisiblesSegunModo(
     }
 
     const uniqueFamilias = Array.from(new Set(familiasConStock))
-    let validIds: number[] = [...prodsSinFamiliaConStock]
+    const validIds: number[] = [...prodsSinFamiliaConStock]
 
     if (uniqueFamilias.length > 0) {
-      const { data: prodsFam, error: famErr } = await supabase
-        .from('productos')
-        .select('id')
-        .in('familia', uniqueFamilias)
-        .eq('activo', true)
+      const prodsFam = await fetchInChunksPaginated<string, { id: number }>(
+        uniqueFamilias,
+        (chunk, fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('productos')
+            .select('id', isFirst ? { count: 'exact' } : undefined)
+            .in('familia', chunk)
+            .eq('activo', true)
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { chunkSize: 150, label: 'obtenerIdsProductosVisiblesSegunModo:familias' }
+      )
 
-      if (!famErr && prodsFam) {
-        validIds.push(...(prodsFam as any[]).map((p) => p.id))
-      }
+      validIds.push(...prodsFam.map((p) => p.id))
     }
 
     return Array.from(new Set(validIds))
@@ -444,147 +490,179 @@ async function executeFetchProductosWebPublicos(
       return { productos: [], total: 0 }
     }
 
-    let query = (supabase
-      .from('productos_web') as any)
-      .select(
-        `
-        id,
-        slug,
-        producto_id,
-        titulo_seo,
-        precio_publico,
-        precio_oferta,
-        en_oferta,
-        destacado,
-        nuevo,
-        created_at,
-        modo_override,
-        unidad_venta,
-        activo,
-        productos!inner(
-          sku_base,
-          nombre,
-          descripcion,
-          pz_en_caja,
-          marca_id,
-          genero_id,
-          tipo_prenda_id,
-          cat_marcas!left(nombre),
-          cat_tipo_prenda!left(nombre),
-          cat_generos!left(nombre)
-        )
-        `,
-        { count: 'exact' }
+    const selectPublicCols = `
+      id,
+      slug,
+      producto_id,
+      titulo_seo,
+      precio_publico,
+      precio_oferta,
+      en_oferta,
+      destacado,
+      nuevo,
+      created_at,
+      modo_override,
+      unidad_venta,
+      activo,
+      orden_display,
+      productos!inner(
+        sku_base,
+        nombre,
+        descripcion,
+        pz_en_caja,
+        marca_id,
+        genero_id,
+        tipo_prenda_id,
+        cat_marcas!left(nombre),
+        cat_tipo_prenda!left(nombre),
+        cat_generos!left(nombre)
       )
-      .eq('activo', true)
-      .eq('productos.activo', true)
+    `
 
-    // Aplicar filtro de IDs válidos según modo de visibilidad de stock
-    if (allowedProductIds !== null && allowedProductIds.length > 0) {
-      query = query.in('producto_id', allowedProductIds)
-    }
-
-    // Filtros públicos
-    if (filtros.en_oferta) {
-      query = query.eq('en_oferta', true)
-    }
-    if (filtros.destacado) {
-      query = query.eq('destacado', true)
-    }
-    if (filtros.nuevo) {
-      query = query.eq('nuevo', true)
-      if (fechaCorteNuevoIso) {
-        query = query.gte('created_at', fechaCorteNuevoIso)
-      }
-    }
-    if (filtros.marca_id) {
-      query = query.eq('productos.marca_id', filtros.marca_id)
-    }
-    if (filtros.tipo_prenda_id) {
-      query = query.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
-    }
-    if (filtros.genero) {
-      const g = filtros.genero.toLowerCase()
-      if (g.includes('dama') || g.includes('mujer')) {
-        query = query.eq('productos.genero_id', 1) // 1 = Mujer
-      } else if (g.includes('caballero') || g.includes('hombre')) {
-        query = query.eq('productos.genero_id', 2) // 2 = Hombre
-      } else if (g.includes('unisex')) {
-        query = query.eq('productos.genero_id', 3) // 3 = Unisex
-      } else if (g === 'nino' || g === 'niño' || (g.includes('niñ') && g.includes('o')) || g.includes('nino')) {
-        query = query.eq('productos.genero_id', 4) // 4 = Niño
-      } else if (g === 'nina' || g === 'niña' || (g.includes('niñ') && g.includes('a')) || g.includes('nina')) {
-        query = query.eq('productos.genero_id', 5) // 5 = Niña
-      } else if (g.includes('infantil')) {
-        query = query.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
-      }
-    }
-    if (filtros.tipo) {
-      const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
-
-      if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
-        query = query.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
-      }
-
-      if (t.includes('chamarr')) {
-        query = query.eq('productos.tipo_prenda_id', 5) // CHAMARRA
-      } else if (t.includes('rompeviento')) {
-        query = query.eq('productos.tipo_prenda_id', 11) // ROMPEVIENTOS
-      } else if (t.includes('chaleco')) {
-        query = query.eq('productos.tipo_prenda_id', 4) // CHALECO
-      } else if (t.includes('set') || t.includes('conjunto') || t.includes('deportivo')) {
-        query = query.eq('productos.tipo_prenda_id', 13) // SET
-      } else if (t.includes('sueter') || t.includes('suéter')) {
-        query = query.eq('productos.tipo_prenda_id', 16) // SUETER
-      } else if (t.includes('sudadera')) {
-        query = query.eq('productos.tipo_prenda_id', 15) // SUDADERA
-      } else if (t.includes('abrigo')) {
-        query = query.eq('productos.tipo_prenda_id', 1) // ABRIGO
-      } else if (t.includes('novedad')) {
-        query = query.eq('nuevo', true)
-        if (fechaCorteNuevoIso) {
-          query = query.gte('created_at', fechaCorteNuevoIso)
-        }
-      } else {
-        const cleanTipo = sanitizePostgrestFilterTerm(t)
-        if (cleanTipo) {
-          const term = `%${cleanTipo}%`
-          query = query.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
-        }
-      }
-    }
-
+    let matchingQIds: number[] | null = null
+    let qTerm = ''
     if (filtros.q && filtros.q.trim()) {
       const cleanQ = sanitizePostgrestFilterTerm(filtros.q)
       if (cleanQ) {
-        const term = `%${cleanQ}%`
+        qTerm = `%${cleanQ}%`
         const { data: matchingProds } = await supabase
           .from('productos')
           .select('id')
           .eq('activo', true)
-          .or(`nombre.ilike.${term},sku_base.ilike.${term}`)
+          .or(`nombre.ilike.${qTerm},sku_base.ilike.${qTerm}`)
           .limit(200)
 
-        const matchingIds = (matchingProds ?? [])
+        matchingQIds = (matchingProds ?? [])
           .map((p: any) => Number(p.id))
           .filter((id) => Number.isInteger(id) && id > 0)
-
-        if (matchingIds.length > 0) {
-          query = query.or(
-            `slug.ilike.${term},titulo_seo.ilike.${term},producto_id.in.(${matchingIds.join(',')})`
-          )
-        } else {
-          query = query.or(`slug.ilike.${term},titulo_seo.ilike.${term}`)
-        }
       }
     }
 
-    query = query
-      .order('orden_display', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, to)
+    const applyPublicFilters = (baseQuery: any) => {
+      let q = baseQuery
+        .eq('activo', true)
+        .eq('productos.activo', true)
 
-    const { data, count, error } = await query
+      if (filtros.en_oferta) {
+        q = q.eq('en_oferta', true)
+      }
+      if (filtros.destacado) {
+        q = q.eq('destacado', true)
+      }
+      if (filtros.nuevo) {
+        q = q.eq('nuevo', true)
+        if (fechaCorteNuevoIso) {
+          q = q.gte('created_at', fechaCorteNuevoIso)
+        }
+      }
+      if (filtros.marca_id) {
+        q = q.eq('productos.marca_id', filtros.marca_id)
+      }
+      if (filtros.tipo_prenda_id) {
+        q = q.eq('productos.tipo_prenda_id', filtros.tipo_prenda_id)
+      }
+      if (filtros.genero) {
+        const g = filtros.genero.toLowerCase()
+        if (g.includes('dama') || g.includes('mujer')) {
+          q = q.eq('productos.genero_id', 1)
+        } else if (g.includes('caballero') || g.includes('hombre')) {
+          q = q.eq('productos.genero_id', 2)
+        } else if (g.includes('unisex')) {
+          q = q.eq('productos.genero_id', 3)
+        } else if (g === 'nino' || g === 'niño' || (g.includes('niñ') && g.includes('o')) || g.includes('nino')) {
+          q = q.eq('productos.genero_id', 4)
+        } else if (g === 'nina' || g === 'niña' || (g.includes('niñ') && g.includes('a')) || g.includes('nina')) {
+          q = q.eq('productos.genero_id', 5)
+        } else if (g.includes('infantil')) {
+          q = q.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
+        }
+      }
+      if (filtros.tipo) {
+        const t = filtros.tipo.toLowerCase().replace(/-/g, ' ')
+
+        if (t.includes('nino') || t.includes('niña') || t.includes('infantil')) {
+          q = q.or('genero_id.in.(4,5),edad_id.eq.1', { foreignTable: 'productos' })
+        }
+
+        if (t.includes('chamarr')) {
+          q = q.eq('productos.tipo_prenda_id', 5)
+        } else if (t.includes('rompeviento')) {
+          q = q.eq('productos.tipo_prenda_id', 11)
+        } else if (t.includes('chaleco')) {
+          q = q.eq('productos.tipo_prenda_id', 4)
+        } else if (t.includes('set') || t.includes('conjunto') || t.includes('deportivo')) {
+          q = q.eq('productos.tipo_prenda_id', 13)
+        } else if (t.includes('sueter') || t.includes('suéter')) {
+          q = q.eq('productos.tipo_prenda_id', 16)
+        } else if (t.includes('sudadera')) {
+          q = q.eq('productos.tipo_prenda_id', 15)
+        } else if (t.includes('abrigo')) {
+          q = q.eq('productos.tipo_prenda_id', 1)
+        } else if (t.includes('novedad')) {
+          q = q.eq('nuevo', true)
+          if (fechaCorteNuevoIso) {
+            q = q.gte('created_at', fechaCorteNuevoIso)
+          }
+        } else {
+          const cleanTipo = sanitizePostgrestFilterTerm(t)
+          if (cleanTipo) {
+            const term = `%${cleanTipo}%`
+            q = q.or(`nombre.ilike.${term},sku_base.ilike.${term}`, { foreignTable: 'productos' })
+          }
+        }
+      }
+      if (qTerm) {
+        if (matchingQIds && matchingQIds.length > 0) {
+          q = q.or(`slug.ilike.${qTerm},titulo_seo.ilike.${qTerm},producto_id.in.(${matchingQIds.join(',')})`)
+        } else {
+          q = q.or(`slug.ilike.${qTerm},titulo_seo.ilike.${qTerm}`)
+        }
+      }
+      return q
+    }
+
+    let data: any[] | null = null
+    let count: number | null = null
+    let error: any = null
+
+    if (allowedProductIds !== null && allowedProductIds.length > 200) {
+      // Chunks <= 200 para evitar URLs largas en .in() (AGENTS.md 3.7.2) y paginación interna
+      const allMatched = await fetchInChunksPaginated<number, any>(
+        allowedProductIds,
+        (chunk, fromIdx, toIdx, isFirst) =>
+          applyPublicFilters(
+            (supabase.from('productos_web') as any).select(
+              selectPublicCols,
+              isFirst ? { count: 'exact' } : undefined
+            )
+          )
+            .in('producto_id', chunk)
+            .order('orden_display', { ascending: true })
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { chunkSize: 150, label: 'executeFetchProductosWebPublicos:chunks' }
+      )
+
+      allMatched.sort(
+        (a, b) => (a.orden_display ?? 0) - (b.orden_display ?? 0) || a.id - b.id
+      )
+      count = allMatched.length
+      data = allMatched.slice(from, to + 1)
+    } else {
+      let query = applyPublicFilters(
+        (supabase.from('productos_web') as any).select(selectPublicCols, { count: 'exact' })
+      )
+      if (allowedProductIds !== null && allowedProductIds.length > 0) {
+        query = query.in('producto_id', allowedProductIds)
+      }
+      const res = await query
+        .order('orden_display', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+      data = res.data
+      count = res.count
+      error = res.error
+    }
 
     if (error) {
       console.error('Error fetchProductosWebPublicos:', {
@@ -885,17 +963,23 @@ export async function fetchAllProductSlugs(): Promise<{ slug: string; updated_at
 
   const supabase = createStaticClient()
 
-  const { data, error } = await supabase
-    .from('productos_web')
-    .select('slug, updated_at')
-    .eq('activo', true)
+  const { data, error } = await fetchAllPages<{ slug: string; updated_at: string | null }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos_web')
+        .select('slug, updated_at', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchAllProductSlugs' }
+  )
 
   if (error) {
     console.error('Error fetchAllProductSlugs:', error)
     return []
   }
 
-  return (data || []).map((item) => ({
+  return data.map((item) => ({
     slug: item.slug,
     updated_at: item.updated_at || new Date().toISOString()
   }))
@@ -1013,44 +1097,80 @@ export async function fetchProductosRecomendadosHome(
     `
     const diasNuevo = parseStoreConfig(config?.mensaje_precio_variable).diasProductoNuevo
     const fechaCorteNuevoIso = getFechaCorteNuevoIso(diasNuevo)
+    const allowedSet = allowedProductIds !== null ? new Set(allowedProductIds) : null
 
-    let qTendencias = (supabase.from('productos_web') as any)
-      .select(selectCols)
-      .eq('activo', true)
-      .eq('productos.activo', true)
-      .order('visitas', { ascending: false, nullsFirst: false })
-      .order('orden_display', { ascending: true })
-      .limit(24)
-
-    let qNovedades = (supabase.from('productos_web') as any)
-      .select(selectCols)
-      .eq('activo', true)
-      .eq('nuevo', true)
-      .eq('productos.activo', true)
-      .order('orden_display', { ascending: true })
-      .order('id', { ascending: false })
-      .limit(16)
-
-    if (fechaCorteNuevoIso) {
-      qNovedades = qNovedades.gte('created_at', fechaCorteNuevoIso)
-    }
-
-    if (allowedProductIds !== null && allowedProductIds.length > 0) {
-      const sliceIds = allowedProductIds.slice(0, 200)
-      qTendencias = qTendencias.in('producto_id', sliceIds)
-      qNovedades = qNovedades.in('producto_id', sliceIds)
-    }
-
-    const [tendRes, novRes] = await Promise.all([qTendencias, qNovedades])
+    const [tendRes, novRes] = await Promise.all([
+      allowedSet && allowedSet.size > 200
+        ? fetchAllPages<any>(
+            (fromIdx, toIdx, isFirst) =>
+              (supabase.from('productos_web') as any)
+                .select(selectCols, isFirst ? { count: 'exact' } : undefined)
+                .eq('activo', true)
+                .eq('productos.activo', true)
+                .order('visitas', { ascending: false, nullsFirst: false })
+                .order('orden_display', { ascending: true })
+                .order('id', { ascending: true })
+                .range(fromIdx, toIdx),
+            { label: 'fetchProductosRecomendadosHome:tendencias' }
+          )
+        : (() => {
+            let qTendencias = (supabase.from('productos_web') as any)
+              .select(selectCols)
+              .eq('activo', true)
+              .eq('productos.activo', true)
+              .order('visitas', { ascending: false, nullsFirst: false })
+              .order('orden_display', { ascending: true })
+              .limit(24)
+            if (allowedProductIds !== null && allowedProductIds.length > 0) {
+              qTendencias = qTendencias.in('producto_id', allowedProductIds)
+            }
+            return qTendencias
+          })(),
+      allowedSet && allowedSet.size > 200
+        ? fetchAllPages<any>(
+            (fromIdx, toIdx, isFirst) => {
+              let qN = (supabase.from('productos_web') as any)
+                .select(selectCols, isFirst ? { count: 'exact' } : undefined)
+                .eq('activo', true)
+                .eq('nuevo', true)
+                .eq('productos.activo', true)
+              if (fechaCorteNuevoIso) {
+                qN = qN.gte('created_at', fechaCorteNuevoIso)
+              }
+              return qN
+                .order('orden_display', { ascending: true })
+                .order('id', { ascending: false })
+                .range(fromIdx, toIdx)
+            },
+            { label: 'fetchProductosRecomendadosHome:novedades' }
+          )
+        : (() => {
+            let qNovedades = (supabase.from('productos_web') as any)
+              .select(selectCols)
+              .eq('activo', true)
+              .eq('nuevo', true)
+              .eq('productos.activo', true)
+              .order('orden_display', { ascending: true })
+              .order('id', { ascending: false })
+              .limit(16)
+            if (fechaCorteNuevoIso) {
+              qNovedades = qNovedades.gte('created_at', fechaCorteNuevoIso)
+            }
+            if (allowedProductIds !== null && allowedProductIds.length > 0) {
+              qNovedades = qNovedades.in('producto_id', allowedProductIds)
+            }
+            return qNovedades
+          })(),
+    ])
     const excludeSet = new Set(excludeIds)
 
     const tendRows = ((tendRes.data || []) as any[])
-      .filter((r) => !excludeSet.has(r.id))
+      .filter((r) => (!allowedSet || allowedSet.has(r.producto_id)) && !excludeSet.has(r.id))
       .slice(0, 15)
     tendRows.forEach((r) => excludeSet.add(r.id))
 
     const novRows = ((novRes.data || []) as any[])
-      .filter((r) => !excludeSet.has(r.id))
+      .filter((r) => (!allowedSet || allowedSet.has(r.producto_id)) && !excludeSet.has(r.id))
       .slice(0, 8)
 
     const combined = await hydrateProductosWebPublicos(supabase, [...tendRows, ...novRows], diasNuevo)
@@ -1135,30 +1255,65 @@ export async function fetchProductosRelacionadosInteligentes(params: {
       return []
     }
 
-    let query = (supabase.from('productos_web') as any)
-      .select(`
-        id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
-        en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
-        productos!inner(
-          sku_base, nombre, descripcion,
-          cat_marcas!left(nombre),
-          cat_tipo_prenda!left(nombre),
-          cat_generos!left(nombre)
-        )
-      `)
-      .eq('activo', true)
-      .eq('productos.activo', true)
-      .neq('id', params.productoWebId)
-      .order('visitas', { ascending: false, nullsFirst: false })
-      .order('orden_display', { ascending: true })
-      .limit(48)
+    const allowedSet = allowedProductIds !== null ? new Set(allowedProductIds) : null
 
-    if (allowedProductIds !== null && allowedProductIds.length > 0) {
-      query = query.in('producto_id', allowedProductIds.slice(0, 200))
+    let data: any[] = []
+    if (allowedSet && allowedSet.size > 200) {
+      const res = await fetchAllPages<any>(
+        (fromIdx, toIdx, isFirst) =>
+          (supabase.from('productos_web') as any)
+            .select(
+              `
+              id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
+              en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+              productos!inner(
+                sku_base, nombre, descripcion,
+                cat_marcas!left(nombre),
+                cat_tipo_prenda!left(nombre),
+                cat_generos!left(nombre)
+              )
+            `,
+              isFirst ? { count: 'exact' } : undefined
+            )
+            .eq('activo', true)
+            .eq('productos.activo', true)
+            .neq('id', params.productoWebId)
+            .order('visitas', { ascending: false, nullsFirst: false })
+            .order('orden_display', { ascending: true })
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { label: 'fetchProductosRelacionadosInteligentes' }
+      )
+      if (res.error) return []
+      data = res.data.filter((r) => allowedSet.has(r.producto_id))
+    } else {
+      let query = (supabase.from('productos_web') as any)
+        .select(`
+          id, slug, producto_id, titulo_seo, precio_publico, precio_oferta,
+          en_oferta, destacado, nuevo, modo_override, unidad_venta, activo, visitas,
+          productos!inner(
+            sku_base, nombre, descripcion,
+            cat_marcas!left(nombre),
+            cat_tipo_prenda!left(nombre),
+            cat_generos!left(nombre)
+          )
+        `)
+        .eq('activo', true)
+        .eq('productos.activo', true)
+        .neq('id', params.productoWebId)
+        .order('visitas', { ascending: false, nullsFirst: false })
+        .order('orden_display', { ascending: true })
+        .limit(48)
+
+      if (allowedProductIds !== null && allowedProductIds.length > 0) {
+        query = query.in('producto_id', allowedProductIds)
+      }
+
+      const res = await query
+      if (res.error || !res.data) return []
+      data = res.data
     }
-
-    const { data, error } = await query
-    if (error || !data || data.length === 0) return []
+    if (data.length === 0) return []
 
     const targetTipo = params.tipoPrenda?.trim().toLowerCase() || ''
     const targetGenero = params.genero?.trim().toLowerCase() || ''

@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
 import { getPeriodDateRange } from './utils'
 import type { 
@@ -79,32 +80,48 @@ export async function fetchInventarioDashboardData({
     notasPendientesQuery = notasPendientesQuery.or(`bodega_origen_id.eq.${bodegaId},bodega_destino_id.eq.${bodegaId}`)
   }
 
-  // 3. Query de stock actual (cajas y piezas sueltas)
-  let stockQuery = supabase
-    .from('inventario_stock')
-    .select('producto_id, bodega_id, cajas, piezas_sueltas')
+  // 3. Query de stock actual (cajas y piezas sueltas) paginado completo (> 1000)
+  const stockPromise = fetchAllPages<{
+    producto_id: number
+    bodega_id: number
+    cajas: number | null
+    piezas_sueltas: number | null
+  }>(
+    (fromIdx, toIdx, isFirst) => {
+      let q = supabase
+        .from('inventario_stock')
+        .select('producto_id, bodega_id, cajas, piezas_sueltas', isFirst ? { count: 'exact' } : undefined)
+      if (bodegaId > 0) {
+        q = q.eq('bodega_id', bodegaId)
+      }
+      return q.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchInventarioDashboardData:stock' }
+  )
 
-  if (bodegaId > 0) {
-    stockQuery = stockQuery.eq('bodega_id', bodegaId)
-  }
-
-  // 4. Catálogo de productos para factor pz_en_caja
-  const prodsFactorQuery = supabase
-    .from('productos')
-    .select('id, pz_en_caja')
+  // 4. Catálogo de productos para factor pz_en_caja (paginado completo)
+  const prodsFactorPromise = fetchAllPages<{ id: number; pz_en_caja: number | null }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos')
+        .select('id, pz_en_caja', isFirst ? { count: 'exact' } : undefined)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchInventarioDashboardData:productos' }
+  )
 
   // Ejecutar queries en paralelo
   const [notasRes, pendientesRes, stockRes, prodsFactorRes] = await Promise.all([
     notasQuery.limit(100),
     notasPendientesQuery,
-    stockQuery,
-    prodsFactorQuery,
+    stockPromise,
+    prodsFactorPromise,
   ])
 
   const notas = notasRes.data ?? []
   const notasPendientesCount = pendientesRes.count ?? 0
-  const stockItems = stockRes.data ?? []
-  const factorMap = new Map((prodsFactorRes.data ?? []).map((p: any) => [p.id, p.pz_en_caja || 1]))
+  const stockItems = stockRes.data
+  const factorMap = new Map(prodsFactorRes.data.map((p) => [p.id, p.pz_en_caja || 1]))
 
   // Calcular KPIs de inventario
   let notasConfirmadas = 0
@@ -237,10 +254,23 @@ export async function fetchEcommerceDashboardData({
   const supabase = await createClient()
   const dateRange = getPeriodDateRange(periodo)
 
-  // 1. Productos Web
-  const productosWebPromise = supabase
-    .from('productos_web')
-    .select('id, precio_publico, precio_oferta, en_oferta, destacado, nuevo')
+  // 1. Productos Web (paginado completo)
+  const productosWebPromise = fetchAllPages<{
+    id: number
+    precio_publico: number | null
+    precio_oferta: number | null
+    en_oferta: boolean | null
+    destacado: boolean | null
+    nuevo: boolean | null
+  }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos_web')
+        .select('id, precio_publico, precio_oferta, en_oferta, destacado, nuevo', isFirst ? { count: 'exact' } : undefined)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchEcommerceDashboardData:productos_web' }
+  )
 
   // 2. Órdenes de Venta en el período
   let ordenesQuery = supabase
@@ -307,24 +337,30 @@ export async function fetchComercialDashboardData({
 
   if (nivel === 4 && persona) {
     // Cliente B2B
-    const { data: ords } = await supabase
-      .from('ordenes_b2b')
-      .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id')
-      .eq('cliente_b2b_id', persona.id)
-      .eq('activo', true)
-      .neq('estado', 'Cancelada')
-      .order('fecha_orden', { ascending: false })
+    const { data: ords } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('ordenes_b2b')
+          .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id', isFirst ? { count: 'exact' } : undefined)
+          .eq('cliente_b2b_id', persona.id)
+          .eq('activo', true)
+          .neq('estado', 'Cancelada')
+          .order('fecha_orden', { ascending: false })
+          .order('id', { ascending: false })
+          .range(fromIdx, toIdx),
+      { label: 'fetchComercialDashboardData:clienteOrdenes' }
+    )
 
-    ultimasOrdenes = ords?.slice(0, 10) ?? []
-    ordenesCount = ords?.filter(o => o.estado !== 'Completo').length ?? 0
+    ultimasOrdenes = ords.slice(0, 10)
+    ordenesCount = ords.filter(o => o.estado !== 'Completo').length
 
-    if (ords && ords.length > 0) {
+    if (ords.length > 0) {
       const contenedorIds = Array.from(new Set(ords.map(o => o.contenedor_id).filter(Boolean))) as number[]
       if (contenedorIds.length > 0) {
         const { data: conts } = await supabase
           .from('v_contenedor_resumen')
           .select('*')
-          .in('contenedor_id', contenedorIds)
+          .in('contenedor_id', contenedorIds.slice(0, 200))
           .neq('estado', 'cerrado')
           .neq('estado', 'cancelado')
 
@@ -335,24 +371,30 @@ export async function fetchComercialDashboardData({
     }
   } else if (nivel === 5 && persona) {
     // Proveedor B2B
-    const { data: ords } = await supabase
-      .from('ordenes_b2b')
-      .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id')
-      .eq('proveedor_id', persona.id)
-      .eq('activo', true)
-      .neq('estado', 'Cancelada')
-      .order('fecha_orden', { ascending: false })
+    const { data: ords } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('ordenes_b2b')
+          .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id', isFirst ? { count: 'exact' } : undefined)
+          .eq('proveedor_id', persona.id)
+          .eq('activo', true)
+          .neq('estado', 'Cancelada')
+          .order('fecha_orden', { ascending: false })
+          .order('id', { ascending: false })
+          .range(fromIdx, toIdx),
+      { label: 'fetchComercialDashboardData:proveedorOrdenes' }
+    )
 
-    ultimasOrdenes = ords?.slice(0, 10) ?? []
-    ordenesCount = ords?.filter(o => o.estado !== 'Completo').length ?? 0
+    ultimasOrdenes = ords.slice(0, 10)
+    ordenesCount = ords.filter(o => o.estado !== 'Completo').length
 
-    if (ords && ords.length > 0) {
+    if (ords.length > 0) {
       const contenedorIds = Array.from(new Set(ords.map(o => o.contenedor_id).filter(Boolean))) as number[]
       if (contenedorIds.length > 0) {
         const { data: conts } = await supabase
           .from('v_contenedor_resumen')
           .select('*')
-          .in('contenedor_id', contenedorIds)
+          .in('contenedor_id', contenedorIds.slice(0, 200))
           .neq('estado', 'cerrado')
           .neq('estado', 'cancelado')
 
@@ -364,15 +406,36 @@ export async function fetchComercialDashboardData({
   } else {
     // Global Admin
     const [ordsRes, contsRes, cajasRes] = await Promise.all([
-      supabase.from('ordenes_b2b').select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id').eq('activo', true).neq('estado', 'Cancelada').order('created_at', { ascending: false }),
-      supabase.from('v_contenedor_resumen').select('*').neq('estado', 'cerrado').neq('estado', 'cancelado'),
-      supabase.from('cajas_producto').select('id', { count: 'exact' }),
+      fetchAllPages<any>(
+        (fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('ordenes_b2b')
+            .select('id, folio_proveedor, estado, fecha_orden, total_cajas, total_piezas, contenedor_id', isFirst ? { count: 'exact' } : undefined)
+            .eq('activo', true)
+            .neq('estado', 'Cancelada')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(fromIdx, toIdx),
+        { label: 'fetchComercialDashboardData:adminOrdenes' }
+      ),
+      fetchAllPages<any>(
+        (fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('v_contenedor_resumen')
+            .select('*', isFirst ? { count: 'exact' } : undefined)
+            .neq('estado', 'cerrado')
+            .neq('estado', 'cancelado')
+            .order('contenedor_id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { label: 'fetchComercialDashboardData:adminContenedores' }
+      ),
+      supabase.from('cajas_producto').select('id', { count: 'exact', head: true }),
     ])
 
-    ultimasOrdenes = ordsRes.data?.slice(0, 10) ?? []
-    ordenesCount = ordsRes.data?.filter(o => o.estado !== 'Completo').length ?? 0
-    proximosContenedores = contsRes.data?.slice(0, 10) ?? []
-    contenedoresCount = contsRes.data?.length ?? 0
+    ultimasOrdenes = ordsRes.data.slice(0, 10)
+    ordenesCount = ordsRes.data.filter(o => o.estado !== 'Completo').length
+    proximosContenedores = contsRes.data.slice(0, 10)
+    contenedoresCount = contsRes.data.length
     cajasCount = cajasRes.count ?? 0
   }
 
@@ -400,16 +463,47 @@ export async function fetchCatalogoDashboardData({
 }): Promise<CatalogoDashboardData> {
   const supabase = await createClient()
 
-  // 1. Consultar productos y catálogos en paralelo
-  const stockPromise = bodegaId > 0
-    ? supabase.from('inventario_stock').select('producto_id, bodega_id, cajas, piezas_sueltas').eq('bodega_id', bodegaId)
-    : supabase.from('inventario_stock').select('producto_id, bodega_id, cajas, piezas_sueltas')
+  // 1. Consultar productos y catálogos en paralelo (paginados cuando superan 1,000 filas)
+  const stockPromise = fetchAllPages<{
+    producto_id: number
+    bodega_id: number
+    cajas: number | null
+    piezas_sueltas: number | null
+  }>(
+    (fromIdx, toIdx, isFirst) => {
+      let q = supabase
+        .from('inventario_stock')
+        .select('producto_id, bodega_id, cajas, piezas_sueltas', isFirst ? { count: 'exact' } : undefined)
+      if (bodegaId > 0) {
+        q = q.eq('bodega_id', bodegaId)
+      }
+      return q.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchCatalogoDashboardData:stock' }
+  )
+
+  const prodsPromise = fetchAllPages<{
+    id: number
+    sku_base: string
+    nombre: string | null
+    descripcion: string | null
+    pz_en_caja: number | null
+    genero_id: number | null
+    tipo_prenda_id: number | null
+    edad_id: number | null
+  }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('productos')
+        .select('id, sku_base, nombre, descripcion, pz_en_caja, genero_id, tipo_prenda_id, edad_id', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchCatalogoDashboardData:productos' }
+  )
 
   const [prodsRes, generosRes, tiposPrendaRes, edadesRes, stockRes] = await Promise.all([
-    supabase
-      .from('productos')
-      .select('id, sku_base, nombre, descripcion, pz_en_caja, genero_id, tipo_prenda_id, edad_id')
-      .eq('activo', true),
+    prodsPromise,
     supabase
       .from('cat_generos')
       .select('id, nombre'),
@@ -422,11 +516,11 @@ export async function fetchCatalogoDashboardData({
     stockPromise,
   ])
 
-  const productos = prodsRes.data ?? []
+  const productos = prodsRes.data
   const generosList = generosRes.data ?? []
   const tiposPrendaList = tiposPrendaRes.data ?? []
   const edadesList = edadesRes.data ?? []
-  const stockItems = stockRes.data ?? []
+  const stockItems = stockRes.data
 
   const generosMapLookup = new Map(generosList.map((g) => [g.id, g.nombre]))
   const tiposPrendaLookup = new Map(tiposPrendaList.map((t) => [t.id, t.nombre]))

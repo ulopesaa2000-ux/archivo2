@@ -4,6 +4,7 @@ import { Users } from 'lucide-react'
 import { fetchAssignedPersonas, fetchUsuarios, fetchRolesConPermisos } from '@/modules/config/queries'
 import { getCurrentUser } from '@/modules/auth/queries'
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import { PersonasManager } from '@/app/(admin)/configuracion/personas/PersonasManager'
 
 export const metadata: Metadata = {
@@ -13,28 +14,37 @@ export const metadata: Metadata = {
 /** Consulta del servidor para obtener todas las personas y sus enlaces */
 async function fetchPersonas() {
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('personas')
-    .select(`
-      *,
-      usuario:usuarios (
-        id,
-        username,
-        email,
-        activo,
-        rol:roles (
-          nombre
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('personas')
+        .select(
+          `
+          *,
+          usuario:usuarios (
+            id,
+            username,
+            email,
+            activo,
+            rol:roles (
+              nombre
+            )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
         )
-      )
-    `)
-    .order('activo', { ascending: false })
-    .order('nombre_completo')
+        .order('activo', { ascending: false })
+        .order('nombre_completo', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'PersonasPage:fetchPersonas' }
+  )
 
   if (error) {
     console.error('fetchPersonas error:', error)
     return []
   }
-  return data ?? []
+  return data
 }
 
 export default async function PersonasPage() {

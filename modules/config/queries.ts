@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages } from '@/lib/supabase/pagination'
 import { getActiveSupabaseConfig } from '@/lib/supabase/env'
 import type { RolConPermisos, UsuarioConDetalle, PermisoModulo, ModuloPermiso } from './types'
 import { esActorAdminInventarioRestringido, esRolBodegaGestionable } from './types'
@@ -53,38 +54,47 @@ export async function fetchUsuarios(): Promise<UsuarioConDetalle[]> {
   const admin = esRestringido ? await createServiceRoleClient() : null
   const supabase: ServiceRoleClient = admin ?? (await createClient())
 
-  const { data, error } = await supabase
-    .from('usuarios')
-    .select(`
-      id,
-      auth_user_id,
-      nombre_completo,
-      username,
-      email,
-      activo,
-      rol_id,
-      ultimo_acceso,
-      created_at,
-      rol:roles (
-        id,
-        nombre,
-        nivel_acceso,
-        descripcion
-      )
-    `)
-    .order('activo', { ascending: false })
+  const { data, error } = await fetchAllPages<UsuarioConDetalle>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('usuarios')
+        .select(
+          `
+          id,
+          auth_user_id,
+          nombre_completo,
+          username,
+          email,
+          activo,
+          rol_id,
+          ultimo_acceso,
+          created_at,
+          rol:roles (
+            id,
+            nombre,
+            nivel_acceso,
+            descripcion
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .order('activo', { ascending: false })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx) as any,
+    { label: 'fetchUsuarios' }
+  )
 
-  if (error || !data) {
-    console.error('fetchUsuarios error:', error ? {
+  if (error) {
+    console.error('fetchUsuarios error:', {
       message: error.message,
       details: error.details,
       hint: error.hint,
       code: error.code,
-    } : 'No data')
+    })
     return []
   }
 
-  const rows = (data as UsuarioConDetalle[]).sort((a, b) => {
+  const rows = data.sort((a, b) => {
     if (a.activo !== b.activo) return a.activo ? -1 : 1
     const nivelA = a.rol?.nivel_acceso ?? 99
     const nivelB = b.rol?.nivel_acceso ?? 99
@@ -163,33 +173,46 @@ import type { PersonaRow } from '@/lib/types/tables'
 /** Trae todas las personas activas de tipo Cliente B2B o Proveedor */
 export async function fetchPersonasComercialesActivas(): Promise<PersonaRow[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('personas')
-    .select('*')
-    .in('tipo_entidad', ['Cliente B2B', 'Proveedor'])
-    .eq('activo', true)
-    .order('nombre_completo')
+  const { data, error } = await fetchAllPages<PersonaRow>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('personas')
+        .select('*', isFirst ? { count: 'exact' } : undefined)
+        .in('tipo_entidad', ['Cliente B2B', 'Proveedor'])
+        .eq('activo', true)
+        .order('nombre_completo', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx) as any,
+    { label: 'fetchPersonasComercialesActivas' }
+  )
 
-  if (error || !data) {
+  if (error) {
     console.error('[fetchPersonasComercialesActivas] error:', error)
     return []
   }
-  return data as PersonaRow[]
+  return data
 }
 
 /** Trae todas las filas de usuario_personas para visualización de alcance en la lista */
 export async function fetchTodosUsuarioPersonas(): Promise<{ usuario_id: number; persona_id: number }[]> {
   const supabase = await createClient()
-  const { data, error } = await (supabase.from('usuario_personas' as any) as any)
-    .select('usuario_id, persona_id')
+  const { data, error } = await fetchAllPages<{ usuario_id: number; persona_id: number }>(
+    (fromIdx, toIdx, isFirst) =>
+      (supabase.from('usuario_personas' as any) as any)
+        .select('usuario_id, persona_id', isFirst ? { count: 'exact' } : undefined)
+        .order('usuario_id', { ascending: true })
+        .order('persona_id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchTodosUsuarioPersonas' }
+  )
 
-  if (error || !data) {
-    console.error('[fetchTodosUsuarioPersonas] error:', error ? {
+  if (error) {
+    console.error('[fetchTodosUsuarioPersonas] error:', {
       message: error.message,
       details: error.details,
       hint: error.hint,
       code: error.code,
-    } : 'No data')
+    })
     return []
   }
   return data

@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { PAGE_SIZE } from '@/lib/constants'
 import type {
   FiltrosContenedores, ContenedorResumen,
@@ -34,46 +35,65 @@ export async function fetchContenedores(
 
   // Borrado lógico: la vista v_contenedor_resumen aún no expone `activo`,
   // se filtra en capa de aplicación con los ids activos de la tabla base.
-  const { data: activos } = await supabase
-    .from('contenedores')
-    .select('id')
-    .eq('activo', true)
-  const activeIds = ((activos ?? []) as { id: number }[]).map((c) => c.id)
+  const { data: activos } = await fetchAllPages<{ id: number }>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('contenedores')
+        .select('id', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { label: 'fetchContenedores:activos' }
+  )
+  const activeIds = activos.map((c) => c.id)
   if (activeIds.length === 0) {
     return { items: [], total: 0 }
   }
 
-  let query = supabase
-    .from('v_contenedor_resumen')
-    .select('*', { count: 'exact' })
+  let targetIds = activeIds
 
   if (!scope.is_super_admin) {
     const orderFilter = buildCommercialOrderFilter(scope)
 
-    const { data: ordenes } = orderFilter && orderFilter !== '__no_access__.eq.true'
-      ? await supabase.from('ordenes_b2b')
-        .select('contenedor_id')
-        .eq('activo', true)
-        .or(orderFilter)
-        .not('contenedor_id', 'is', null)
-      : { data: [] as { contenedor_id: number | null }[] }
+    const [ordenesRes, conOrdenRes] = await Promise.all([
+      orderFilter && orderFilter !== '__no_access__.eq.true'
+        ? fetchAllPages<{ contenedor_id: number | null }>(
+            (fromIdx, toIdx, isFirst) =>
+              supabase
+                .from('ordenes_b2b')
+                .select('contenedor_id', isFirst ? { count: 'exact' } : undefined)
+                .eq('activo', true)
+                .or(orderFilter)
+                .not('contenedor_id', 'is', null)
+                .order('id', { ascending: true })
+                .range(fromIdx, toIdx),
+            { label: 'fetchContenedores:ordenesScoped' }
+          )
+        : Promise.resolve({ data: [] as { contenedor_id: number | null }[], error: null }),
+      fetchAllPages<{ contenedor_id: number | null }>(
+        (fromIdx, toIdx, isFirst) =>
+          supabase
+            .from('ordenes_b2b')
+            .select('contenedor_id', isFirst ? { count: 'exact' } : undefined)
+            .eq('activo', true)
+            .not('contenedor_id', 'is', null)
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { label: 'fetchContenedores:conOrden' }
+      ),
+    ])
 
     const scopedIds = new Set(
-      ((ordenes ?? []) as { contenedor_id: number | null }[])
-        .map((o: any) => o.contenedor_id)
+      ordenesRes.data
+        .map((o) => o.contenedor_id)
         .filter(Boolean) as number[]
     )
 
     // Contenedores "libres" (sin órdenes activas): visibles para todo
     // el que tenga puede_leer en b2b_contenedores (la page ya lo exige).
-    const { data: conOrden } = await supabase
-      .from('ordenes_b2b')
-      .select('contenedor_id')
-      .eq('activo', true)
-      .not('contenedor_id', 'is', null)
     const withOrderIds = new Set(
-      ((conOrden ?? []) as { contenedor_id: number | null }[])
-        .map((o: any) => o.contenedor_id)
+      conOrdenRes.data
+        .map((o) => o.contenedor_id)
         .filter(Boolean) as number[]
     )
     const freeIds = activeIds.filter((id) => !withOrderIds.has(id))
@@ -87,42 +107,80 @@ export async function fetchContenedores(
       return { items: [], total: 0 }
     }
 
-    query = query.in('contenedor_id', visibleIds)
-  } else {
-    query = query.in('contenedor_id', activeIds)
+    targetIds = visibleIds
   }
 
-  if (filtros.q) {
-    const term = `%${filtros.q}%`
-    query = query.or(
-      `numero_contenedor.ilike.${term},codigo_contenedor.ilike.${term},numero_bl.ilike.${term}`
+  const applyContenedorFilters = (q: any) => {
+    if (filtros.q) {
+      const term = `%${filtros.q}%`
+      q = q.or(`numero_contenedor.ilike.${term},codigo_contenedor.ilike.${term},numero_bl.ilike.${term}`)
+    }
+    if (filtros.estado) {
+      q = q.eq('estado', filtros.estado)
+    }
+    if (filtros.anio) {
+      q = q
+        .gte('fecha_eta', `${filtros.anio}-01-01`)
+        .lt('fecha_eta', `${filtros.anio + 1}-01-01`)
+    }
+    return q
+  }
+
+  if (targetIds.length <= 200) {
+    let query = applyContenedorFilters(
+      supabase
+        .from('v_contenedor_resumen')
+        .select('*', { count: 'exact' })
+        .in('contenedor_id', targetIds)
     )
-  }
-
-  if (filtros.estado) {
-    query = query.eq('estado', filtros.estado)
-  }
-
-  if (filtros.anio) {
     query = query
-      .gte('fecha_eta', `${filtros.anio}-01-01`)
-      .lt('fecha_eta', `${filtros.anio + 1}-01-01`)
+      .order(sortBy, { ascending, nullsFirst: !ascending })
+      .order('contenedor_id', { ascending: true })
+      .range(from, to)
+
+    const { data, count, error } = await query
+
+    if (error) {
+      console.error('Error fetchContenedores:', error)
+      return { items: [], total: 0 }
+    }
+
+    return {
+      items: (data ?? []) as ContenedorResumen[],
+      total: count ?? 0,
+    }
   }
 
-  query = query
-    .order(sortBy, { ascending, nullsFirst: !ascending })
-    .range(from, to)
+  const allItems = await fetchInChunksPaginated<number, ContenedorResumen>(
+    targetIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      applyContenedorFilters(
+        supabase
+          .from('v_contenedor_resumen')
+          .select('*', isFirst ? { count: 'exact' } : undefined)
+          .in('contenedor_id', chunk)
+      )
+        .order(sortBy, { ascending, nullsFirst: !ascending })
+        .order('contenedor_id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchContenedores:chunks' }
+  )
 
-  const { data, count, error } = await query
-
-  if (error) {
-    console.error('Error fetchContenedores:', error)
-    return { items: [], total: 0 }
-  }
+  allItems.sort((a: any, b: any) => {
+    const va = a[sortBy]
+    const vb = b[sortBy]
+    if (va == null && vb == null) return (a.contenedor_id ?? 0) - (b.contenedor_id ?? 0)
+    if (va == null) return ascending ? 1 : -1
+    if (vb == null) return ascending ? -1 : 1
+    const cmp = typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb))
+    return ascending ? cmp : -cmp
+  })
 
   return {
-    items: (data ?? []) as ContenedorResumen[],
-    total: count ?? 0,
+    items: allItems.slice(from, to + 1),
+    total: allItems.length,
   }
 }
 
@@ -265,11 +323,7 @@ export async function fetchContenedorPacking(
 
   if (!cont) return []
 
-  let query = supabase
-    .from('v_contenedor_packing')
-    .select('*')
-    .eq('codigo_contenedor', cont.codigo_contenedor)
-
+  let allowedIds: number[] | null = null
   if (!scope.is_super_admin) {
     const orderFilter = buildCommercialOrderFilter(scope)
     if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
@@ -281,22 +335,30 @@ export async function fetchContenedorPacking(
       .eq('activo', true)
       .or(orderFilter)
 
-    const allowedIds = (allowedOrders ?? []).map((o: any) => o.id)
+    allowedIds = (allowedOrders ?? []).map((o: any) => o.id)
     if (allowedIds.length === 0) return []
-
-    query = query.in('orden_id', allowedIds)
   }
 
-  query = query.order('orden_id')
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('v_contenedor_packing')
+        .select('*', isFirst ? { count: 'exact' } : undefined)
+        .eq('codigo_contenedor', cont.codigo_contenedor)
 
-  const { data, error } = await query
+      if (allowedIds) {
+        query = query.in('orden_id', allowedIds)
+      }
+
+      return query.order('orden_id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchContenedorPacking' }
+  )
 
   if (error) {
     console.error('Error fetchContenedorPacking:', JSON.stringify(error, null, 2))
     return []
   }
-
-  if (!data) return []
 
   return data as unknown as ContenedorPackingItem[]
 }
@@ -346,29 +408,49 @@ export async function fetchSurtidoPreview(
   const ordenIds = ((ordenes ?? []) as any[]).map((o) => o.id)
   if (ordenIds.length === 0) return vacio
 
-  // 1. Líneas (fuente de verdad, igual que surtirContenedorAction)
-  const { data: detalles } = await supabase
-    .from('ordenes_b2b_detalles')
-    .select(`
-      orden_id, producto_id, cajas_pedidas, piezas_pedidas,
-      precio_unitario, importe_total,
-      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
-        sku_base, nombre, descripcion
-      )
-    `)
-    .in('orden_id', ordenIds)
-
-  // 2. Cajas físicas vinculadas
-  const { data: ordenCajas } = await supabase
-    .from('orden_cajas')
-    .select(`
-      orden_id, cantidad_cajas,
-      caja:cajas_producto!orden_cajas_caja_id_fkey (
-        producto_id, piezas_por_caja,
-        producto:productos!cajas_producto_producto_id_fkey (sku_base)
-      )
-    `)
-    .in('orden_id', ordenIds)
+  // 1. Líneas (fuente de verdad, igual que surtirContenedorAction) + 2. Cajas físicas vinculadas
+  const [detalles, ordenCajas] = await Promise.all([
+    fetchInChunksPaginated<number, any>(
+      ordenIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('ordenes_b2b_detalles')
+          .select(
+            `
+            orden_id, producto_id, cajas_pedidas, piezas_pedidas,
+            precio_unitario, importe_total,
+            producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+              sku_base, nombre, descripcion
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .in('orden_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchSurtidoPreview:detalles' }
+    ),
+    fetchInChunksPaginated<number, any>(
+      ordenIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_cajas')
+          .select(
+            `
+            orden_id, cantidad_cajas,
+            caja:cajas_producto!orden_cajas_caja_id_fkey (
+              producto_id, piezas_por_caja,
+              producto:productos!cajas_producto_producto_id_fkey (sku_base)
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .in('orden_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchSurtidoPreview:ordenCajas' }
+    ),
+  ])
 
   type Agg = {
     cajas: number; piezas: number; precio: number | null
@@ -643,26 +725,34 @@ export async function fetchCajasDeContenedor(
   const ordenMap = new Map(ordenes.map((o: any) => [o.id, o]))
 
   // 2. Obtener orden_cajas con cajas_producto + detalles
-  const { data: ordenCajas, error } = await supabase
-    .from('orden_cajas')
-    .select(`
-      id, orden_id, caja_id, cantidad_cajas,
-      caja:cajas_producto!orden_cajas_caja_id_fkey (
-        id, codigo_caja, nombre_pack, producto_id,
-        piezas_por_caja, cbm, peso_bruto_kg,
-        largo_cm, ancho_cm, alto_cm, costo_total_caja,
-        tallas, colores, es_principal,
-        producto:productos!cajas_producto_producto_id_fkey (sku_base),
-        caja_detalles (
-          cantidad,
-          talla:cat_tallas!caja_detalles_talla_id_fkey (codigo, nombre),
-          color:cat_colores!caja_detalles_color_id_fkey (nombre, hex_code)
+  const ordenCajas = await fetchInChunksPaginated<number, any>(
+    ordenIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('orden_cajas')
+        .select(
+          `
+          id, orden_id, caja_id, cantidad_cajas,
+          caja:cajas_producto!orden_cajas_caja_id_fkey (
+            id, codigo_caja, nombre_pack, producto_id,
+            piezas_por_caja, cbm, peso_bruto_kg,
+            largo_cm, ancho_cm, alto_cm, costo_total_caja,
+            tallas, colores, es_principal,
+            producto:productos!cajas_producto_producto_id_fkey (sku_base),
+            caja_detalles (
+              cantidad,
+              talla:cat_tallas!caja_detalles_talla_id_fkey (codigo, nombre),
+              color:cat_colores!caja_detalles_color_id_fkey (nombre, hex_code)
+            )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
         )
-      )
-    `)
-    .in('orden_id', ordenIds)
-
-  if (error || !ordenCajas) return []
+        .in('orden_id', chunk)
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchCajasDeContenedor' }
+  )
 
   return ordenCajas.map((oc: any) => {
     const c = Array.isArray(oc.caja) ? oc.caja[0] : oc.caja
@@ -723,28 +813,39 @@ export async function fetchContenedoresReporteAnual(): Promise<ContenedorReporte
   const supabase = await createClient()
   const scope = await getCommercialScope()
 
-  let query: any = supabase
-    .from('ordenes_b2b')
-    .select(`
-      contenedor_id,
-      proveedor_id,
-      proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo),
-      contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
-        id, codigo_contenedor, numero_contenedor, estado, fecha_eta
-      )
-    `)
-    .eq('activo', true)
-    .not('contenedor_id', 'is', null)
-
-  if (!scope.is_super_admin) {
-    const orderFilter = buildCommercialOrderFilter(scope)
-    if (!orderFilter || orderFilter === '__no_access__.eq.true') return []
-    query = query.or(orderFilter)
+  const orderFilter = !scope.is_super_admin ? buildCommercialOrderFilter(scope) : null
+  if (!scope.is_super_admin && (!orderFilter || orderFilter === '__no_access__.eq.true')) {
+    return []
   }
 
-  const { data, error } = await query
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query: any = supabase
+        .from('ordenes_b2b')
+        .select(
+          `
+          contenedor_id,
+          proveedor_id,
+          proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo),
+          contenedor:contenedores!ordenes_b2b_contenedor_id_fkey (
+            id, codigo_contenedor, numero_contenedor, estado, fecha_eta
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
+        .not('contenedor_id', 'is', null)
 
-  if (error || !data) {
+      if (orderFilter) {
+        query = query.or(orderFilter)
+      }
+
+      return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchContenedoresReporteAnual' }
+  )
+
+  if (error) {
     console.error('Error fetchContenedoresReporteAnual:', error)
     return []
   }
@@ -811,15 +912,21 @@ export async function fetchContenedoresDetalleAnual(
   const scope = await getCommercialScope()
 
   // 1. Obtener contenedores del año (solo activos: borrado lógico)
-  const { data: contenedores, error } = await supabase
-    .from('contenedores')
-    .select('*')
-    .eq('activo', true)
-    .gte('fecha_eta', `${anio}-01-01`)
-    .lt('fecha_eta', `${anio + 1}-01-01`)
-    .order('fecha_eta', { ascending: false })
+  const { data: contenedores, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) =>
+      supabase
+        .from('contenedores')
+        .select('*', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+        .gte('fecha_eta', `${anio}-01-01`)
+        .lt('fecha_eta', `${anio + 1}-01-01`)
+        .order('fecha_eta', { ascending: false })
+        .order('id', { ascending: false })
+        .range(fromIdx, toIdx),
+    { label: 'fetchContenedoresDetalleAnual:contenedores' }
+  )
 
-  if (error || !contenedores) {
+  if (error) {
     console.error('Error fetchContenedoresDetalleAnual:', error)
     return []
   }
@@ -828,33 +935,42 @@ export async function fetchContenedoresDetalleAnual(
   if (contIds.length === 0) return []
 
   // 2. Obtener órdenes asociadas (solo activas)
-  let query: any = supabase
-    .from('ordenes_b2b')
-    .select(`
-      id, folio_proveedor, estado, total_cajas, total_piezas, cbm_orden, contenedor_id,
-      proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
-    `)
-    .eq('activo', true)
-    .in('contenedor_id', contIds)
-
-  if (!scope.is_super_admin) {
-    const orderFilter = buildCommercialOrderFilter(scope)
-    if (!orderFilter || orderFilter === '__no_access__.eq.true') {
-      // Retornar contenedores vacíos si no hay acceso a órdenes
-      return contenedores.map((c) => ({
-        ...c,
-        proveedores_nombres: 'Sin acceso',
-        folios_ordenes: '',
-        cajas_totales: 0,
-        piezas_totales: 0,
-        cbm_ocupado: 0,
-        ordenes: [],
-      }))
-    }
-    query = query.or(orderFilter)
+  const orderFilter = !scope.is_super_admin ? buildCommercialOrderFilter(scope) : null
+  if (!scope.is_super_admin && (!orderFilter || orderFilter === '__no_access__.eq.true')) {
+    return contenedores.map((c) => ({
+      ...c,
+      proveedores_nombres: 'Sin acceso',
+      folios_ordenes: '',
+      cajas_totales: 0,
+      piezas_totales: 0,
+      cbm_ocupado: 0,
+      ordenes: [],
+    }))
   }
 
-  const { data: ordenes } = await query
+  const ordenes = await fetchInChunksPaginated<number, any>(
+    contIds,
+    (chunk, fromIdx, toIdx, isFirst) => {
+      let query: any = supabase
+        .from('ordenes_b2b')
+        .select(
+          `
+          id, folio_proveedor, estado, total_cajas, total_piezas, cbm_orden, contenedor_id,
+          proveedor:personas!ordenes_b2b_proveedor_id_fkey (nombre_completo)
+        `,
+          isFirst ? { count: 'exact' } : undefined
+        )
+        .eq('activo', true)
+        .in('contenedor_id', chunk)
+
+      if (orderFilter) {
+        query = query.or(orderFilter)
+      }
+
+      return query.order('id', { ascending: true }).range(fromIdx, toIdx)
+    },
+    { chunkSize: 150, label: 'fetchContenedoresDetalleAnual:ordenes' }
+  )
 
   // Agrupar órdenes por contenedor
   const ordenesPorContenedor: Record<number, any[]> = {}
@@ -963,43 +1079,63 @@ export async function fetchContenedorReporteResumen(
     }
   }
 
-  // 3. Detalles de las órdenes
-  const { data: detalles } = await supabase
-    .from('ordenes_b2b_detalles')
-    .select(`
-      id, orden_id, producto_id, cantidad_solicitada, precio_unitario, importe_total, cbm_detalle,
-      cajas_pedidas, piezas_pedidas,
-      producto:productos!ordenes_b2b_detalles_producto_id_fkey (
-        id, sku_base, nombre, descripcion, composicion, familia,
-        tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
-        genero:cat_generos!productos_genero_id_fkey (nombre),
-        imagenes:producto_imagenes (url, es_principal)
-      )
-    `)
-    .in('orden_id', ordenIds)
+  // 3. Detalles de las órdenes + 4. Cajas de las órdenes (en paralelo y paginados)
+  const [detalles, ordenCajas] = await Promise.all([
+    fetchInChunksPaginated<number, any>(
+      ordenIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('ordenes_b2b_detalles')
+          .select(
+            `
+            id, orden_id, producto_id, cantidad_solicitada, precio_unitario, importe_total, cbm_detalle,
+            cajas_pedidas, piezas_pedidas,
+            producto:productos!ordenes_b2b_detalles_producto_id_fkey (
+              id, sku_base, nombre, descripcion, composicion, familia,
+              tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
+              genero:cat_generos!productos_genero_id_fkey (nombre),
+              imagenes:producto_imagenes (url, es_principal)
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .in('orden_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchContenedorReporteResumen:detalles' }
+    ),
+    fetchInChunksPaginated<number, any>(
+      ordenIds,
+      (chunk, fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('orden_cajas')
+          .select(
+            `
+            id, orden_id, caja_id, cantidad_cajas,
+            caja:cajas_producto!orden_cajas_caja_id_fkey (
+              id, codigo_caja, nombre_pack, producto_id,
+              piezas_por_caja, cbm, peso_bruto_kg,
+              producto:productos!cajas_producto_producto_id_fkey (
+                id, sku_base, nombre, descripcion, composicion, familia,
+                tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
+                genero:cat_generos!productos_genero_id_fkey (nombre),
+                imagenes:producto_imagenes (url, es_principal)
+              )
+            )
+          `,
+            isFirst ? { count: 'exact' } : undefined
+          )
+          .in('orden_id', chunk)
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { chunkSize: 150, label: 'fetchContenedorReporteResumen:ordenCajas' }
+    ),
+  ])
 
   const detalleMap = new Map<string, any>()
   ;(detalles || []).forEach((d: any) => {
     detalleMap.set(`${d.orden_id}_${d.producto_id}`, d)
   })
-
-  // 4. Cajas de las órdenes
-  const { data: ordenCajas } = await supabase
-    .from('orden_cajas')
-    .select(`
-      id, orden_id, caja_id, cantidad_cajas,
-      caja:cajas_producto!orden_cajas_caja_id_fkey (
-        id, codigo_caja, nombre_pack, producto_id,
-        piezas_por_caja, cbm, peso_bruto_kg,
-        producto:productos!cajas_producto_producto_id_fkey (
-          id, sku_base, nombre, descripcion, composicion, familia,
-          tipo_prenda:cat_tipo_prenda!productos_tipo_prenda_id_fkey (nombre),
-          genero:cat_generos!productos_genero_id_fkey (nombre),
-          imagenes:producto_imagenes (url, es_principal)
-        )
-      )
-    `)
-    .in('orden_id', ordenIds)
 
   const rawItems: ResumenItemData[] = []
 

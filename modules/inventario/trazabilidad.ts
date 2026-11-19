@@ -2,6 +2,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllPages, fetchInChunksPaginated } from '@/lib/supabase/pagination'
 import { todayMX, dateInputToMexicoUTC } from '@/lib/utils'
 
 function chunkIds<T>(items: T[], size = 200): T[][] {
@@ -304,43 +305,51 @@ export async function fetchTrazabilidadData(
   // Alcance a bodega específica (cascada ciudad → bodega). Se valida que exista y esté activa.
   const bodegaAlcance = filtros.bodega_id ? bodegasMap.get(filtros.bodega_id) || null : null
 
-  // 2. Obtener productos activos con familia
-  let productosQuery = supabase
-    .from('productos')
-    .select('id, sku_base, descripcion, familia, activo')
-    .eq('activo', true)
-    .order('sku_base')
-    .limit(10000)
+  // 2. Obtener productos activos con familia (paginado completo, supera tope de 1000)
+  const { data: productosRaw, error: prodError } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let productosQuery = supabase
+        .from('productos')
+        .select('id, sku_base, descripcion, familia, activo', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
 
-  if (filtros.familia) {
-    productosQuery = productosQuery.eq('familia', filtros.familia)
-  }
+      if (filtros.familia) {
+        productosQuery = productosQuery.eq('familia', filtros.familia)
+      }
+      if (filtros.q) {
+        productosQuery = productosQuery.or(`sku_base.ilike.%${filtros.q}%,descripcion.ilike.%${filtros.q}%,familia.ilike.%${filtros.q}%`)
+      }
 
-  if (filtros.q) {
-    productosQuery = productosQuery.or(`sku_base.ilike.%${filtros.q}%,descripcion.ilike.%${filtros.q}%,familia.ilike.%${filtros.q}%`)
-  }
-
-  const { data: productosRaw, error: prodError } = await productosQuery
+      return productosQuery
+        .order('sku_base', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx)
+    },
+    { label: 'fetchTrazabilidadData:productos' }
+  )
   if (prodError) throw prodError
 
   // 2b. Descripciones canónicas por familia (primera descripción alfabética de productos ACTIVOS)
   // Se obtiene de todo el catálogo ordenado por sku_base asc, idéntico a fetchDescripcionesCanonicasFamilias
   let familiaDescCanonMap = new Map<string, string>()
   try {
-    const { data: canonRows } = await supabase
-      .from('productos')
-      .select('familia, descripcion, nombre, sku_base')
-      .eq('activo', true)
-      .not('familia', 'is', null)
-      .order('sku_base', { ascending: true })
-      .limit(5000)
-    if (canonRows) {
-      for (const p of canonRows as any[]) {
-        const fam = (p.familia || '').trim()
-        if (!fam || familiaDescCanonMap.has(fam)) continue
-        const desc = (p.descripcion || p.nombre || '').trim()
-        if (desc) familiaDescCanonMap.set(fam, desc)
-      }
+    const { data: canonRows } = await fetchAllPages<any>(
+      (fromIdx, toIdx, isFirst) =>
+        supabase
+          .from('productos')
+          .select('familia, descripcion, nombre, sku_base', isFirst ? { count: 'exact' } : undefined)
+          .eq('activo', true)
+          .not('familia', 'is', null)
+          .order('sku_base', { ascending: true })
+          .order('id', { ascending: true })
+          .range(fromIdx, toIdx),
+      { label: 'fetchTrazabilidadData:canonRows' }
+    )
+    for (const p of canonRows) {
+      const fam = (p.familia || '').trim()
+      if (!fam || familiaDescCanonMap.has(fam)) continue
+      const desc = (p.descripcion || p.nombre || '').trim()
+      if (desc) familiaDescCanonMap.set(fam, desc)
     }
   } catch (_) {
     // fallback silencioso; se usará el mapa local
@@ -396,19 +405,24 @@ export async function fetchTrazabilidadData(
     }))
   const productosIds = Array.from(productosMap.keys())
 
-  // 3. Obtener stock actual de esos productos (en chunks <= 200)
+  // 3. Obtener stock actual de esos productos (en chunks <= 150 y paginados)
   const prodChunks = chunkIds(productosIds, 200)
-  const stockChunks = await Promise.all(
-    prodChunks.map((chunk) =>
+  const stockRaw = await fetchInChunksPaginated<number, {
+    producto_id: number
+    bodega_id: number
+    cajas: number | null
+    piezas_sueltas: number | null
+  }>(
+    productosIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
       supabase
         .from('inventario_stock')
-        .select('producto_id, bodega_id, cajas, piezas_sueltas')
+        .select('producto_id, bodega_id, cajas, piezas_sueltas', isFirst ? { count: 'exact' } : undefined)
         .in('producto_id', chunk)
-    )
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchTrazabilidadData:stock' }
   )
-  const stockError = stockChunks.find((r) => r.error)?.error
-  if (stockError) throw stockError
-  const stockRaw = stockChunks.flatMap((r) => r.data || [])
 
   // Mapa: producto_id -> { total: number, por_ciudad: Record<string, number> }
   // Con alcance a bodega, solo cuenta esa bodega (columnas colapsan a ella).
@@ -451,52 +465,54 @@ export async function fetchTrazabilidadData(
     })
     .sort((a, b) => a.ciudad.localeCompare(b.ciudad, 'es') || a.nombre.localeCompare(b.nombre, 'es'))
 
-  // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período (chunks <= 200).
+  // 4. Obtener movimientos confirmados (CONF + MODF con activo=true) dentro del período (chunks <= 150 y paginados).
   const estadosConfIds = await fetchEstadoIdsPorCodigo(['CONF', 'MODF'])
-  const movChunks = await Promise.all(
-    prodChunks.map((chunk) =>
+  const movimientosRaw = await fetchInChunksPaginated<number, any>(
+    productosIds,
+    (chunk, fromIdx, toIdx, isFirst) =>
       supabase
         .from('nota_detalle_productos')
-        .select(`
-      id,
-      nota_id,
-      producto_id,
-      cajas,
-      piezas_sueltas,
-      notas_inventario!inner (
-        id,
-        numero_nota,
-        tipo_movimiento_id,
-        bodega_origen_id,
-        bodega_destino_id,
-        fecha_nota,
-        created_at,
-        estado_id,
-        activo,
-        nota_referencia,
-        observaciones,
-        cat_tipos_movimiento (
-          codigo,
-          nombre,
-          afecta_inventario,
-          requiere_destino
-        ),
-        cat_estados_nota (
-          codigo
+        .select(
+          `
+          id,
+          nota_id,
+          producto_id,
+          cajas,
+          piezas_sueltas,
+          notas_inventario!inner (
+            id,
+            numero_nota,
+            tipo_movimiento_id,
+            bodega_origen_id,
+            bodega_destino_id,
+            fecha_nota,
+            created_at,
+            estado_id,
+            activo,
+            nota_referencia,
+            observaciones,
+            cat_tipos_movimiento (
+              codigo,
+              nombre,
+              afecta_inventario,
+              requiere_destino
+            ),
+            cat_estados_nota (
+              codigo
+            )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
         )
-      )
-    `)
         .in('producto_id', chunk)
         .gte('notas_inventario.fecha_nota', desde)
         .lte('notas_inventario.fecha_nota', hasta)
         .eq('notas_inventario.activo', true)
         .in('notas_inventario.estado_id', estadosConfIds)
-        .order('id')
-    )
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchTrazabilidadData:movimientos' }
   )
-  const movError = movChunks.find((r) => r.error)?.error
-  if (movError) throw movError
-  const movimientosRaw = movChunks.flatMap((r) => r.data || [])
 
   // 4b. Conteo de movimientos ocultos (CONF/MODF con activo=false) ignorados en el período.
   let movimientosOcultosIgnorados = 0
@@ -588,35 +604,38 @@ export async function fetchTrazabilidadData(
   // Se guardan 2 valores: entradas (+) y salidas (−) con sus conteos de notas.
   const pendientesPorProducto = new Map<number, PendienteDetalle>()
   try {
-    if (prodChunks.length > 0) {
+    if (productosIds.length > 0) {
       const estadosPendIds = await fetchEstadoIdsPorCodigo(['PEND', 'PROC'])
-      const pendChunks = await Promise.all(
-        prodChunks.map((chunk) =>
+      const pendRaw = await fetchInChunksPaginated<number, any>(
+        productosIds,
+        (chunk, fromIdx, toIdx, isFirst) =>
           supabase
             .from('nota_detalle_productos')
-            .select(`
-          id,
-          nota_id,
-          producto_id,
-          cajas,
-          notas_inventario!inner (
-            id,
-            numero_nota,
-            bodega_origen_id,
-            bodega_destino_id,
-            activo,
-            cat_tipos_movimiento (codigo, afecta_inventario),
-            cat_estados_nota (codigo)
-          )
-        `)
+            .select(
+              `
+              id,
+              nota_id,
+              producto_id,
+              cajas,
+              notas_inventario!inner (
+                id,
+                numero_nota,
+                bodega_origen_id,
+                bodega_destino_id,
+                activo,
+                cat_tipos_movimiento (codigo, afecta_inventario),
+                cat_estados_nota (codigo)
+              )
+            `,
+              isFirst ? { count: 'exact' } : undefined
+            )
             .in('producto_id', chunk)
             .eq('notas_inventario.activo', true)
             .in('notas_inventario.estado_id', estadosPendIds)
-            .order('id')
-            .limit(2000)
-        )
+            .order('id', { ascending: true })
+            .range(fromIdx, toIdx),
+        { chunkSize: 150, label: 'fetchTrazabilidadData:pendientes' }
       )
-      const pendRaw = pendChunks.flatMap((r) => r.data || [])
       ;((pendRaw || []) as any[]).forEach((m: any) => {
         const nota = m.notas_inventario
         const tipoCod = String(nota?.cat_tipos_movimiento?.codigo || '').toUpperCase()
@@ -967,59 +986,66 @@ export async function fetchProductoTimeline(
 ): Promise<TimelineEvento[]> {
   const supabase = await createClient()
 
-  let query = supabase
-    .from('nota_detalle_productos')
-    .select(`
-      id,
-      nota_id,
-      producto_id,
-      cajas,
-      piezas_sueltas,
-      productos (
-        sku_base,
-        descripcion
-      ),
-      notas_inventario!inner (
-        id,
-        numero_nota,
-        tipo_movimiento_id,
-        bodega_origen_id,
-        bodega_destino_id,
-        fecha_nota,
-        created_at,
-        estado_id,
-        activo,
-        nota_referencia,
-        observaciones,
-        cat_tipos_movimiento (
-          codigo,
-          nombre
-        ),
-        cat_estados_nota (
-          codigo
-        ),
-        bodega_origen:bodegas!bodega_origen_id (
-          nombre,
-          ciudad
-        ),
-        bodega_destino:bodegas!bodega_destino_id (
-          nombre,
-          ciudad
+  const { data, error } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let query = supabase
+        .from('nota_detalle_productos')
+        .select(
+          `
+          id,
+          nota_id,
+          producto_id,
+          cajas,
+          piezas_sueltas,
+          productos (
+            sku_base,
+            descripcion
+          ),
+          notas_inventario!inner (
+            id,
+            numero_nota,
+            tipo_movimiento_id,
+            bodega_origen_id,
+            bodega_destino_id,
+            fecha_nota,
+            created_at,
+            estado_id,
+            activo,
+            nota_referencia,
+            observaciones,
+            cat_tipos_movimiento (
+              codigo,
+              nombre
+            ),
+            cat_estados_nota (
+              codigo
+            ),
+            bodega_origen:bodegas!bodega_origen_id (
+              nombre,
+              ciudad
+            ),
+            bodega_destino:bodegas!bodega_destino_id (
+              nombre,
+              ciudad
+            )
+          )
+        `,
+          isFirst ? { count: 'exact' } : undefined
         )
-      )
-    `)
-    .eq('producto_id', productoId)
-    .eq('notas_inventario.activo', true)
-    .order('id', { ascending: false })
+        .eq('producto_id', productoId)
+        .eq('notas_inventario.activo', true)
 
-  if (fechaDesde) {
-    query = query.gte('notas_inventario.fecha_nota', fechaDesde)
-  }
-  if (fechaHasta) {
-    query = query.lte('notas_inventario.fecha_nota', fechaHasta)
-  }
+      if (fechaDesde) {
+        query = query.gte('notas_inventario.fecha_nota', fechaDesde)
+      }
+      if (fechaHasta) {
+        query = query.lte('notas_inventario.fecha_nota', fechaHasta)
+      }
 
-  const { data, error } = await query
+      return query.order('id', { ascending: false }).range(fromIdx, toIdx)
+    },
+    { label: 'fetchProductoTimeline' }
+  )
   if (error) throw error
 
   const filtrados = (data || []).filter((m: any) => {
@@ -1078,29 +1104,39 @@ export async function fetchFamiliaSkusConStock(familia: string, limite = 100): P
   const fam = (familia || '').trim()
   if (!fam) return []
 
-  let prodQuery = supabase
-    .from('productos')
-    .select('id, sku_base, descripcion, familia')
-    .eq('activo', true)
-  if (fam.toUpperCase() === 'SIN FAMILIA' || fam.toUpperCase() === 'SIN_FAMILIA' || fam === 'F000-000C') {
-    prodQuery = (prodQuery as any).or('familia.is.null,familia.eq.F000-000C,familia.eq.F000-000')
-  } else {
-    prodQuery = (prodQuery as any).eq('familia', fam)
-  }
-  const { data: prods } = await (prodQuery as any).order('sku_base', { ascending: true }).limit(500)
-  if (!prods || prods.length === 0) return []
-  const ids = (prods as any[]).map((p) => p.id)
+  const { data: prods } = await fetchAllPages<any>(
+    (fromIdx, toIdx, isFirst) => {
+      let prodQuery = supabase
+        .from('productos')
+        .select('id, sku_base, descripcion, familia', isFirst ? { count: 'exact' } : undefined)
+        .eq('activo', true)
+      if (fam.toUpperCase() === 'SIN FAMILIA' || fam.toUpperCase() === 'SIN_FAMILIA' || fam === 'F000-000C') {
+        prodQuery = (prodQuery as any).or('familia.is.null,familia.eq.F000-000C,familia.eq.F000-000')
+      } else {
+        prodQuery = (prodQuery as any).eq('familia', fam)
+      }
+      return (prodQuery as any)
+        .order('sku_base', { ascending: true })
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx)
+    },
+    { label: 'fetchFamiliaSkusConStock:prods' }
+  )
+  if (prods.length === 0) return []
+  const ids = prods.map((p) => p.id)
 
-  const stockChunks2 = await Promise.all(
-    chunkIds(ids, 200).map((chunk) =>
+  const stockRows = await fetchInChunksPaginated<number, { producto_id: number; cajas: number | null }>(
+    ids,
+    (chunk, fromIdx, toIdx, isFirst) =>
       supabase
         .from('inventario_stock')
-        .select('producto_id, cajas')
+        .select('producto_id, cajas', isFirst ? { count: 'exact' } : undefined)
         .in('producto_id', chunk)
         .is('caja_id', null)
-    )
+        .order('id', { ascending: true })
+        .range(fromIdx, toIdx),
+    { chunkSize: 150, label: 'fetchFamiliaSkusConStock:stock' }
   )
-  const stockRows = stockChunks2.flatMap((r) => r.data || [])
 
   const porProducto = new Map<number, number>()
   ;((stockRows || []) as any[]).forEach((s) => {
