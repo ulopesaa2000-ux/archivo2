@@ -6,6 +6,7 @@ import { headers } from 'next/headers'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { slugify } from '@/lib/utils'
+import { generateSmartSeo, mergeKeywords } from '@/lib/ecommerce/seo-generator'
 import {
   mergeMensajePrecioVariable,
   parseStoreConfig,
@@ -1543,4 +1544,294 @@ export async function crearCotizacion(
   }
 
   return successResult
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EDICIÓN RÁPIDA SEO + EXTRAS WEB (DESDE TABLA /productos-web)
+// ═══════════════════════════════════════════════════════════════
+
+const seoRapidoSchema = z.object({
+  productoId: z.number().int().positive(),
+  productoWebId: z.number().int().positive().nullable(),
+  titulo_seo: z.string().max(120).nullable().optional(),
+  descripcion_seo: z.string().max(320).nullable().optional(),
+  keywords: z.string().max(500).nullable().optional(),
+  unidad_venta: z.enum(['pieza', 'caja', 'ambas']),
+  modo_override: z.enum(['default', 'catalogo', 'ecommerce']),
+  orden_display: z.number().int().min(0).max(99999),
+})
+
+function cleanNullableStr(val?: string | null): string | null {
+  if (val === undefined || val === null) return null
+  const trimmed = val.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+async function buildUniqueSlugForProducto(
+  supabase: any,
+  prod: { id: number; nombre?: string | null; descripcion?: string | null; sku_base?: string | null }
+): Promise<string> {
+  const baseText = prod.nombre || prod.descripcion || `producto-${prod.id}`
+  const baseSlug = slugify(`${baseText}-${prod.sku_base || ''}`) || `producto-${prod.id}`
+  const { data: existente } = await supabase
+    .from('productos_web')
+    .select('id')
+    .eq('slug', baseSlug)
+    .maybeSingle()
+
+  return existente ? `${baseSlug}-${Date.now().toString(36).slice(-4)}` : baseSlug
+}
+
+export async function actualizarSeoRapidoProductoWebAction(input: {
+  productoId: number
+  productoWebId: number | null
+  titulo_seo: string | null
+  descripcion_seo: string | null
+  keywords: string | null
+  unidad_venta: 'pieza' | 'caja' | 'ambas'
+  modo_override: 'default' | 'catalogo' | 'ecommerce'
+  orden_display: number
+}): Promise<{ success: boolean; productoWebId?: number; error?: string }> {
+  try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
+    const parsed = seoRapidoSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Datos inválidos.' }
+    }
+
+    const supabase = await createClient()
+    const {
+      productoId,
+      productoWebId,
+      titulo_seo,
+      descripcion_seo,
+      keywords,
+      unidad_venta,
+      modo_override,
+      orden_display,
+    } = parsed.data
+
+    const cleanTitulo = cleanNullableStr(titulo_seo)
+    const cleanDesc = cleanNullableStr(descripcion_seo)
+    const cleanKeywords = cleanNullableStr(keywords)
+    const nowIso = new Date().toISOString()
+
+    // Verificar si ya existe registro web (por id o por producto_id)
+    let targetWebId = productoWebId
+    let existingSlug: string | null = null
+
+    if (targetWebId) {
+      const { data: row } = await (supabase as any)
+        .from('productos_web')
+        .select('id, slug')
+        .eq('id', targetWebId)
+        .maybeSingle()
+      if (row) existingSlug = row.slug
+      else targetWebId = null
+    }
+
+    if (!targetWebId) {
+      const { data: byProd } = await (supabase as any)
+        .from('productos_web')
+        .select('id, slug')
+        .eq('producto_id', productoId)
+        .maybeSingle()
+      if (byProd) {
+        targetWebId = byProd.id
+        existingSlug = byProd.slug
+      }
+    }
+
+    if (targetWebId) {
+      const { error } = await (supabase as any)
+        .from('productos_web')
+        .update({
+          titulo_seo: cleanTitulo,
+          descripcion_seo: cleanDesc,
+          keywords: cleanKeywords,
+          unidad_venta,
+          modo_override,
+          orden_display,
+          updated_at: nowIso,
+        })
+        .eq('id', targetWebId)
+
+      if (error) return { success: false, error: error.message }
+
+      revalidateStoreCatalogo({ slugs: existingSlug ? [existingSlug] : undefined })
+      return { success: true, productoWebId: targetWebId }
+    }
+
+    // Si no tiene registro web aún, crear en borrador (pausado)
+    const { data: prod, error: prodErr } = await (supabase as any)
+      .from('productos')
+      .select('id, nombre, descripcion, sku_base, precio_ec')
+      .eq('id', productoId)
+      .single()
+
+    if (prodErr || !prod) {
+      return { success: false, error: 'Producto no encontrado.' }
+    }
+
+    const precioPublico = prod.precio_ec && Number(prod.precio_ec) > 0 ? Number(prod.precio_ec) : 1
+    const slug = await buildUniqueSlugForProducto(supabase as any, prod)
+
+    const { data: inserted, error: insertErr } = await (supabase as any)
+      .from('productos_web')
+      .insert({
+        producto_id: productoId,
+        slug,
+        precio_publico: precioPublico,
+        activo: false,
+        en_oferta: false,
+        destacado: false,
+        nuevo: false,
+        titulo_seo: cleanTitulo,
+        descripcion_seo: cleanDesc,
+        keywords: cleanKeywords,
+        unidad_venta,
+        modo_override,
+        orden_display,
+        created_at: nowIso,
+        updated_at: nowIso,
+      })
+      .select('id')
+      .single()
+
+    if (insertErr) return { success: false, error: insertErr.message }
+
+    revalidateStoreCatalogo({ slugs: [slug] })
+    return { success: true, productoWebId: inserted?.id }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al guardar SEO rápido.' }
+  }
+}
+
+export async function generarSeoMasivoAction(input: {
+  productoIds: number[]
+  soloVacios?: boolean
+  extraKeywords?: string | null
+}): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    await requireEcommercePermission('ecommerce_catalogo', 'puede_editar')
+    const uniqueIds = Array.from(new Set(input.productoIds.filter((id) => Number.isInteger(id) && id > 0)))
+    if (uniqueIds.length === 0) {
+      return { success: false, count: 0, error: 'No hay productos seleccionados.' }
+    }
+
+    const soloVacios = input.soloVacios ?? true
+    const extraKw = cleanNullableStr(input.extraKeywords)
+    const supabase = await createClient()
+    const nowIso = new Date().toISOString()
+
+    // Consultar en chunks <= 150
+    const allProds: any[] = []
+    for (let i = 0; i < uniqueIds.length; i += 150) {
+      const chunk = uniqueIds.slice(i, i + 150)
+      const { data, error } = await (supabase as any)
+        .from('productos')
+        .select(`
+          id,
+          sku_base,
+          nombre,
+          descripcion,
+          composicion,
+          precio_ec,
+          cat_marcas!left(nombre),
+          cat_tipo_prenda!left(nombre),
+          cat_generos!left(nombre),
+          productos_web!left(
+            id,
+            slug,
+            titulo_seo,
+            descripcion_seo,
+            keywords
+          )
+        `)
+        .in('id', chunk)
+
+      if (error) return { success: false, count: 0, error: error.message }
+      if (data) allProds.push(...data)
+    }
+
+    const slugsToRevalidate: string[] = []
+    const inserts: any[] = []
+    const updates: Array<{ id: number; payload: Record<string, any> }> = []
+
+    for (const prod of allProds) {
+      const pw = Array.isArray(prod.productos_web) ? prod.productos_web[0] : prod.productos_web
+      const smart = generateSmartSeo({
+        sku_base: prod.sku_base,
+        nombre: prod.nombre,
+        descripcion: prod.descripcion,
+        composicion: prod.composicion,
+        marca_nombre: prod.cat_marcas?.nombre ?? null,
+        tipo_prenda_nombre: prod.cat_tipo_prenda?.nombre ?? null,
+        genero_nombre: prod.cat_generos?.nombre ?? null,
+      })
+
+      const curTitulo = cleanNullableStr(pw?.titulo_seo)
+      const curDesc = cleanNullableStr(pw?.descripcion_seo)
+      const curKw = cleanNullableStr(pw?.keywords)
+
+      const nextTitulo = soloVacios ? (curTitulo ?? smart.titulo_seo) : smart.titulo_seo
+      const nextDesc = soloVacios ? (curDesc ?? smart.descripcion_seo) : smart.descripcion_seo
+      const baseKw = soloVacios ? (curKw ?? smart.keywords) : smart.keywords
+      const nextKw = extraKw ? mergeKeywords(baseKw, extraKw) : baseKw
+
+      if (pw?.id) {
+        if (nextTitulo !== curTitulo || nextDesc !== curDesc || nextKw !== curKw) {
+          updates.push({
+            id: pw.id,
+            payload: {
+              titulo_seo: nextTitulo,
+              descripcion_seo: nextDesc,
+              keywords: nextKw,
+              updated_at: nowIso,
+            },
+          })
+          if (pw.slug) slugsToRevalidate.push(pw.slug)
+        }
+      } else {
+        const precioPublico = prod.precio_ec && Number(prod.precio_ec) > 0 ? Number(prod.precio_ec) : 1
+        const baseText = prod.nombre || prod.descripcion || `producto-${prod.id}`
+        const slug = `${slugify(`${baseText}-${prod.sku_base || ''}`) || `producto-${prod.id}`}-${Date.now().toString(36).slice(-4)}`
+        slugsToRevalidate.push(slug)
+        inserts.push({
+          producto_id: prod.id,
+          slug,
+          precio_publico: precioPublico,
+          activo: false,
+          en_oferta: false,
+          destacado: false,
+          nuevo: false,
+          titulo_seo: nextTitulo,
+          descripcion_seo: nextDesc,
+          keywords: nextKw,
+          created_at: nowIso,
+          updated_at: nowIso,
+        })
+      }
+    }
+
+    // Ejecutar updates en lotes paralelos de 20
+    for (let i = 0; i < updates.length; i += 20) {
+      const batch = updates.slice(i, i + 20)
+      await Promise.all(
+        batch.map((u) =>
+          (supabase as any).from('productos_web').update(u.payload).eq('id', u.id)
+        )
+      )
+    }
+
+    if (inserts.length > 0) {
+      const { error: insErr } = await (supabase as any).from('productos_web').insert(inserts)
+      if (insErr) return { success: false, count: updates.length, error: insErr.message }
+    }
+
+    revalidateStoreCatalogo({ slugs: slugsToRevalidate.slice(0, 50) })
+    return { success: true, count: updates.length + inserts.length }
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Error al generar SEO masivo.' }
+  }
 }

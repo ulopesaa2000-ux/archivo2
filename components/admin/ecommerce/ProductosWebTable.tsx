@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import { DestacadoWebStarButton } from './DestacadoWebStarButton'
 import { NuevoSparkleButton } from './NuevoSparkleButton'
 import { OfertaTagButton } from './OfertaTagButton'
+import { ProductoWebSeoPopover } from './ProductoWebSeoPopover'
 import type { ProductoWebExtendido } from '@/modules/ecommerce/types'
 import {
   togglePublicarProductoWebAction,
@@ -31,6 +32,7 @@ import {
   actualizarPreciosMasivoAction,
   actualizarFlagsMasivoAction,
   quitarNuevoMasivoPorAntiguedadAction,
+  generarSeoMasivoAction,
 } from '@/modules/ecommerce/actions'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -69,6 +71,38 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
   const [isCleanNuevoModalOpen, setIsCleanNuevoModalOpen] = useState(false)
   const [limpiarTodosNuevo, setLimpiarTodosNuevo] = useState(false)
   const [limpiarDiasNuevo, setLimpiarDiasNuevo] = useState('90')
+
+  // Modal masivo de SEO inteligente
+  const [isSeoModalOpen, setIsSeoModalOpen] = useState(false)
+  const [seoSoloVacios, setSeoSoloVacios] = useState(true)
+  const [seoExtraKeywords, setSeoExtraKeywords] = useState('')
+
+  const handleBulkSeoSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+
+    startTransition(async () => {
+      const res = await generarSeoMasivoAction({
+        productoIds: ids,
+        soloVacios: seoSoloVacios,
+        extraKeywords: seoExtraKeywords.trim() || null,
+      })
+      if (res.success) {
+        toast.success(
+          res.count > 0
+            ? `SEO actualizado para ${res.count} producto(s).`
+            : 'Los productos seleccionados ya tenían SEO completo.'
+        )
+        setIsSeoModalOpen(false)
+        setSeoExtraKeywords('')
+        setSelectedIds(new Set())
+        router.refresh()
+      } else {
+        toast.error(res.error || 'Error al generar SEO masivo.')
+      }
+    })
+  }
 
   const handleConfirmCleanNuevo = (e: React.FormEvent) => {
     e.preventDefault()
@@ -441,6 +475,7 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
                       >
                         {producto.sku_base}
                       </Link>
+                      <ProductoWebSeoPopover producto={producto} />
                       <DestacadoWebStarButton
                         productoId={producto.producto_id}
                         productoWebId={producto.producto_web_id}
@@ -627,6 +662,18 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
               >
                 <Flag className="h-4 w-4 text-purple-600" />
                 <span>Flags</span>
+              </Button>
+
+              {/* Botón SEO Masivo Inteligente */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-50 font-semibold text-xs gap-1.5 h-9"
+                onClick={() => setIsSeoModalOpen(true)}
+                disabled={isPending}
+              >
+                <Sparkles className="h-4 w-4 text-amber-600" />
+                <span>SEO</span>
               </Button>
 
               {/* Botón Publicar Selección */}
@@ -989,6 +1036,74 @@ export function ProductosWebTable({ productos, total }: ProductosWebTableProps) 
               <Button type="submit" size="sm" variant="destructive" disabled={isPending}>
                 {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Quitar etiqueta &quot;Nuevo&quot;
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Modal: Generación Masiva de SEO Inteligente */}
+      <Dialog open={isSeoModalOpen} onOpenChange={setIsSeoModalOpen}>
+        <DialogContent className="sm:max-w-lg w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-5 w-5 text-amber-600" />
+              SEO Inteligente para {selectedIds.size} Productos
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleBulkSeoSubmit} className="space-y-4 pt-2">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Genera <strong className="text-foreground">Título SEO</strong>,{' '}
+              <strong className="text-foreground">Descripción SEO</strong> y{' '}
+              <strong className="text-foreground">Keywords</strong> individuales para cada producto según su
+              descripción, tipo de prenda, género y marca.
+            </p>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer">
+              <Checkbox
+                checked={seoSoloVacios}
+                onCheckedChange={(checked) => setSeoSoloVacios(Boolean(checked))}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <span className="text-xs font-semibold text-foreground block">
+                  Solo rellenar campos vacíos (Recomendado)
+                </span>
+                <span className="text-[11px] text-muted-foreground block">
+                  Respeta los títulos, descripciones o keywords que ya editaste manualmente.
+                </span>
+              </div>
+            </label>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="seoExtraKeywords" className="text-xs font-semibold">
+                Keywords comunes adicionales (opcional)
+              </Label>
+              <Input
+                id="seoExtraKeywords"
+                value={seoExtraKeywords}
+                onChange={(e) => setSeoExtraKeywords(e.target.value)}
+                placeholder="Ej: invierno 2026, mayoreo, nueva colección"
+                className="h-9 text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Se combinarán sin duplicados con las keywords de cada producto.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsSeoModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isPending}
+                className="bg-[#2D5A3D] hover:bg-[#1e3a2f] text-white"
+              >
+                {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Generar SEO ({selectedIds.size})
               </Button>
             </div>
           </form>

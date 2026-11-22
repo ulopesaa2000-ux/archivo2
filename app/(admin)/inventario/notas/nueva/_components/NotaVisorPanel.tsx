@@ -15,6 +15,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
+import { prefetchCatalogoOcr } from '@/components/admin/ocr-sync/_hooks/ocr-catalogo-cache'
 
 interface NotaVisorPanelProps {
   ocrProposalId?: string
@@ -53,6 +54,8 @@ export function NotaVisorPanel({
               variant="outline"
               size="sm"
               onClick={onOpenOcrSync}
+              onMouseEnter={prefetchCatalogoOcr}
+              onFocus={prefetchCatalogoOcr}
               className="h-8 text-xs font-bold gap-1 rounded-lg border shadow-sm text-primary hover:text-primary bg-background"
               title="Editar cadenas de texto escaneadas y re-sincronizar SKUs"
             >

@@ -6,6 +6,8 @@ import { verifySession } from '@/lib/dal'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
 import { NoteDraftBuilder } from './NoteDraftBuilder'
 import { createStaticClient } from '@/lib/supabase/server'
+import { chunkArray } from '@/lib/supabase/pagination'
+import { compactarSkuOcr, normalizarSku } from '@/lib/inventario/sku-ocr'
 import type { DraftNota, DraftProducto, NotaCompleta, NotaOcrPropuesta } from '@/modules/inventario/types'
 import { AlertCircle } from 'lucide-react'
 import { OcrUploadModal } from '../propuestas/OcrUploadModal'
@@ -49,13 +51,13 @@ export default async function NuevaNotaPage({
     if (propuesta) {
       ocrProposal = propuesta
       const supabase = createStaticClient()
-      
+
       // 1. Mapeo de Tipo de Movimiento estimado
       let tipoId: number | null = null
       if (propuesta.tipo_movimiento_detectado) {
         const detectedLower = propuesta.tipo_movimiento_detectado.toLowerCase()
-        const matchedTipo = catalogos.tiposMovimiento.find(t => 
-          t.nombre.toLowerCase().includes(detectedLower) || 
+        const matchedTipo = catalogos.tiposMovimiento.find(t =>
+          t.nombre.toLowerCase().includes(detectedLower) ||
           t.codigo.toLowerCase() === detectedLower ||
           detectedLower.includes(t.nombre.toLowerCase())
         )
@@ -66,8 +68,8 @@ export default async function NuevaNotaPage({
       let origenId: number | null = null
       if (propuesta.origen_detectado) {
         const oLower = propuesta.origen_detectado.toLowerCase()
-        const matchedBodega = catalogos.bodegas.find(b => 
-          b.nombre.toLowerCase().includes(oLower) || 
+        const matchedBodega = catalogos.bodegas.find(b =>
+          b.nombre.toLowerCase().includes(oLower) ||
           b.codigo.toLowerCase() === oLower ||
           oLower.includes(b.nombre.toLowerCase())
         )
@@ -78,8 +80,8 @@ export default async function NuevaNotaPage({
       let destinoId: number | null = null
       if (propuesta.destino_detectado) {
         const dLower = propuesta.destino_detectado.toLowerCase()
-        const matchedBodega = catalogos.bodegas.find(b => 
-          b.nombre.toLowerCase().includes(dLower) || 
+        const matchedBodega = catalogos.bodegas.find(b =>
+          b.nombre.toLowerCase().includes(dLower) ||
           b.codigo.toLowerCase() === dLower ||
           dLower.includes(b.nombre.toLowerCase())
         )
@@ -88,37 +90,80 @@ export default async function NuevaNotaPage({
 
       // 4. Mapeo de líneas de productos
       const mappedProductos: DraftProducto[] = []
-      
+
       if (propuesta.lineas && propuesta.lineas.length > 0) {
-        // Extraer los SKUs detectados
-        const rawSkus = propuesta.lineas
-          .map(l => l.estilo_raw || l.descripcion_raw)
-          .filter((val): val is string => !!val)
+        // Recolectar IDs ya resueltos y SKUs compactados (evita perder coincidencias de n8n)
+        const resolvedIds = Array.from(
+          new Set(
+            propuesta.lineas
+              .map((l) => l.producto_id)
+              .filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
+          )
+        )
+        const rawSkus = Array.from(
+          new Set(
+            propuesta.lineas
+              .flatMap((l) => [
+                l.sku ? compactarSkuOcr(l.sku) : null,
+                l.estilo_raw ? compactarSkuOcr(l.estilo_raw) : null,
+                l.sku?.trim() || null,
+                l.estilo_raw?.trim() || null,
+              ])
+              .filter((val): val is string => Boolean(val))
+          )
+        )
 
-        // Buscar productos en la BD que coincidan con estos SKUs
-        const { data: dbProducts } = rawSkus.length > 0
-          ? await supabase
-              .from('productos')
-              .select('id, sku_base, nombre, descripcion, pz_en_caja')
-              .eq('activo', true)
-              .in('sku_base', rawSkus)
-          : { data: [] }
+        const [byIdRes, bySkuRes] = await Promise.all([
+          Promise.all(
+            chunkArray(resolvedIds, 200).map((chunk) =>
+              supabase
+                .from('productos')
+                .select('id, sku_base, nombre, descripcion, pz_en_caja')
+                .eq('activo', true)
+                .in('id', chunk)
+            )
+          ),
+          Promise.all(
+            chunkArray(rawSkus, 200).map((chunk) =>
+              supabase
+                .from('productos')
+                .select('id, sku_base, nombre, descripcion, pz_en_caja')
+                .eq('activo', true)
+                .in('sku_base', chunk)
+            )
+          ),
+        ])
 
-        const dbProductsMap = new Map(dbProducts?.map(p => [p.sku_base.toUpperCase(), p]) || [])
+        type ProductoPrecarga = {
+          id: number
+          sku_base: string
+          nombre: string | null
+          descripcion: string | null
+          pz_en_caja: number | null
+        }
+
+        const dbById = new Map<number, ProductoPrecarga>()
+        const dbBySku = new Map<string, ProductoPrecarga>()
+        const dbByNorm = new Map<string, ProductoPrecarga>()
+
+        for (const res of [...byIdRes, ...bySkuRes]) {
+          for (const p of res.data ?? []) {
+            dbById.set(p.id, p)
+            dbBySku.set(compactarSkuOcr(p.sku_base), p)
+            dbBySku.set(p.sku_base.toUpperCase(), p)
+            dbByNorm.set(normalizarSku(p.sku_base), p)
+          }
+        }
 
         // Pre-cargar cajas en una sola consulta (evita N+1 dentro del bucle)
-        const matchedIds = Array.from(new Set((dbProducts ?? []).map(p => p.id)))
+        const matchedIds = Array.from(dbById.keys())
         const cajasByProductoId = new Map<
           number,
           { id: number; producto_id: number | null; codigo_caja: string; nombre_pack: string | null; piezas_por_caja: number | null }[]
         >()
 
         if (matchedIds.length > 0) {
-          const CHUNK_SIZE = 200
-          const cajasChunks: number[][] = []
-          for (let i = 0; i < matchedIds.length; i += CHUNK_SIZE) {
-            cajasChunks.push(matchedIds.slice(i, i + CHUNK_SIZE))
-          }
+          const cajasChunks = chunkArray(matchedIds, 200)
           const cajasResults = await Promise.all(
             cajasChunks.map(chunk =>
               supabase
@@ -138,10 +183,14 @@ export default async function NuevaNotaPage({
           }
         }
 
-        // Para cada línea extraída, intentar mapearla
+        // Para cada línea extraída, intentar mapearla (primero ID, luego sku compactado, luego estilo_raw)
         for (const line of propuesta.lineas) {
-          const rawSku = (line.estilo_raw || line.descripcion_raw || '').toUpperCase().trim()
-          const matchedDbProd = dbProductsMap.get(rawSku)
+          const skuCompacto = compactarSkuOcr(line.sku)
+          const rawCompacto = compactarSkuOcr(line.estilo_raw)
+          const matchedDbProd =
+            (typeof line.producto_id === 'number' ? dbById.get(line.producto_id) : undefined) ??
+            (skuCompacto ? dbBySku.get(skuCompacto) ?? dbByNorm.get(normalizarSku(skuCompacto)) : undefined) ??
+            (rawCompacto ? dbBySku.get(rawCompacto) ?? dbByNorm.get(normalizarSku(rawCompacto)) : undefined)
 
           if (matchedDbProd) {
             // Buscar si hay un empaque (caja_producto) con las piezas correctas en O(1)
@@ -215,10 +264,10 @@ export default async function NuevaNotaPage({
         historial: [],
       }
 
-      // Hack para meter el draft pre-mapeado y líneas OCR originales
-      ;(initialData.cabecera as any).tipo_movimiento_id = tipoId
-      ;(initialData.cabecera as any).productos_draft = mappedProductos
-      ;(initialData.cabecera as any).ocr_lineas = propuesta.lineas
+        // Hack para meter el draft pre-mapeado y líneas OCR originales
+        ; (initialData.cabecera as any).tipo_movimiento_id = tipoId
+        ; (initialData.cabecera as any).productos_draft = mappedProductos
+        ; (initialData.cabecera as any).ocr_lineas = propuesta.lineas
     }
   }
 
@@ -230,7 +279,7 @@ export default async function NuevaNotaPage({
             {propuestaId ? 'Confirmar Propuesta OCR' : 'Nueva Nota de Inventario'}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {propuestaId 
+            {propuestaId
               ? 'Revisa y ajusta los productos detectados por la IA antes de generar la nota oficial.'
               : 'Selecciona el tipo de movimiento, verifica la bodega y agrega productos.'}
           </p>

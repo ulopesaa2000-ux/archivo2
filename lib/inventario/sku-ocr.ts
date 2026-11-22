@@ -69,6 +69,21 @@ export function normalizarSku(value: string | null | undefined): string {
     .trim()
 }
 
+/**
+ * Compacta un SKU leído por OCR eliminando espacios alrededor de `/` y `-`
+ * y puntuación final espuria, manteniendo intactos separadores reales.
+ * Ej: "J219 / 3CNC" -> "J219/3CNC", "NR2509 - FUR" -> "NR2509-FUR", "HK26/13SW." -> "HK26/13SW".
+ */
+export function compactarSkuOcr(value: string | null | undefined): string {
+  return String(value ?? '')
+    .toUpperCase()
+    .trim()
+    .replace(/\s*([/-])\s*/g, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:]+$/g, '')
+    .trim()
+}
+
 /** Convierte AND26/0016DC -> AND260016. No toca AND de 5 dígitos como AND20002. */
 export function canonicalizarAnd(value: string | null | undefined): string {
   const raw = String(value ?? '').trim().replace(/\s+/g, ' ')
@@ -77,12 +92,15 @@ export function canonicalizarAnd(value: string | null | undefined): string {
   return `AND${match[1]}${match[2]}`.toUpperCase()
 }
 
+const RE_CODIGO_COMPLETO_DUAL = /^(?:AND\d{5,6}|[13][A-Z]{2}\d{4})/i
+
 /**
  * Separa una lectura que puede traer más de un código.
  * Ej: "3VT8489 /AND250032" -> ["3VT8489", "AND250032"].
+ * Nunca fragmenta "NR2509 - FUR", "J219 / 3CNC" ni "3UT8703- BOY".
  */
 export function separarCodigos(value: string | null | undefined): string[] {
-  let raw = String(value ?? '').trim()
+  let raw = compactarSkuOcr(value)
   if (!raw) return []
 
   // Un solo AND con slash: no separar por la barra.
@@ -93,30 +111,36 @@ export function separarCodigos(value: string | null | undefined): string[] {
     return `AND${digitos.replace(/\s+/g, '')}`
   })
 
-  // "AND 26 / 0016 DC" -> "AND26/0016DC".
+  // "AND 26 / 0016 DC" -> "AND260016".
   raw = raw.replace(
     /\bAND\s*(\d{2})\s*\/\s*(\d{4})\s*([A-Z]{0,4})\b/gi,
     (_m, anio: string, folio: string) => `AND${anio}${folio}`
   )
 
-  // Si TODO el texto (sin espacios) es un unico codigo con barra, no lo fragmentes.
-  // Sin esta regla "B0248 / 1CAC" se parte en "B0248" + "1CAC" y el SKU real se
-  // pierde; ademas el fragmento "1CAC" arrastra candidatos ajenos al codigo.
+  // Dos códigos completos unidos por barra (ej. "3JA7928/AND250029" o "3VT8489/AND250032").
+  const slashParts = raw.split('/')
+  if (
+    slashParts.length === 2 &&
+    RE_CODIGO_COMPLETO_DUAL.test(slashParts[0]) &&
+    RE_CODIGO_COMPLETO_DUAL.test(slashParts[1])
+  ) {
+    return slashParts.map((t) => canonicalizarAnd(t)).filter(Boolean)
+  }
+
+  // Dos códigos completos separados por espacio (ej. "AND260018 3VT8703").
+  const spaceParts = raw.split(/\s+/).filter(Boolean)
+  if (
+    spaceParts.length >= 2 &&
+    spaceParts.every((part) => RE_CODIGO_COMPLETO_DUAL.test(part))
+  ) {
+    return spaceParts.map((t) => canonicalizarAnd(t)).filter(Boolean)
+  }
+
+  // Si TODO el texto (sin espacios) es un único código con barra, no lo fragmentes.
   const compacto = raw.replace(/\s+/g, '').toUpperCase()
   if (RE_CODIGO_CON_BARRA.test(compacto)) return [compacto]
 
-  // Espacios alrededor de la barra en familias modernas: "JA24 / 4DAML" -> "JA24/4DAML".
-  // No toca "3VT8489 /AND250032" porque el código no empieza con letras+2 dígitos.
-  raw = raw.replace(
-    /\b([A-Z]{2,4}\d{2})\s*\/\s*([A-Z0-9]{1,8})\b/gi,
-    (_m, familia: string, modelo: string) => `${familia}/${modelo}`
-  )
-
-  return raw
-    .split(/\s+/)
-    .map((token) => token.replace(/^\/+/, '').replace(/\/+$/, ''))
-    .filter(Boolean)
-    .map((token) => canonicalizarAnd(token))
+  return [raw]
 }
 
 function agregarUnicos(previos: string[], nuevos: Array<string | null | undefined>): string[] {

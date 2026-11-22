@@ -113,7 +113,13 @@ export async function fetchProductosWebAdmin(
           en_oferta,
           destacado,
           nuevo,
-          activo
+          activo,
+          titulo_seo,
+          descripcion_seo,
+          keywords,
+          orden_display,
+          unidad_venta,
+          modo_override
         )
         `,
         isFirst ? { count: 'exact' } : undefined
@@ -203,6 +209,12 @@ export async function fetchProductosWebAdmin(
       destacado: pw?.destacado ?? false,
       nuevo: pw?.nuevo ?? false,
       activo: pw?.activo ?? false,
+      titulo_seo: pw?.titulo_seo ?? null,
+      descripcion_seo: pw?.descripcion_seo ?? null,
+      keywords: pw?.keywords ?? null,
+      orden_display: pw?.orden_display ?? 0,
+      unidad_venta: (pw?.unidad_venta as ProductoWebExtendido['unidad_venta']) || 'pieza',
+      modo_override: (pw?.modo_override as ProductoWebExtendido['modo_override']) || 'default',
       created_at: item.created_at || new Date().toISOString(),
     }
   })

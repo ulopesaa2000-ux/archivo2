@@ -46,6 +46,8 @@ import { fetchConfigInventario } from './config-queries'
 import { sortBodegasWithConfig } from './config-types'
 import { compareFamiliaAsc, compareSkuAsc } from '@/lib/inventario/familias-orden'
 import { claveStock } from '@/lib/inventario/validacion-stock'
+import { fetchCatalogoOcrIndexado } from './ocr-catalog-queries'
+import { buscarEnCatalogoLocal } from '@/lib/inventario/sku-matcher'
 
 // ════════════════════════════════════════════════════════════
 // LISTADO DE NOTAS
@@ -2043,12 +2045,11 @@ export async function searchProductos(
     .order('sku_base')
     .limit(limit)
 
-  if (error || !data) {
-    if (error) console.error('[searchProductos] Error:', error)
-    return []
+  if (error) {
+    console.error('[searchProductos] Error:', error)
   }
 
-  return data.map((p: any) => ({
+  const resultados: ProductoBusqueda[] = (data ?? []).map((p: any) => ({
     id: p.id,
     sku_base: p.sku_base,
     nombre: p.descripcion || p.nombre || '',
@@ -2057,6 +2058,33 @@ export async function searchProductos(
     marca_nombre: null,
     imagen_url: null,
   }))
+
+  // Fallback inteligente con el matcher OCR cuando ILIKE devuelve pocos resultados
+  if (resultados.length < 5 && clean.length >= 2) {
+    try {
+      const catalogoIndexado = await fetchCatalogoOcrIndexado()
+      const locales = buscarEnCatalogoLocal(clean, catalogoIndexado, limit)
+      const vistos = new Set(resultados.map((r) => r.id))
+      for (const item of locales) {
+        if (vistos.has(item.id)) continue
+        vistos.add(item.id)
+        resultados.push({
+          id: item.id,
+          sku_base: item.sku_base,
+          nombre: item.descripcion || '',
+          descripcion: item.descripcion,
+          pz_en_caja: item.pz_en_caja,
+          marca_nombre: item.proveedor_nombre ?? null,
+          imagen_url: null,
+        })
+        if (resultados.length >= limit) break
+      }
+    } catch (fallbackErr) {
+      console.error('[searchProductos] Fallback OCR error:', fallbackErr)
+    }
+  }
+
+  return resultados
 }
 
 export async function fetchCajasDeProducto(

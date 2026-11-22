@@ -27,7 +27,9 @@ import type {
 } from './types'
 import type { BodegaRow } from '@/lib/types/tables'
 import { isModoSoloCajas } from './config-types'
-import { construirConsultaSku } from '@/lib/inventario/sku-ocr'
+import { compactarSkuOcr, normalizarSku } from '@/lib/inventario/sku-ocr'
+import { buscarCandidatosEnCatalogo } from '@/lib/inventario/sku-matcher'
+import { fetchCatalogoOcrIndexado } from './ocr-catalog-queries'
 import { evaluarDisponibilidad } from '@/lib/inventario/validacion-stock'
 import { calcularFolioConfirmado } from '@/lib/inventario/folio-nota'
 
@@ -1561,205 +1563,193 @@ export async function sincronizarLineasOcrAction(
     estilo_raw: string
     cantidad_cajas: number
     piezas_por_caja?: number | null
+    piezas_detectadas_ref?: number | null
     confianza?: number
     descripcion_texto?: string | null
     descripcion_raw?: string | null
     sku?: string | null
     posibles_variantes?: string[] | null
+    decider_prob?: number | null
+    decider_model?: string | null
+    candidatos_sku?: NotaOcrCandidatoSku[] | null
   }>
 ): Promise<{ success: boolean; data?: NotaOcrLineaSincronizada[]; error?: string }> {
-  const supabase = await createClient()
-  const resultados: NotaOcrLineaSincronizada[] = []
+  try {
+    const catalogoIndexado = await fetchCatalogoOcrIndexado()
+    const resultados: NotaOcrLineaSincronizada[] = []
 
-  const consultas = lineas.map((item, idx) => ({
-    item,
-    itemIndex: item.index ?? idx,
-    consulta: construirConsultaSku(item.estilo_raw, item.sku, item.posibles_variantes),
-  }))
+    for (let idx = 0; idx < lineas.length; idx += 1) {
+      const item = lineas[idx]
+      const itemIndex = item.index ?? idx
+      const rawCompacto = compactarSkuOcr(item.estilo_raw || item.sku || '')
+      const cajas = item.cantidad_cajas ?? 0
+      const descTexto = item.descripcion_texto || item.descripcion_raw || ''
+      const pzRef = item.piezas_detectadas_ref ?? item.piezas_por_caja ?? null
 
-  const aLista = (data: unknown): any[] => (Array.isArray(data) ? data : [])
+      if (!rawCompacto) {
+        resultados.push({
+          index: itemIndex,
+          estilo_raw: '',
+          descripcion_raw: item.descripcion_raw ?? null,
+          cantidad_cajas: cajas,
+          piezas_detectadas_ref: pzRef,
+          confianza: 0,
+          encontrado: false,
+        })
+        continue
+      }
 
-  const descripcion = (item: (typeof lineas)[number]) =>
-    item.descripcion_texto || item.descripcion_raw || ''
+      const resMatch = buscarCandidatosEnCatalogo(
+        {
+          estilo_raw: rawCompacto,
+          sku_ia: item.sku,
+          descripcion_raw: descTexto,
+          piezas_detectadas: pzRef,
+          posibles_variantes: item.posibles_variantes,
+        },
+        catalogoIndexado,
+        5
+      )
 
-  // Pasada 1: código canónico/raw + variantes de sufijo/confusión.
-  const payloadPrincipal = consultas.flatMap(({ item, itemIndex, consulta }) =>
-    consulta.principales.map((sku, posicion) => ({
-      index: itemIndex,
-      sku,
-      estilo_raw: consulta.raw,
-      descripcion_texto: descripcion(item),
-      descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
-      ...(posicion === 0 && consulta.variantes.length > 0
-        ? { posibles_variantes: consulta.variantes }
-        : {}),
-    }))
-  )
+      // Conservar probabilidades previas del Decider si ya venían en la propuesta
+      const prevDeciderByPid = new Map<number, number>()
+      for (const prevCand of item.candidatos_sku ?? []) {
+        if (prevCand.decider_prob != null) {
+          prevDeciderByPid.set(prevCand.producto_id, prevCand.decider_prob)
+        }
+      }
 
-  const { data: principalData, error: principalError } = await (supabase as any).rpc(
-    'fn_buscar_candidatos_sku_ocr',
-    { p_lineas: payloadPrincipal }
-  )
-  if (principalError) {
-    return { success: false, error: principalError.message }
-  }
+      const candidatos: NotaOcrCandidatoSku[] = resMatch.candidatos.map((c) => {
+        const dProb = c.decider_prob ?? prevDeciderByPid.get(c.producto_id) ?? null
+        return {
+          producto_id: c.producto_id,
+          sku_base: c.sku_base,
+          descripcion: c.descripcion,
+          pz_en_caja: c.pz_en_caja,
+          score: c.score,
+          metodo: c.metodo,
+          origen: rawCompacto,
+          familia: c.familia,
+          proveedor_nombre: c.proveedor_nombre,
+          razon: c.razon,
+          diff_indices: c.diff_indices,
+          ...(dProb != null ? { decider_prob: dProb } : {}),
+        }
+      })
 
-  let candList = aLista(principalData)
+      // Si n8n ya trajo una decisión fuerte del Decider para un SKU específico y el código OCR no cambió, respetarla
+      const itemSkuNorm = item.sku ? normalizarSku(item.sku) : ''
+      const deciderCand =
+        item.decider_prob != null && item.decider_prob >= 0.65 && itemSkuNorm
+          ? candidatos.find((c) => normalizarSku(c.sku_base) === itemSkuNorm) ?? null
+          : null
 
-  const candidatosPorLinea = (index: number) =>
-    candList.filter((c: any) => Number(c.linea_index) === index)
+      if (deciderCand && (item.decider_prob ?? 0) >= 0.65) {
+        candidatos.sort((a, b) => {
+          if (a.producto_id === deciderCand.producto_id) return -1
+          if (b.producto_id === deciderCand.producto_id) return 1
+          return (b.decider_prob ?? 0) - (a.decider_prob ?? 0) || b.score - a.score
+        })
+      }
 
-  // Pasada 2: solo para líneas sin candidato útil, probar secuencia ±1.
-  const lineasSinCandidato = consultas.filter(({ itemIndex, consulta }) => {
-    if (consulta.vecinos.length === 0) return false
-    const cands = candidatosPorLinea(itemIndex)
-    return !cands.some((c: any) => Number(c.score) >= 0.70)
-  })
+      const topCand = candidatos[0] ?? null
+      const secondCand = candidatos[1] ?? null
+      const topScore = topCand?.score ?? 0
+      const margin = topCand ? topScore - (secondCand ? secondCand.score : 0) : 0
+      const deciderProbTop = topCand?.decider_prob ?? item.decider_prob ?? null
 
-  const indicesFallback = new Set<number>()
+      const autoPorExacto = resMatch.estado === 'EXACTO' && topScore >= 0.99
+      const autoPorAlta =
+        resMatch.estado === 'PROPUESTA_ALTA' && topScore >= 0.93 && margin >= 0.10
+      const autoPorDecider =
+        !!deciderCand &&
+        (item.decider_prob ?? 0) >= 0.80 &&
+        deciderCand.score >= 0.75
 
-  if (lineasSinCandidato.length > 0) {
-    const payloadVecinos = lineasSinCandidato.flatMap(({ item, itemIndex, consulta }) => {
-      indicesFallback.add(itemIndex)
-      return consulta.principales.slice(0, 1).map((sku) => ({
-        index: itemIndex,
-        sku,
-        estilo_raw: consulta.raw,
-        descripcion_texto: descripcion(item),
-        descripcion_raw: item.descripcion_raw || item.descripcion_texto || '',
-        posibles_variantes: consulta.vecinos,
+      const prefijosSugeridos = resMatch.por_prefijo.map((p) => ({
+        prefijo: p.prefijo,
+        total: p.total,
       }))
-    })
 
-    const { data: vecinosData, error: vecinosError } = await (supabase as any).rpc(
-      'fn_buscar_candidatos_sku_ocr',
-      { p_lineas: payloadVecinos }
-    )
-    if (!vecinosError) {
-      candList = [...candList, ...aLista(vecinosData)]
-    }
-  }
-
-  const dedupeCandidatos = (index: number): NotaOcrCandidatoSku[] => {
-    const porProducto = new Map<number, any>()
-
-    for (const candidato of candidatosPorLinea(index)) {
-      const productoId = Number(candidato.producto_id)
-      if (!Number.isFinite(productoId)) continue
-
-      const score = Number(candidato.score) || 0
-      const previo = porProducto.get(productoId)
-      const scorePrevio = previo ? Number(previo.score) || 0 : -1
-
-      if (!previo || score > scorePrevio || (score === scorePrevio && candidato.metodo === 'EXACTO')) {
-        porProducto.set(productoId, candidato)
+      if ((autoPorExacto || autoPorAlta || autoPorDecider) && topCand) {
+        const elegido = autoPorDecider && deciderCand ? deciderCand : topCand
+        resultados.push({
+          index: itemIndex,
+          estilo_raw: rawCompacto,
+          descripcion_raw: item.descripcion_raw ?? null,
+          cantidad_cajas: cajas,
+          piezas_por_caja: item.piezas_por_caja ?? elegido.pz_en_caja,
+          piezas_detectadas_ref: pzRef,
+          confianza: Number(item.confianza ?? 0.85),
+          producto_id: elegido.producto_id,
+          producto_sku: elegido.sku_base,
+          producto_nombre: elegido.descripcion,
+          producto_pz_en_caja: elegido.pz_en_caja,
+          encontrado: true,
+          es_propuesta: false,
+          score: elegido.score,
+          metodo: elegido.metodo,
+          decider_prob: deciderProbTop,
+          decider_model: item.decider_model ?? null,
+          candidatos_sku: candidatos.slice(0, 4),
+          prefijos_sugeridos: prefijosSugeridos,
+        })
+      } else if (topCand && topScore >= 0.70) {
+        resultados.push({
+          index: itemIndex,
+          estilo_raw: rawCompacto,
+          descripcion_raw: item.descripcion_raw ?? null,
+          cantidad_cajas: cajas,
+          piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
+          piezas_detectadas_ref: pzRef,
+          confianza: Number(item.confianza ?? 0.85),
+          producto_id: null,
+          producto_sku: null,
+          producto_nombre: null,
+          producto_pz_en_caja: null,
+          encontrado: false,
+          es_propuesta: true,
+          propuesta_producto_id: topCand.producto_id,
+          propuesta_producto_sku: topCand.sku_base,
+          propuesta_producto_nombre: topCand.descripcion,
+          propuesta_producto_pz_en_caja: topCand.pz_en_caja,
+          score: topScore,
+          metodo: topCand.metodo,
+          decider_prob: deciderProbTop,
+          decider_model: item.decider_model ?? null,
+          candidatos_sku: candidatos.slice(0, 4),
+          prefijos_sugeridos: prefijosSugeridos,
+        })
+      } else {
+        resultados.push({
+          index: itemIndex,
+          estilo_raw: rawCompacto,
+          descripcion_raw: item.descripcion_raw ?? null,
+          cantidad_cajas: cajas,
+          piezas_por_caja: item.piezas_por_caja ?? null,
+          piezas_detectadas_ref: pzRef,
+          confianza: Number(item.confianza ?? 0.5),
+          producto_id: null,
+          producto_sku: null,
+          producto_nombre: null,
+          producto_pz_en_caja: null,
+          encontrado: false,
+          es_propuesta: false,
+          score: topScore,
+          metodo: null,
+          decider_prob: deciderProbTop,
+          decider_model: item.decider_model ?? null,
+          candidatos_sku: candidatos.length > 0 ? candidatos.slice(0, 4) : undefined,
+          prefijos_sugeridos: prefijosSugeridos,
+        })
       }
     }
 
-    return Array.from(porProducto.values())
-      .sort((a: any, b: any) => (Number(b.score) || 0) - (Number(a.score) || 0))
-      .map((c: any) => ({
-        producto_id: Number(c.producto_id),
-        sku_base: String(c.sku_base ?? ''),
-        descripcion: c.descripcion ?? null,
-        pz_en_caja: c.pz_en_caja ?? null,
-        score: Number(c.score) || 0,
-        metodo: c.metodo ?? null,
-        origen: c.sku_buscado ?? null,
-      }))
+    return { success: true, data: resultados }
+  } catch (err: any) {
+    console.error('[sincronizarLineasOcrAction] Error:', err)
+    return { success: false, error: err?.message ?? 'Error al sincronizar líneas OCR.' }
   }
-
-  for (const { item, itemIndex, consulta } of consultas) {
-    const rawText = consulta.raw
-    const cajas = item.cantidad_cajas ?? 0
-
-    if (!rawText) {
-      resultados.push({
-        index: itemIndex,
-        estilo_raw: '',
-        cantidad_cajas: cajas,
-        confianza: 0,
-        encontrado: false,
-      })
-      continue
-    }
-
-    const candidatos = dedupeCandidatos(itemIndex)
-    const topCand = candidatos[0] ?? null
-    const topScore = topCand?.score ?? 0
-    const exactos = candidatos.filter((c) => c.score >= 0.99)
-    const elegibles = candidatos.filter((c) => c.score >= 0.85)
-
-    // Auto si hay un único exacto, o un único candidato >= 0.85.
-    // Si hay dos o más >= 0.85, queda como propuesta para elegir.
-    const auto =
-      !!topCand &&
-      !indicesFallback.has(itemIndex) &&
-      ((topScore >= 0.99 && exactos.length === 1) ||
-        (topScore >= 0.85 && elegibles.length === 1))
-
-    if (auto && topCand) {
-      resultados.push({
-        index: itemIndex,
-        estilo_raw: rawText,
-        descripcion_raw: item.descripcion_raw ?? null,
-        cantidad_cajas: cajas,
-        piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
-        confianza: Number(item.confianza ?? 0.85),
-        producto_id: topCand.producto_id,
-        producto_sku: topCand.sku_base,
-        producto_nombre: topCand.descripcion,
-        producto_pz_en_caja: topCand.pz_en_caja,
-        encontrado: true,
-        es_propuesta: false,
-        score: topScore,
-        metodo: topCand.metodo,
-        candidatos_sku: candidatos,
-      })
-    } else if (topCand && topScore >= 0.70) {
-      resultados.push({
-        index: itemIndex,
-        estilo_raw: rawText,
-        descripcion_raw: item.descripcion_raw ?? null,
-        cantidad_cajas: cajas,
-        piezas_por_caja: item.piezas_por_caja ?? topCand.pz_en_caja,
-        confianza: Number(item.confianza ?? 0.85),
-        producto_id: null,
-        producto_sku: null,
-        producto_nombre: null,
-        producto_pz_en_caja: null,
-        encontrado: false,
-        es_propuesta: true,
-        propuesta_producto_id: topCand.producto_id,
-        propuesta_producto_sku: topCand.sku_base,
-        propuesta_producto_nombre: topCand.descripcion,
-        propuesta_producto_pz_en_caja: topCand.pz_en_caja,
-        score: topScore,
-        metodo: topCand.metodo,
-        candidatos_sku: candidatos,
-      })
-    } else {
-      resultados.push({
-        index: itemIndex,
-        estilo_raw: rawText,
-        descripcion_raw: item.descripcion_raw ?? null,
-        cantidad_cajas: cajas,
-        piezas_por_caja: item.piezas_por_caja ?? null,
-        confianza: Number(item.confianza ?? 0.5),
-        producto_id: null,
-        producto_sku: null,
-        producto_nombre: null,
-        producto_pz_en_caja: null,
-        encontrado: false,
-        es_propuesta: false,
-        score: topScore,
-        metodo: null,
-        candidatos_sku: candidatos.length > 0 ? candidatos : undefined,
-      })
-    }
-  }
-
-  return { success: true, data: resultados }
 }
 
 

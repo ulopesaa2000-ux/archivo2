@@ -65,6 +65,12 @@ export interface ProductoWebExtendido {
   destacado: boolean
   nuevo: boolean
   activo: boolean // estado en productos_web (o falso si no publicado)
+  titulo_seo: string | null
+  descripcion_seo: string | null
+  keywords: string | null
+  orden_display: number
+  unidad_venta: UnidadVenta
+  modo_override: 'default' | 'catalogo' | 'ecommerce'
   created_at: string
 }
 

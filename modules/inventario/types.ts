@@ -430,6 +430,11 @@ export type NotaOcrCandidatoSku = {
   score: number
   metodo: string | null
   origen?: string | null
+  familia?: string | null
+  proveedor_nombre?: string | null
+  razon?: string | null
+  decider_prob?: number | null
+  diff_indices?: number[]
 }
 
 export type NotaOcrPropuestaLineRaw = {
@@ -444,6 +449,15 @@ export type NotaOcrPropuestaLineRaw = {
   sku?: string | null
   /** Variantes sugeridas por la IA o por el normalizador OCR. */
   posibles_variantes?: string[] | null
+  producto_id?: number | null
+  match_score?: number | null
+  metodo_match?: string | null
+  decider_prob?: number | null
+  decider_model?: string | null
+  piezas_detectadas_ref?: number | null
+  candidatos_sku?: NotaOcrCandidatoSku[] | null
+  propuesta_producto_id?: number | null
+  propuesta_producto_sku?: string | null
 }
 
 export type NotaOcrLineaSincronizada = {
@@ -452,6 +466,7 @@ export type NotaOcrLineaSincronizada = {
   descripcion_raw?: string | null
   cantidad_cajas: number
   piezas_por_caja?: number | null
+  piezas_detectadas_ref?: number | null
   confianza: number
   producto_id?: number | null
   producto_sku?: string | null
@@ -466,8 +481,11 @@ export type NotaOcrLineaSincronizada = {
   /** Score de coincidencia en base de datos (0-1). */
   score?: number | null
   metodo?: string | null
-  /** Todas las coincidencias devueltas por la RPC para mostrar variantes. */
+  decider_prob?: number | null
+  decider_model?: string | null
+  /** Todas las coincidencias devueltas por la RPC o matcher para mostrar variantes. */
   candidatos_sku?: NotaOcrCandidatoSku[]
+  prefijos_sugeridos?: Array<{ prefijo: string; total: number }>
   /** El usuario eligió/confirmó manualmente: no se pisa al re-sincronizar. */
   manual?: boolean
 }
