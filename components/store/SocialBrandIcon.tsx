@@ -28,29 +28,6 @@ function XSvg({ className = 'h-4 w-4' }: { className?: string }) {
   )
 }
 
-export function getSocialCardStyle(plataforma: string): string {
-  const p = (plataforma || '').toLowerCase()
-  if (p.includes('instagram')) {
-    return 'bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-amber-500/10 border-pink-500/20 text-store-ink hover:border-pink-500/40'
-  }
-  if (p.includes('tiktok')) {
-    return 'bg-black/5 hover:bg-black/10 dark:bg-white/10 border-store-border text-store-ink'
-  }
-  if (p.includes('whatsapp')) {
-    return 'bg-[#25D366]/10 border-[#25D366]/30 text-[#128C7E] hover:bg-[#25D366]/20'
-  }
-  if (p.includes('facebook')) {
-    return 'bg-[#1877F2]/10 border-[#1877F2]/25 text-store-ink hover:border-[#1877F2]/50'
-  }
-  if (p.includes('youtube')) {
-    return 'bg-[#FF0000]/10 border-[#FF0000]/25 text-store-ink hover:border-[#FF0000]/50'
-  }
-  if (p.includes('telegram')) {
-    return 'bg-[#26A5E4]/10 border-[#26A5E4]/25 text-store-ink hover:border-[#26A5E4]/50'
-  }
-  return 'bg-muted/40 border-store-border text-store-ink hover:border-primary/40'
-}
-
 export function SocialBrandIcon({
   plataforma,
   className = 'h-4 w-4',

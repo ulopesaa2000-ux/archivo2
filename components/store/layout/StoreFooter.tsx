@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { MessageCircle } from 'lucide-react'
 import { StoreThemeToggle } from './StoreThemeToggle'
 import { useConfigEcommerce } from '@/hooks/useConfigEcommerce'
-import { parseStoreConfig, getContactosActivos, buildWhatsAppLink } from '@/lib/utils/storeConfig'
-import { SocialBrandIcon, getSocialCardStyle } from '@/components/store/SocialBrandIcon'
+import { parseStoreConfig, getContactosActivos, buildWhatsAppLink, getSocialCardStyle } from '@/lib/utils/storeConfig'
+import { SocialBrandIcon } from '@/components/store/SocialBrandIcon'
 import { QuickEditButton } from '@/components/store/editor/QuickEditButton'
 
 export function StoreFooter() {

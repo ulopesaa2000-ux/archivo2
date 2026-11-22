@@ -2,8 +2,8 @@
 import type { Metadata } from 'next'
 import { Phone, MapPin, User, MessageCircle, ExternalLink } from 'lucide-react'
 import { fetchConfigEcommerce } from '@/modules/ecommerce/queries'
-import { parseStoreConfig, getContactosActivos, buildWhatsAppLink } from '@/lib/utils/storeConfig'
-import { SocialBrandIcon, getSocialCardStyle } from '@/components/store/SocialBrandIcon'
+import { parseStoreConfig, getContactosActivos, buildWhatsAppLink, getSocialCardStyle } from '@/lib/utils/storeConfig'
+import { SocialBrandIcon } from '@/components/store/SocialBrandIcon'
 
 export const metadata: Metadata = {
   title: 'Contactos | Catálogo IDOL NAVY',
