@@ -11,6 +11,7 @@ import { ADMIN_ROUTES } from '@/lib/constants'
 import type { BodegaRow } from '@/lib/types/tables'
 import type { ImportFilaValida } from '@/modules/inventario/import-actions'
 import { marcarHojasConteoAplicadasAction } from '@/modules/inventario/conteo-fisico-actions'
+import { prefetchCatalogoOcr } from '@/components/admin/ocr-sync/_hooks/ocr-catalogo-cache'
 import { toast } from 'sonner'
 
 type Props = {
@@ -118,6 +119,8 @@ export function StockPageHeader({
             variant="outline"
             size="sm"
             onClick={() => setOcrOpen(true)}
+            onMouseEnter={prefetchCatalogoOcr}
+            onFocus={prefetchCatalogoOcr}
             className="gap-1.5 shrink-0 border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
           >
             <FileSpreadsheet className="size-3.5 text-blue-600" />

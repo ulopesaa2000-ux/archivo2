@@ -19,7 +19,7 @@ let envConfig = {};
 try {
   const envPath = path.resolve(__dirname, '../../../.env.local');
   if (fs.existsSync(envPath)) envConfig = dotenv.parse(fs.readFileSync(envPath));
-} catch (e) {}
+} catch (e) { }
 
 const apiKey = process.env.N8N_API_KEY || envConfig.N8N_API_KEY || '';
 const SANDBOX_WORKFLOW_ID = 'ZNawDVYBg9RefbHARz0_R';
@@ -77,11 +77,10 @@ ORDER BY p.id;`;
 
 // ── Código del nodo: Construir prompt + body (glosario dinámico) ───────────
 const CODE_CONSTRUIR_PROMPT = String.raw`// ── CONFIGURACION DE MODELO OPENROUTER ───────────────────────
-const MODELO_VISION = "deepseek/deepseek-v4.1-flash";
-  // Alternativa manual más reciente: "deepseek/deepseek-v4.1-flash-1017"
-  // "google/gemini-2.5-flash";
-
 const meta = $('Preparar upload').first()?.json || $('Normalizar entrada1').first()?.json || {};
+let webhookBody = {};
+try { webhookBody = $('Webhook (sitio/telefono)').first()?.json?.body || {}; } catch (e) {}
+const MODELO_VISION = String(webhookBody.modelo_vision || meta.modelo_vision || '').trim() || "deepseek/deepseek-v4.1-flash-1017";
 
 // ── GLOSARIO DINAMICO DESDE CATALOGO ACTIVO ──────────────────
 let catalogoRows = [];
@@ -103,13 +102,9 @@ for (const r of catalogoRows) {
     if (prefijosPorProv.get(prov).size < 10) prefijosPorProv.get(prov).add(pref);
   }
 }
-const lineasGlosario = [];
-for (const [prov, prefs] of Array.from(prefijosPorProv.entries()).slice(0, 24)) {
-  lineasGlosario.push('   - ' + prov + ': ' + Array.from(prefs).join(', '));
-}
-const glosarioDinamico = lineasGlosario.length > 0
-  ? lineasGlosario.join('\n')
-  : '   - TY (TIANYI), BO (BONNIE), FK (FINDAKERA), JA (JACKIE), AND|3VT|3JA|1AK (MOTI), JE (JENNY), JO|J (JOE), HT (HONTON), MK (MANKENI), KU (KUAILE), OE, YS, NR, QQ, HO';
+const glosarioDinamico = todosPrefijos.size > 0
+  ? "   " + Array.from(todosPrefijos).sort().join(", ")
+  : "   TY, BO, FK, JA, AND, 3VT, 3JA, 1AK, JE, JO, J, HT, MK, KU, OE, YS, NR, QQ, HO";
 
 // ── CONTEXTO TEMPORAL DINAMICO (America/Mexico_City) ───────────────────────
 const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -133,9 +128,7 @@ const _modoRaw = (typeof meta !== 'undefined' && meta !== null) ? (meta.modo_sol
 const modoSoloCajas = (_modoRaw === null || _modoRaw === undefined || String(_modoRaw) === '') ? true : !(['false','0','no','off'].includes(String(_modoRaw).toLowerCase().trim()));
 
 const PROMPT = [
-  "Eres un extractor experto de datos de 'ORDEN DE MOVIMIENTOS' y notas de inventario manuscritas de la industria textil (chamarras, chalecos, rompevientos, pants, gabardinas, abrigos, sudaderas, sets).",
-  "Analiza la imagen escaneada/fotografiada y devuelve UNICAMENTE un JSON válido, sin markdown ni texto extra, con esta estructura exacta:",
-  "",
+  "Extractor experto de 'ORDEN DE MOVIMIENTOS' y notas textiles. Devuelve UNICAMENTE JSON válido (sin markdown ni texto extra):",
   "{",
   '  "folio": string|null,',
   '  "fecha": string|null,',
@@ -146,17 +139,12 @@ const PROMPT = [
   '  "destino": string|null,',
   '  "lineas": [',
   "    {",
-  '      "index": number,',
   '      "sku": string,',
   '      "estilo_raw": string,',
   '      "posibles_variantes": string[],',
   '      "descripcion_raw": string,',
-  '      "descripcion_texto": string,',
   '      "cantidad_cajas": number,',
   '      "piezas_por_caja": number|null,',
-  '      "proveedor_sugerido": string|null,',
-  '      "prefijo": string|null,',
-  '      "familia_sku": string|null,',
   '      "confianza": number',
   "    }",
   "  ],",
@@ -164,79 +152,33 @@ const PROMPT = [
   '  "confianza_global": number',
   "}",
   "",
-  "═══════════════════════════════════════════════════════════════",
-  "GUIA ORIENTATIVA DE PATRON TEXTIL (SINCRONIZADA CON CATALOGO REAL)",
-  "═══════════════════════════════════════════════════════════════",
-  "La estructura general sigue este orden de lectura habitual (NO es una ley rígida, sirve de guía para no inventar letras):",
-  "[PROVEEDOR/SERIE] [AÑO/NÚMEROS] [/] [CONSECUTIVO] [GÉNERO + PRENDA] [EXTRA/TELA]",
+  "1. LECTURA RÁPIDA Y VARIANTES ANTE DUDA (UN MATCHER EN BASE DE DATOS RESOLVERÁ EL CATÁLOGO):",
+  "   - Patrón general: [PREFIJO][AÑO/SERIE][/][CONSECUTIVO][GÉNERO+PRENDA][TELA].",
+  "   - Prefijos activos (" + catalogoRows.length + " SKUs): " + glosarioDinamico.trim(),
+  "   - Series especiales: 'J219/3CAC', 'J908/3DCHL', 'BO244/3CAVTN', 'BO/1DSETFE', 'NR2509-FUR', 'AND260016' (AND sin '/').",
+  "   - Sufijos estables: FE (Felpa), LYC (Licra), AF (Afelpado), FUR (Con fur), HC/CAC (Cab Chamarra), MC/DAC (Dama Chamarra), CAV (Cab Chaleco), HW (Cab Rompevientos), SW (Suéter), MA (Abrigo).",
+  "   - Marcas: TORONTO, GREENFIELD, IDOL-NAVY, BULLSTAFF, GREEN-BERRY, DULCE-CAROLINE, LOVI-MEN, AIR-COMPANY, NR, POLAR-BEAR, AMERICAN-NICE, VENADO, SIRENA, LOBO, MALBORO, IXEL.",
+  "   - Formato compacto OBLIGATORIO sin espacios en '/' ni '-' y sin punto final ('J219/3CAC', 'NR2509-FUR', 'MK26/13SW').",
+  "   - Si el código es claro: ponlo en 'sku' y 'estilo_raw', y deja 'posibles_variantes': [] (vacío).",
+  "   - Si dudas en 1-2 trazos (0<->O<->D<->Q, U<->V, H<->M<->N, S<->5, 1<->I<->L, J<->Y, AN0->AND, letra cortada como KU26/03H): NO sobre-pienses; pon la mejor lectura en 'sku', el trazo literal en 'estilo_raw', 2-3 alternativas en 'posibles_variantes' y confianza < 0.90.",
   "",
-  "1. PREFIJOS Y SERIES ACTIVAS REALES EN CATALOGO (" + catalogoRows.length + " productos):",
-  glosarioDinamico,
+  "2. DESCRIPCIÓN Y REPETICIONES:",
+  "   - Copia la descripción escrita en 'descripcion_raw'. Si una fila usa comillas de repetición ('\"', ',,', '~', '-'), repite el texto de la fila superior.",
   "",
-  "2. AÑO / PEDIDO (FLEXIBLE):",
-  "   - Habitualmente 2 dígitos (26, 25, 24) o 3-4 dígitos en series como 'J219/3CAC', 'J908/3DCHL', 'BO244/3CAVTN', 'JE318/1DTS'.",
-  "   - En BONNIE puede ir directo con separador: 'BO/1DSETFE', 'BO/3DSETFE', 'BO/2CSETAF'.",
+  "3. ENCABEZADO, FECHA (" + FECHA_CORTA + ") Y BODEGAS:",
+  "   - Fecha México DD/MM/AA(AA) -> 'YYYY-MM-DD' (año actual " + ANIO_ACTUAL + ", mes " + MES_ACTUAL_NUM + ").",
+  "   - Casillas: ENTRADA->'ENT', SALIDA->'SAL', TRASPASO->'TRF', DEVOLUCION->'DEV'.",
+  "   - Bodegas canónicas (normalizar caligrafía): 'Cocina' ('Cosina'/'Casina'), 'San Diego 1' ('SD1'), 'San Diego 2' ('SD2'), 'Andrade', 'Toluca Bordado' ('Bordado Toluca'), 'Toluca Angel' ('Angel Toluca'), 'Durazno' ('Durasno'), 'Tortilla', 'Zandunga 1/2/3' ('Sandunga'), 'Tulancingo', 'Vacas', 'Chiconcuac', 'Bodega Aux'. Vacío/tachado -> null.",
   "",
-  "3. CONSECUTIVO DE MODELO:",
-  "   - 1 o 2 dígitos del modelo (1, 2, 3, 01, 02, 05, 09, 13, 19, etc.).",
+  "4. COLUMNAS, DECIMALES Y PIEZAS POR CAJA:",
+  "   - Si hay varias columnas paralelas, extrae primero izquierda completa y luego derecha. Sin encabezado 'ORDEN DE MOVIMIENTOS', usa 'ENT'.",
+  "   - Fracciones '1/2'/'.5' -> 0.5; vacía -> 1. Extrae piezas por caja si aparecen ('90pcs'->90, 'C/24 PZAS'->24) en 'piezas_por_caja'.",
   "",
-  "4. GÉNERO, PRENDA Y TELAS ESTABLES (CRUCIAL PARA DESAMBIGUAR):",
-  "   - GÉNEROS: D o M o DA (Dama/Mujer), H o C o CA (Hombre/Caballero), B o I (Niño/Infantil), G (Niña), U (Unisex).",
-  "   - PRENDAS: C (Chamarra), V (Chaleco), W o WB (Rompevientos), SD o SUD (Sudadera), ST o SET (Set), P (Pantalón), A (Abrigo), G (Gabardina), TS (Camisa/Playera), SW (Suéter).",
-  "   - SUFIJOS ESTABLES (Nunca inventar caracteres raros):",
-  "     * 'FE' = Felpa (ej: 'BO26/08MSTFE', 'BO/3DSETFE'). NUNCA 'SETRE' ni 'SETF3'.",
-  "     * 'LYC' = Licra (ej: 'JA26/05MSDLYC').",
-  "     * 'AF' = Afelpado (ej: 'BO/2CSETAF').",
-  "     * 'FUR' = Con fur (ej: 'NR2509-FUR', nunca 'NR2509 - FUR').",
-  "     * 'HC'/'CAC' = Caballero Chamarra / 'MC'/'DAC' = Dama Chamarra / 'CAV' = Caballero Chaleco.",
-  "",
-  "5. MARCAS Y NOMBRES COMERCIALES EN DESCRIPCIÓN:",
-  "   - TORONTO, GREENFIELD, IDOL-NAVY, BULLSTAFF, GREEN-BERRY, DULCE-CAROLINE, LOVI-MEN,",
-  "   - AIR-COMPANY, NR, POLAR-BEAR, AMERICAN-NICE, VENADO, SIRENA, LOBO, MALBORO, IXEL.",
-  "",
-  "6. REGLA ESTRICTA DE FORMATO SKU (LECTURA LITERAL COMPACTA vs CANONICO):",
-  "   - NUNCA insertes espacios alrededor de '/' ni '-' ni en 'estilo_raw' ni en 'sku':",
-  "     * Escribe SIEMPRE 'J219/3CAC', 'NR2509-FUR', '3VT8703-BOY' (JAMÁS 'J219 / 3CAC', 'NR2509 - FUR' ni '3VT8703- BOY').",
-  "   - Elimina puntos, comas o dos puntos finales espurios (ej: 'MK26/13SW', nunca 'MK26/13SW.').",
-  "   - 'estilo_raw' es tu lectura literal compacta en MAYÚSCULAS de los trazos visibles (sin completar letras que no ves).",
-  "   - 'sku' es la versión canónica más probable sin espacios en separadores: con '/' en códigos modernos ('YS26/07MCL', 'J219/3CAC') y SIN '/' en AND ('AND26/0016DC' -> 'AND260016').",
-  "   - Confusiones frecuentes a desambiguar usando la descripción escrita:",
-  "     * AN0/ANO -> AND (ej: 'AN0250009' -> 'AND250009'), 0<->O<->D<->Q, U<->V, H<->M<->N, S<->5, 1<->I<->L, J<->Y, 00->QQ.",
-  "     * En 'Cham cab Venado': sufijo 'CAC' (no 'CNC'); en 'Chaleco cab': 'CAV'; en 'Sueter dama': 'SW'; en 'Abrigo': 'MA'.",
-  "   - Si dudas, pon la lectura literal compacta en 'estilo_raw', la mejor opción en 'sku' y 2-3 alternativas en 'posibles_variantes'.",
-  "   - NUNCA inventes códigos sin relación con los trazos visibles.",
-  "",
-  "7. REGLAS DE ENCABEZADO, FECHA, CASILLAS DE MOVIMIENTO Y BODEGAS:",
-  "   - En México el formato es DD/MM/AAAA o DD/MM/AA (ej: 09 NOV 2026 -> \"2026-11-09\").",
-  "   - CONTEXTO TEMPORAL OBLIGATORIO (hoy en México):",
-  "     Hoy es " + FECHA_LARGA + " (" + FECHA_CORTA + "). Año actual " + ANIO_ACTUAL + ", mes actual " + MES_ACTUAL_NOMBRE + "/" + MES_ACTUAL_NUM + " (" + ANIO_ACTUAL + "-" + MES_ACTUAL_NUM + "), mes pasado " + MES_PASADO_NOMBRE + "/" + MES_PASADO_NUM + ".",
-  "     * Notas normales son de hoy, mes actual o mes pasado. NO las corrijas.",
-  "     * Caligrafía confunde 6<>0<>4 y 1<>7. Si el año queda a más de 1 año de " + ANIO_ACTUAL + ", corrige SOLO el año al más cercano preservando DD/MM.",
-  "     * Si mes leído > mes actual y estamos en Ene-Feb, usa año anterior. Nunca devuelvas fecha futura a más de 7 días de hoy.",
-  "     * Si aplicaste corrección de año, baja confianza_global en 0.05 y agrega en \"observaciones\" \"Fecha corregida por proximidad: leído X -> Y\".",
-  "   - CASILLAS DE MOVIMIENTO:",
-  "     * ENTRADA marcada -> \"ENT\", SALIDA -> \"SAL\", TRASPASO -> \"TRF\", DEVOLUCION -> \"DEV\".",
-  "   - REGLA CRÍTICA PARA BODEGAS (ORIGEN Y DESTINO):",
-  "     * Normaliza nombres manuscritos:",
-  "       - 'Cocina' ('Cosina', 'Casina', 'Cosinca', 'Cosina 1') -> \"Cocina\".",
-  "       - 'San Diego 1' ('SD1'), 'San Diego 2' ('SD2'), 'Andrade', 'Toluca Bordado', 'Toluca Angel', 'Durazno' ('Durasno'), 'Tortilla', 'Zandunga 1/2/3' ('Sandunga'), 'Tulancingo', 'Vacas', 'Chiconcuac', 'Bodega Aux'.",
-  "     * Si el recuadro está vacío o tachado, devuelve null.",
-  "",
-  "8. REGLA ESTRICTA PARA HOJAS EN MÚLTIPLES COLUMNAS:",
-  "   - Si la hoja está dividida en columnas paralelas, CADA COLUMNA es independiente. Extrae toda la columna izquierda y luego la derecha en \"lineas\". Si no hay encabezado \"ORDEN DE MOVIMIENTOS\", asume \"ENT\".",
-  "",
-  "9. CANTIDADES DECIMALES Y PIEZAS POR CAJA:",
-  "   - Fracciones '1/2', '.5', '0,5' -> 0.5 en 'cantidad_cajas'. Si cantidad vacía -> 1.",
-  "   - SIEMPRE extrae el número de piezas por caja escrito junto a la descripción (ej: '90pcs' -> 90, '36' -> 36, '25' -> 25) en 'piezas_por_caja' para ayudar a desambiguar SKUs en catálogo (el sistema las pondrá en 0 al final si modo solo cajas está activo).",
-  "",
-  "10. MODO FALLBACK CONTEXTUAL (FORMATOS EXTERNOS, IMPRESOS O FOTOS ROTADAS):",
-  "   - Si la imagen NO sigue el formato habitual de 'ORDEN DE MOVIMIENTOS' (ej. órdenes de salida/remisiones impresas como RI&KA u operadores logísticos, hojas desordenadas o fotografías rotadas 90°/180°/270°):",
-  "     * ORIENTACIÓN: lee el texto siguiendo la orientación real de la hoja aunque la foto venga girada.",
-  "     * ENCABEZADO FLEXIBLE: no abortes ni exijas casillas estándar. Toma 'No. de Control' o folio visible como 'folio' (o null), fecha si existe, y cualquier bodega manuscrita encima (ej. 'Cosina' -> 'Cocina') como 'bodega_receptora_interna'/'destino'. Si no hay casillas marcadas y el documento es una orden de salida logística con destino interno anotado, usa 'ENT' (o null si no es claro).",
-  "     * PRIORIDAD ABSOLUTA EN LA TABLA (SKU + CAJAS): céntrate en la tabla principal y toma decisiones por contexto para extraer cada fila:",
-  "       - SKU ('sku' y 'estilo_raw'): detecta en la fila el código con estructura textil del catálogo (ej. 'HT26/02HCP', 'YS26/04MCD', 'JE26/06MSD'). NUNCA tomes números de 'Recibo' ('006267'), 'Lote'/contenedor ('TCNU8379766', 4 letras + 7 dígitos) ni 'SELLOS' como SKU.",
-  "       - CAJAS ('cantidad_cajas', modoSoloCajas=" + (modoSoloCajas ? "ACTIVO" : "INACTIVO") + "): toma el número lógico de la columna de cantidad/bultos enfrente de cada SKU. Con modoSoloCajas ACTIVO, NUNCA confundas piezas por caja o empaque ('C/24 PZAS', 'C/36 PZAS', '24pcs') con 'cantidad_cajas' (ese valor numérico de piezas por caja solo puede ir en 'piezas_por_caja' y 'descripcion_raw').",
-  "       - VALIDACIÓN CON TOTAL: si al pie de la tabla aparece 'Total' (ej. 'Total: 96'), úsalo como guía para verificar que la suma de 'cantidad_cajas' de todas las filas coincida o se aproxime a ese total."
+  "5. MODO FALLBACK CONTEXTUAL (FORMATOS EXTERNOS, IMPRESOS O FOTOS ROTADAS):",
+  "   - Si NO sigue el formato habitual de 'ORDEN DE MOVIMIENTOS' (ej. órdenes de salida/remisiones impresas como RI&KA, hojas desordenadas o fotos rotadas 90°/180°/270°):",
+  "     * Lee el texto en su orientación real. No exijas casillas estándar: toma 'No. de Control' como 'folio', fecha si existe y bodega manuscrita encima (ej. 'Cosina'->'Cocina') como 'bodega_receptora_interna'/'destino' (con 'ENT' si aplica).",
+  "     * Prioridad total en la tabla: extrae SKU textil por fila (descarta 'Recibo', 'Lote'/contenedor como 'TCNU8379766' y 'SELLOS').",
+  "     * Con modoSoloCajas=" + (modoSoloCajas ? "ACTIVO" : "INACTIVO") + ", toma el número lógico de cajas enfrente del SKU (NUNCA confundas piezas por caja 'C/24 PZAS' con 'cantidad_cajas') y valida contra 'Total' si aparece al pie."
 ].join("\n");
 
 const imageUrl = meta.comprobante_url || meta.image_url || $('Subir imagen al bucket1').first()?.json?.publicUrl;
@@ -255,8 +197,11 @@ const body = {
       ]
     }
   ],
+  reasoning: {
+    enabled: false
+  },
   temperature: 0.1,
-  max_tokens: 32768
+  max_tokens: 8192
 };
 
 return [{

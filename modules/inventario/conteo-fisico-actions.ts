@@ -13,6 +13,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { verifySessionOptional } from '@/lib/dal'
 import { isSuperAdmin, can, isClienteEcommerce } from '@/lib/auth/permissions'
+import { recalcularResumenHoja } from '@/lib/inventario/conteo-fisico-matcher'
 import type {
   HojaConteoFisico,
   RenglonConteoFisico,
@@ -139,14 +140,27 @@ export async function actualizarBorradorHojaConteoAction(
 
     const supabase = await createClient()
 
+    const { data: existingRow } = await (supabase as any)
+      .from('nota_ocr_propuestas')
+      .select('json_crudo')
+      .eq('id', propuestaId)
+      .single()
+
+    const prevCrudo =
+      existingRow?.json_crudo && typeof existingRow.json_crudo === 'object'
+        ? existingRow.json_crudo
+        : {}
+
+    const resumenCalculado = recalcularResumenHoja(renglones)
+
     const updatePayload: Record<string, any> = {
       lineas: renglones,
       revisado_por: user.id,
       revisado_en: new Date().toISOString(),
-    }
-
-    if (resumen) {
-      updatePayload.json_crudo = resumen
+      json_crudo: {
+        ...prevCrudo,
+        resumen: resumen ?? resumenCalculado,
+      },
     }
 
     const { error } = await (supabase as any)
@@ -199,21 +213,14 @@ export async function fetchHojasConteoPendientesAction(
     }
 
     const hojasFormateadas: HojaConteoFisico[] = (data || []).map((row: any, idx: number) => {
-      const crudo = row.json_crudo || {}
+      const crudo = row.json_crudo && typeof row.json_crudo === 'object' ? row.json_crudo : {}
       const numHoja = Number(crudo.numero_hoja || idx + 1)
       const rawLineas = Array.isArray(row.lineas) ? row.lineas : []
       const renglones: RenglonConteoFisico[] = rawLineas.map((r: any) => ({
         ...r,
         numero_hoja: Number(r.numero_hoja || numHoja),
       }))
-      const resumen = crudo.resumen || {
-        columna_1: { renglones: 0, cajas: 0 },
-        columna_2: { renglones: 0, cajas: 0 },
-        total_hoja: {
-          renglones: renglones.length,
-          cajas: renglones.reduce((a, r) => a + (r.cajas || 0), 0),
-        },
-      }
+      const resumen = recalcularResumenHoja(renglones)
 
       return {
         id: row.client_request_id || `propuesta_${row.id}`,

@@ -8,8 +8,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionOptional } from '@/lib/dal'
 import { isSuperAdmin, can } from '@/lib/auth/permissions'
-import { buscarProductosPorSkuBatch } from '@/modules/inventario/import-queries'
+import { fetchCatalogoOcrIndexado } from '@/modules/inventario/ocr-catalog-queries'
 import { guardarHojaConteoOcrAction } from '@/modules/inventario/conteo-fisico-actions'
+import {
+  evaluarRenglonContraCatalogo,
+  normalizarTextoSkuConteo,
+  recalcularResumenHoja,
+} from '@/lib/inventario/conteo-fisico-matcher'
 import type { HojaConteoFisico, RenglonConteoFisico } from '@/modules/inventario/conteo-fisico-types'
 
 export const maxDuration = 120 // Hasta 2 minutos para procesamiento de IA y visión
@@ -90,17 +95,20 @@ export async function POST(request: NextRequest) {
       optimizedBuffer = rawBuffer
     }
 
-    // 5. Enviar al webhook de n8n
+    // 5. Enviar al webhook de n8n y cargar catálogo indexado en paralelo
     const n8nForm = new FormData()
     const optimizedBlob = new Blob([new Uint8Array(optimizedBuffer)], { type: 'image/jpeg' })
     n8nForm.append('foto', optimizedBlob, `hoja_${numeroHoja}.jpg`)
     n8nForm.append('numero_hoja', String(numeroHoja))
     n8nForm.append('total_hojas', String(totalHojas))
 
-    const n8nResponse = await fetch(N8N_CONTEO_FISICO_WEBHOOK, {
-      method: 'POST',
-      body: n8nForm,
-    })
+    const [n8nResponse, catalogoIndexado] = await Promise.all([
+      fetch(N8N_CONTEO_FISICO_WEBHOOK, {
+        method: 'POST',
+        body: n8nForm,
+      }),
+      fetchCatalogoOcrIndexado(),
+    ])
 
     if (!n8nResponse.ok) {
       const errorText = await n8nResponse.text()
@@ -117,46 +125,33 @@ export async function POST(request: NextRequest) {
     const n8nData = await n8nResponse.json()
     const renglonesRaw = Array.isArray(n8nData.renglones) ? n8nData.renglones : []
 
-    // 6. Enriquecer renglones con la base de datos de productos vía SKU batch
-    const skusABuscar = renglonesRaw.map((r: any) => r.sku_candidato || r.estilo_raw || '')
-    const catalogoMap = await buscarProductosPorSkuBatch(skusABuscar)
-
-    let totalCajasCol1 = 0
-    let totalRenglonesCol1 = 0
-    let totalCajasCol2 = 0
-    let totalRenglonesCol2 = 0
-
+    // 6. Enriquecer renglones con el motor 2-partes de lib/inventario/sku-matcher.ts
     const renglonesEnriquecidos: RenglonConteoFisico[] = renglonesRaw.map((r: any, idx: number) => {
-      const skuCandidato = String(r.sku_candidato || r.estilo_raw || '').trim()
-      const match = catalogoMap.get(skuCandidato)
+      const col: 1 | 2 = r.columna === 2 ? 2 : 1
+      const skuCandidato = normalizarTextoSkuConteo(r.sku_candidato || r.estilo_raw || '')
+      const estiloRaw = String(r.estilo_raw || skuCandidato).trim()
       const cajas = Number(r.cajas) || 0
-      const col = r.columna === 2 ? 2 : 1
+      const variantes = Array.isArray(r.posibles_variantes)
+        ? r.posibles_variantes.map((v: unknown) => String(v || '').trim()).filter(Boolean)
+        : undefined
 
-      if (col === 1) {
-        totalCajasCol1 += cajas
-        totalRenglonesCol1++
-      } else {
-        totalCajasCol2 += cajas
-        totalRenglonesCol2++
-      }
-
-      return {
+      const baseRenglon: RenglonConteoFisico = {
         id: r.id || `h${numeroHoja}_c${col}_r${idx + 1}`,
         numero_hoja: numeroHoja,
         columna: col,
         renglon: r.renglon || idx + 1,
-        estilo_raw: r.estilo_raw || skuCandidato,
+        estilo_raw: estiloRaw,
         sku_candidato: skuCandidato,
         cajas_raw: String(r.cajas_raw || r.cajas || '1'),
         cajas,
         confianza: typeof r.confianza === 'number' ? r.confianza : 0.95,
-        producto_id: match ? match.producto_id : null,
-        sku_match: match ? match.sku_base : null,
-        descripcion: match ? match.nombre : null,
-        familia: (match as any)?.familia || null,
-        match_score: match ? match.score : 0,
+        posibles_variantes: variantes,
         modificado_manualmente: false,
       }
+
+      return evaluarRenglonContraCatalogo(baseRenglon, catalogoIndexado, {
+        forzarReevaluacion: true,
+      })
     })
 
     const hojaResult: HojaConteoFisico = {
@@ -165,20 +160,7 @@ export async function POST(request: NextRequest) {
       comprobante_url: n8nData.comprobante_url || undefined,
       encabezado: n8nData.encabezado || '',
       fecha_detectada: n8nData.fecha_detectada || '',
-      resumen: {
-        columna_1: {
-          renglones: totalRenglonesCol1,
-          cajas: totalCajasCol1,
-        },
-        columna_2: {
-          renglones: totalRenglonesCol2,
-          cajas: totalCajasCol2,
-        },
-        total_hoja: {
-          renglones: totalRenglonesCol1 + totalRenglonesCol2,
-          cajas: totalCajasCol1 + totalCajasCol2,
-        },
-      },
+      resumen: recalcularResumenHoja(renglonesEnriquecidos),
       renglones: renglonesEnriquecidos,
     }
 

@@ -1,18 +1,16 @@
 // app/(admin)/inventario/stock/ConteoFisicoOcrModal.tsx
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
 import {
   Camera,
   Upload,
@@ -21,39 +19,30 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Eye,
-  CheckCircle2,
-  AlertTriangle,
   ArrowRight,
-  ZoomIn,
-  ZoomOut,
-  X,
-  FileText,
   Warehouse,
-  Layers,
-  Sparkles,
   CloudDownload,
   CloudUpload,
-  Smartphone,
-  Save,
+  CheckCheck,
+  Replace,
+  Eye,
+  EyeOff,
+  Zap,
+  ChevronUp,
+  ChevronDown,
+  X,
 } from 'lucide-react'
 import type { BodegaRow } from '@/lib/types/tables'
-import type {
-  HojaConteoFisico,
-  RenglonConteoFisico,
-  EstadoConteoFisico,
-  CandidatoSkuSimple,
-} from '@/modules/inventario/conteo-fisico-types'
-import { LOCAL_STORAGE_CONTEO_FISICO_KEY } from '@/modules/inventario/conteo-fisico-types'
-import {
-  actualizarBorradorHojaConteoAction,
-  fetchHojasConteoPendientesAction,
-  guardarHojaConteoOcrAction,
-} from '@/modules/inventario/conteo-fisico-actions'
-import { CandidatosSkuSelectorModal } from './CandidatosSkuSelectorModal'
+import type { ImportFilaValida } from '@/modules/inventario/import-actions'
+import { usePanZoom, useNativeWheel } from '@/hooks/use-pan-zoom'
+import { useConteoFisico } from './_hooks/use-conteo-fisico'
+import { ConteoFisicoResumenHojas } from './_components/ConteoFisicoResumenHojas'
+import { BarraBuscarReemplazar } from './_components/BarraBuscarReemplazar'
+import { ConteoFisicoRow } from './_components/ConteoFisicoRow'
+import { BuscadorRapidoFlotante } from './_components/BuscadorRapidoFlotante'
+import { VisorHojaLateral } from './_components/VisorHojaLateral'
 import { HojasNubeSelectorModal } from './HojasNubeSelectorModal'
 import { VisorFotoHojaModal } from './VisorFotoHojaModal'
-import type { ImportFilaValida } from '@/modules/inventario/import-actions'
 
 type Props = {
   open: boolean
@@ -70,625 +59,136 @@ export function ConteoFisicoOcrModal({
   bodegaActivaId,
   onIrAConciliacion,
 }: Props) {
-  const [hojas, setHojas] = useState<HojaConteoFisico[]>([])
-  const [procesando, setProcesando] = useState(false)
-  const [progresoTexto, setProgresoTexto] = useState('')
-  const [filtroTexto, setFiltroTexto] = useState('')
-  const [filtroHoja, setFiltroHoja] = useState<number | 'todas'>('todas')
-  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'sin_match' | 'con_formula'>('todos')
-  const [fotoVisorUrl, setFotoVisorUrl] = useState<string | null>(null)
-  const [zoomNivel, setZoomNivel] = useState(1)
-  const [bodegaDestinoId, setBodegaDestinoId] = useState<number>(() => {
-    if (bodegaActivaId && bodegaActivaId > 0) return bodegaActivaId
-    return bodegas[0]?.id ?? 0
+  const [nubeSelectorOpen, setNubeSelectorOpen] = useState(false)
+
+  const visor = usePanZoom({ max: 3, wheel: 'always' })
+  const visorRef = useRef<HTMLDivElement | null>(null)
+  const tableScrollRef = useRef<HTMLDivElement | null>(null)
+  const scrollRafRef = useRef<number | null>(null)
+  useNativeWheel(visorRef, visor.handleWheel)
+
+  const cf = useConteoFisico({
+    open,
+    onOpenChange,
+    bodegas,
+    bodegaActivaId,
+    onIrAConciliacion,
+    onResetVisor: visor.reset,
   })
 
-  // Estado para candidatos SKU modal
-  const [candidatoModalOpen, setCandidatoModalOpen] = useState(false)
-  const [candidatoTarget, setCandidatoTarget] = useState<{
-    hojaId: string
-    renglonId: string
-    skuOriginal: string
-    estiloRaw: string
-  } | null>(null)
+  // Buffer local calibrado (patrón /catalogo) para filtrar la tabla sin trabar al teclear
+  const [localFiltro, setLocalFiltro] = useState(cf.filtroTexto)
+  const debouncedFiltro = useDebouncedCallback((val: string) => {
+    cf.setFiltroTexto(val)
+  }, 350)
 
-  // Estado para sincronización en la nube (Celular <-> PC)
-  const [nubeSelectorOpen, setNubeSelectorOpen] = useState(false)
-  const [guardandoNube, setGuardandoNube] = useState(false)
+  useEffect(() => () => debouncedFiltro.cancel(), [debouncedFiltro])
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const submitFiltroNow = (val = localFiltro) => {
+    debouncedFiltro.cancel()
+    cf.setFiltroTexto(val)
+  }
 
-  // 1. Cargar borrador de localStorage al montar
+  const handleVerFotoStable = useCallback(
+    (url: string) => {
+      cf.setFotoVisorUrl(url)
+    },
+    [cf.setFotoVisorUrl]
+  )
+
+  // Atajo Ctrl+H para abrir/cerrar Buscar y Reemplazar estilo Excel
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_CONTEO_FISICO_KEY)
-      if (raw) {
-        const parsed: EstadoConteoFisico = JSON.parse(raw)
-        if (parsed.version === 'v1' && Array.isArray(parsed.hojas) && parsed.hojas.length > 0) {
-          setHojas(parsed.hojas)
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault()
+        cf.setReplaceOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, cf.setReplaceOpen])
+
+  // Auto-detección de hoja visible al hacer scroll en la tabla
+  const handleTableScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) return
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null
+      const container = tableScrollRef.current
+      if (!container) return
+      const containerTop = container.getBoundingClientRect().top + 38
+      const rows = container.querySelectorAll<HTMLTableRowElement>('tr[data-hoja-id]')
+      for (let i = 0; i < rows.length; i++) {
+        const rect = rows[i].getBoundingClientRect()
+        if (rect.bottom > containerTop) {
+          const hid = rows[i].dataset.hojaId
+          if (hid && hid !== cf.activeFotoHojaId) {
+            cf.setActiveFotoHojaId(hid)
+          }
+          break
         }
       }
-    } catch (e) {
-      console.warn('Error al cargar borrador de conteo físico:', e)
+    })
+  }, [cf.activeFotoHojaId, cf.setActiveFotoHojaId])
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current)
     }
   }, [])
 
-  // 2. Guardar en localStorage ante cambios
-  const guardarBorrador = (nuevasHojas: HojaConteoFisico[]) => {
-    setHojas(nuevasHojas)
-    try {
-      if (nuevasHojas.length === 0) {
-        localStorage.removeItem(LOCAL_STORAGE_CONTEO_FISICO_KEY)
-      } else {
-        const estado: EstadoConteoFisico = {
-          version: 'v1',
-          fecha_actualizacion: new Date().toISOString(),
-          hojas: nuevasHojas,
-        }
-        localStorage.setItem(LOCAL_STORAGE_CONTEO_FISICO_KEY, JSON.stringify(estado))
-      }
-    } catch (e) {
-      console.warn('Error al guardar en localStorage:', e)
-    }
-  }
-
-  const limpiarTodo = () => {
-    if (hojas.length === 0) return
-    if (confirm('¿Deseas vaciar la mesa de trabajo de este conteo?')) {
-      guardarBorrador([])
-      toast.info('Borrador local limpiado')
-    }
-  }
-
-  // 3. Recepción de hojas seleccionadas desde el submodal de la nube
-  const handleHojasSeleccionadasFromNube = (seleccionadas: HojaConteoFisico[]) => {
-    const idsExistentes = new Set(hojas.map((h) => h.propuesta_db_id || h.id))
-    const nuevas = seleccionadas.filter((h) => !idsExistentes.has(h.propuesta_db_id || h.id))
-    if (nuevas.length === 0) {
-      toast.info('Las hojas seleccionadas ya estaban en la mesa de trabajo.')
-      return
-    }
-    const combinadas = [...hojas, ...nuevas].map((h, idx) => {
-      const numHoja = idx + 1
-      return {
-        ...h,
-        numero_hoja: numHoja,
-        renglones: (h.renglones || []).map((r) => ({
-          ...r,
-          numero_hoja: numHoja,
-        })),
-      }
-    })
-    guardarBorrador(combinadas)
-    setFiltroHoja('todas')
-    toast.success(`Se agregaron ${nuevas.length} hoja(s) desde la nube (${combinadas.length} hojas en mesa de trabajo).`)
-  }
-
-  // 4. Guardar cambios parciales en la base de datos (Borrador en la nube)
-  const handleGuardarBorradorNube = async () => {
-    if (hojas.length === 0) return
-    setGuardandoNube(true)
-
-    try {
-      let guardadas = 0
-      const hojasActualizadas = [...hojas]
-
-      for (let i = 0; i < hojasActualizadas.length; i++) {
-        const h = hojasActualizadas[i]
-        if (h.propuesta_db_id) {
-          const res = await actualizarBorradorHojaConteoAction(
-            h.propuesta_db_id,
-            h.renglones,
-            h.resumen
-          )
-          if (res.success) guardadas++
-        } else {
-          const res = await guardarHojaConteoOcrAction(h, bodegaDestinoId)
-          if (res.success) {
-            h.propuesta_db_id = res.data.propuestaId
-            guardadas++
-          }
-        }
-      }
-
-      guardarBorrador(hojasActualizadas)
-      toast.success(`Borrador guardado en la nube con éxito (${guardadas} hojas actualizadas).`)
-    } catch (err: any) {
-      console.error('Error al guardar borrador en la nube:', err)
-      toast.error('Error al guardar en la nube: ' + err.message)
-    } finally {
-      setGuardandoNube(false)
-    }
-  }
-
-  // 5. Procesar archivos de imagen con la API
-  const procesarArchivos = async (archivos: FileList | null) => {
-    if (!archivos || archivos.length === 0) return
-    const listaArchivos = Array.from(archivos)
-    setProcesando(true)
-
-    const numHojaInicial = hojas.length + 1
-    const totalNuevas = listaArchivos.length
-    const acumuladorHojas: HojaConteoFisico[] = [...hojas]
-
-    for (let i = 0; i < listaArchivos.length; i++) {
-      const file = listaArchivos[i]
-      const numActual = numHojaInicial + i
-      setProgresoTexto(`Digitalizando Hoja ${i + 1} de ${totalNuevas}: ${file.name}...`)
-
-      const formData = new FormData()
-      formData.append('foto', file)
-      formData.append('numero_hoja', String(numActual))
-      formData.append('total_hojas', String(numHojaInicial + totalNuevas - 1))
-      if (bodegaDestinoId) {
-        formData.append('bodega_id', String(bodegaDestinoId))
-      }
-
-      try {
-        const res = await fetch('/api/inventario/conteo-fisico/ocr', {
-          method: 'POST',
-          body: formData,
-        })
-
-        const data = await res.json()
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || `Error en servidor (${res.status})`)
-        }
-
-        const hoja: HojaConteoFisico = data.hoja
-        hoja.preview_data_url = URL.createObjectURL(file)
-        hoja.numero_hoja = numActual
-        hoja.renglones = (hoja.renglones || []).map((r) => ({
-          ...r,
-          numero_hoja: numActual,
-        }))
-
-        acumuladorHojas.push(hoja)
-      } catch (err: any) {
-        console.error('Error procesando hoja:', err)
-        toast.error(`Error en Hoja ${numActual}: ${err.message}`)
-      }
-    }
-
-    // Consolidar de golpe todas las hojas al terminar el lote
-    guardarBorrador(acumuladorHojas)
-    setFiltroHoja('todas')
-    setProcesando(false)
-    setProgresoTexto('')
-    if (fileInputRef.current) fileInputRef.current.value = ''
-    if (cameraInputRef.current) cameraInputRef.current.value = ''
-    toast.success(`Se procesaron y consolidaron ${acumuladorHojas.length} hojas en la mesa de trabajo.`)
-  }
-
-  // 6. Modificar renglón
-  const handleCambiarCajas = (hojaId: string, renglonId: string, nuevasCajas: number) => {
-    const nextHojas = hojas.map((h) => {
-      if (h.id !== hojaId) return h
-      const nextRenglones = h.renglones.map((r) => {
-        if (r.id !== renglonId) return r
-        return {
-          ...r,
-          cajas: isNaN(nuevasCajas) ? 0 : nuevasCajas,
-          modificado_manualmente: true,
-        }
-      })
-      let c1 = 0,
-        c2 = 0
-      nextRenglones.forEach((r) => {
-        if (r.columna === 1) c1 += r.cajas
-        else c2 += r.cajas
-      })
-      return {
-        ...h,
-        resumen: {
-          columna_1: { ...h.resumen.columna_1, cajas: c1 },
-          columna_2: { ...h.resumen.columna_2, cajas: c2 },
-          total_hoja: { ...h.resumen.total_hoja, cajas: c1 + c2 },
-        },
-        renglones: nextRenglones,
-      }
-    })
-    guardarBorrador(nextHojas)
-  }
-
-  const handleCambiarSku = (hojaId: string, renglonId: string, nuevoSku: string) => {
-    const nextHojas = hojas.map((h) => {
-      if (h.id !== hojaId) return h
-      return {
-        ...h,
-        renglones: h.renglones.map((r) => {
-          if (r.id !== renglonId) return r
-          return {
-            ...r,
-            sku_candidato: nuevoSku.toUpperCase().trim(),
-            sku_match: nuevoSku.toUpperCase().trim(),
-            modificado_manualmente: true,
-          }
-        }),
-      }
-    })
-    guardarBorrador(nextHojas)
-  }
-
-  // Al seleccionar un candidato desde el modal reciclado
-  const handleSelectCandidatoFromModal = (c: CandidatoSkuSimple) => {
-    if (!candidatoTarget) return
-    const { hojaId, renglonId } = candidatoTarget
-
-    const nextHojas = hojas.map((h) => {
-      if (h.id !== hojaId) return h
-      return {
-        ...h,
-        renglones: h.renglones.map((r) => {
-          if (r.id !== renglonId) return r
-          return {
-            ...r,
-            producto_id: c.producto_id,
-            sku_candidato: c.sku,
-            sku_match: c.sku,
-            descripcion: c.nombre,
-            match_score: c.score,
-            modificado_manualmente: true,
-          }
-        }),
-      }
-    })
-
-    guardarBorrador(nextHojas)
-    toast.success(`Producto vinculado: ${c.sku}`)
-  }
-
-  const handleEliminarRenglon = (hojaId: string, renglonId: string) => {
-    const nextHojas = hojas.map((h) => {
-      if (h.id !== hojaId) return h
-      const filtered = h.renglones.filter((r) => r.id !== renglonId)
-      let c1 = 0,
-        c2 = 0,
-        r1 = 0,
-        r2 = 0
-      filtered.forEach((r) => {
-        if (r.columna === 1) {
-          c1 += r.cajas
-          r1++
-        } else {
-          c2 += r.cajas
-          r2++
-        }
-      })
-      return {
-        ...h,
-        resumen: {
-          columna_1: { renglones: r1, cajas: c1 },
-          columna_2: { renglones: r2, cajas: c2 },
-          total_hoja: { renglones: r1 + r2, cajas: c1 + c2 },
-        },
-        renglones: filtered,
-      }
-    })
-    guardarBorrador(nextHojas)
-    toast.info('Renglón eliminado')
-  }
-
-  const handleAgregarRenglonManual = (hojaId: string, columna: 1 | 2 = 1) => {
-    const targetHoja = hojas.find((h) => h.id === hojaId) || hojas[0]
-    if (!targetHoja) return
-
-    const nuevoRenglon: RenglonConteoFisico = {
-      id: `manual_${Date.now()}`,
-      numero_hoja: targetHoja.numero_hoja,
-      columna,
-      renglon: targetHoja.renglones.length + 1,
-      estilo_raw: '',
-      sku_candidato: '',
-      cajas_raw: '1',
-      cajas: 1,
-      confianza: 1,
-      modificado_manualmente: true,
-    }
-
-    const nextHojas = hojas.map((h) => {
-      if (h.id !== targetHoja.id) return h
-      const nextRenglones = [...h.renglones, nuevoRenglon]
-      let c1 = 0,
-        c2 = 0,
-        r1 = 0,
-        r2 = 0
-      nextRenglones.forEach((r) => {
-        if (r.columna === 1) {
-          c1 += r.cajas
-          r1++
-        } else {
-          c2 += r.cajas
-          r2++
-        }
-      })
-      return {
-        ...h,
-        resumen: {
-          columna_1: { renglones: r1, cajas: c1 },
-          columna_2: { renglones: r2, cajas: c2 },
-          total_hoja: { renglones: r1 + r2, cajas: c1 + c2 },
-        },
-        renglones: nextRenglones,
-      }
-    })
-
-    guardarBorrador(nextHojas)
-    toast.success('Renglón manual agregado')
-  }
-
-  // 7. Renglones aplanados y filtrados
-  const todosLosRenglones = useMemo(() => {
-    return hojas.flatMap((h) =>
-      (h.renglones || []).map((r) => ({
-        ...r,
-        hoja_id: h.id,
-        hoja_numero: Number(r.numero_hoja || h.numero_hoja || 1),
-        hoja_comprobante_url: h.comprobante_url || h.preview_data_url,
-      }))
-    )
-  }, [hojas])
-
-  // Renglones pertenecientes a la hoja seleccionada (o todos) para los contadores de los botones
-  const renglonesBaseFiltroHoja = useMemo(() => {
-    if (filtroHoja === 'todas') return todosLosRenglones
-    return todosLosRenglones.filter((r) => Number(r.hoja_numero) === Number(filtroHoja))
-  }, [todosLosRenglones, filtroHoja])
-
-  // Contadores reactivos que respetan la hoja seleccionada
-  const contadoresFiltro = useMemo(() => {
-    let sinMatch = 0
-    let conFormula = 0
-    renglonesBaseFiltroHoja.forEach((r) => {
-      if (!r.producto_id) sinMatch++
-      const raw = String(r.cajas_raw || '')
-      if (raw.includes('+') || raw.includes('.')) conFormula++
-    })
-    return {
-      total: renglonesBaseFiltroHoja.length,
-      sinMatch,
-      conFormula,
-    }
-  }, [renglonesBaseFiltroHoja])
-
-  const renglonesFiltrados = useMemo(() => {
-    return renglonesBaseFiltroHoja.filter((r) => {
-      if (filtroEstado === 'sin_match' && r.producto_id) return false
-      if (filtroEstado === 'con_formula' && !r.cajas_raw.includes('+') && !r.cajas_raw.includes('.'))
-        return false
-
-      if (filtroTexto.trim()) {
-        const query = filtroTexto.toLowerCase()
-        const matchSku = r.sku_candidato.toLowerCase().includes(query)
-        const matchRaw = r.estilo_raw.toLowerCase().includes(query)
-        const matchDesc = (r.descripcion || '').toLowerCase().includes(query)
-        if (!matchSku && !matchRaw && !matchDesc) return false
-      }
-      return true
-    })
-  }, [renglonesBaseFiltroHoja, filtroEstado, filtroTexto])
-
-  // 8. Totales globales
-  const resumenGlobal = useMemo(() => {
-    let totalCajas = 0
-    let totalRenglones = 0
-    let sinMatch = 0
-    hojas.forEach((h) => {
-      h.renglones.forEach((r) => {
-        totalCajas += r.cajas
-        totalRenglones++
-        if (!r.producto_id) sinMatch++
-      })
-    })
-    return { totalCajas, totalRenglones, totalHojas: hojas.length, sinMatch }
-  }, [hojas])
-
-  // 9. Consolidación por SKU para exportar o pasar a Reconciliación
-  const consolidadoPorSku = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        sku: string
-        producto_id: number | null
-        descripcion: string | null
-        familia: string | null
-        cajas: number
-        apariciones: number
-      }
-    >()
-
-    todosLosRenglones.forEach((r) => {
-      const key = (r.sku_match || r.sku_candidato || r.estilo_raw || '').trim().toUpperCase()
-      if (!key) return
-      const existing = map.get(key)
-      if (existing) {
-        existing.cajas += r.cajas
-        existing.apariciones += 1
-      } else {
-        map.set(key, {
-          sku: key,
-          producto_id: r.producto_id || null,
-          descripcion: r.descripcion || null,
-          familia: r.familia || null,
-          cajas: r.cajas,
-          apariciones: 1,
-        })
-      }
-    })
-
-    return Array.from(map.values()).sort((a, b) => a.sku.localeCompare(b.sku))
-  }, [todosLosRenglones])
-
-  // 10. Descargar Excel con ExcelJS
-  const descargarReporteExcel = async () => {
-    if (hojas.length === 0) return
-
-    try {
-      const ExcelJS = (await import('exceljs')).default
-      const wb = new ExcelJS.Workbook()
-      wb.creator = 'inv-tienda ERP'
-      wb.created = new Date()
-
-      // Hoja 1: Consolidado SKU
-      const ws1 = wb.addWorksheet('Consolidado SKU')
-      ws1.columns = [
-        { header: '#', key: 'idx', width: 6 },
-        { header: 'SKU / Código', key: 'sku', width: 20 },
-        { header: 'Descripción', key: 'descripcion', width: 35 },
-        { header: 'Familia', key: 'familia', width: 18 },
-        { header: 'Total Cajas Físicas', key: 'cajas', width: 18 },
-        { header: 'Apariciones en Libreta', key: 'apariciones', width: 22 },
-        { header: 'Estado Catálogo', key: 'estado', width: 18 },
-      ]
-
-      consolidadoPorSku.forEach((c, idx) => {
-        ws1.addRow({
-          idx: idx + 1,
-          sku: c.sku,
-          descripcion: c.descripcion || 'Sin match',
-          familia: c.familia || '—',
-          cajas: c.cajas,
-          apariciones: c.apariciones,
-          estado: c.producto_id ? 'EN CATÁLOGO' : 'NO ENCONTRADO',
-        })
-      })
-
-      // Hoja 2: Detalle por Hoja
-      const ws2 = wb.addWorksheet('Detalle de Hojas')
-      ws2.columns = [
-        { header: '#', key: 'idx', width: 6 },
-        { header: 'Hoja', key: 'hoja', width: 12 },
-        { header: 'Columna', key: 'columna', width: 14 },
-        { header: 'Renglón', key: 'renglon', width: 10 },
-        { header: 'Escrito en Hoja (Raw)', key: 'estilo_raw', width: 22 },
-        { header: 'SKU Normalizado', key: 'sku_candidato', width: 20 },
-        { header: 'Cajas Anotadas', key: 'cajas_raw', width: 16 },
-        { header: 'Cajas Calculadas', key: 'cajas', width: 16 },
-        { header: 'Confianza IA', key: 'confianza', width: 14 },
-        { header: 'SKU Sistema', key: 'sku_match', width: 20 },
-        { header: 'Descripción Sistema', key: 'descripcion', width: 35 },
-      ]
-
-      todosLosRenglones.forEach((r, idx) => {
-        ws2.addRow({
-          idx: idx + 1,
-          hoja: `Hoja ${r.hoja_numero}`,
-          columna: r.columna === 1 ? 'Izquierda' : 'Derecha',
-          renglon: r.renglon,
-          estilo_raw: r.estilo_raw,
-          sku_candidato: r.sku_candidato,
-          cajas_raw: r.cajas_raw,
-          cajas: r.cajas,
-          confianza: `${Math.round(r.confianza * 100)}%`,
-          sku_match: r.sku_match || '—',
-          descripcion: r.descripcion || '—',
-        })
-      })
-
-      const buffer = await wb.xlsx.writeBuffer()
-      const blob = new Blob([buffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const fechaStr = new Date().toISOString().slice(0, 10)
-      a.href = url
-      a.download = `Conteo_Fisico_Libreta_${fechaStr}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-      toast.success('Reporte Excel descargado correctamente')
-    } catch (err: any) {
-      console.error('Error generando Excel:', err)
-      toast.error('Error al generar archivo Excel: ' + err.message)
-    }
-  }
-
-  // 11. Enviar directo a Conciliación Total de Bodega
-  const handleContinuarConciliacion = () => {
-    if (hojas.length === 0) {
-      toast.error('No hay hojas escaneadas para conciliar')
-      return
-    }
-
-    const bodegaSel = bodegas.find((b) => b.id === bodegaDestinoId)
-    const itemsValidos: ImportFilaValida[] = []
-    let omitidosSinMatch = 0
-
-    consolidadoPorSku.forEach((c) => {
-      if (c.producto_id && c.cajas > 0) {
-        itemsValidos.push({
-          producto_id: c.producto_id,
-          sku: c.sku,
-          producto_nombre: c.descripcion || null,
-          cajas: c.cajas,
-          bodega_id: bodegaDestinoId,
-          bodega_nombre: bodegaSel?.nombre || 'Bodega',
-        })
-      } else {
-        omitidosSinMatch++
-      }
-    })
-
-    if (itemsValidos.length === 0) {
-      toast.error(
-        'Ningún producto escaneado coincide con el catálogo de la base de datos. Asigna los SKUs antes de continuar.'
-      )
-      return
-    }
-
-    if (omitidosSinMatch > 0) {
-      toast.warning(
-        `Se enviaron ${itemsValidos.length} productos válidos. ${omitidosSinMatch} productos no tienen coincidencia en catálogo y fueron excluidos del ajuste de bodega.`
-      )
-    }
-
-    // Extraer los IDs de las propuestas de la base de datos para cerrarlas tras el ajuste
-    const propuestaDbIds = hojas.map((h) => h.propuesta_db_id).filter(Boolean) as string[]
-
-    onOpenChange(false)
-    onIrAConciliacion(bodegaDestinoId, itemsValidos, propuestaDbIds)
-  }
+  const hojaMap = new Map(cf.hojas.map((h) => [h.id, h]))
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-5xl lg:max-w-7xl w-full max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[96vw] lg:max-w-[96vw] w-full h-[94vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl">
+          {/* PANEL FLOTANTE FIJO DE BUSCADOR RÁPIDO 0MS */}
+          <BuscadorRapidoFlotante
+            open={cf.buscadorFlotanteAbierto}
+            onClose={() => cf.setBuscadorFlotanteAbierto(false)}
+            selectedLabel={cf.selectedIndexDisplay}
+            searchInputRef={cf.searchInputRef}
+            searchTerm={cf.searchTerm}
+            searchResults={cf.searchResults}
+            isSearching={cf.isSearching}
+            isCatalogoReady={cf.isCatalogoReady}
+            onSearchChange={cf.handleSearchChange}
+            onSelectResult={cf.handleSelectSearchResult}
+          />
+
           {/* HEADER */}
-          <div className="p-5 border-b bg-muted/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="px-5 py-3 border-b bg-muted/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shrink-0">
             <div>
-              <DialogTitle className="flex items-center gap-2.5 text-xl font-bold">
-                <FileSpreadsheet className="size-6 text-blue-600 dark:text-blue-400" />
+              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+                <FileSpreadsheet className="size-5 text-blue-600 dark:text-blue-400" />
                 Digitalizar Conteo Físico Manuscrito (Multi-Hoja)
               </DialogTitle>
-              <DialogDescription className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-                Escanea hojas cuadriculadas (2 columnas, operaciones aritméticas 1.1 / 4+2), sincroniza
-                con celular en la nube y concilia stock con un clic.
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Propuestas y candidatos en la misma fila (<kbd className="px-1 border rounded">Enter</kbd> acepta y salta), buscador flotante 0 ms y Buscar/Reemplazar (<kbd className="px-1 border rounded">Ctrl+H</kbd>).
               </DialogDescription>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Botón Cargar de la nube */}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setNubeSelectorOpen(true)}
-                className="gap-1.5 text-xs h-8 bg-background border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-50"
+                className="gap-1.5 text-xs h-8 bg-background border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300"
               >
                 <CloudDownload className="size-3.5 text-blue-600" />
                 Sincronizar Celular (Nube)
               </Button>
 
-              {/* Botón Guardar en Nube */}
-              {hojas.length > 0 && (
+              {cf.hojas.length > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={guardandoNube}
-                  onClick={handleGuardarBorradorNube}
-                  className="gap-1.5 text-xs h-8 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 hover:bg-emerald-100"
+                  disabled={cf.guardandoNube}
+                  onClick={cf.handleGuardarBorradorNube}
+                  className="gap-1.5 text-xs h-8 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40"
                 >
-                  {guardandoNube ? (
+                  {cf.guardandoNube ? (
                     <RefreshCw className="size-3.5 animate-spin" />
                   ) : (
                     <CloudUpload className="size-3.5 text-emerald-600" />
@@ -697,13 +197,12 @@ export function ConteoFisicoOcrModal({
                 </Button>
               )}
 
-              {/* Botón Limpiar */}
-              {hojas.length > 0 && (
+              {cf.hojas.length > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={limpiarTodo}
-                  className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs h-8"
+                  onClick={cf.limpiarTodo}
+                  className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs h-8"
                 >
                   <Trash2 className="size-3.5" />
                   Limpiar
@@ -712,468 +211,431 @@ export function ConteoFisicoOcrModal({
             </div>
           </div>
 
-          {/* CONTENIDO PRINCIPAL SCROLLABLE */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-5">
-            {/* BARRA SUPERIOR DE ACCIONES DE SUBIDA */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Tarjeta de Carga de Archivos */}
-              <div className="p-4 rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20 flex flex-col items-center justify-center text-center gap-2">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  multiple
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => procesarArchivos(e.target.files)}
-                />
-                <input
-                  type="file"
-                  ref={cameraInputRef}
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => procesarArchivos(e.target.files)}
-                />
-
-                <div className="flex items-center gap-2 flex-wrap justify-center">
-                  <Button
-                    size="sm"
-                    disabled={procesando}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm h-8 text-xs"
-                  >
-                    <Upload className="size-3.5" />
-                    Subir hojas (Galería)
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={procesando}
-                    onClick={() => cameraInputRef.current?.click()}
-                    className="gap-1.5 border-blue-300 dark:border-blue-800 h-8 text-xs bg-background"
-                  >
-                    <Camera className="size-3.5 text-blue-600" />
-                    Cámara
-                  </Button>
-                </div>
-                <span className="text-[11px] text-muted-foreground">
-                  Detección en 2 columnas. Las hojas se guardan automáticamente en la nube.
-                </span>
-              </div>
-
-              {/* Tarjetas de Resumen Global */}
-              <div className="md:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="p-3 rounded-lg border bg-card flex flex-col justify-between">
-                  <span className="text-xs text-muted-foreground font-medium">Hojas Leídas</span>
-                  <div className="text-2xl font-bold flex items-center gap-1.5 mt-1">
-                    <FileText className="size-5 text-blue-500" />
-                    {resumenGlobal.totalHojas}
+          {/* CUERPO FLEX: LA TABLA OCUPA EL 100% DEL ESPACIO RESTANTE */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-3 sm:p-4 gap-2.5">
+            {/* Subida + Resumen (colapsable para despejar todo el modal) */}
+            {!cf.resumenColapsado && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch shrink-0">
+                <div className="lg:col-span-3 p-2.5 rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20 flex flex-col items-center justify-center text-center gap-1.5">
+                  <input
+                    type="file"
+                    ref={cf.fileInputRef}
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => cf.procesarArchivos(e.target.files)}
+                  />
+                  <input
+                    type="file"
+                    ref={cf.cameraInputRef}
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => cf.procesarArchivos(e.target.files)}
+                  />
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <Button
+                      size="sm"
+                      disabled={cf.procesando}
+                      onClick={() => cf.fileInputRef.current?.click()}
+                      className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white h-8 text-xs"
+                    >
+                      <Upload className="size-3.5" />
+                      Subir hojas
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={cf.procesando}
+                      onClick={() => cf.cameraInputRef.current?.click()}
+                      className="gap-1.5 border-blue-300 h-8 text-xs bg-background"
+                    >
+                      <Camera className="size-3.5 text-blue-600" />
+                      Cámara
+                    </Button>
                   </div>
-                </div>
-
-                <div className="p-3 rounded-lg border bg-card flex flex-col justify-between">
-                  <span className="text-xs text-muted-foreground font-medium">Renglones Totales</span>
-                  <div className="text-2xl font-bold flex items-center gap-1.5 mt-1">
-                    <Layers className="size-5 text-slate-500" />
-                    {resumenGlobal.totalRenglones}
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 flex flex-col justify-between">
-                  <span className="text-xs text-blue-700 dark:text-blue-300 font-semibold">
-                    Cajas Contadas
+                  <span className="text-[11px] text-muted-foreground">
+                    2 columnas + aritmética (1.1 / 4+2).
                   </span>
-                  <div className="text-2xl font-extrabold text-blue-700 dark:text-blue-300 mt-1">
-                    {resumenGlobal.totalCajas.toLocaleString('es-MX')}
-                  </div>
                 </div>
 
-                <div className="p-3 rounded-lg border bg-card flex flex-col justify-between">
-                  <span className="text-xs text-muted-foreground font-medium">Sin Coincidencia</span>
-                  <div
-                    className={`text-2xl font-bold mt-1 ${
-                      resumenGlobal.sinMatch > 0 ? 'text-amber-600' : 'text-emerald-600'
-                    }`}
-                  >
-                    {resumenGlobal.sinMatch}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* BANNER DE PROGRESO SI ESTÁ PROCESANDO */}
-            {procesando && (
-              <div className="p-4 rounded-xl border border-blue-300 dark:border-blue-800 bg-blue-100/50 dark:bg-blue-950/40 flex items-center gap-3 animate-pulse">
-                <RefreshCw className="size-5 animate-spin text-blue-600" />
-                <div className="flex-1">
-                  <div className="text-sm font-semibold text-blue-900 dark:text-blue-200">
-                    {progresoTexto || 'Procesando hojas de libreta con IA...'}
-                  </div>
-                  <div className="text-xs text-blue-700 dark:text-blue-400">
-                    Extrayendo renglones de columna izquierda y derecha, resolviendo sumas manuscritas.
-                  </div>
+                <div className="lg:col-span-9">
+                  <ConteoFisicoResumenHojas
+                    hojas={cf.hojas}
+                    resumenGlobal={cf.resumenGlobal}
+                    activeFotoHojaId={cf.activeFotoHojaId}
+                    onSelectHojaFoto={(hojaId, url) => {
+                      cf.setActiveFotoHojaId(hojaId)
+                      if (url) cf.setFotoVisorUrl(url)
+                    }}
+                  />
                 </div>
               </div>
             )}
 
-            {/* TARJETAS RESUMEN POR HOJA Y COLUMNA (COTEJO RÁPIDO CON LIBRETA EN MANO) */}
-            {hojas.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Cotejo Rápido por Hoja y Columna (Libreta)
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Compara estos subtotales con los que sumaste al final de tu hoja
-                  </span>
+            {cf.procesando && (
+              <div className="p-2.5 rounded-xl border border-blue-300 bg-blue-100/50 dark:bg-blue-950/40 flex items-center gap-3 animate-pulse shrink-0">
+                <RefreshCw className="size-4 animate-spin text-blue-600" />
+                <div className="text-xs font-semibold text-blue-900 dark:text-blue-200">
+                  {cf.progresoTexto || 'Digitalizando hojas con IA y cruzando contra catálogo...'}
                 </div>
+              </div>
+            )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {hojas.map((h) => (
-                    <div
-                      key={h.id}
-                      className="p-3.5 rounded-xl border bg-card shadow-sm space-y-2.5 relative group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="font-bold text-xs bg-muted">
-                            Hoja {h.numero_hoja}
-                          </Badge>
-                          {h.encabezado && (
-                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
-                              {h.encabezado}
-                            </span>
-                          )}
-                          {h.fecha_detectada && (
-                            <span className="text-[11px] text-muted-foreground font-mono">
-                              ({h.fecha_detectada})
-                            </span>
-                          )}
-                        </div>
-
-                        {(h.comprobante_url || h.preview_data_url) && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-blue-600"
+            {cf.hojas.length > 0 ? (
+              <>
+                {/* Toolbar de filtros y acciones */}
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-muted/30 rounded-xl border shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                    <div className="flex items-center gap-1 min-w-[210px] flex-1 max-w-[290px]">
+                      <div className="relative flex-1">
+                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Filtrar renglones (Enter)..."
+                          value={localFiltro}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setLocalFiltro(val)
+                            if (!val.trim()) {
+                              debouncedFiltro.cancel()
+                              cf.setFiltroTexto('')
+                            } else if (val.trim().length >= 2) {
+                              debouncedFiltro(val)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              submitFiltroNow(e.currentTarget.value)
+                            }
+                          }}
+                          className="pl-8 pr-7 h-8 text-xs bg-background"
+                        />
+                        {localFiltro && (
+                          <button
+                            type="button"
                             onClick={() => {
-                              setFotoVisorUrl(h.comprobante_url || h.preview_data_url || null)
-                              setZoomNivel(1)
+                              debouncedFiltro.cancel()
+                              setLocalFiltro('')
+                              cf.setFiltroTexto('')
                             }}
-                            title="Ver foto de la hoja"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            title="Limpiar filtro"
                           >
-                            <Eye className="size-4" />
-                          </Button>
+                            <X className="size-3.5" />
+                          </button>
                         )}
                       </div>
-
-                      {/* Subtotales Izquierda y Derecha */}
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="p-2 rounded bg-muted/40 border">
-                          <div className="text-[10px] text-muted-foreground font-medium uppercase">
-                            Col. Izquierda
-                          </div>
-                          <div className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">
-                            {h.resumen.columna_1.cajas} cajas
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {h.resumen.columna_1.renglones} renglones
-                          </div>
-                        </div>
-
-                        <div className="p-2 rounded bg-muted/40 border">
-                          <div className="text-[10px] text-muted-foreground font-medium uppercase">
-                            Col. Derecha
-                          </div>
-                          <div className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">
-                            {h.resumen.columna_2.cajas} cajas
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {h.resumen.columna_2.renglones} renglones
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-1 border-t flex items-center justify-between text-xs">
-                        <span className="font-semibold text-muted-foreground">Subtotal Hoja:</span>
-                        <span className="font-extrabold text-blue-600 dark:text-blue-400">
-                          {h.resumen.total_hoja.cajas} cajas ({h.resumen.total_hoja.renglones} renglones)
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TABLA INTERACTIVA TIPO EXCEL */}
-            {hojas.length > 0 ? (
-              <div className="space-y-3">
-                {/* FILTROS Y CONTROLES DE LA TABLA */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-muted/30 rounded-xl border">
-                  <div className="flex flex-wrap items-center gap-2 flex-1">
-                    {/* Buscador */}
-                    <div className="relative min-w-[200px] flex-1 max-w-sm">
-                      <Search className="size-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        placeholder="Buscar por SKU o descripción..."
-                        value={filtroTexto}
-                        onChange={(e) => setFiltroTexto(e.target.value)}
-                        className="pl-8 h-8 text-xs bg-background"
-                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => submitFiltroNow()}
+                        className="h-8 px-2 text-xs font-semibold shrink-0 bg-background"
+                        title="Filtrar tabla ahora"
+                      >
+                        Buscar
+                      </Button>
                     </div>
 
-                    {/* Filtro Hoja */}
                     <select
-                      value={filtroHoja}
+                      value={cf.filtroHoja}
                       onChange={(e) =>
-                        setFiltroHoja(e.target.value === 'todas' ? 'todas' : Number(e.target.value))
+                        cf.setFiltroHoja(e.target.value === 'todas' ? 'todas' : Number(e.target.value))
                       }
-                      className="h-8 text-xs rounded-md border border-input bg-background px-2.5 font-medium"
+                      className="h-8 text-xs rounded-md border border-input bg-background px-2 font-medium"
                     >
-                      <option value="todas">Todas las hojas ({hojas.length})</option>
-                      {hojas.map((h) => (
+                      <option value="todas">Todas las hojas ({cf.hojas.length})</option>
+                      {cf.hojas.map((h) => (
                         <option key={h.id} value={h.numero_hoja}>
                           Hoja {h.numero_hoja} ({h.resumen.total_hoja.renglones} reg.)
                         </option>
                       ))}
                     </select>
 
-                    {/* Filtro Estatus */}
                     <div className="flex items-center gap-1 bg-background rounded-md p-0.5 border text-xs">
                       <button
-                        onClick={() => setFiltroEstado('todos')}
-                        className={`px-2 py-1 rounded text-xs transition-colors ${
-                          filtroEstado === 'todos'
+                        type="button"
+                        onClick={() => cf.setFiltroEstado('todos')}
+                        className={`px-2 py-1 rounded text-xs ${
+                          cf.filtroEstado === 'todos'
                             ? 'bg-primary text-primary-foreground font-semibold'
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Todos ({contadoresFiltro.total})
+                        Todos ({cf.contadoresFiltro.total})
                       </button>
                       <button
-                        onClick={() => setFiltroEstado('sin_match')}
-                        className={`px-2 py-1 rounded text-xs transition-colors ${
-                          filtroEstado === 'sin_match'
+                        type="button"
+                        onClick={() => cf.setFiltroEstado('propuestas')}
+                        className={`px-2 py-1 rounded text-xs ${
+                          cf.filtroEstado === 'propuestas'
                             ? 'bg-amber-600 text-white font-semibold'
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Sin match ({contadoresFiltro.sinMatch})
+                        Propuestas ({cf.contadoresFiltro.propuestas})
                       </button>
                       <button
-                        onClick={() => setFiltroEstado('con_formula')}
-                        className={`px-2 py-1 rounded text-xs transition-colors ${
-                          filtroEstado === 'con_formula'
+                        type="button"
+                        onClick={() => cf.setFiltroEstado('sin_match')}
+                        className={`px-2 py-1 rounded text-xs ${
+                          cf.filtroEstado === 'sin_match'
+                            ? 'bg-destructive text-destructive-foreground font-semibold'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Sin match ({cf.contadoresFiltro.sinMatch})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => cf.setFiltroEstado('con_formula')}
+                        className={`px-2 py-1 rounded text-xs ${
+                          cf.filtroEstado === 'con_formula'
                             ? 'bg-blue-600 text-white font-semibold'
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        Con fórmulas ({contadoresFiltro.conFormula})
+                        Fórmulas ({cf.contadoresFiltro.conFormula})
                       </button>
                     </div>
+
+                    {/* Botón Lupa + Rayo para abrir Buscador Rápido Flotante 0ms */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={cf.buscadorFlotanteAbierto ? 'default' : 'outline'}
+                      onClick={cf.handleToggleBuscadorFlotante}
+                      className="h-8 px-2.5 gap-1 text-xs font-bold border-primary/40"
+                      title="Buscador Rápido de Catálogo 0ms (panel flotante fijo)"
+                    >
+                      <Search className="size-3.5" />
+                      <Zap className="size-3 text-amber-400 fill-amber-400" />
+                    </Button>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleAgregarRenglonManual(hojas[0]?.id || '')}
-                    className="gap-1 h-8 text-xs shrink-0"
-                  >
-                    <Plus className="size-3.5" />
-                    Agregar renglón manual
-                  </Button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={cf.isSyncingCatalogo}
+                      onClick={cf.resincronizarCatalogo}
+                      className="gap-1 h-8 text-xs font-semibold"
+                    >
+                      <RefreshCw className={`size-3.5 ${cf.isSyncingCatalogo ? 'animate-spin' : ''}`} />
+                      Sincronizar
+                    </Button>
+
+                    {cf.resumenGlobal.propuestasAltas > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={cf.handleAceptarPropuestasAltas}
+                        className="gap-1 h-8 text-xs font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30"
+                      >
+                        <CheckCheck className="size-3.5" />
+                        Aceptar ≥90% ({cf.resumenGlobal.propuestasAltas})
+                      </Button>
+                    )}
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={cf.replaceOpen ? 'default' : 'outline'}
+                      onClick={() => cf.setReplaceOpen((v) => !v)}
+                      className="gap-1 h-8 text-xs font-semibold"
+                    >
+                      <Replace className="size-3.5" />
+                      Buscar y Reemplazar
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={cf.panelLateralAbierto ? 'secondary' : 'outline'}
+                      onClick={() => cf.setPanelLateralAbierto((v) => !v)}
+                      className="gap-1 h-8 text-xs font-semibold"
+                      title="Mostrar u ocultar panel lateral de Foto de Hoja"
+                    >
+                      {cf.panelLateralAbierto ? (
+                        <EyeOff className="size-3.5" />
+                      ) : (
+                        <Eye className="size-3.5 text-blue-600" />
+                      )}
+                      Foto Hoja
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cf.handleAgregarRenglonManual(cf.hojas[0]?.id || '')}
+                      className="gap-1 h-8 text-xs"
+                    >
+                      <Plus className="size-3.5" />
+                      Renglón
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => cf.setResumenColapsado((v) => !v)}
+                      className="h-8 px-2 text-xs text-muted-foreground"
+                      title={cf.resumenColapsado ? 'Mostrar resumen de hojas' : 'Ocultar resumen para ampliar tabla'}
+                    >
+                      {cf.resumenColapsado ? (
+                        <ChevronDown className="size-4" />
+                      ) : (
+                        <ChevronUp className="size-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
-                {/* TABLA CON ENCABEZADOS 100% SÓLIDOS */}
-                <div className="border rounded-xl overflow-hidden shadow-sm max-h-[440px] overflow-y-auto">
-                  <table className="w-full text-xs border-collapse text-left">
-                    <thead className="sticky top-0 z-10 bg-slate-200 dark:bg-slate-900 shadow-sm border-b">
-                      <tr className="text-slate-800 dark:text-slate-200 font-bold uppercase tracking-wider text-[11px]">
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 w-24">Posición</th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[130px]">
-                          Escrito en Hoja
-                        </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[170px]">
-                          SKU Sistema (Match)
-                        </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 min-w-[200px]">
-                          Descripción de Catálogo
-                        </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 text-center w-28">
-                          Fórmula / Raw
-                        </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 text-right w-24">
-                          Cajas
-                        </th>
-                        <th className="py-2.5 px-3 bg-slate-200 dark:bg-slate-900 text-center w-20">
-                          Acciones
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border bg-card">
-                      {renglonesFiltrados.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-8 text-center text-muted-foreground">
-                            No se encontraron renglones con los filtros aplicados.
-                          </td>
-                        </tr>
-                      ) : (
-                        renglonesFiltrados.map((r) => {
-                          const tieneMatch = Boolean(r.producto_id)
-                          const tieneFormula = r.cajas_raw.includes('+') || r.cajas_raw.includes('.')
+                {/* Barra Buscar y Reemplazar estilo Excel */}
+                <div className="shrink-0">
+                  <BarraBuscarReemplazar
+                    open={cf.replaceOpen}
+                    onClose={() => cf.setReplaceOpen(false)}
+                    regla={cf.reglaReemplazo}
+                    onChangeRegla={cf.setReglaReemplazo}
+                    preview={cf.previewReemplazo}
+                    previewDesactualizado={cf.previewDesactualizado}
+                    sugerencias={cf.sugerenciasReemplazo}
+                    canUndo={cf.canUndoReemplazo}
+                    onBuscar={cf.handleBuscarReemplazo}
+                    onAplicar={cf.handleAplicarReemplazo}
+                    onDeshacer={cf.handleDeshacerReemplazo}
+                  />
+                </div>
 
-                          return (
-                            <tr
-                              key={r.id}
-                              className={`hover:bg-muted/40 transition-colors ${
-                                !tieneMatch ? 'bg-amber-50/40 dark:bg-amber-950/20' : ''
-                              }`}
-                            >
-                              {/* Posición */}
-                              <td className="py-2 px-3 font-mono">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted border">
-                                  H{r.hoja_numero}-{r.columna === 1 ? 'Izq' : 'Der'} R{r.renglon}
-                                </span>
-                              </td>
+                {/* ÁREA PRINCIPAL (100% DEL ALTO RESTANTE): Visor Lateral (opcional) + Separador Vertical + Tabla */}
+                <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2 overflow-hidden">
+                  <VisorHojaLateral
+                    open={cf.panelLateralAbierto}
+                    hojaNumero={cf.activeHojaInfo?.numero_hoja}
+                    encabezado={cf.activeHojaInfo?.encabezado}
+                    comprobanteUrl={cf.activeComprobanteUrl}
+                    visorRef={visorRef}
+                    visorTransform={visor.transform}
+                    visorDragging={visor.dragging}
+                    onZoomOut={visor.zoomOut}
+                    onZoomIn={visor.zoomIn}
+                    onRotate={visor.rotate}
+                    onReset={visor.reset}
+                    onExpandirModal={(url) => cf.setFotoVisorUrl(url)}
+                    onClose={() => cf.setPanelLateralAbierto(false)}
+                    onPointerDown={visor.onPointerDown}
+                    onPointerMove={visor.onPointerMove}
+                    onPointerUp={visor.onPointerUp}
+                    onPointerCancel={visor.onPointerCancel}
+                  />
 
-                              {/* Escrito en Hoja */}
-                              <td className="py-2 px-3 font-mono font-medium text-slate-800 dark:text-slate-200">
-                                {r.estilo_raw || '—'}
-                              </td>
+                  {/* Contenedor Tabla + Separador Vertical de Hoja */}
+                  <div className="flex-1 min-w-0 min-h-0 flex border rounded-xl overflow-hidden shadow-sm bg-card">
+                    {/* Separador vertical indicador de hoja activa */}
+                    {cf.activeHojaInfo && (
+                      <button
+                        type="button"
+                        onClick={() => cf.setPanelLateralAbierto((v) => !v)}
+                        title={
+                          cf.panelLateralAbierto
+                            ? 'Ocultar foto lateral'
+                            : `Mostrar foto lateral de Hoja ${cf.activeHojaInfo.numero_hoja}`
+                        }
+                        className="w-7 shrink-0 border-r bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center justify-center py-2 transition-colors select-none"
+                      >
+                        <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                          HOJA {cf.activeHojaInfo.numero_hoja}
+                          {cf.activeHojaInfo.encabezado ? ` · ${cf.activeHojaInfo.encabezado}` : ''}
+                        </span>
+                      </button>
+                    )}
 
-                              {/* SKU Sistema con botón de Candidatos (Reciclado) */}
-                              <td className="py-2 px-3">
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={r.sku_match || r.sku_candidato}
-                                    onChange={(e) =>
-                                      handleCambiarSku(r.hoja_id, r.id, e.target.value)
-                                    }
-                                    className={`h-7 px-2 font-mono text-xs font-semibold rounded border w-full max-w-[125px] ${
-                                      tieneMatch
-                                        ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300'
-                                        : 'border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
-                                    }`}
-                                    placeholder="SKU..."
-                                  />
-
-                                  {/* Botón de Candidatos SKU */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setCandidatoTarget({
-                                        hojaId: r.hoja_id,
-                                        renglonId: r.id,
-                                        skuOriginal: r.sku_candidato,
-                                        estiloRaw: r.estilo_raw,
-                                      })
-                                      setCandidatoModalOpen(true)
-                                    }}
-                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-amber-600 transition-colors"
-                                    title="Ver candidatos similares de catálogo"
-                                  >
-                                    <Sparkles className="size-3.5 text-amber-500" />
-                                  </button>
-
-                                  {tieneMatch ? (
-                                    <span title="Coincidencia en catálogo" className="inline-flex">
-                                      <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
-                                    </span>
-                                  ) : (
-                                    <span title="No encontrado en catálogo" className="inline-flex">
-                                      <AlertTriangle className="size-3.5 text-amber-500 shrink-0" />
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-
-                              {/* Descripción */}
-                              <td className="py-2 px-3">
-                                {r.descripcion ? (
-                                  <div className="truncate max-w-xs text-muted-foreground text-[11px]">
-                                    {r.descripcion}
-                                  </div>
-                                ) : (
-                                  <span className="text-amber-600 dark:text-amber-400 text-[11px] italic">
-                                    Sin producto asignado
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Fórmula / Raw */}
-                              <td className="py-2 px-3 text-center font-mono">
-                                {tieneFormula ? (
-                                  <span
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
-                                    title={`Operación detectada en libreta: ${r.cajas_raw}`}
-                                  >
-                                    f(x) {r.cajas_raw}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground text-[11px]">
-                                    {r.cajas_raw}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Cajas */}
-                              <td className="py-2 px-3 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.5"
-                                  value={r.cajas}
-                                  onChange={(e) =>
-                                    handleCambiarCajas(
-                                      r.hoja_id,
-                                      r.id,
-                                      parseFloat(e.target.value) || 0
-                                    )
-                                  }
-                                  className="h-7 w-20 px-2 text-right font-bold text-xs rounded border bg-background font-mono focus:ring-1 focus:ring-blue-500"
-                                />
-                              </td>
-
-                              {/* Acciones */}
-                              <td className="py-2 px-3 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  {r.hoja_comprobante_url && (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-6 text-muted-foreground hover:text-blue-600"
-                                      onClick={() => {
-                                        setFotoVisorUrl(r.hoja_comprobante_url || null)
-                                        setZoomNivel(1.5)
-                                      }}
-                                      title="Ver foto de la hoja"
-                                    >
-                                      <Eye className="size-3.5" />
-                                    </Button>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-6 text-muted-foreground hover:text-red-600"
-                                    onClick={() => handleEliminarRenglon(r.hoja_id, r.id)}
-                                    title="Eliminar renglón"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </Button>
-                                </div>
+                    {/* Tabla scrollable a 100% de altura/ancho */}
+                    <div
+                      ref={tableScrollRef}
+                      onScroll={handleTableScroll}
+                      className="flex-1 min-w-0 min-h-0 overflow-auto"
+                    >
+                      <table className="w-full text-xs border-collapse text-left">
+                        <thead className="sticky top-0 z-10 bg-slate-200 dark:bg-slate-900 border-b">
+                          <tr className="text-slate-800 dark:text-slate-200 font-bold uppercase tracking-wider text-[11px]">
+                            <th className="py-2 px-2.5 w-32">Posición</th>
+                            <th className="py-2 px-2.5 min-w-[170px]">Código Detectado</th>
+                            <th className="py-2 px-2.5 min-w-[300px]">Resolución en Catálogo</th>
+                            <th className="py-2 px-2 text-center w-24">Fórmula</th>
+                            <th className="py-2 px-2 text-right w-20">Cajas</th>
+                            <th className="py-2 px-2 text-center w-16">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {cf.renglonesFiltrados.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="py-10 text-center text-muted-foreground">
+                                No se encontraron renglones con los filtros aplicados.
                               </td>
                             </tr>
-                          )
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                          ) : (
+                            cf.renglonesFiltrados.map((r, idx) => {
+                              const prevHojaId = idx > 0 ? cf.renglonesFiltrados[idx - 1].hoja_id : null
+                              const mostrarSeparadorHoja =
+                                cf.filtroHoja === 'todas' && r.hoja_id !== prevHojaId
+                              const hojaInfo = hojaMap.get(r.hoja_id)
+                              const rowKey = `${r.hoja_id}:${r.id}`
+                              const isSelected =
+                                cf.selectedTarget?.hojaId === r.hoja_id &&
+                                cf.selectedTarget?.renglonId === r.id
+
+                              return (
+                                <Fragment key={rowKey}>
+                                  {mostrarSeparadorHoja && hojaInfo && (
+                                    <tr
+                                      data-hoja-id={r.hoja_id}
+                                      className="bg-blue-50/70 dark:bg-blue-950/30 border-y border-blue-200 dark:border-blue-900"
+                                    >
+                                      <td colSpan={6} className="py-1 px-3 text-[11px] font-bold text-blue-800 dark:text-blue-300">
+                                        Hoja {hojaInfo.numero_hoja}
+                                        {hojaInfo.encabezado ? ` · ${hojaInfo.encabezado}` : ''}
+                                        <span className="ml-2 font-normal text-muted-foreground">
+                                          (Izq: {hojaInfo.resumen.columna_1.cajas} cajas / Der: {hojaInfo.resumen.columna_2.cajas} cajas)
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <ConteoFisicoRow
+                                    row={r}
+                                    isSelected={isSelected}
+                                    setInputRef={(el) => {
+                                      cf.rowInputRefs.current[rowKey] = el
+                                    }}
+                                    onSelectRow={cf.handleSelectRow}
+                                    onCambiarSku={cf.handleCambiarSku}
+                                    onBlurSku={cf.handleBlurSku}
+                                    onEnterOnRow={cf.handleEnterOnRow}
+                                    onAceptarPropuesta={cf.handleAceptarPropuesta}
+                                    onSelectCandidato={cf.handleSeleccionarCandidato}
+                                    onDesvincularProducto={cf.handleDesvincularProducto}
+                                    onOpenSearchForRow={cf.handleOpenSearchForRow}
+                                    onCambiarCajas={cf.handleCambiarCajas}
+                                    onVerFoto={handleVerFotoStable}
+                                    onEliminar={cf.handleEliminarRenglon}
+                                  />
+                                </Fragment>
+                              )
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </>
             ) : (
-              <div className="py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-3">
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center text-muted-foreground">
                 <FileSpreadsheet className="size-12 text-muted-foreground/30" />
                 <div className="space-y-1">
                   <p className="font-semibold text-base text-foreground">
@@ -1181,28 +643,25 @@ export function ConteoFisicoOcrModal({
                   </p>
                   <p className="text-xs text-muted-foreground max-w-sm">
                     Toma una foto con tu cámara, sube fotos de tu libreta o presiona{' '}
-                    <strong className="text-blue-600">"Sincronizar Celular (Nube)"</strong> para traer
-                    las hojas que subiste desde tu teléfono.
+                    <strong className="text-blue-600">&quot;Sincronizar Celular (Nube)&quot;</strong>.
                   </p>
                 </div>
               </div>
             )}
           </div>
 
-          {/* FOOTER CON SALIDAS (EXCEL O COMPARAR CON BODEGA) */}
-          <div className="p-4 border-t bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={hojas.length === 0}
-                onClick={descargarReporteExcel}
-                className="gap-1.5 h-9 text-xs font-semibold"
-              >
-                <FileSpreadsheet className="size-4 text-emerald-600" />
-                Descargar Reporte Excel (.xlsx)
-              </Button>
-            </div>
+          {/* FOOTER */}
+          <div className="px-5 py-3 border-t bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cf.hojas.length === 0}
+              onClick={cf.descargarReporteExcel}
+              className="gap-1.5 h-9 text-xs font-semibold w-full sm:w-auto"
+            >
+              <FileSpreadsheet className="size-4 text-emerald-600" />
+              Descargar Reporte Excel (.xlsx)
+            </Button>
 
             <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1211,8 +670,8 @@ export function ConteoFisicoOcrModal({
                   Bodega a comparar:
                 </span>
                 <select
-                  value={bodegaDestinoId}
-                  onChange={(e) => setBodegaDestinoId(Number(e.target.value))}
+                  value={cf.bodegaDestinoId}
+                  onChange={(e) => cf.setBodegaDestinoId(Number(e.target.value))}
                   className="h-9 text-xs rounded-md border border-input bg-background px-3 font-semibold text-foreground min-w-[180px] w-full sm:w-auto"
                 >
                   {bodegas.map((b) => (
@@ -1225,8 +684,8 @@ export function ConteoFisicoOcrModal({
 
               <Button
                 size="sm"
-                disabled={hojas.length === 0}
-                onClick={handleContinuarConciliacion}
+                disabled={cf.hojas.length === 0}
+                onClick={cf.handleContinuarConciliacion}
                 className="gap-1.5 h-9 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md w-full sm:w-auto"
               >
                 Comparar con Bodega
@@ -1237,33 +696,20 @@ export function ConteoFisicoOcrModal({
         </DialogContent>
       </Dialog>
 
-      {/* SUBMODAL SELECTOR DE HOJAS EN LA NUBE */}
       <HojasNubeSelectorModal
         open={nubeSelectorOpen}
         onOpenChange={setNubeSelectorOpen}
         bodegas={bodegas}
-        bodegaDefaultId={bodegaDestinoId}
-        onHojasSeleccionadas={handleHojasSeleccionadasFromNube}
+        bodegaDefaultId={cf.bodegaDestinoId}
+        onHojasSeleccionadas={cf.handleHojasSeleccionadasFromNube}
       />
 
-      {/* MODAL RECICLADO DE CANDIDATOS SKU */}
-      {candidatoTarget && (
-        <CandidatosSkuSelectorModal
-          open={candidatoModalOpen}
-          onOpenChange={setCandidatoModalOpen}
-          skuOriginal={candidatoTarget.skuOriginal}
-          estiloRaw={candidatoTarget.estiloRaw}
-          onSelectCandidato={handleSelectCandidatoFromModal}
-        />
-      )}
-
-      {/* MODAL VISOR DE FOTO CON ZOOM Y AJUSTE PANTALLA COMPLETA */}
       <VisorFotoHojaModal
-        open={Boolean(fotoVisorUrl)}
+        open={Boolean(cf.fotoVisorUrl)}
         onOpenChange={(op) => {
-          if (!op) setFotoVisorUrl(null)
+          if (!op) cf.setFotoVisorUrl(null)
         }}
-        fotoUrl={fotoVisorUrl}
+        fotoUrl={cf.fotoVisorUrl}
       />
     </>
   )

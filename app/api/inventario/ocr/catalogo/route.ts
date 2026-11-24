@@ -19,6 +19,7 @@ export async function GET() {
     sku_base: item.sku_base,
     descripcion: item.descripcion,
     pz_en_caja: item.pz_en_caja,
+    familia: item.familia ?? null,
     proveedor_nombre: item.proveedor_nombre ?? null,
   }))
 

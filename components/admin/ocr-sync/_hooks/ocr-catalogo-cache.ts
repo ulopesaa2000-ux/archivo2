@@ -13,6 +13,7 @@ type CatalogoApiItem = {
   sku_base: string
   descripcion: string | null
   pz_en_caja: number | null
+  familia?: string | null
   proveedor_nombre?: string | null
 }
 
@@ -53,7 +54,7 @@ export async function getCatalogoOcrIndexado(
           sku_base: item.sku_base,
           descripcion: item.descripcion ?? null,
           pz_en_caja: item.pz_en_caja ?? null,
-          familia: null,
+          familia: item.familia ?? null,
           persona_id: null,
           proveedor_nombre: item.proveedor_nombre ?? null,
           proveedor_prefijo: null,
