@@ -121,7 +121,12 @@ export function formatForDateInput(date: string | null | undefined): string {
 }
 
 export function inputDateTimeToUTC(localDateTime: string): string {
-  const fakeUTC = new Date(localDateTime + ':00Z')
+  const cleaned = localDateTime.trim().replace(/Z$/i, '')
+  const hasSeconds = /T\d{2}:\d{2}:\d{2}/.test(cleaned)
+  const fakeUTC = new Date(hasSeconds ? `${cleaned}Z` : `${cleaned}:00Z`)
+  if (isNaN(fakeUTC.getTime())) {
+    return nowUTC()
+  }
   const mxDate = new Date(fakeUTC.toLocaleString('en-US', { timeZone: TIMEZONE }))
   const utcDate = new Date(fakeUTC.toLocaleString('en-US', { timeZone: 'UTC' }))
   const offsetMs = utcDate.getTime() - mxDate.getTime()
