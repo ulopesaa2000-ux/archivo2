@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Store, ChevronDown, User } from 'lucide-react'
 import Link from 'next/link'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
+import type { DocRegistryItem } from '@/lib/docs/types'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,9 +37,11 @@ import {
 export function Header({
   user,
   bodegas,
+  docItems,
 }: {
   user: UsuarioConRol
   bodegas: BodegaRow[]
+  docItems?: DocRegistryItem[]
 }) {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 w-full">
@@ -47,14 +50,14 @@ export function Header({
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
           {/* ── Mobile: hamburguesa ─────────────────────────── */}
           <div className="shrink-0">
-            <MobileSidebar user={user} />
+            <MobileSidebar user={user} docItems={docItems} />
           </div>
 
           {/* ── Bodega selector ─────────────────────────────── */}
           <div className="min-w-0 flex-1 max-w-[180px] xs:max-w-[220px] sm:max-w-[280px]">
-            <BodegaSelector 
-              bodegas={bodegas} 
-              showAllOption={true} 
+            <BodegaSelector
+              bodegas={bodegas}
+              showAllOption={true}
             />
           </div>
         </div>

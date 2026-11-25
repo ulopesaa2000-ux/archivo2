@@ -13,6 +13,7 @@ import {
   Database,
   FileText,
   Globe,
+  HelpCircle,
   History,
   ImageIcon,
   LayoutDashboard,
@@ -33,6 +34,8 @@ import {
   Route,
 } from 'lucide-react'
 import { ADMIN_ROUTES } from '@/lib/constants'
+import { DEFAULT_DOC_ITEMS } from '@/lib/docs/default-registry'
+import { resolveDocSlugForAdminPath, type DocRegistryItem } from '@/lib/docs/types'
 import { cn } from '@/lib/utils'
 import type { UsuarioConRol } from '@/lib/types/tables'
 import { canWithFallback, type PermissionModule } from '@/lib/auth/permissions'
@@ -131,11 +134,13 @@ const GROUPS: NavGroup[] = [
 
 export function SidebarContent({
   user,
+  docItems,
   isCollapsed = false,
   onToggleCollapse,
   onNavigate,
 }: {
   user: UsuarioConRol
+  docItems?: DocRegistryItem[]
   isCollapsed?: boolean
   onToggleCollapse?: () => void
   onNavigate?: () => void
@@ -270,49 +275,97 @@ export function SidebarContent({
           ))}
         </nav>
 
-        <div className={cn('shrink-0 border-t p-3', isCollapsed && 'flex justify-center p-2')}>
-          {isCollapsed ? (
-            <Tooltip>
-              <TooltipTrigger render={
+        <div className={cn('shrink-0 border-t p-3', isCollapsed && 'flex flex-col items-center gap-2 p-2')}>
+          {(() => {
+            const matchedDocSlug = resolveDocSlugForAdminPath(
+              pathname,
+              docItems && docItems.length > 0 ? docItems : DEFAULT_DOC_ITEMS
+            )
+            const docsHref = matchedDocSlug ? `/docs/${matchedDocSlug}` : '/docs'
+
+            if (isCollapsed) {
+              return (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <a
+                          href={docsHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border bg-muted/70 text-muted-foreground shadow-sm hover:bg-primary/10 hover:text-primary transition-colors"
+                          title="Ayuda y documentación"
+                          aria-label="Abrir ayuda y documentación en nueva pestaña"
+                        >
+                          <HelpCircle className="h-4 w-4" />
+                        </a>
+                      }
+                    />
+                    <TooltipContent side="right">Ayuda y documentación</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Link
+                          href="/perfil"
+                          onClick={onNavigate}
+                          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border bg-muted shadow-sm hover:ring-2 hover:ring-primary/20 hover:scale-105 transition-all"
+                          title="Mi perfil"
+                        >
+                          <span className="text-xs font-semibold">
+                            {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
+                          </span>
+                        </Link>
+                      }
+                    />
+                    <TooltipContent side="right">
+                      <div className="space-y-0.5 text-xs">
+                        <p className="font-semibold text-foreground">{user.nombre_completo}</p>
+                        <p className="text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
+                        <p className="text-[10px] text-primary pt-0.5">Ver / editar perfil →</p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )
+            }
+
+            return (
+              <div className="flex items-center gap-1.5">
                 <Link
                   href="/perfil"
                   onClick={onNavigate}
-                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border bg-muted shadow-sm hover:ring-2 hover:ring-primary/20 hover:scale-105 transition-all"
-                  title="Mi perfil"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1.5 hover:bg-muted/70 transition-colors group/user"
+                  title="Ir a mi perfil"
                 >
-                  <span className="text-xs font-semibold">
-                    {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
-                  </span>
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted shadow-sm group-hover/user:ring-2 group-hover/user:ring-primary/20 transition-all">
+                    <span className="text-xs font-semibold">
+                      {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground group-hover/user:text-primary transition-colors">
+                      {user.nombre_completo}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
+                  </div>
                 </Link>
-              } />
-              <TooltipContent side="right">
-                <div className="space-y-0.5 text-xs">
-                  <p className="font-semibold text-foreground">{user.nombre_completo}</p>
-                  <p className="text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
-                  <p className="text-[10px] text-primary pt-0.5">Ver / editar perfil →</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <Link
-              href="/perfil"
-              onClick={onNavigate}
-              className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-muted/70 transition-colors group/user"
-              title="Ir a mi perfil"
-            >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted shadow-sm group-hover/user:ring-2 group-hover/user:ring-primary/20 transition-all">
-                <span className="text-xs font-semibold">
-                  {user.nombre_completo?.charAt(0)?.toUpperCase() ?? '?'}
-                </span>
+
+                <a
+                  href={docsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                  title="Abrir documentación en nueva pestaña"
+                  aria-label="Abrir ayuda y documentación en nueva pestaña"
+                >
+                  <HelpCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>Ayuda</span>
+                </a>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground group-hover/user:text-primary transition-colors">
-                  {user.nombre_completo}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{user.rol?.nombre ?? 'Sin rol'}</p>
-              </div>
-            </Link>
-          )}
+            )
+          })()}
         </div>
       </div>
     </TooltipProvider>

@@ -7,6 +7,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { Menu } from 'lucide-react'
 import { SidebarContent } from './SidebarContent'
 import type { UsuarioConRol } from '@/lib/types/tables'
+import type { DocRegistryItem } from '@/lib/docs/types'
 import { cn } from '@/lib/utils'
 
 /**
@@ -15,7 +16,13 @@ import { cn } from '@/lib/utils'
  * con el botón hamburguesa del Header.
  * Al hacer click en un link, se cierra automáticamente.
  */
-export function MobileSidebar({ user }: { user: UsuarioConRol }) {
+export function MobileSidebar({
+  user,
+  docItems,
+}: {
+  user: UsuarioConRol
+  docItems?: DocRegistryItem[]
+}) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -32,6 +39,7 @@ export function MobileSidebar({ user }: { user: UsuarioConRol }) {
       <SheetContent side="left" className="p-0 w-64">
         <SidebarContent
           user={user}
+          docItems={docItems}
           onNavigate={() => setOpen(false)}
         />
       </SheetContent>

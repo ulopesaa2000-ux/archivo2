@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { verifySession } from '@/lib/dal'
 import { isClienteEcommerce } from '@/lib/auth/permissions'
 import { fetchBodegasUsuario } from '@/modules/auth/queries'
+import { fetchDocsRegistry } from '@/modules/docs/storage'
 import { AdminLayoutClient } from '@/components/admin/AdminLayoutClient'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
 
@@ -22,13 +23,13 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     redirect('/')
   }
 
-  const bodegas = await fetchBodegasUsuario(
-    user.id,
-    user.rol?.nivel_acceso ?? 99
-  )
+  const [bodegas, { registry }] = await Promise.all([
+    fetchBodegasUsuario(user.id, user.rol?.nivel_acceso ?? 99),
+    fetchDocsRegistry(),
+  ])
 
   return (
-    <AdminLayoutClient user={user} bodegas={bodegas}>
+    <AdminLayoutClient user={user} bodegas={bodegas} docItems={registry.items}>
       {children}
     </AdminLayoutClient>
   )

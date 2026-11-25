@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import type { UsuarioConRol, BodegaRow } from '@/lib/types/tables'
+import type { DocRegistryItem } from '@/lib/docs/types'
 import { UnauthorizedToastListener } from './UnauthorizedToastListener'
 
 import { OcrBatchQueueProvider } from '@/hooks/useOcrBatchQueue'
@@ -14,6 +15,7 @@ import { OcrQueueFloatingBar } from './OcrQueueFloatingBar'
 interface AdminLayoutClientProps {
   user: UsuarioConRol
   bodegas: BodegaRow[]
+  docItems?: DocRegistryItem[]
   children: React.ReactNode
 }
 
@@ -22,7 +24,7 @@ interface AdminLayoutClientProps {
  * Administra el estado de colapso de la barra lateral izquierda
  * de forma reactiva y persiste la preferencia del usuario en localStorage.
  */
-export function AdminLayoutClient({ user, bodegas, children }: AdminLayoutClientProps) {
+export function AdminLayoutClient({ user, bodegas, docItems, children }: AdminLayoutClientProps) {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false)
   const [isMounted, setIsMounted] = useState<boolean>(false)
 
@@ -56,13 +58,14 @@ export function AdminLayoutClient({ user, bodegas, children }: AdminLayoutClient
         {/* Sidebar para Desktop */}
         <Sidebar 
           user={user} 
+          docItems={docItems}
           isCollapsed={isMounted ? isCollapsed : false} 
           onToggle={handleToggle} 
         />
         
         {/* Contenedor Principal */}
         <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
-          <Header user={user} bodegas={bodegas} />
+          <Header user={user} bodegas={bodegas} docItems={docItems} />
           <main className="flex-1 overflow-auto bg-background/50">
             <div className="p-6 max-w-[1600px] mx-auto">
               {children}

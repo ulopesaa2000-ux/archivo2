@@ -1,10 +1,12 @@
 // components/admin/Sidebar.tsx
 import { SidebarContent } from './SidebarContent'
 import type { UsuarioConRol } from '@/lib/types/tables'
+import type { DocRegistryItem } from '@/lib/docs/types'
 import { cn } from '@/lib/utils'
 
 interface SidebarProps {
   user: UsuarioConRol
+  docItems?: DocRegistryItem[]
   isCollapsed?: boolean
   onToggle?: () => void
 }
@@ -15,7 +17,7 @@ interface SidebarProps {
  * Es fijo a la izquierda, cambia su ancho de 256px (w-64) a 64px (w-16) fluidamente.
  * En mobile se oculta (se usa MobileSidebar en su lugar).
  */
-export function Sidebar({ user, isCollapsed = false, onToggle }: SidebarProps) {
+export function Sidebar({ user, docItems, isCollapsed = false, onToggle }: SidebarProps) {
   return (
     <aside 
       className={cn(
@@ -25,6 +27,7 @@ export function Sidebar({ user, isCollapsed = false, onToggle }: SidebarProps) {
     >
       <SidebarContent 
         user={user} 
+        docItems={docItems}
         isCollapsed={isCollapsed} 
         onToggleCollapse={onToggle} 
       />

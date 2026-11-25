@@ -71,6 +71,17 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion'],
+  outputFileTracingIncludes: {
+    '/docs/**': [
+      './docs/manuales/videoguias/guiones/*.md',
+      './docs/manuales/INDICE_MAESTRO.md',
+    ],
+    '/api/docs/**': [
+      './docs/capturas/infografias_roles/*.png',
+      './docs/manuales/roles/*.docx',
+      './docs/manuales/recorrido-general/*.docx',
+    ],
+  },
 }
 
 export default withSerwist(nextConfig)

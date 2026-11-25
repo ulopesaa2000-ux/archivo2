@@ -8,6 +8,7 @@ import { getActiveSupabaseConfig } from './env'
 
 const PROTECTED_ROUTES = [
   '/dashboard',
+  '/docs',
   '/perfil',
   '/catalogo',
   '/configuracion',
@@ -21,6 +22,7 @@ const PROTECTED_ROUTES = [
   '/unauthorized',
   '/api/debug-permissions',
   '/api/debug-user',
+  '/api/docs',
   '/api/inventario',
   '/api/ordenes-b2b',
   '/api/packing',
