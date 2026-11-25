@@ -1,17 +1,24 @@
 // c:\Users\uriel\Downloads\enero 26\archivo2\modules\docs\actions.ts
 'use server'
 
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { revalidatePath } from 'next/cache'
 import { verifySession } from '@/lib/dal'
 import { isSuperAdmin } from '@/lib/auth/permissions'
+import { DEFAULT_DOC_ITEMS } from '@/lib/docs/default-registry'
 import {
   type DocArticle,
+  type DocBlock,
   type DocRegistryItem,
 } from '@/lib/docs/types'
 import {
   deleteDocArticleFromStorage,
+  fetchDocArticleFromStorage,
   fetchDocsRegistry,
+  optimizeDocImageToWebp,
   uploadDocArticle,
+  uploadDocBinaryFile,
   uploadDocMediaFile,
   uploadDocsRegistry,
 } from './storage'
@@ -221,40 +228,160 @@ export async function uploadDocMediaAction(
   }
 }
 
+function rewriteInfografiaBlocks(
+  blocks: DocBlock[],
+  uploadedInfografias: Map<string, string>
+): { blocks: DocBlock[]; changed: boolean } {
+  let changed = false
+  const nextBlocks = blocks.map((block) => {
+    if (block.type !== 'image') return block
+
+    const match = block.src.match(/kind=infografia&file=([^&]+)/)
+    if (!match) return block
+
+    const originalFile = decodeURIComponent(match[1])
+    const storagePath = uploadedInfografias.get(originalFile)
+    if (!storagePath) return block
+
+    const nextSrc = `/api/docs/asset?kind=media&path=${encodeURIComponent(storagePath)}`
+    if (block.storagePath === storagePath && block.src === nextSrc) {
+      return block
+    }
+
+    changed = true
+    return {
+      ...block,
+      storagePath,
+      src: nextSrc,
+    }
+  })
+
+  return { blocks: nextBlocks, changed }
+}
+
 export async function syncBaseDocsToStorageAction(): Promise<
-  { ok: true; syncedCount: number } | { ok: false; error: string }
+  | { ok: true; syncedCount: number; imagesCount: number; docxCount: number }
+  | { ok: false; error: string }
 > {
   try {
     const user = await requireSuperAdmin()
-    const { registry } = await fetchDocsRegistry()
     const now = new Date().toISOString()
+    const updatedBy = user.nombre_completo || user.email || 'Super Admin'
+
+    // 1. Subir todas las infografías optimizadas a WebP en media/infografias/
+    const infografiasDir = path.join(process.cwd(), 'docs', 'capturas', 'infografias_roles')
+    const uploadedInfografias = new Map<string, string>()
+
+    try {
+      const entries = await fs.readdir(infografiasDir)
+      for (const file of entries) {
+        if (!file.toLowerCase().endsWith('.png')) continue
+        const fullPath = path.join(infografiasDir, file)
+        const rawBuffer = await fs.readFile(fullPath)
+        const webpBuffer = await optimizeDocImageToWebp(rawBuffer)
+        const webpName = file.replace(/\.png$/i, '.webp')
+        const storagePath = `media/infografias/${webpName}`
+        const uploadRes = await uploadDocBinaryFile(storagePath, webpBuffer, 'image/webp', true)
+        if (uploadRes.ok) {
+          uploadedInfografias.set(file, storagePath)
+        }
+      }
+    } catch (err) {
+      console.warn('[docs/sync] No se pudieron leer infografías locales:', err)
+    }
+
+    // 2. Subir los 4 manuales Word originales a word/
+    const docxSources: Array<{ file: string; fullPath: string }> = [
+      {
+        file: '01_Guia_Administrador_Productos.docx',
+        fullPath: path.join(process.cwd(), 'docs', 'manuales', 'roles', '01_Guia_Administrador_Productos.docx'),
+      },
+      {
+        file: '02_Guia_Administrador_Inventario.docx',
+        fullPath: path.join(process.cwd(), 'docs', 'manuales', 'roles', '02_Guia_Administrador_Inventario.docx'),
+      },
+      {
+        file: '03_Guia_Administrador_Ecommerce.docx',
+        fullPath: path.join(process.cwd(), 'docs', 'manuales', 'roles', '03_Guia_Administrador_Ecommerce.docx'),
+      },
+      {
+        file: '04_Guia_General_Recorrido_Mercancia.docx',
+        fullPath: path.join(process.cwd(), 'docs', 'manuales', 'recorrido-general', '04_Guia_General_Recorrido_Mercancia.docx'),
+      },
+    ]
+
+    let docxCount = 0
+    for (const docItem of docxSources) {
+      try {
+        const buf = await fs.readFile(docItem.fullPath)
+        const res = await uploadDocBinaryFile(
+          `word/${docItem.file}`,
+          buf,
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          true
+        )
+        if (res.ok) docxCount += 1
+      } catch {
+        // Si falta alguno en disco, continuar con el resto
+      }
+    }
+
+    // 3. Combinar registry actual con DEFAULT_DOC_ITEMS sin perder guías creadas por usuario
+    const { registry } = await fetchDocsRegistry()
+    const mergedItems = [...registry.items]
+    for (const baseItem of DEFAULT_DOC_ITEMS) {
+      if (!mergedItems.some((item) => item.slug === baseItem.slug)) {
+        mergedItems.push(baseItem)
+      }
+    }
 
     const registryRes = await uploadDocsRegistry({
       version: registry.version,
       updatedAt: now,
-      items: registry.items,
+      items: mergedItems,
     })
     if (!registryRes.ok) {
       return { ok: false, error: registryRes.error }
     }
 
+    // 4. Crear guías faltantes o reparar rutas de infografías en guías ya existentes
     let syncedCount = 0
-    for (const item of registry.items) {
+    for (const item of mergedItems) {
+      const existing = await fetchDocArticleFromStorage(item.slug)
+      if (existing) {
+        const { blocks, changed } = rewriteInfografiaBlocks(existing.blocks, uploadedInfografias)
+        if (changed) {
+          const updateRes = await uploadDocArticle({
+            ...existing,
+            blocks,
+            updatedAt: now,
+            updatedBy,
+          })
+          if (updateRes.ok) syncedCount += 1
+        }
+        continue
+      }
+
       const fallback = await loadFallbackDocArticle(item.slug)
       if (!fallback) continue
 
+      const { blocks } = rewriteInfografiaBlocks(fallback.blocks, uploadedInfografias)
       const uploadRes = await uploadDocArticle({
         ...fallback,
+        blocks,
         updatedAt: now,
-        updatedBy: user.nombre_completo || user.email || 'Super Admin',
+        updatedBy,
       })
-      if (uploadRes.ok) {
-        syncedCount += 1
-      }
+      if (uploadRes.ok) syncedCount += 1
     }
 
     revalidateDocsRoutes()
-    return { ok: true, syncedCount }
+    return {
+      ok: true,
+      syncedCount,
+      imagesCount: uploadedInfografias.size,
+      docxCount,
+    }
   } catch (err) {
     return {
       ok: false,

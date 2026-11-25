@@ -285,6 +285,21 @@ export function DocBlockEditorModal({
                   />
                 </div>
               </div>
+
+              {draft.src && (
+                <div className="rounded-lg border bg-muted/30 p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={
+                      draft.storagePath
+                        ? `/api/docs/asset?kind=media&path=${encodeURIComponent(draft.storagePath)}`
+                        : draft.src
+                    }
+                    alt={draft.alt || 'Vista previa'}
+                    className="max-h-52 w-auto mx-auto rounded object-contain"
+                  />
+                </div>
+              )}
             </div>
           )}
 

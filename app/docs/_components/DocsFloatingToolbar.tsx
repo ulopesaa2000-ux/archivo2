@@ -21,13 +21,21 @@ export function DocsFloatingToolbar({
   if (!canEdit) return null
 
   const handleSyncBase = () => {
+    const msg =
+      storageSource === 'storage'
+        ? '¿Sincronizar imágenes optimizadas y guías faltantes al bucket de la nube? Tus textos y ediciones actuales se conservarán.'
+        : '¿Subir las guías base y sus imágenes optimizadas al bucket privado documentation?'
+    if (!window.confirm(msg)) return
+
     startTransition(async () => {
       const res = await syncBaseDocsToStorageAction()
       if (!res.ok) {
         toast.error(res.error)
         return
       }
-      toast.success(`Base sincronizada (${res.syncedCount} guías guardadas en el bucket)`)
+      toast.success(
+        `Sincronización lista: ${res.imagesCount} imágenes WebP, ${res.docxCount} Word y ${res.syncedCount} guías actualizadas`
+      )
       router.refresh()
     })
   }
@@ -51,21 +59,23 @@ export function DocsFloatingToolbar({
         <span>Nueva Guía</span>
       </button>
 
-      {storageSource === 'fallback' && (
-        <>
-          <div className="h-4 w-px bg-zinc-700" />
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={handleSyncBase}
-            className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200 disabled:opacity-50 transition-colors cursor-pointer"
-            title="Subir las guías base iniciales al bucket privado documentation"
-          >
-            <CloudUpload className="h-3.5 w-3.5" />
-            <span>{isPending ? 'Sincronizando...' : 'Sincronizar Base'}</span>
-          </button>
-        </>
-      )}
+      <div className="h-4 w-px bg-zinc-700" />
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={handleSyncBase}
+        className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200 disabled:opacity-50 transition-colors cursor-pointer"
+        title="Subir imágenes optimizadas WebP, manuales Word y guías faltantes al bucket privado (respeta textos ya editados)"
+      >
+        <CloudUpload className="h-3.5 w-3.5" />
+        <span>
+          {isPending
+            ? 'Sincronizando...'
+            : storageSource === 'storage'
+              ? 'Re-sincronizar Base'
+              : 'Sincronizar Base'}
+        </span>
+      </button>
 
       <div className="h-4 w-px bg-zinc-700" />
 

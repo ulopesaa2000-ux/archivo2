@@ -1,5 +1,6 @@
 // c:\Users\uriel\Downloads\enero 26\archivo2\modules\docs\storage.ts
 import 'server-only'
+import sharp from 'sharp'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveSupabaseConfig } from '@/lib/supabase/env'
@@ -221,7 +222,50 @@ export async function deleteDocArticleFromStorage(
 }
 
 /**
- * Sube una imagen o archivo de soporte al prefijo `media/` dentro del bucket privado `documentation`.
+ * Optimiza un buffer de imagen a WebP (máx 1600px de ancho) usando sharp.
+ */
+export async function optimizeDocImageToWebp(input: Buffer): Promise<Buffer> {
+  return sharp(input)
+    .rotate()
+    .resize({ width: 1600, withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer()
+}
+
+/**
+ * Sube un buffer binario arbitrario al bucket privado `documentation`.
+ */
+export async function uploadDocBinaryFile(
+  storagePath: string,
+  buffer: Buffer,
+  contentType: string,
+  upsert = true
+): Promise<{ ok: true; storagePath: string } | { ok: false; error: string }> {
+  try {
+    const supabase = await getDocsStorageClient()
+    const { error } = await supabase.storage
+      .from(DOCS_BUCKET)
+      .upload(storagePath, buffer, {
+        upsert,
+        contentType,
+        cacheControl: '3600',
+      })
+
+    if (error) {
+      return { ok: false, error: error.message }
+    }
+    return { ok: true, storagePath }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Error al subir archivo binario.',
+    }
+  }
+}
+
+/**
+ * Sube una imagen (optimizada a WebP si aplica) o video de soporte al prefijo `media/`
+ * dentro del bucket privado `documentation`.
  */
 export async function uploadDocMediaFile(
   file: File,
@@ -233,22 +277,23 @@ export async function uploadDocMediaFile(
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'guia'
-    const ext = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
-    const storagePath = `${DOCS_MEDIA_PREFIX}/${safeSlug}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`
+    const rawExt = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+    const shouldOptimize =
+      file.type.startsWith('image/') && file.type !== 'image/gif'
 
-    const supabase = await getDocsStorageClient()
-    const { error } = await supabase.storage
-      .from(DOCS_BUCKET)
-      .upload(storagePath, file, {
-        upsert: false,
-        contentType: file.type || 'application/octet-stream',
-        cacheControl: '3600',
-      })
+    let uploadBuffer: Buffer = Buffer.from(await file.arrayBuffer())
+    let contentType = file.type || 'application/octet-stream'
+    let finalExt = rawExt
 
-    if (error) {
-      return { ok: false, error: error.message }
+    if (shouldOptimize) {
+      uploadBuffer = await optimizeDocImageToWebp(uploadBuffer)
+      contentType = 'image/webp'
+      finalExt = 'webp'
     }
-    return { ok: true, storagePath }
+
+    const storagePath = `${DOCS_MEDIA_PREFIX}/${safeSlug}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${finalExt}`
+
+    return uploadDocBinaryFile(storagePath, uploadBuffer, contentType, false)
   } catch (err) {
     return {
       ok: false,
